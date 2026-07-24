@@ -34,3 +34,6 @@ coverage*/
 ## OS files
 .DS_Store
 Thumbs.db
+
+## Environment secrets
+.env

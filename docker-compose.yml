@@ -1,0 +1,81 @@
+name: emote-purge
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: emotepurge-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - emotepurge-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: emotepurge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: emotepurge
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d emotepurge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - emotepurge-network
+
+  api:
+    build:
+      context: .
+      dockerfile: src/EmotePurge.Api/Dockerfile
+    container_name: emotepurge-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+    networks:
+      - emotepurge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/EmotePurge.Worker/Dockerfile
+    container_name: emotepurge-worker
+    restart: unless-stopped
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+    networks:
+      - emotepurge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+    driver: local
+
+networks:
+  emotepurge-network:
+    driver: bridge
