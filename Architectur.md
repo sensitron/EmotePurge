@@ -62,6 +62,8 @@
 
 ### Modul A: Twitch Chat Bot & Analytics Engine (Worker Service)
 
+> **Umsetzungsstand:** Bisher nur der Grundfluss aus A.1 (ohne Spam-Schutz/Emote-Matching) — `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint Channels auf Zuruf per Redis (`channel:bot:commands`, Message `JOIN:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3), und loggt jede empfangene Chat-Nachricht. Der Join wird über `POST /api/channels/{channelName}/join` (Minimal API in `EmotePurge.Api`) angestoßen, das den `Channel` in Postgres upsertet (Grundsatz 1) und dann publisht. A.2 (Spam-Schutz, In-Memory-Aggregator, Batch-Flush) und A.3 (7TV WebSocket Engine) sind noch nicht implementiert.
+
 #### A.1 IRC Chat Listener & Spam-Schutz
 
 - Verbindet sich via `TwitchLib.Client` mit allen aktiven Twitch-Kanälen.
@@ -144,6 +146,8 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 > Zusätzlich hat `UsageStat` einen Unique-Index auf `(EmoteId, Date)`, damit der 30-Sekunden-Batch-Flush pro Emote und Tag genau eine aggregierte Zeile pflegt statt vieler Einzelzeilen.
 >
 > `User`, `VoteSession`, `Vote` und `AllowedRoles`/`VoteType` (Modul B/C) sind noch nicht implementiert — nur `Channel`, `Emote`, `UsageStat` existieren bisher (Modul 1: Chat-Analytics & Live-Synchronisation).
+>
+> **Zweite Abweichung (`Channel.TwitchChannelId`):** ist `string?` (nullable) statt non-nullable. Ohne Twitch-Auth (Modul B, noch nicht implementiert) kann die echte numerische Twitch-Channel-ID nicht aufgelöst werden; da die Spalte einen Unique-Index hat, hätte ein non-nullable Default (`""`) beim zweiten angelegten Channel einen Unique-Constraint-Verstoß ausgelöst (leerer String zählt für Unique-Indizes, NULL nicht). Bleibt `null`, bis Modul B die echte ID nachträgt.
 
 ```csharp
 namespace EmotePurge.Core.Entities;
@@ -151,7 +155,7 @@ namespace EmotePurge.Core.Entities;
 public class Channel
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
-    public string TwitchChannelId { get; set; } = string.Empty;
+    public string? TwitchChannelId { get; set; }
     public string ChannelName { get; set; } = string.Empty;
     public string ActiveEmoteSetId { get; set; } = string.Empty;
     public bool IsBotActive { get; set; }

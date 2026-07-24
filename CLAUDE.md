@@ -8,7 +8,7 @@ Emote Purge: plattformübergreifende Webanwendung zur Analyse, Community-Bewertu
 
 **Vor Architektur-Fragen immer zuerst [Architectur.md](Architectur.md) lesen** — dort steht die vollständige Spezifikation (Module A–D, DB-Schema, Docker-Topologie, Kommunikationsfluss). Dieses Dokument hier ist der schnelle Einstieg für Claude Code, kein Ersatz dafür.
 
-**Umsetzungsstand:** Bisher ist nur **Modul 1 (Chat-Analytics & Live-Synchronisation)** implementiert — Entitäten `Channel`/`Emote`/`UsageStat`, EF-Core-Persistenz, Redis-Pub/Sub-Grundgerüst, Docker-/Devcontainer-Infrastruktur. Twitch-IRC-Bot, 7TV-WebSocket-Engine (Modul A), Auth/Rollen (Modul B), Voting-Engine (Modul C) und das Angular-Frontend (Modul D) existieren noch nicht.
+**Umsetzungsstand:** **Modul 1 (Chat-Analytics & Live-Synchronisation)** — Entitäten `Channel`/`Emote`/`UsageStat`, EF-Core-Persistenz (erste Migration `InitialCreate` angewendet), Redis-Pub/Sub-Grundgerüst, Docker-/Devcontainer-Infrastruktur — sowie ein erster Vertical Slice aus **Modul A**: `POST /api/channels/{channelName}/join` (Minimal API) persistiert den Channel und published an Redis, `EmotePurge.Worker` joint darauf per anonymem `TwitchLib.Client`-IRC und loggt Chat-Nachrichten, inkl. Boot-Recovery beim Start. Noch nicht implementiert: Spam-Schutz/Emote-Matching + Batch-Flush (Modul A.2), 7TV-WebSocket-Engine (A.3), Auth/Rollen (Modul B), Voting-Engine (Modul C), Angular-Frontend (Modul D).
 
 ## Commands
 
@@ -28,7 +28,12 @@ dotnet run --project src/EmotePurge.Api
 dotnet run --project src/EmotePurge.Worker
 ```
 
-Erwartet Postgres/Redis erreichbar über die in `appsettings.json` hinterlegten `localhost`-Connection-Strings, z. B. via `docker compose up postgres redis`.
+Erwartet Postgres/Redis erreichbar über die in `appsettings.json` hinterlegten `localhost`-Connection-Strings (Default-Credentials matchen `.env.example`: `emotepurge`/`change-me`), z. B. via `docker compose up postgres redis`. Api lauscht lokal per `launchSettings.json` auf `http://localhost:5151` (nicht `8080` — das gilt nur im Container).
+
+Test-Join-Request:
+```
+curl -X POST http://localhost:5151/api/channels/<twitchChannelName>/join
+```
 
 ### Tests
 
@@ -36,14 +41,14 @@ Es existiert noch kein Testprojekt.
 
 ### EF Core Migrationen
 
-`dotnet-ef` ist nicht global installiert (`dotnet tool install --global dotnet-ef` vor erster Nutzung). Migrationen liegen konzeptionell in `EmotePurge.Infrastructure`, Startprojekt für die Connection-String-Auflösung ist `EmotePurge.Api`:
+`dotnet-ef` ist als globales Tool installiert. Migrationen liegen in `EmotePurge.Infrastructure/Migrations/`, Startprojekt für die Connection-String-Auflösung ist `EmotePurge.Api`:
 
 ```
 dotnet ef migrations add <Name> --project src/EmotePurge.Infrastructure --startup-project src/EmotePurge.Api
 dotnet ef database update --project src/EmotePurge.Infrastructure --startup-project src/EmotePurge.Api
 ```
 
-Es existieren noch keine Migrationen.
+Erste Migration (`InitialCreate`) existiert bereits und ist gegen die lokale Postgres-Instanz angewendet.
 
 ### Docker Compose (voller Stack)
 
@@ -65,8 +70,8 @@ Vier Projekte, referenziert wie folgt: `Api`/`Worker` → `Infrastructure` → `
 
 - **`EmotePurge.Core`** — Entitäten (`Channel`, `Emote`, `UsageStat`) und die Messaging-Abstraktion (`IRedisPublisher`/`IRedisSubscriber`). Hat bewusst **keine** Abhängigkeit auf EF Core oder StackExchange.Redis: Die Redis-Interfaces arbeiten mit reinen `string`-Signaturen statt `RedisChannel`/`RedisValue`, damit die Domänenschicht frei von Infrastruktur-Paketen bleibt.
 - **`EmotePurge.Infrastructure`** — `AppDbContext` (Npgsql), `RedisPublisher`/`RedisSubscriber` (StackExchange.Redis-Implementierung der Core-Interfaces), sowie `ServiceCollectionExtensions.AddEmotePurgeInfrastructure(configuration)` als zentraler DI-Registrierungspunkt. Sowohl `Api` als auch `Worker` rufen in ihrer `Program.cs` nur diese eine Extension-Methode auf, um DbContext + Redis-`ConnectionMultiplexer` + Publisher/Subscriber zu bekommen.
-- **`EmotePurge.Api`** — ASP.NET Core Web API (Controllers), hört im Container/Dev-Container auf `http://0.0.0.0:8080`.
-- **`EmotePurge.Worker`** — .NET Worker Service, Zielort für den zukünftigen Twitch-IRC-Bot und die 7TV-WebSocket-Engine.
+- **`EmotePurge.Api`** — ASP.NET Core **Minimal API** (keine Controllers — bewusst entfernt, s. Entscheidungslog), Endpoints direkt in `Program.cs`. Hört im Container/Dev-Container auf `http://0.0.0.0:8080`, lokal per `launchSettings.json` auf `:5151`.
+- **`EmotePurge.Worker`** — .NET Worker Service. `TwitchChatManager` (Singleton, DI-registriert) kapselt einen einzigen langlebigen `TwitchLib.Client` für die gesamte Worker-Lebensdauer — **nie** pro Channel/Join neu instanziieren. `Worker.ExecuteAsync` verbindet den Client (anonym), joint beim Start alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, braucht `IServiceScopeFactory` da `Worker` Singleton- aber `AppDbContext` Scoped-Lifetime ist), und abonniert danach `channel:bot:commands` für Echtzeit-Joins. 7TV-WebSocket-Engine ist noch nicht implementiert.
 
 Connection-Strings/Redis-Config kommen aus `appsettings.json` (Keys: `ConnectionStrings:DefaultConnection`, `Redis:ConnectionString`), in Docker/Dev-Container per Environment-Variablen (`ConnectionStrings__DefaultConnection`, `Redis__ConnectionString`) überschrieben.
 
@@ -85,3 +90,8 @@ Connection-Strings/Redis-Config kommen aus `appsettings.json` (Keys: `Connection
 - **Dev Containers statt Debugger-Attach an einen laufenden Produktions-Container**: `.devcontainer/` startet einen eigenen SDK-Container im selben Compose-Netzwerk wie `postgres`/`redis`; `api`/`worker` laufen dort nicht als vorgebautes Docker-Image, sondern direkt über den VS-Code-Debugger.
 - **`.vscode/launch.json` und `tasks.json` sind von `.gitignore` ausgenommen** (`.vscode/*` + gezielte `!`-Ausnahmen), damit die Team-Debug-Config versioniert wird, während sonstige lokale VS-Code-Dateien ignoriert bleiben.
 - **Commit-Konvention: Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, …), in mehreren logisch getrennten Commits statt einem Sammel-Commit pro Feature.
+- **Minimal API statt Controllers in `EmotePurge.Api`**: explizite Nutzerentscheidung. `AddControllers()`/`MapControllers()` (Template-Boilerplate ohne je genutzte Controller) entfernt, Endpoints direkt in `Program.cs`. `app.UseAuthorization()` ebenfalls entfernt — ohne `AddAuthorization()`/`[Authorize]`-Endpoints wirft es beim Start eine `InvalidOperationException`.
+- **`Channel.TwitchChannelId` ist `string?` (nullable)**: ohne Twitch-Auth (Modul B, noch nicht implementiert) kann die echte numerische Twitch-ID nicht aufgelöst werden; bei non-nullable Default (`""`) hätte der Unique-Index beim zweiten angelegten Channel einen Constraint-Verstoß ausgelöst (leerer String ≠ NULL für Unique-Indizes). Bleibt `null`, bis Modul B sie nachträgt.
+- **TwitchLib.Client 4.0.1, anonyme/read-only Verbindung** (`new ConnectionCredentials()` ohne Parameter): kein Bot-Account/OAuth-Token nötig für Join+Chat-Lesen. Kann keine Nachrichten senden — für die aktuelle Bot-Funktionalität irrelevant. `net10.0` wird von TwitchLib.Client 4.0.1 explizit als Dependency-Group unterstützt.
+- **Redis-Protokoll für Join-Kommandos**: Channel `channel:bot:commands`, Message-Format `JOIN:<channelName>` (reiner String-Präfix, kein JSON) — matcht `IRedisPublisher`/`IRedisSubscriber`s ohnehin string-basierte Signaturen.
+- **`appsettings.json`-Default-Connection-Strings korrigiert**: zeigten seit Schritt 1 auf `Username=postgres;Password=postgres` (Postgres) bzw. kein Passwort (Redis) — passte nie zu den tatsächlichen `.env.example`-Credentials (`emotepurge`/`change-me`) bzw. zu `docker-compose.yml`s `--requirepass`. Erst bei der ersten echten DB-Migration aufgefallen. Jetzt auf `emotepurge`/`change-me` (Postgres) und `localhost:6379,password=change-me` (Redis) korrigiert, damit lokales `dotnet run` gegen `docker compose up postgres redis` ohne manuelles Override funktioniert.
