@@ -31,8 +31,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
         modelBuilder.Entity<UsageStat>(entity =>
         {
-            // One aggregated row per emote per UTC day.
-            entity.HasIndex(u => new { u.EmoteId, u.Date }).IsUnique();
+            // One aggregated row per emote per UTC day. Covering index (UseCount included)
+            // so range-sum queries over (EmoteId, Date) can be answered as an index-only scan.
+            entity.HasIndex(u => new { u.EmoteId, u.Date })
+                .IsUnique()
+                .IncludeProperties(u => u.UseCount);
 
             entity.HasOne(u => u.Emote)
                 .WithMany(e => e.UsageStats)
