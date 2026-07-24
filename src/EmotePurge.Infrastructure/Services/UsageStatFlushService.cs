@@ -15,7 +15,7 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
             return;
         }
 
-        var today = DateTime.UtcNow.Date;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var emoteIds = usageCounts.Keys.ToList();
 
         // A channel leave hard-deletes its Emote rows (cascade); a count buffered before
