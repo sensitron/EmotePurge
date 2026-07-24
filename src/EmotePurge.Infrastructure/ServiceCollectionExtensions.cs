@@ -1,8 +1,10 @@
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
+using EmotePurge.Core.SevenTv;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Services;
+using EmotePurge.Infrastructure.SevenTv;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,6 +29,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRedisSubscriber, RedisSubscriber>();
 
         services.AddScoped<IChannelService, ChannelService>();
+
+        services.AddHttpClient<ISevenTvApiClient, SevenTvApiClient>(client =>
+        {
+            client.BaseAddress = new Uri("https://7tv.io/v3/");
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("EmotePurge/1.0");
+        });
+        services.AddScoped<ISevenTvSyncService, SevenTvSyncService>();
 
         return services;
     }
