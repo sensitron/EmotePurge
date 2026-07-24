@@ -11,6 +11,7 @@ public class Worker(
     ITwitchChatManager twitchChatManager,
     ISevenTvEventClient sevenTvEventClient,
     IRedisSubscriber redisSubscriber,
+    IEmoteMatchCache emoteMatchCache,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
     private const string CommandsChannel = "channel:bot:commands";
@@ -52,6 +53,7 @@ public class Worker(
             {
                 var channelName = message["LEAVE:".Length..];
                 logger.LogInformation("Redis-Kommando: verlasse {Channel}.", channelName);
+                emoteMatchCache.RemoveChannel(channelName);
                 await twitchChatManager.LeaveChannelAsync(channelName);
                 await sevenTvEventClient.UnsubscribeAsync(channelName, stoppingToken);
             }

@@ -30,6 +30,8 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IChannelService, ChannelService>();
 
+        services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
+
         services.AddHttpClient<ISevenTvApiClient, SevenTvApiClient>(client =>
         {
             client.BaseAddress = new Uri("https://7tv.io/v3/");

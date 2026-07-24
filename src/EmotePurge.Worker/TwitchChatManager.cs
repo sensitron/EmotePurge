@@ -1,10 +1,14 @@
+using EmotePurge.Core.Services;
 using TwitchLib.Client;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Models;
 
 namespace EmotePurge.Worker;
 
-public class TwitchChatManager(ILogger<TwitchChatManager> logger) : ITwitchChatManager
+public class TwitchChatManager(
+    ILogger<TwitchChatManager> logger,
+    IEmoteMatchCache emoteMatchCache,
+    IEmoteUsageCounter usageCounter) : ITwitchChatManager
 {
     private readonly TwitchClient _client = new();
     private bool _connected;
@@ -81,8 +85,24 @@ public class TwitchChatManager(ILogger<TwitchChatManager> logger) : ITwitchChatM
 
     private Task OnMessageReceived(object? sender, OnMessageReceivedArgs e)
     {
-        logger.LogInformation("[{Channel}] {Username}: {Message}",
+        logger.LogDebug("[{Channel}] {Username}: {Message}",
             e.ChatMessage.Channel, e.ChatMessage.Username, e.ChatMessage.Message);
+
+        var channelEmotes = emoteMatchCache.GetChannelEmotes(e.ChatMessage.Channel);
+        if (channelEmotes.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var matchedThisMessage = new HashSet<string>();
+        foreach (var token in e.ChatMessage.Message.Split(' '))
+        {
+            if (channelEmotes.TryGetValue(token, out var emoteId) && matchedThisMessage.Add(emoteId))
+            {
+                usageCounter.Increment(emoteId);
+            }
+        }
+
         return Task.CompletedTask;
     }
 }

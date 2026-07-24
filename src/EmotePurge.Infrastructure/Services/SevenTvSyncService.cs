@@ -7,7 +7,11 @@ using Microsoft.Extensions.Logging;
 
 namespace EmotePurge.Infrastructure.Services;
 
-public class SevenTvSyncService(AppDbContext db, ISevenTvApiClient sevenTvApiClient, ILogger<SevenTvSyncService> logger)
+public class SevenTvSyncService(
+    AppDbContext db,
+    ISevenTvApiClient sevenTvApiClient,
+    IEmoteMatchCache emoteMatchCache,
+    ILogger<SevenTvSyncService> logger)
     : ISevenTvSyncService
 {
     public async Task<string?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default)
@@ -39,6 +43,7 @@ public class SevenTvSyncService(AppDbContext db, ISevenTvApiClient sevenTvApiCli
 
         await ReconcileAsync(channel.Id, emoteSet.Emotes, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await RefreshMatchCacheAsync(channel, cancellationToken);
 
         return emoteSet.Id;
     }
@@ -75,6 +80,31 @@ public class SevenTvSyncService(AppDbContext db, ISevenTvApiClient sevenTvApiCli
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        await RefreshMatchCacheAsync(channel, cancellationToken);
+    }
+
+    private async Task RefreshMatchCacheAsync(Channel channel, CancellationToken cancellationToken)
+    {
+        var activeEmotes = await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && !e.IsArchived)
+            .Select(e => new { e.Name, e.Id })
+            .ToListAsync(cancellationToken);
+
+        // 7TV active sets can legitimately contain two emotes sharing the same chat alias
+        // (observed live) — ToDictionary would throw, so duplicates are coalesced instead,
+        // keeping whichever was loaded first and logging the collision.
+        var emoteNameToId = new Dictionary<string, string>();
+        foreach (var emote in activeEmotes)
+        {
+            if (!emoteNameToId.TryAdd(emote.Name, emote.Id))
+            {
+                logger.LogWarning(
+                    "Doppelter aktiver Emote-Name {Name} in Channel {Channel} — Chat-Matching zählt nur auf die zuerst geladene Emote-Id.",
+                    emote.Name, channel.ChannelName);
+            }
+        }
+
+        emoteMatchCache.ReplaceChannel(channel.ChannelName, emoteNameToId);
     }
 
     private async Task ReconcileAsync(string channelId, IReadOnlyList<SevenTvEmote> liveEmotes, CancellationToken cancellationToken)
