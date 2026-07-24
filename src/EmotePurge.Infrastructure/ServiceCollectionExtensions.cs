@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChannelService, ChannelService>();
 
         services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
+        services.AddScoped<IUsageStatFlushService, UsageStatFlushService>();
 
         services.AddHttpClient<ISevenTvApiClient, SevenTvApiClient>(client =>
         {
