@@ -62,7 +62,7 @@
 
 ### Modul A: Twitch Chat Bot & Analytics Engine (Worker Service)
 
-> **Umsetzungsstand:** Bisher nur der Grundfluss aus A.1 (ohne Spam-Schutz/Emote-Matching) — `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint Channels auf Zuruf per Redis (`channel:bot:commands`, Message `JOIN:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3), und loggt jede empfangene Chat-Nachricht. Der Join wird über `POST /api/channels/{channelName}/join` (Minimal API in `EmotePurge.Api`) angestoßen, das den `Channel` in Postgres upsertet (Grundsatz 1) und dann publisht. A.2 (Spam-Schutz, In-Memory-Aggregator, Batch-Flush) und A.3 (7TV WebSocket Engine) sind noch nicht implementiert.
+> **Umsetzungsstand:** Bisher nur der Grundfluss aus A.1 (ohne Spam-Schutz/Emote-Matching) — `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint/verlässt Channels auf Zuruf per Redis (`channel:bot:commands`, Messages `JOIN:<name>`/`LEAVE:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3), und loggt jede empfangene Chat-Nachricht. Gesteuert über zwei Minimal-API-Endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upsertet den `Channel` in Postgres (Grundsatz 1) und published `JOIN:<name>`; `DELETE /api/channels/{channelName}` löscht die Zeile hart (kein reines Deaktivieren — siehe CLAUDE.md-Entscheidungslog) und published `LEAVE:<name>`. A.2 (Spam-Schutz, In-Memory-Aggregator, Batch-Flush) und A.3 (7TV WebSocket Engine) sind noch nicht implementiert.
 
 #### A.1 IRC Chat Listener & Spam-Schutz
 

@@ -8,7 +8,7 @@ Emote Purge: plattformübergreifende Webanwendung zur Analyse, Community-Bewertu
 
 **Vor Architektur-Fragen immer zuerst [Architectur.md](Architectur.md) lesen** — dort steht die vollständige Spezifikation (Module A–D, DB-Schema, Docker-Topologie, Kommunikationsfluss). Dieses Dokument hier ist der schnelle Einstieg für Claude Code, kein Ersatz dafür.
 
-**Umsetzungsstand:** **Modul 1 (Chat-Analytics & Live-Synchronisation)** — Entitäten `Channel`/`Emote`/`UsageStat`, EF-Core-Persistenz (erste Migration `InitialCreate` angewendet), Redis-Pub/Sub-Grundgerüst, Docker-/Devcontainer-Infrastruktur — sowie ein erster Vertical Slice aus **Modul A**: `POST /api/channels/{channelName}/join` (Minimal API) persistiert den Channel und published an Redis, `EmotePurge.Worker` joint darauf per anonymem `TwitchLib.Client`-IRC und loggt Chat-Nachrichten, inkl. Boot-Recovery beim Start. Noch nicht implementiert: Spam-Schutz/Emote-Matching + Batch-Flush (Modul A.2), 7TV-WebSocket-Engine (A.3), Auth/Rollen (Modul B), Voting-Engine (Modul C), Angular-Frontend (Modul D).
+**Umsetzungsstand:** **Modul 1 (Chat-Analytics & Live-Synchronisation)** — Entitäten `Channel`/`Emote`/`UsageStat`, EF-Core-Persistenz (erste Migration `InitialCreate` angewendet), Redis-Pub/Sub-Grundgerüst, Docker-/Devcontainer-Infrastruktur — sowie ein erster Vertical Slice aus **Modul A**: `POST /api/channels/{channelName}/join` und `DELETE /api/channels/{channelName}` (Minimal API) verwalten den Channel in Postgres und publishen an Redis, `EmotePurge.Worker` joint/verlässt Channels darauf per anonymem `TwitchLib.Client`-IRC und loggt Chat-Nachrichten, inkl. Boot-Recovery beim Start. Noch nicht implementiert: Spam-Schutz/Emote-Matching + Batch-Flush (Modul A.2), 7TV-WebSocket-Engine (A.3), Auth/Rollen (Modul B), Voting-Engine (Modul C), Angular-Frontend (Modul D).
 
 ## Commands
 
@@ -30,9 +30,10 @@ dotnet run --project src/EmotePurge.Worker
 
 Erwartet Postgres/Redis erreichbar über die in `appsettings.json` hinterlegten `localhost`-Connection-Strings (Default-Credentials matchen `.env.example`: `emotepurge`/`change-me`), z. B. via `docker compose up postgres redis`. Api lauscht lokal per `launchSettings.json` auf `http://localhost:5151` (nicht `8080` — das gilt nur im Container).
 
-Test-Join-Request:
+Test-Requests:
 ```
 curl -X POST http://localhost:5151/api/channels/<twitchChannelName>/join
+curl -X DELETE http://localhost:5151/api/channels/<twitchChannelName>
 ```
 
 ### Tests
@@ -95,3 +96,5 @@ Connection-Strings/Redis-Config kommen aus `appsettings.json` (Keys: `Connection
 - **TwitchLib.Client 4.0.1, anonyme/read-only Verbindung** (`new ConnectionCredentials()` ohne Parameter): kein Bot-Account/OAuth-Token nötig für Join+Chat-Lesen. Kann keine Nachrichten senden — für die aktuelle Bot-Funktionalität irrelevant. `net10.0` wird von TwitchLib.Client 4.0.1 explizit als Dependency-Group unterstützt.
 - **Redis-Protokoll für Join-Kommandos**: Channel `channel:bot:commands`, Message-Format `JOIN:<channelName>` (reiner String-Präfix, kein JSON) — matcht `IRedisPublisher`/`IRedisSubscriber`s ohnehin string-basierte Signaturen.
 - **`appsettings.json`-Default-Connection-Strings korrigiert**: zeigten seit Schritt 1 auf `Username=postgres;Password=postgres` (Postgres) bzw. kein Passwort (Redis) — passte nie zu den tatsächlichen `.env.example`-Credentials (`emotepurge`/`change-me`) bzw. zu `docker-compose.yml`s `--requirepass`. Erst bei der ersten echten DB-Migration aufgefallen. Jetzt auf `emotepurge`/`change-me` (Postgres) und `localhost:6379,password=change-me` (Redis) korrigiert, damit lokales `dotnet run` gegen `docker compose up postgres redis` ohne manuelles Override funktioniert.
+- **Zeilenenden auf LF normalisiert**: `.gitattributes` (`* text=auto eol=lf`), `.editorconfig` und ein geteiltes `.vscode/settings.json` (`files.eol`) sorgen dafür, dass Repo-Inhalt und Checkout konsistent LF sind — vorher schrieb Windows-Checkout CRLF auf die Platte, obwohl im Repo bereits LF gespeichert war, was bei jedem `git add` Warnungen auslöste. `.vscode/settings.json` ist wie `launch.json`/`tasks.json` von `.gitignore` ausgenommen, da EOL-Konvention Team-weit gilt, nicht persönliche Editor-Einstellung ist.
+- **`DELETE /api/channels/{channelName}` löscht die Zeile hart** (nicht nur `IsBotActive = false`) und published `LEAVE:<channelName>`. Bewusst destruktiv statt Soft-Deactivate: `Emote`/`UsageStat` (Modul A.2/A.3) existieren noch nicht, es gibt aktuell nichts, das ein harter Delete kaskadierend mitreißen würde — falls das relevant wird, sobald Emote-Tracking existiert, hier nochmal prüfen, ob ein reines Deaktivieren (Zeile bleibt, Historie bleibt erhalten) die bessere Wahl wäre.
