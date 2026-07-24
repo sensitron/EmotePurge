@@ -16,4 +16,22 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .Select(u => new EmoteUsageDto(u.Emote.Name, u.Date, u.UseCount))
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<EmoteUsageTotalDto>> GetUsageTotalsAsync(
+        string channelName, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        if (from > to)
+        {
+            throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
+        }
+
+        var normalized = channelName.Trim().ToLowerInvariant();
+
+        return await db.UsageStats
+            .Where(u => u.Emote.Channel.ChannelName == normalized && u.Date >= from && u.Date <= to)
+            .GroupBy(u => new { u.EmoteId, u.Emote.Name })
+            .Select(g => new EmoteUsageTotalDto(g.Key.EmoteId, g.Key.Name, g.Sum(u => u.UseCount)))
+            .OrderByDescending(t => t.TotalUseCount)
+            .ToListAsync(cancellationToken);
+    }
 }
