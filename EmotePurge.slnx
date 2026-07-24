@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EmotePurge.Api/EmotePurge.Api.csproj" />
+    <Project Path="src/EmotePurge.Core/EmotePurge.Core.csproj" />
+    <Project Path="src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj" />
+    <Project Path="src/EmotePurge.Worker/EmotePurge.Worker.csproj" />
+  </Folder>
+</Solution>

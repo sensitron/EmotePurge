@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-EmotePurge.Worker-aca2a90f-a2cb-4157-ae49-4fa0c651cc59</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EmotePurge.Infrastructure\EmotePurge.Infrastructure.csproj" />
+    <ProjectReference Include="..\EmotePurge.Core\EmotePurge.Core.csproj" />
+  </ItemGroup>
+</Project>
