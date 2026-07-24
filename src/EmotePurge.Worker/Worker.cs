@@ -33,7 +33,7 @@ public class Worker(
             }
         }
 
-        // Echtzeit-Join-Kommandos von der Api
+        // Echtzeit-Join-/Leave-Kommandos von der Api
         await redisSubscriber.SubscribeAsync(CommandsChannel, async (_, message) =>
         {
             if (message.StartsWith("JOIN:", StringComparison.Ordinal))
@@ -41,6 +41,12 @@ public class Worker(
                 var channelName = message["JOIN:".Length..];
                 logger.LogInformation("Redis-Kommando: joine {Channel}.", channelName);
                 await twitchChatManager.JoinChannelAsync(channelName);
+            }
+            else if (message.StartsWith("LEAVE:", StringComparison.Ordinal))
+            {
+                var channelName = message["LEAVE:".Length..];
+                logger.LogInformation("Redis-Kommando: verlasse {Channel}.", channelName);
+                await twitchChatManager.LeaveChannelAsync(channelName);
             }
         }, stoppingToken);
 

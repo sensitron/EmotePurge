@@ -53,4 +53,25 @@ app.MapPost("/api/channels/{channelName}/join", async (
     return Results.Ok(new { channelId = channel.Id, channelName = normalized, channel.IsBotActive });
 });
 
+app.MapDelete("/api/channels/{channelName}", async (
+    string channelName,
+    AppDbContext db,
+    IRedisPublisher redisPublisher,
+    CancellationToken ct) =>
+{
+    var normalized = channelName.Trim().ToLowerInvariant();
+
+    var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, ct);
+    if (channel is null)
+    {
+        return Results.NotFound();
+    }
+
+    db.Channels.Remove(channel);
+    await db.SaveChangesAsync(ct);
+    await redisPublisher.PublishAsync("channel:bot:commands", $"LEAVE:{normalized}", ct);
+
+    return Results.NoContent();
+});
+
 app.Run();
