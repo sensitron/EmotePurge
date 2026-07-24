@@ -4,7 +4,7 @@
 > **Repository:** `emote-purge`  
 > **Backend API:** `EmotePurge.Api` (.NET 10)  
 > **Worker Bot:** `EmotePurge.Worker` (.NET 10)  
-> **Message Broker / Cache:** Redis 7  
+> **Message Broker / Cache:** Redis 7.2  
 > **Datenbank:** PostgreSQL (EF Core)
 
 ---
@@ -30,7 +30,7 @@
 | :----------------- | :--------------------- | :-------------------------------------------------------------------------------------------- |
 | **Backend API**    | .NET 10 (ASP.NET Core) | REST API für Auth, Dashboard, Voting-Engine und Redis-Publisher.                              |
 | **Worker Service** | .NET 10 Worker Service | Hintergrund-Bot für Twitch IRC Chat Listener & 7TV WebSocket EventAPI.                        |
-| **Message Broker** | Redis 7 (Alpine)       | Entkopplung von API & Worker via Pub/Sub; Caching für Twitch-Rollen.                          |
+| **Message Broker** | Redis 7.2 (Alpine)     | Entkopplung von API & Worker via Pub/Sub; Caching für Twitch-Rollen. Pin auf 7.2, der letzten BSD-lizenzierten Redis-Version vor dem Lizenzwechsel auf RSALv2/SSPL ab 7.4. |
 | **Datenbank**      | PostgreSQL 16+         | Relationale Persistenz für Channel, Emotes, Stats und VoteSessions via EF Core (Npgsql).      |
 | **Frontend**       | Angular + Tailwind CSS | Single Page Application mit Virtual Scrolling (`CdkVirtualScrollViewport`) für 1.000+ Emotes. |
 | **Deployment**     | Docker Compose         | Containerisierung von API, Worker Service und Redis mit persistenten Volumes.                 |
@@ -139,6 +139,12 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 
 ## 5. Datenbankmodell (Entity Framework Core Schema)
 
+> **Abweichung von der urspr. Spezifikation (`Emote`):** Die 7TV-ObjectID ist **nicht** mehr der Primary Key, sondern liegt in `SevenTvEmoteId`. Grund: Ein 7TV-Emote kann gleichzeitig in mehreren Channels aktiv sein; da `Emote` aber pro Channel eine eigene Zeile ist (`ChannelId`-Spalte), hätte die 7TV-ID als globaler PK bei geteilten Emotes zu einer Primary-Key-Kollision geführt. Stattdessen ist `Id` ein interner Guid-PK, und ein Unique-Index auf `(ChannelId, SevenTvEmoteId)` stellt die Eindeutigkeit pro Channel sicher. `UsageStat.EmoteId` referenziert diesen internen PK.
+>
+> Zusätzlich hat `UsageStat` einen Unique-Index auf `(EmoteId, Date)`, damit der 30-Sekunden-Batch-Flush pro Emote und Tag genau eine aggregierte Zeile pflegt statt vieler Einzelzeilen.
+>
+> `User`, `VoteSession`, `Vote` und `AllowedRoles`/`VoteType` (Modul B/C) sind noch nicht implementiert — nur `Channel`, `Emote`, `UsageStat` existieren bisher (Modul 1: Chat-Analytics & Live-Synchronisation).
+
 ```csharp
 namespace EmotePurge.Core.Entities;
 
@@ -151,27 +157,39 @@ public class Channel
     public bool IsBotActive { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public ICollection<VoteSession> VoteSessions { get; set; } = new List<VoteSession>();
+    public ICollection<Emote> Emotes { get; set; } = new List<Emote>();
 }
 
 public class Emote
 {
-    public string Id { get; set; } = string.Empty; // 7TV ObjectID (24-hex string)
+    public string Id { get; set; } = Guid.NewGuid().ToString(); // interner PK
+
+    // 7TV ObjectID (24-hex string). Nicht der PK: dasselbe 7TV-Emote kann in
+    // mehreren Channels gleichzeitig aktiv sein, daher gilt Eindeutigkeit nur
+    // pro Channel via Unique-Index auf (ChannelId, SevenTvEmoteId).
+    public string SevenTvEmoteId { get; set; } = string.Empty;
+
     public string ChannelId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string ImageUrl { get; set; } = string.Empty;
     public bool IsArchived { get; set; }
     public DateTime LastSyncedAt { get; set; } = DateTime.UtcNow;
+
+    public Channel Channel { get; set; } = null!;
+    public ICollection<UsageStat> UsageStats { get; set; } = new List<UsageStat>();
 }
 
 public class UsageStat
 {
     public long Id { get; set; }
-    public string EmoteId { get; set; } = string.Empty;
-    public DateTime Date { get; set; } // YYYY-MM-DD (UTC)
+    public string EmoteId { get; set; } = string.Empty; // FK auf Emote.Id (interner PK)
+    public DateTime Date { get; set; } // UTC-Kalendertag, Unique-Index mit EmoteId
     public int UseCount { get; set; }
+
+    public Emote Emote { get; set; } = null!;
 }
 
+// Noch nicht implementiert (Modul B/C):
 public class User
 {
     public string Id { get; set; } = string.Empty; // Twitch User ID
@@ -222,17 +240,24 @@ public enum VoteType
 
 ## 6. Docker Compose Topologie
 
+> **Abweichungen von der urspr. Spezifikation:** `redis:7-alpine` → `redis:7.2-alpine` (Lizenz-Grund, siehe Abschnitt 2). `depends_on` nutzt `condition: service_healthy` statt einer einfachen Liste, dazu Healthchecks für `postgres`/`redis` — ohne das starten `api`/`worker` sonst, bevor die Datenbank überhaupt Verbindungen annimmt, und crashen beim ersten Zugriff. `postgres` ist zusätzlich lokal auf `127.0.0.1:5432` exponiert (DB-Tools wie DataGrip/pgAdmin während der Entwicklung). Die konkreten Dockerfiles liegen unter `src/EmotePurge.Api/Dockerfile` und `src/EmotePurge.Worker/Dockerfile` (Multi-Stage-Build: SDK-Image für Build/Publish, schlankes Runtime-Image für `final`).
+
 ```yaml
 name: emote-purge
 
 services:
   redis:
-    image: redis:7-alpine
+    image: redis:7.2-alpine
     container_name: emotepurge-redis
     restart: unless-stopped
     command: redis-server --requirepass ${REDIS_PASSWORD}
     ports:
       - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - emotepurge-network
 
@@ -244,8 +269,15 @@ services:
       POSTGRES_DB: emotepurge
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d emotepurge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - emotepurge-network
 
@@ -263,8 +295,10 @@ services:
     networks:
       - emotepurge-network
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   worker:
     build:
@@ -278,8 +312,10 @@ services:
     networks:
       - emotepurge-network
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres-data:
@@ -289,3 +325,14 @@ networks:
   emotepurge-network:
     driver: bridge
 ```
+
+Konfiguration erfolgt über eine `.env`-Datei am Repo-Root (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`) — Vorlage in `.env.example`, `.env` selbst ist git-ignored.
+
+## 7. Lokale Entwicklung & Debugging (Dev Containers)
+
+Für das Debuggen von `EmotePurge.Api`/`EmotePurge.Worker` direkt in VS Code (Breakpoints, F5) wird das offizielle **Dev Containers**-Modell verwendet, nicht das Attachen an ein produktionsnahes, vorgebautes Image:
+
+- `.devcontainer/devcontainer.json` + `.devcontainer/docker-compose.yml` definieren einen eigenen `devcontainer`-Service (SDK-Image, Repo als Volume gemountet) im selben Compose-Netzwerk wie `postgres`/`redis`. Die `api`/`worker`-Services aus dem Root-`docker-compose.yml` werden dabei bewusst **nicht** gestartet (`runServices: ["postgres", "redis"]`) — im Dev Container läuft die App direkt über den .NET-Debugger, nicht als vorgebautes Docker-Image.
+- Verbindungsstrings (`ConnectionStrings__DefaultConnection`, `Redis__ConnectionString`) zeigen im Dev Container automatisch auf die Compose-Hostnamen `postgres`/`redis`; außerhalb des Containers (normaler Host-Debug) greifen dieselben `.vscode/launch.json`-Konfigurationen stattdessen auf `localhost` aus `appsettings.json` zurück (sofern `docker compose up postgres redis` lokal läuft).
+- `.vscode/launch.json` enthält `coreclr`-Launch-Configs `Api` und `Worker` sowie eine Compound-Config `Api + Worker` zum gemeinsamen Debuggen beider Prozesse; `.vscode/tasks.json` baut jeweils vorher (`build-api`/`build-worker`).
+- Die Api bindet dabei explizit auf `http://0.0.0.0:8080` (`ASPNETCORE_URLS`), passend zum Port, den auch der produktive `api`-Container exponiert — HTTPS-Dev-Zertifikate werden im Linux-Container bewusst nicht eingerichtet.
