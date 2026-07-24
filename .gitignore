@@ -1,0 +1,36 @@
+## Build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[xX]64/
+[xX]86/
+[Bb]uild/
+
+## Visual Studio / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet packages
+*.nupkg
+*.snupkg
+packages/
+*.nuget.props
+*.nuget.targets
+
+## Test results
+TestResults/
+coverage*/
+*.coverage
+*.coveragexml
+
+## Logs
+*.log
+
+## OS files
+.DS_Store
+Thumbs.db
