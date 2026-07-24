@@ -1,9 +1,6 @@
 using System.Text.RegularExpressions;
-using EmotePurge.Core.Entities;
-using EmotePurge.Core.Messaging;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure;
-using EmotePurge.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,52 +23,25 @@ app.UseHttpsRedirection();
 
 app.MapPost("/api/channels/{channelName}/join", async (
     string channelName,
-    AppDbContext db,
-    IRedisPublisher redisPublisher,
+    IChannelService channelService,
     CancellationToken ct) =>
 {
-    var normalized = channelName.Trim().ToLowerInvariant();
-    if (!Regex.IsMatch(normalized, "^[a-z0-9_]{4,25}$"))
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
     {
         return Results.BadRequest(new { error = "Invalid Twitch channel name." });
     }
 
-    var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, ct);
-    if (channel is null)
-    {
-        channel = new Channel { ChannelName = normalized, IsBotActive = true };
-        db.Channels.Add(channel);
-    }
-    else
-    {
-        channel.IsBotActive = true;
-    }
-
-    await db.SaveChangesAsync(ct);
-    await redisPublisher.PublishAsync("channel:bot:commands", $"JOIN:{normalized}", ct);
-
-    return Results.Ok(new { channelId = channel.Id, channelName = normalized, channel.IsBotActive });
+    var channel = await channelService.JoinAsync(channelName, ct);
+    return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
 });
 
 app.MapDelete("/api/channels/{channelName}", async (
     string channelName,
-    AppDbContext db,
-    IRedisPublisher redisPublisher,
+    IChannelService channelService,
     CancellationToken ct) =>
 {
-    var normalized = channelName.Trim().ToLowerInvariant();
-
-    var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, ct);
-    if (channel is null)
-    {
-        return Results.NotFound();
-    }
-
-    db.Channels.Remove(channel);
-    await db.SaveChangesAsync(ct);
-    await redisPublisher.PublishAsync("channel:bot:commands", $"LEAVE:{normalized}", ct);
-
-    return Results.NoContent();
+    var removed = await channelService.LeaveAsync(channelName, ct);
+    return removed ? Results.NoContent() : Results.NotFound();
 });
 
 app.Run();

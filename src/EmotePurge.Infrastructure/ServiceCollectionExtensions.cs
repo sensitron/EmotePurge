@@ -1,6 +1,8 @@
 using EmotePurge.Core.Messaging;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Redis;
+using EmotePurge.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +25,8 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IRedisPublisher, RedisPublisher>();
         services.AddSingleton<IRedisSubscriber, RedisSubscriber>();
+
+        services.AddScoped<IChannelService, ChannelService>();
 
         return services;
     }
