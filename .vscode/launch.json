@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Api",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-api",
+      "program": "${workspaceFolder}/src/EmotePurge.Api/bin/Debug/net10.0/EmotePurge.Api.dll",
+      "cwd": "${workspaceFolder}/src/EmotePurge.Api",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://0.0.0.0:8080"
+      },
+      "stopAtEntry": false
+    },
+    {
+      "name": "Worker",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-worker",
+      "program": "${workspaceFolder}/src/EmotePurge.Worker/bin/Debug/net10.0/EmotePurge.Worker.dll",
+      "cwd": "${workspaceFolder}/src/EmotePurge.Worker",
+      "env": {
+        "DOTNET_ENVIRONMENT": "Development"
+      },
+      "stopAtEntry": false
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Api + Worker",
+      "configurations": ["Api", "Worker"],
+      "stopAll": true
+    }
+  ]
+}
