@@ -6,7 +6,7 @@ namespace EmotePurge.Worker;
 
 public class Worker(
     ILogger<Worker> logger,
-    TwitchChatManager twitchChatManager,
+    ITwitchChatManager twitchChatManager,
     IRedisSubscriber redisSubscriber,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {

@@ -3,7 +3,7 @@ using EmotePurge.Worker;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddEmotePurgeInfrastructure(builder.Configuration);
-builder.Services.AddSingleton<TwitchChatManager>();
+builder.Services.AddSingleton<ITwitchChatManager, TwitchChatManager>();
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

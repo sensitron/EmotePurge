@@ -4,7 +4,7 @@ using TwitchLib.Client.Models;
 
 namespace EmotePurge.Worker;
 
-public class TwitchChatManager(ILogger<TwitchChatManager> logger)
+public class TwitchChatManager(ILogger<TwitchChatManager> logger) : ITwitchChatManager
 {
     private readonly TwitchClient _client = new();
     private bool _connected;
