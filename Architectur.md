@@ -62,7 +62,7 @@
 
 ### Modul A: Twitch Chat Bot & Analytics Engine (Worker Service)
 
-> **Umsetzungsstand:** Bisher nur der Grundfluss aus A.1 (ohne Spam-Schutz/Emote-Matching) — `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint/verlässt Channels auf Zuruf per Redis (`channel:bot:commands`, Messages `JOIN:<name>`/`LEAVE:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3), und loggt jede empfangene Chat-Nachricht. Gesteuert über zwei Minimal-API-Endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upsertet den `Channel` in Postgres (Grundsatz 1) und published `JOIN:<name>`; `DELETE /api/channels/{channelName}` löscht die Zeile hart (kein reines Deaktivieren — siehe CLAUDE.md-Entscheidungslog) und published `LEAVE:<name>`. A.2 (Spam-Schutz, In-Memory-Aggregator, Batch-Flush) und A.3 (7TV WebSocket Engine) sind noch nicht implementiert.
+> **Umsetzungsstand:** Der Grundfluss aus A.1 (ohne Spam-Schutz/Emote-Matching im Chat) und A.3 (7TV-Sync) sind implementiert. `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint/verlässt Channels auf Zuruf per Redis (`channel:bot:commands`, Messages `JOIN:<name>`/`LEAVE:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3), und loggt jede empfangene Chat-Nachricht. Gesteuert über zwei Minimal-API-Endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upsertet den `Channel` in Postgres (Grundsatz 1) und published `JOIN:<name>`; `DELETE /api/channels/{channelName}` löscht die Zeile hart (kein reines Deaktivieren — siehe CLAUDE.md-Entscheidungslog) und published `LEAVE:<name>`. Bei jedem Join wird zusätzlich das aktive 7TV-Emote-Set aufgelöst und vollständig nach Postgres synchronisiert (`ISevenTvSyncService`), danach hält eine gemeinsame 7TV-WebSocket-Verbindung (`ISevenTvEventClient`, s. A.3) die Emote-Liste aller aktiven Channels live aktuell. A.2 (Spam-Schutz beim Matching, In-Memory-Aggregator, Batch-Flush) ist noch nicht implementiert.
 
 #### A.1 IRC Chat Listener & Spam-Schutz
 
@@ -77,8 +77,14 @@
 
 #### A.3 7TV EventAPI WebSocket Engine (Realtime Tracking)
 
-- Verwaltet pro aktivem Kanal eine WebSocket-Verbindung zu `wss://events.7tv.io/v3`.
-- Abonniert das Event `emote_set.update` für das aktive Set:
+> **Abweichung von der urspr. Spezifikation:** **Eine gemeinsame** WebSocket-Verbindung für alle aktiven Kanäle (nicht eine pro Kanal) — 7TV erlaubt mehrere `emote_set.update`-Subscriptions auf derselben Connection (begrenzt durch `subscription_limit` aus dem `Hello`-Frame). Spart Ressourcen und Reconnect-Logik; gleiches Prinzip wie der eine gemeinsame `TwitchClient` für alle IRC-Kanäle in A.1. Implementiert als `ISevenTvEventClient`/`SevenTvEventClient` in `EmotePurge.Worker`, hält intern ein `channelName → emoteSetId`-Mapping (nötig, weil `DELETE /api/channels/{channelName}` die `Channel`-Zeile bereits vor der Leave-Verarbeitung im Worker löscht, ein DB-Lookup zum Unsubscribe-Zeitpunkt also nicht mehr möglich ist).
+>
+> **API-Version:** 7TV v3 (REST + GQL + EventAPI), nicht v4. v4 existiert bereits als GraphQL-API, hat aber (Stand Sync-Implementierung) noch keine EventAPI/WebSocket unter `events.7tv.io/v4` — für Echtzeit-Updates bleibt v3 daher die einzig nutzbare Version.
+>
+> **Auflösung Channel → Emote-Set:** 7TVs REST-Endpoint (`/v3/users/twitch/{twitchUserId}`) akzeptiert nur die numerische Twitch-User-ID, nicht den Usernamen. Da bewusst keine Twitch-Helix-API/App-Registrierung genutzt wird, löst `ISevenTvApiClient` den Twitch-Usernamen stattdessen über 7TVs eigene GraphQL-Nutzersuche (`/v3/gql`, `users(query: ...)`, gefiltert auf exakten Treffer in `connections[]` mit `platform=="TWITCH"`) auf. Das befüllt `Channel.TwitchChannelId` damit bereits jetzt (nicht erst durch das künftige Modul B) — semantisch dieselbe numerische ID, nur ein anderer Befüllungsweg.
+
+- Verwaltet **eine gemeinsame** WebSocket-Verbindung zu `wss://events.7tv.io/v3` für alle aktiven Kanäle.
+- Abonniert das Event `emote_set.update` je Kanal:
 
 ```json
 {
@@ -92,11 +98,13 @@
 }
 ```
 
-Event-Handling:
+Event-Handling (`ApplyEmoteSetUpdateAsync` in `ISevenTvSyncService`):
 
-- ADD: Fügt das neue Emote dem HashSet hinzu und legt es in PostgreSQL an.
-- UPDATE: Ersetzt alte Namen im HashSet bei Umbenennung.
-- REMOVE: Entfernt das Emote aus dem HashSet und setzt in PostgreSQL `IsArchived = true`.
+- ADD: Fügt das neue Emote in PostgreSQL an.
+- UPDATE: Aktualisiert Name/Bild-URL des bestehenden Emotes.
+- REMOVE: Setzt in PostgreSQL `IsArchived = true`.
+
+Reconnect-Strategie: kein Session-Resume — bei jedem Reconnect werden alle getrackten Emote-Sets neu subscribed und zusätzlich per REST voll resynct (heilt auch einen währenddessen gewechselten aktiven Set).
 
 ### Modul B: Auth & Dynamisches Rollen-System
 
@@ -147,7 +155,7 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 >
 > `User`, `VoteSession`, `Vote` und `AllowedRoles`/`VoteType` (Modul B/C) sind noch nicht implementiert — nur `Channel`, `Emote`, `UsageStat` existieren bisher (Modul 1: Chat-Analytics & Live-Synchronisation).
 >
-> **Zweite Abweichung (`Channel.TwitchChannelId`):** ist `string?` (nullable) statt non-nullable. Ohne Twitch-Auth (Modul B, noch nicht implementiert) kann die echte numerische Twitch-Channel-ID nicht aufgelöst werden; da die Spalte einen Unique-Index hat, hätte ein non-nullable Default (`""`) beim zweiten angelegten Channel einen Unique-Constraint-Verstoß ausgelöst (leerer String zählt für Unique-Indizes, NULL nicht). Bleibt `null`, bis Modul B die echte ID nachträgt.
+> **Zweite Abweichung (`Channel.TwitchChannelId`):** ist `string?` (nullable) statt non-nullable — da die Spalte einen Unique-Index hat, hätte ein non-nullable Default (`""`) beim zweiten angelegten Channel einen Unique-Constraint-Verstoß ausgelöst (leerer String zählt für Unique-Indizes, NULL nicht). Bleibt `null`, bis sie aufgelöst werden kann. Wird inzwischen (Modul A.3) beim Channel-Join über 7TVs GraphQL-Nutzersuche befüllt, nicht erst durch das künftige Modul B (Twitch-OAuth) — siehe Modul-A.3-Abschnitt.
 
 ```csharp
 namespace EmotePurge.Core.Entities;
