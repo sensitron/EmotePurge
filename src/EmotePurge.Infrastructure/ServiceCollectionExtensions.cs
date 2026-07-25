@@ -62,8 +62,13 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
         services.AddSingleton<IModRoleCache, ModRoleCache>();
+
+        services.AddScoped<IVoteSessionService, VoteSessionService>();
+        services.AddScoped<IVoteSessionQueryService, VoteSessionQueryService>();
+        services.AddScoped<IVoteEligibilityService, VoteEligibilityService>();
 
         return services;
     }

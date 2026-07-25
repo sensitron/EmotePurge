@@ -36,3 +36,14 @@ internal sealed class TwitchPaginationDto
 {
     public string? Cursor { get; set; }
 }
+
+// GET api.twitch.tv/helix/subscriptions/user
+internal sealed class TwitchGetUserSubscriptionResponseDto
+{
+    public List<TwitchUserSubscriptionDto> Data { get; set; } = [];
+}
+
+internal sealed class TwitchUserSubscriptionDto
+{
+    public string BroadcasterId { get; set; } = string.Empty;
+}

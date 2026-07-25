@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using EmotePurge.Api.Auth;
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure;
@@ -126,8 +127,121 @@ app.MapGet("/api/channels/{channelName}/usage-stats/totals", async (
     return Results.Ok(totals);
 });
 
+app.MapPost("/api/channels/{channelName}/vote-sessions", async (
+    string channelName,
+    CreateVoteSessionRequest request,
+    IVoteSessionService voteSessionService,
+    CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Title))
+    {
+        return Results.BadRequest(new { error = "Title must not be empty." });
+    }
+
+    if (request.AllowedVoterRoles == 0)
+    {
+        return Results.BadRequest(new { error = "AllowedVoterRoles must not be empty." });
+    }
+
+    if (request.AllowedVoterRoles.HasFlag(AllowedRoles.VIPs))
+    {
+        return Results.BadRequest(new { error = "AllowedRoles.VIPs is not supported yet (no Twitch self-check API available)." });
+    }
+
+    var session = await voteSessionService.CreateAsync(channelName, request.Title, request.AllowedVoterRoles, ct);
+    if (session is null)
+    {
+        return Results.NotFound(new { error = "Channel not joined." });
+    }
+
+    return Results.Ok(new VoteSessionSummaryDto(session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt));
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+
+app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/end", async (
+    string channelName,
+    long sessionId,
+    IVoteSessionService voteSessionService,
+    CancellationToken ct) =>
+{
+    var session = await voteSessionService.EndAsync(channelName, sessionId, ct);
+    if (session is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(new VoteSessionSummaryDto(session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt));
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+
+app.MapGet("/api/channels/{channelName}/vote-sessions", async (
+    string channelName,
+    IVoteSessionQueryService voteSessionQueryService,
+    CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
+    var sessions = await voteSessionQueryService.ListSessionsAsync(channelName, ct);
+    return Results.Ok(sessions);
+});
+
+app.MapGet("/api/channels/{channelName}/vote-sessions/{sessionId:long}/results", async (
+    string channelName,
+    long sessionId,
+    IVoteSessionQueryService voteSessionQueryService,
+    CancellationToken ct) =>
+{
+    var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, ct);
+    return results is null ? Results.NotFound() : Results.Ok(results);
+});
+
+app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/votes", async (
+    string channelName,
+    long sessionId,
+    CastVoteRequest request,
+    IVoteSessionService voteSessionService,
+    HttpContext httpContext,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrEmpty(request.EmoteId))
+    {
+        return Results.BadRequest(new { error = "EmoteId must not be empty." });
+    }
+
+    if (request.Type is not (VoteType.Keep or VoteType.Delete))
+    {
+        return Results.BadRequest(new { error = "Type must be Keep (1) or Delete (2)." });
+    }
+
+    // VoteEligibilityFilter already required an authenticated principal to reach this handler.
+    var twitchUserId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var (result, vote) = await voteSessionService.CastVoteAsync(channelName, sessionId, request.EmoteId, twitchUserId, request.Type, ct);
+
+    return result switch
+    {
+        VoteCastResult.Success => Results.Ok(new { voteId = vote!.Id, emoteId = vote.EmoteId, type = vote.Type, updatedAt = vote.UpdatedAt }),
+        VoteCastResult.ChannelNotFound => Results.NotFound(new { error = "Channel not found." }),
+        VoteCastResult.SessionNotFound => Results.NotFound(new { error = "Vote session not found." }),
+        VoteCastResult.SessionEnded => Results.Conflict(new { error = "Vote session has ended." }),
+        VoteCastResult.EmoteNotEligible => Results.BadRequest(new { error = "Emote is unknown or archived." }),
+        _ => Results.Problem()
+    };
+})
+.RequireAuthorization()
+.AddEndpointFilter<VoteEligibilityFilter>();
+
 const string OAuthStateCookieName = "ep_oauth_state";
-const string TwitchOAuthScope = "user:read:email user:read:moderated_channels";
+const string TwitchOAuthScope = "user:read:email user:read:moderated_channels user:read:subscriptions";
 
 app.MapGet("/api/auth/twitch/login", (HttpContext httpContext, IConfiguration configuration) =>
 {
@@ -251,3 +365,5 @@ app.MapGet("/api/worker/health", async (IConnectionMultiplexer redis) =>
 app.Run();
 
 internal sealed record WorkerHealthPayload(bool IsConnected, DateTime? LastMessageReceivedUtc);
+internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles);
+internal sealed record CastVoteRequest(string EmoteId, VoteType Type);

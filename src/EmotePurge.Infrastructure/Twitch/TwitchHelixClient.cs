@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using EmotePurge.Core.Twitch;
@@ -82,6 +83,36 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "Twitch Get Moderated Channels fehlgeschlagen für User {UserId}.", twitchUserId);
+            return null;
+        }
+    }
+
+    public async Task<bool?> GetUserSubscriptionStatusAsync(string accessToken, string broadcasterTwitchId, string userTwitchId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get, $"subscriptions/user?broadcaster_id={broadcasterTwitchId}&user_id={userTwitchId}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            var response = await httpClient.SendAsync(request, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return false;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Twitch Get User Subscription fehlgeschlagen mit Status {Status}.", response.StatusCode);
+                return null;
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<TwitchGetUserSubscriptionResponseDto>(TwitchJsonOptions.Value, cancellationToken);
+            return dto?.Data.Count > 0;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Twitch Get User Subscription fehlgeschlagen für User {UserId}/Broadcaster {BroadcasterId}.", userTwitchId, broadcasterTwitchId);
             return null;
         }
     }
