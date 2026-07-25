@@ -48,41 +48,6 @@ public class SevenTvSyncService(
         return emoteSet.Id;
     }
 
-    public async Task ApplyEmoteSetUpdateAsync(string emoteSetId, SevenTvEmoteSetDelta delta, CancellationToken cancellationToken = default)
-    {
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ActiveEmoteSetId == emoteSetId, cancellationToken);
-        if (channel is null)
-        {
-            logger.LogWarning("7TV-Dispatch für unbekanntes Set {SetId} ignoriert.", emoteSetId);
-            return;
-        }
-
-        var existing = await db.Emotes
-            .Where(e => e.ChannelId == channel.Id)
-            .ToDictionaryAsync(e => e.SevenTvEmoteId, cancellationToken);
-
-        foreach (var emote in delta.Added)
-        {
-            UpsertEmote(channel.Id, existing, emote);
-        }
-
-        foreach (var emote in delta.Updated)
-        {
-            UpsertEmote(channel.Id, existing, emote);
-        }
-
-        foreach (var removedId in delta.RemovedIds)
-        {
-            if (existing.TryGetValue(removedId, out var emote))
-            {
-                emote.IsArchived = true;
-            }
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-        await RefreshMatchCacheAsync(channel, cancellationToken);
-    }
-
     private async Task RefreshMatchCacheAsync(Channel channel, CancellationToken cancellationToken)
     {
         var activeEmotes = await db.Emotes

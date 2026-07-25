@@ -1,7 +1,6 @@
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
-using EmotePurge.Worker.SevenTv;
 using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Worker;
@@ -9,7 +8,6 @@ namespace EmotePurge.Worker;
 public class Worker(
     ILogger<Worker> logger,
     ITwitchChatManager twitchChatManager,
-    ISevenTvEventClient sevenTvEventClient,
     IRedisSubscriber redisSubscriber,
     IEmoteMatchCache emoteMatchCache,
     IServiceScopeFactory scopeFactory) : BackgroundService
@@ -20,7 +18,6 @@ public class Worker(
     {
         twitchChatManager.Initialize();
         await twitchChatManager.ConnectAsync();
-        await sevenTvEventClient.ConnectAsync(stoppingToken);
 
         // Boot-Recovery (Architectur.md Grundsatz 3)
         using (var scope = scopeFactory.CreateScope())
@@ -35,7 +32,7 @@ public class Worker(
             {
                 logger.LogInformation("Boot-Recovery: joine {Channel}.", channelName);
                 await twitchChatManager.JoinChannelAsync(channelName);
-                await SyncAndSubscribeSevenTvAsync(channelName, stoppingToken);
+                await SyncSevenTvAsync(channelName, stoppingToken);
             }
         }
 
@@ -47,7 +44,7 @@ public class Worker(
                 var channelName = message["JOIN:".Length..];
                 logger.LogInformation("Redis-Kommando: joine {Channel}.", channelName);
                 await twitchChatManager.JoinChannelAsync(channelName);
-                await SyncAndSubscribeSevenTvAsync(channelName, stoppingToken);
+                await SyncSevenTvAsync(channelName, stoppingToken);
             }
             else if (message.StartsWith("LEAVE:", StringComparison.Ordinal))
             {
@@ -55,7 +52,6 @@ public class Worker(
                 logger.LogInformation("Redis-Kommando: verlasse {Channel}.", channelName);
                 emoteMatchCache.RemoveChannel(channelName);
                 await twitchChatManager.LeaveChannelAsync(channelName);
-                await sevenTvEventClient.UnsubscribeAsync(channelName, stoppingToken);
             }
         }, stoppingToken);
 
@@ -64,15 +60,14 @@ public class Worker(
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    private async Task SyncAndSubscribeSevenTvAsync(string channelName, CancellationToken ct)
+    private async Task SyncSevenTvAsync(string channelName, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var syncService = scope.ServiceProvider.GetRequiredService<ISevenTvSyncService>();
         var emoteSetId = await syncService.SyncChannelAsync(channelName, ct);
         if (emoteSetId is not null)
         {
-            logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert, abonniere.", emoteSetId, channelName);
-            await sevenTvEventClient.SubscribeAsync(channelName, emoteSetId, ct);
+            logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert.", emoteSetId, channelName);
         }
     }
 }
