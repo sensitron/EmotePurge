@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Channel> Channels => Set<Channel>();
     public DbSet<Emote> Emotes => Set<Emote>();
     public DbSet<UsageStat> UsageStats => Set<UsageStat>();
+    public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,6 +42,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany(e => e.UsageStats)
                 .HasForeignKey(u => u.EmoteId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasIndex(u => u.TwitchUsername).IsUnique();
         });
     }
 }

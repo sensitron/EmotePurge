@@ -47,6 +47,9 @@ services:
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+      - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
+      - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
+      - Auth__Twitch__RedirectUri=http://localhost:8080/api/auth/twitch/callback
     networks:
       - emotepurge-network
     depends_on:
