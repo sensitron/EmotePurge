@@ -47,4 +47,10 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 
         return true;
     }
+
+    public async Task<Channel?> GetByNameAsync(string channelName, CancellationToken cancellationToken = default)
+    {
+        var normalized = channelName.Trim().ToLowerInvariant();
+        return await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+    }
 }

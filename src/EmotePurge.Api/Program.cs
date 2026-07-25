@@ -50,8 +50,27 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapGet("/api/channels/{channelName}", async (
+    string channelName,
+    IChannelService channelService,
+    CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
+    var channel = await channelService.GetByNameAsync(channelName, ct);
+    return channel is null
+        ? Results.NotFound()
+        : Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
 app.MapPost("/api/channels/{channelName}/join", async (
     string channelName,
@@ -315,7 +334,8 @@ app.MapGet("/api/auth/twitch/callback", async (
     var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
     await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
 
-    return Results.Ok(new { userInfo.Login, userInfo.DisplayName });
+    var postLoginRedirectUrl = configuration["Auth:Twitch:PostLoginRedirectUrl"] ?? "/";
+    return Results.Redirect(postLoginRedirectUrl);
 });
 
 app.MapGet("/api/auth/me", (ClaimsPrincipal user) => Results.Ok(new
@@ -361,6 +381,9 @@ app.MapGet("/api/worker/health", async (IConnectionMultiplexer redis) =>
         secondsSinceLastMessage,
     });
 });
+
+app.MapFallback("/api/{**rest}", () => Results.NotFound());
+app.MapFallbackToFile("index.html");
 
 app.Run();
 

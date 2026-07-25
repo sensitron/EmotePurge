@@ -5,13 +5,17 @@
   "runServices": ["postgres", "redis"],
   "workspaceFolder": "/workspace",
   "shutdownAction": "stopCompose",
-  "postCreateCommand": "dotnet restore EmotePurge.slnx",
-  "forwardPorts": [8080],
+  "postCreateCommand": "dotnet restore EmotePurge.slnx && npm --prefix web install",
+  "forwardPorts": [8080, 4200],
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" }
+  },
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-dotnettools.csdevkit",
-        "ms-dotnettools.csharp"
+        "ms-dotnettools.csharp",
+        "angular.ng-template"
       ]
     }
   }

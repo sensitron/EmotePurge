@@ -40,3 +40,6 @@ Thumbs.db
 
 ## Environment secrets
 .env
+
+## Angular production build copied into the Api image at Docker build time (src/EmotePurge.Api/Dockerfile); never committed
+src/EmotePurge.Api/wwwroot/
