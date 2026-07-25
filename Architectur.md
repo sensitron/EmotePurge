@@ -29,7 +29,7 @@
 | Schicht            | Technologie            | Beschreibung & Zweck                                                                          |
 | :----------------- | :--------------------- | :-------------------------------------------------------------------------------------------- |
 | **Backend API**    | .NET 10 (ASP.NET Core) | REST API für Auth, Dashboard, Voting-Engine und Redis-Publisher.                              |
-| **Worker Service** | .NET 10 Worker Service | Hintergrund-Bot für Twitch IRC Chat Listener & 7TV WebSocket EventAPI.                        |
+| **Worker Service** | .NET 10 Worker Service | Hintergrund-Bot für Twitch IRC Chat Listener & periodischen 7TV-REST-Sync (kein WebSocket, s. A.3). |
 | **Message Broker** | Redis 7.2 (Alpine)     | Entkopplung von API & Worker via Pub/Sub; Caching für Twitch-Rollen. Pin auf 7.2, der letzten BSD-lizenzierten Redis-Version vor dem Lizenzwechsel auf RSALv2/SSPL ab 7.4. |
 | **Datenbank**      | PostgreSQL 16+         | Relationale Persistenz für Channel, Emotes, Stats und VoteSessions via EF Core (Npgsql).      |
 | **Frontend**       | Angular + Tailwind CSS | Single Page Application mit Virtual Scrolling (`CdkVirtualScrollViewport`) für 1.000+ Emotes. |
@@ -54,7 +54,7 @@
 [ .NET Worker Service ] ──────────────────────────────────────┘
 │
 ├─► Twitch IRC: Join Channel
-└─► 7TV WebSocket: Subscribe to Emote Set
+└─► 7TV REST: Voll-Sync (initial + periodisch, s. A.3)
 
 ---
 
@@ -62,7 +62,7 @@
 
 ### Modul A: Twitch Chat Bot & Analytics Engine (Worker Service)
 
-> **Umsetzungsstand:** A.1 (Grundfluss + Spam-Schutz/Emote-Matching), A.2 (In-Memory-Aggregator + Batch-Flush) und A.3 (7TV-Sync) sind vollständig implementiert. `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint/verlässt Channels auf Zuruf per Redis (`channel:bot:commands`, Messages `JOIN:<name>`/`LEAVE:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3). Jede empfangene Chat-Nachricht wird gegen die aktiven 7TV-Emotes des jeweiligen Channels gematcht (`IEmoteMatchCache`, `channelName → {EmoteName → Emote.Id}`) und Treffer max. 1x pro Nachricht in `IEmoteUsageCounter` gezählt (Spam-Schutz gegen Copypasta); ein separater `UsageFlushWorker`-Hosted-Service draint diesen Zähler alle 30 Sekunden und upserted die Counts über `IUsageStatFlushService` in `UsageStat`. Gesteuert über Minimal-API-Endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upsertet den `Channel` in Postgres (Grundsatz 1) und published `JOIN:<name>`; `DELETE /api/channels/{channelName}` löscht die Zeile hart (kein reines Deaktivieren — siehe CLAUDE.md-Entscheidungslog) und published `LEAVE:<name>`; `GET /api/channels/{channelName}/usage-stats` liefert die aktuellen `UsageStat`-Zeilen zum Debuggen; `GET /api/channels/{channelName}/usage-stats/totals?from=&to=` liefert pro Emote die über einen frei wählbaren Zeitraum aufsummierte `UseCount` (Basis für das künftige Dashboard sowie den Voting-Score in Modul C — siehe CLAUDE.md-Entscheidungslog). Bei jedem Join wird zusätzlich das aktive 7TV-Emote-Set aufgelöst und vollständig nach Postgres synchronisiert (`ISevenTvSyncService`, refresht dabei auch `IEmoteMatchCache`), danach hält eine gemeinsame 7TV-WebSocket-Verbindung (`ISevenTvEventClient`, s. A.3) die Emote-Liste aller aktiven Channels live aktuell.
+> **Umsetzungsstand:** A.1 (Grundfluss + Spam-Schutz/Emote-Matching), A.2 (In-Memory-Aggregator + Batch-Flush) und A.3 (7TV-Sync, jetzt reines REST-Polling — s. u.) sind vollständig implementiert. `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint/verlässt Channels auf Zuruf per Redis (`channel:bot:commands`, Messages `JOIN:<name>`/`LEAVE:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3). Jede empfangene Chat-Nachricht wird gegen die aktiven 7TV-Emotes des jeweiligen Channels gematcht (`IEmoteMatchCache`, `channelName → {EmoteName → Emote.Id}`) und Treffer max. 1x pro Nachricht in `IEmoteUsageCounter` gezählt (Spam-Schutz gegen Copypasta); ein separater `UsageFlushWorker`-Hosted-Service draint diesen Zähler alle 30 Sekunden und upserted die Counts über `IUsageStatFlushService` in `UsageStat`. Gesteuert über Minimal-API-Endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upsertet den `Channel` in Postgres (Grundsatz 1) und published `JOIN:<name>`; `DELETE /api/channels/{channelName}` löscht die Zeile hart (kein reines Deaktivieren — siehe CLAUDE.md-Entscheidungslog) und published `LEAVE:<name>`; `GET /api/channels/{channelName}/usage-stats` liefert die aktuellen `UsageStat`-Zeilen zum Debuggen; `GET /api/channels/{channelName}/usage-stats/totals?from=&to=` liefert pro Emote die über einen frei wählbaren Zeitraum aufsummierte `UseCount` (Basis für das künftige Dashboard sowie den Voting-Score in Modul C — siehe CLAUDE.md-Entscheidungslog). Bei jedem Join wird das aktive 7TV-Emote-Set aufgelöst und vollständig nach Postgres synchronisiert (`ISevenTvSyncService`, refresht dabei auch `IEmoteMatchCache`); ein `SevenTvPeriodicResyncWorker` wiederholt diesen Voll-Sync danach für alle aktiven Channels im 1-Minuten-Takt (s. A.3 — kein WebSocket/Live-Dispatch mehr).
 
 #### A.1 IRC Chat Listener & Spam-Schutz
 
@@ -75,36 +75,17 @@
 - Counts werden in einem `ConcurrentDictionary<string, int>` (Key: `EmoteId`) hochgezählt.
 - Ein Timer führt alle **30 Sekunden** einen Batch-Flush in die PostgreSQL-Datenbank aus.
 
-#### A.3 7TV EventAPI WebSocket Engine (Realtime Tracking)
+#### A.3 7TV Sync Engine (periodisches REST-Polling, kein WebSocket)
 
-> **Abweichung von der urspr. Spezifikation:** **Eine gemeinsame** WebSocket-Verbindung für alle aktiven Kanäle (nicht eine pro Kanal) — 7TV erlaubt mehrere `emote_set.update`-Subscriptions auf derselben Connection (begrenzt durch `subscription_limit` aus dem `Hello`-Frame). Spart Ressourcen und Reconnect-Logik; gleiches Prinzip wie der eine gemeinsame `TwitchClient` für alle IRC-Kanäle in A.1. Implementiert als `ISevenTvEventClient`/`SevenTvEventClient` in `EmotePurge.Worker`, hält intern ein `channelName → emoteSetId`-Mapping (nötig, weil `DELETE /api/channels/{channelName}` die `Channel`-Zeile bereits vor der Leave-Verarbeitung im Worker löscht, ein DB-Lookup zum Unsubscribe-Zeitpunkt also nicht mehr möglich ist).
+> **Abweichung von der urspr. Spezifikation — Historie:** Ursprünglich implementiert als **eine gemeinsame** WebSocket-Verbindung zu `wss://events.7tv.io/v3` (`ISevenTvEventClient`/`SevenTvEventClient`) mit `emote_set.update`-Subscriptions je Kanal auf einer Connection. Am 2026-07-24/25 über mehrere Live-Tests (Channels `vassilly`, `sensitron`, u. a.) systematisch untersucht: Dispatches kamen nachweislich **nicht zuverlässig** an — teils mehrminütige Verzögerung, teils gar nicht (z. B. ein live hinzugefügtes Emote "REITEN", das nie per Dispatch ankam, obwohl ein anderer 7TV-Client (DankChat) das Update korrekt erhielt). Die Subscriptions selbst waren serverseitig korrekt registriert (per `Ack`-Frame bestätigt, `subscription_limit` weit unausgeschöpft). Eine Analyse des offiziellen 7TV-Browser-Extension-Quellcodes (github.com/SevenTV/Extension, `src/worker/worker.http.ts`) ergab zwei Abweichungen — Wildcard-Subscription-Typ `emote_set.*` statt `emote_set.update`, plus eine zusätzliche channel-scoped Subscription (`condition: {ctx: "channel", platform: "TWITCH", id: <TwitchChannelId>}`, überlebt Set-Wechsel) — beide testweise nachgerüstet, ohne die Zuverlässigkeit messbar zu verbessern. Da der REST-Vollsync (`ISevenTvSyncService.SyncChannelAsync`) in jedem Test zuverlässig war, wurde die komplette WebSocket-Logik entfernt und durch einen periodischen REST-Resync ersetzt (**Entscheidung**, s. CLAUDE.md-Entscheidungslog für den vollständigen Verlauf).
 >
-> **API-Version:** 7TV v3 (REST + GQL + EventAPI), nicht v4. v4 existiert bereits als GraphQL-API, hat aber (Stand Sync-Implementierung) noch keine EventAPI/WebSocket unter `events.7tv.io/v4` — für Echtzeit-Updates bleibt v3 daher die einzig nutzbare Version.
+> **API-Version:** 7TV v3 (REST + GQL), nicht v4. v4 existiert bereits als GraphQL-API, hat aber keine EventAPI/WebSocket unter `events.7tv.io/v4` — inzwischen irrelevant, da kein WebSocket mehr genutzt wird, aber historisch der Grund für die v3-Wahl.
 >
 > **Auflösung Channel → Emote-Set:** 7TVs REST-Endpoint (`/v3/users/twitch/{twitchUserId}`) akzeptiert nur die numerische Twitch-User-ID, nicht den Usernamen. Da bewusst keine Twitch-Helix-API/App-Registrierung genutzt wird, löst `ISevenTvApiClient` den Twitch-Usernamen stattdessen über 7TVs eigene GraphQL-Nutzersuche (`/v3/gql`, `users(query: ...)`, gefiltert auf exakten Treffer in `connections[]` mit `platform=="TWITCH"`) auf. Das befüllt `Channel.TwitchChannelId` damit bereits jetzt (nicht erst durch das künftige Modul B) — semantisch dieselbe numerische ID, nur ein anderer Befüllungsweg.
 
-- Verwaltet **eine gemeinsame** WebSocket-Verbindung zu `wss://events.7tv.io/v3` für alle aktiven Kanäle.
-- Abonniert das Event `emote_set.update` je Kanal:
-
-```json
-{
-  "op": 35,
-  "d": {
-    "type": "emote_set.update",
-    "condition": {
-      "object_id": "<EMOTE_SET_ID>"
-    }
-  }
-}
-```
-
-Event-Handling (`ApplyEmoteSetUpdateAsync` in `ISevenTvSyncService`):
-
-- ADD: Fügt das neue Emote in PostgreSQL an.
-- UPDATE: Aktualisiert Name/Bild-URL des bestehenden Emotes.
-- REMOVE: Setzt in PostgreSQL `IsArchived = true`.
-
-Reconnect-Strategie: kein Session-Resume — bei jedem Reconnect werden alle getrackten Emote-Sets neu subscribed und zusätzlich per REST voll resynct (heilt auch einen währenddessen gewechselten aktiven Set).
+- Bei jedem Join: einmaliger Voll-Sync (`SyncChannelAsync`) — löst Twitch-Username → 7TV-Emote-Set auf, reconciled alle `Emote`-Zeilen (Add/Update/Archive) gegen Postgres, refresht `IEmoteMatchCache`.
+- `SevenTvPeriodicResyncWorker` (eigener `BackgroundService`) wiederholt exakt denselben Voll-Sync für **alle** `IsBotActive=true`-Channels im **1-Minuten-Takt** — fängt sowohl In-Set-Änderungen (Emote add/update/remove) als auch komplette Set-Wechsel ab, da `SyncChannelAsync` jedes Mal den aktuell aktiven Set neu auflöst. Ein fehlschlagender Sync für einen Channel wird geloggt und übersprungen, ohne die anderen Channels oder den Worker-Host zu beeinträchtigen.
+- Kosten: ein 7TV-REST-Request pro aktivem Channel und Minute — bei der aktuellen/absehbaren Channel-Zahl vernachlässigbar, kein beobachtetes Rate-Limiting.
 
 ### Modul B: Auth & Dynamisches Rollen-System
 
