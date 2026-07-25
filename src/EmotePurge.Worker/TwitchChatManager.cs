@@ -14,6 +14,19 @@ public class TwitchChatManager(
     private readonly TwitchClient _client = new();
     private readonly ConcurrentDictionary<string, byte> _joinedChannels = new();
     private bool _connected;
+    private volatile bool _isConnected;
+    private long _lastMessageReceivedUtcTicks;
+
+    public bool IsConnected => _isConnected;
+
+    public DateTime? LastMessageReceivedUtc
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _lastMessageReceivedUtcTicks);
+            return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
 
     public void Initialize()
     {
@@ -21,6 +34,8 @@ public class TwitchChatManager(
         _client.OnConnected += OnConnected;
         _client.OnReconnected += OnReconnected;
         _client.OnDisconnected += OnDisconnected;
+        _client.OnFailureToReceiveJoinConfirmation += OnFailureToReceiveJoinConfirmation;
+        _client.OnConnectionError += OnConnectionError;
         _client.OnJoinedChannel += OnJoinedChannel;
         _client.OnLeftChannel += OnLeftChannel;
         _client.OnMessageReceived += OnMessageReceived;
@@ -30,6 +45,12 @@ public class TwitchChatManager(
     {
         await _client.ConnectAsync();
         _connected = true;
+    }
+
+    public async Task ForceReconnectAsync()
+    {
+        // OnReconnected rejoint bereits alle _joinedChannels — kein Duplizieren der Rejoin-Logik nötig.
+        await _client.ReconnectAsync();
     }
 
     public async Task JoinChannelAsync(string channelName)
@@ -76,6 +97,7 @@ public class TwitchChatManager(
 
     private Task OnConnected(object? sender, OnConnectedEventArgs e)
     {
+        _isConnected = true;
         logger.LogInformation("TwitchClient verbunden.");
         return Task.CompletedTask;
     }
@@ -85,12 +107,33 @@ public class TwitchChatManager(
         // TwitchLib rejoint Channels nach einem Reconnect NICHT automatisch — ohne
         // sichtbares Log hier würde ein stiller Verbindungsabbruch (z. B. Twitch-seitiges
         // PING-Timeout) das Chat-Matching für alle Channels lautlos einfrieren.
+        _isConnected = false;
         logger.LogWarning("TwitchClient getrennt.");
+        return Task.CompletedTask;
+    }
+
+    private Task OnFailureToReceiveJoinConfirmation(object? sender, OnFailureToReceiveJoinConfirmationArgs e)
+    {
+        // Ohne dieses Log bliebe ein Channel, dessen JOIN Twitch nie bestätigt, dauerhaft
+        // stumm — auch nach einem Reconnect, da nur bereits erfolgreich gejointe Channels
+        // (s. _joinedChannels) für den Rejoin getrackt werden.
+        logger.LogWarning(
+            "Twitch hat den Join für {Channel} nicht bestätigt. Details: {Details}",
+            e.Exception.Channel, e.Exception.Details);
+        return Task.CompletedTask;
+    }
+
+    private Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
+    {
+        logger.LogWarning(
+            "TwitchClient-Verbindungsfehler für {BotUsername}: {Error}",
+            e.BotUsername, e.Error.Message);
         return Task.CompletedTask;
     }
 
     private async Task OnReconnected(object? sender, OnConnectedEventArgs e)
     {
+        _isConnected = true;
         var channels = _joinedChannels.Keys.ToArray();
         logger.LogWarning("TwitchClient reconnected, rejoine {Count} Channel(s).", channels.Length);
 
@@ -121,6 +164,10 @@ public class TwitchChatManager(
 
     private Task OnMessageReceived(object? sender, OnMessageReceivedArgs e)
     {
+        // Aktualisiert für JEDE Nachricht, nicht nur gematchte — der Watchdog erkennt so
+        // auch ein stilles Einfrieren der Verbindung auf Channels ohne Emote-Nutzung.
+        Interlocked.Exchange(ref _lastMessageReceivedUtcTicks, DateTime.UtcNow.Ticks);
+
         logger.LogDebug("[{Channel}] {Username}: {Message}",
             e.ChatMessage.Channel, e.ChatMessage.Username, e.ChatMessage.Message);
 
