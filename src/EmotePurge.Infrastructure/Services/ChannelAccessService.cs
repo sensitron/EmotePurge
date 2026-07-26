@@ -11,8 +11,7 @@ public class ChannelAccessService(
     {
         var normalizedChannel = channelName.Trim().ToLowerInvariant();
 
-        var adminLogins = configuration.GetSection("Auth:AdminTwitchLogins").Get<string[]>() ?? [];
-        if (adminLogins.Any(login => string.Equals(login, principal.TwitchLogin, StringComparison.OrdinalIgnoreCase)))
+        if (IsGlobalAdmin(principal))
         {
             return true;
         }
@@ -23,5 +22,11 @@ public class ChannelAccessService(
         }
 
         return await moderatorCheckService.IsModeratorAsync(principal, normalizedChannel, cancellationToken);
+    }
+
+    public bool IsGlobalAdmin(TwitchPrincipalInfo principal)
+    {
+        var adminLogins = configuration.GetSection("Auth:AdminTwitchLogins").Get<string[]>() ?? [];
+        return adminLogins.Any(login => string.Equals(login, principal.TwitchLogin, StringComparison.OrdinalIgnoreCase));
     }
 }

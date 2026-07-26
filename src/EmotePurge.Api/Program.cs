@@ -79,10 +79,43 @@ app.MapGet("/api/channels/{channelName}", async (
     var channel = await channelService.GetByNameAsync(channelName, ct);
     return channel is null
         ? Results.NotFound()
-        : Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
+        : Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive, channel.ActiveEmoteSetId });
 })
 .RequireAuthorization()
 .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+
+app.MapGet("/api/channels", async (
+    IChannelService channelService,
+    CancellationToken ct) =>
+{
+    var channels = await channelService.ListAllAsync(ct);
+    return Results.Ok(channels.Select(c => new
+    {
+        channelId = c.Id,
+        channelName = c.ChannelName,
+        c.IsBotActive,
+        c.TwitchChannelId,
+        c.CreatedAt
+    }));
+})
+.RequireAuthorization()
+.AddEndpointFilter<GlobalAdminAuthorizationFilter>();
+
+app.MapGet("/api/channels/mine", async (
+    HttpContext httpContext,
+    IMyChannelsService myChannelsService,
+    CancellationToken ct) =>
+{
+    var principal = httpContext.User.TryBuildTwitchPrincipal();
+    if (principal is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var result = await myChannelsService.GetMyChannelsAsync(principal, ct);
+    return Results.Ok(result);
+})
+.RequireAuthorization();
 
 app.MapPost("/api/channels/{channelName}/join", async (
     string channelName,
@@ -107,6 +140,23 @@ app.MapDelete("/api/channels/{channelName}", async (
 {
     var removed = await channelService.LeaveAsync(channelName, ct);
     return removed ? Results.NoContent() : Results.NotFound();
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+
+app.MapPost("/api/channels/{channelName}/emotes/sync-deleted", async (
+    string channelName,
+    SyncDeletedRequest request,
+    IEmoteService emoteService,
+    CancellationToken ct) =>
+{
+    if (request.EmoteIds is null || request.EmoteIds.Count == 0)
+    {
+        return Results.BadRequest(new { error = "EmoteIds must not be empty." });
+    }
+
+    var result = await emoteService.MarkDeletedAsync(channelName, request.EmoteIds, ct);
+    return Results.Ok(new { archivedCount = result.ArchivedCount, notFoundIds = result.NotFoundIds });
 })
 .RequireAuthorization()
 .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
@@ -156,7 +206,9 @@ app.MapGet("/api/channels/{channelName}/usage-stats/totals", async (
 
     var totals = await usageStatQueryService.GetUsageTotalsAsync(channelName, fromDate, toDate, ct);
     return Results.Ok(totals);
-});
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
 app.MapPost("/api/channels/{channelName}/vote-sessions", async (
     string channelName,
@@ -229,10 +281,14 @@ app.MapGet("/api/channels/{channelName}/vote-sessions", async (
 app.MapGet("/api/channels/{channelName}/vote-sessions/{sessionId:long}/results", async (
     string channelName,
     long sessionId,
+    HttpContext httpContext,
     IVoteSessionQueryService voteSessionQueryService,
     CancellationToken ct) =>
 {
-    var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, ct);
+    // Deliberately no RequireAuthorization()/filter here — anonymous share-link visitors must be
+    // able to see results. The viewer principal is only used, if present, to fill in "MyVote".
+    var viewerTwitchUserId = httpContext.User.TryBuildTwitchPrincipal()?.TwitchUserId;
+    var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, viewerTwitchUserId, ct);
     return results is null ? Results.NotFound() : Results.Ok(results);
 });
 
@@ -402,3 +458,4 @@ app.Run();
 internal sealed record WorkerHealthPayload(bool IsConnected, DateTime? LastMessageReceivedUtc);
 internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles);
 internal sealed record CastVoteRequest(string EmoteId, VoteType Type);
+internal sealed record SyncDeletedRequest(IReadOnlyList<string> EmoteIds);

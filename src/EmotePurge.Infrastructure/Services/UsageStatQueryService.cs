@@ -32,26 +32,30 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         // falls back to client-eval "g.AsQueryable().Sum(...)" and throws). Resolving the
         // channel's emote IDs into a plain list first keeps the grouped query scoped to a
         // single table, which translates cleanly.
+        // Archived (already-deleted) emotes are excluded — they shouldn't reappear as delete
+        // candidates in a usage-stats UI just because they still have historical UsageStat rows.
         var channelEmotes = await db.Emotes
-            .Where(e => e.Channel.ChannelName == normalized)
-            .Select(e => new { e.Id, e.Name })
-            .ToDictionaryAsync(e => e.Id, e => e.Name, cancellationToken);
+            .Where(e => e.Channel.ChannelName == normalized && !e.IsArchived)
+            .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl })
+            .ToListAsync(cancellationToken);
 
         if (channelEmotes.Count == 0)
         {
             return [];
         }
 
-        var emoteIds = channelEmotes.Keys.ToList();
+        var emoteIds = channelEmotes.Select(e => e.Id).ToList();
 
-        var totals = await db.UsageStats
+        var totalsByEmoteId = await db.UsageStats
             .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
             .GroupBy(u => u.EmoteId)
             .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount) })
-            .ToListAsync(cancellationToken);
+            .ToDictionaryAsync(g => g.EmoteId, g => g.TotalUseCount, cancellationToken);
 
-        return totals
-            .Select(t => new EmoteUsageTotalDto(t.EmoteId, channelEmotes[t.EmoteId], t.TotalUseCount))
+        // Zero-filled for every active emote (not just ones with a UsageStat row already) —
+        // an unused-but-active emote must still be findable/selectable in a usage-stats UI.
+        return channelEmotes
+            .Select(e => new EmoteUsageTotalDto(e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, totalsByEmoteId.GetValueOrDefault(e.Id, 0)))
             .OrderByDescending(t => t.TotalUseCount)
             .ToList();
     }

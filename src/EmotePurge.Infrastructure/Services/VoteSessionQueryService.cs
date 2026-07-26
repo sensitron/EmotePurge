@@ -18,7 +18,7 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, CancellationToken cancellationToken = default)
+    public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, CancellationToken cancellationToken = default)
     {
         var normalized = channelName.Trim().ToLowerInvariant();
 
@@ -37,8 +37,14 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 
         var activeEmotes = await db.Emotes
             .Where(e => e.ChannelId == channel.Id && !e.IsArchived)
-            .Select(e => new { e.Id, e.Name, e.ImageUrl })
+            .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl })
             .ToListAsync(cancellationToken);
+
+        var myVotesByEmoteId = viewerTwitchUserId is null
+            ? new Dictionary<string, VoteType>()
+            : await db.Votes
+                .Where(v => v.VoteSessionId == sessionId && v.UserId == viewerTwitchUserId)
+                .ToDictionaryAsync(v => v.EmoteId, v => v.Type, cancellationToken);
 
         var from = DateOnly.FromDateTime(session.StartedAt);
         var to = DateOnly.FromDateTime(session.EndedAt ?? DateTime.UtcNow);
@@ -71,8 +77,9 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             var keep = tally?.Keep ?? 0;
             var delete = tally?.Delete ?? 0;
             var score = normalizedUsage + (keep - delete);
+            var myVote = myVotesByEmoteId.TryGetValue(e.Id, out var voteType) ? voteType : (VoteType?)null;
 
-            return new VoteSessionResultDto(e.Id, e.Name, e.ImageUrl, useCount, normalizedUsage, keep, delete, score);
+            return new VoteSessionResultDto(e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, useCount, normalizedUsage, keep, delete, score, myVote);
         })
         .OrderByDescending(r => r.Score)
         .ToList();

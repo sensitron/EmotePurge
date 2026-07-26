@@ -2,7 +2,7 @@ namespace EmotePurge.Core.Services;
 
 public record EmoteUsageDto(string EmoteName, DateOnly Date, int UseCount);
 
-public record EmoteUsageTotalDto(string EmoteId, string EmoteName, int TotalUseCount);
+public record EmoteUsageTotalDto(string EmoteId, string EmoteName, string SevenTvEmoteId, string ImageUrl, int TotalUseCount);
 
 public interface IUsageStatQueryService
 {

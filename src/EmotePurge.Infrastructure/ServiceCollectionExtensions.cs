@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRedisSubscriber, RedisSubscriber>();
 
         services.AddScoped<IChannelService, ChannelService>();
+        services.AddScoped<IEmoteService, EmoteService>();
 
         services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
         services.AddScoped<IUsageStatFlushService, UsageStatFlushService>();
@@ -64,6 +65,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
+        services.AddScoped<IMyChannelsService, MyChannelsService>();
         services.AddSingleton<IModRoleCache, ModRoleCache>();
 
         services.AddScoped<IVoteSessionService, VoteSessionService>();

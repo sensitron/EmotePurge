@@ -8,4 +8,8 @@ public record TwitchPrincipalInfo(string TwitchUserId, string TwitchLogin, strin
 public interface IChannelAccessService
 {
     Task<bool> CanManageChannelAsync(TwitchPrincipalInfo principal, string channelName, CancellationToken cancellationToken = default);
+
+    // Channel-independent check for the admin allowlist (Auth:AdminTwitchLogins) — used by
+    // endpoints that aren't scoped to a single channel, e.g. the admin "list all channels" overview.
+    bool IsGlobalAdmin(TwitchPrincipalInfo principal);
 }
