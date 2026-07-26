@@ -1,0 +1,85 @@
+name: emote-purge
+
+# Produktions-Stack für Portainer: zieht vorgebaute Images aus ghcr.io (per
+# .github/workflows/publish.yml) statt lokal zu bauen. Für lokale Entwicklung
+# weiterhin docker-compose.yml (docker compose up -d --build) verwenden.
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: emotepurge-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - emotepurge-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: emotepurge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: emotepurge
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d emotepurge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - emotepurge-network
+
+  api:
+    image: ghcr.io/sensitron/emotepurge-api:latest
+    container_name: emotepurge-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4300:8080"
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+      - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
+      - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
+      - Auth__Twitch__RedirectUri=https://emotepurge.app/api/auth/twitch/callback
+      - Auth__Twitch__PostLoginRedirectUrl=/
+    networks:
+      - emotepurge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: ghcr.io/sensitron/emotepurge-worker:latest
+    container_name: emotepurge-worker
+    restart: unless-stopped
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+    networks:
+      - emotepurge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+    driver: local
+
+networks:
+  emotepurge-network:
+    driver: bridge
