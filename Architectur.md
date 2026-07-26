@@ -109,8 +109,13 @@
 
 $$\text{Score} = f(\text{Chat-Nutzung}) + (\text{Keep-Votes} - \text{Delete-Votes})$$
 
-### Modul D: Client-Side Mass Delete Engine (Angular Frontend)
+### Modul D: Angular Dashboard (Übersicht, Usage-Stats, Voting-UI, Mass Delete Engine)
 
+> **Umsetzungsstand:** Vollständig implementiert (2026-07-26) — vollständige Details/Gotchas im CLAUDE.md-Entscheidungslog, hier nur die konkretisierte Spezifikation.
+
+- **Seiten/Routen:** `/login`, `/` (Übersicht — Admin sieht alle getrackten Channels + Formular zum Joinen eines beliebigen Channel-Namens, `GET /api/channels`; Mods/Broadcaster sehen ihre getrackten **und** ungetrackten moderierten Channels, `GET /api/channels/mine`), `/channels/:channelName/usage-stats` (nur für Manager — `channelManagementGuard`), `/channels/:channelName/vote-sessions[/:sessionId]` (bewusst **ohne** Login-Zwang — Share-Link-fähig).
+- **Grid statt Liste:** Bei bis zu ~1.000 Emoten pro Channel wäre eine Ein-Spalten-Liste unpraktikabel lang zum Scrollen. Usage-Stats und Voting-Ergebnisse rendern die Emotes daher als responsives Grid (2–8 Spalten je Fensterbreite) — `CdkVirtualScrollViewport` virtualisiert dabei **Zeilen** von je mehreren Karten (Row-Chunking), nicht einzelne Emotes; Spaltenzahl reagiert live auf Resize.
+- Mehrfachauswahl (Checkbox + Shift-Klick-Bereichsauswahl) auf beiden Grid-Seiten identisch.
 - Virtual Scrolling: Nutzung von Angular CDK `CdkVirtualScrollViewport` für flüssiges Rendering.
 - Direct GraphQL Execution: Schreib-Tokens verbleiben lokal im Browser (`sessionStorage`).
 - Batch Delete Queue: Das Frontend schickt beim Löschbefehl die Mutation direkt vom Browser an `https://7tv.io/v3/gql`:
@@ -125,8 +130,9 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 }
 ```
 
-- Rate-Limiting: Sequenzielle Ausführung mit 250–300 ms Verzögerung zwischen Requests.
-- Backend-Sync: Das Frontend meldet gelöschte IDs an die C#-API (`POST /api/emotes/sync-deleted`), um den Datenbank-Status zu aktualisieren.
+- Rate-Limiting: Sequenzielle Ausführung mit ~275 ms Verzögerung zwischen Requests.
+- **Backend-Sync — Abweichung von der urspr. Spezifikation:** Das Frontend meldet gelöschte IDs an die C#-API über `POST /api/channels/{channelName}/emotes/sync-deleted` (channel-scoped), nicht den ursprünglich skizzierten globalen Pfad `POST /api/emotes/sync-deleted` — konsistent mit jedem anderen channel-bezogenen Endpoint und ermöglicht die Wiederverwendung von `ChannelManagementAuthorizationFilter` (Route-Value-basiert). Markiert die betroffenen `Emote`-Zeilen als `IsArchived = true` (Soft-Archive, kein Hard-Delete — s. CLAUDE.md-Entscheidungslog), der 1-Minuten-`SevenTvPeriodicResyncWorker` bleibt das eigentliche Sicherheitsnetz.
+- **Voting-UI:** Daumen-hoch/-runter pro Emote (Keep/Delete), eigener Vote wird hervorgehoben (`MyVote`, in den Ergebnissen mitgeliefert, auch für anonyme Besucher `null`); Session-Erstellung/-Beendigung nur für Manager sichtbar (dieselbe `ChannelManagementAuthorizationFilter`-Prüfung als Client-seitige Sichtbarkeits-Probe wiederverwendet).
 
 ## 5. Datenbankmodell (Entity Framework Core Schema)
 
