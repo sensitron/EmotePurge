@@ -20,7 +20,7 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/channel-workspace/channel-workspace-layout').then((m) => m.ChannelWorkspaceLayout),
         children: [
-          { path: '', redirectTo: 'vote-sessions', pathMatch: 'full' },
+          { path: '', redirectTo: 'usage-stats', pathMatch: 'full' },
           {
             // Management tool — must actually be allowed to manage THIS channel, not just be
             // logged in (channelManagementGuard), unlike the vote-session pages below.
