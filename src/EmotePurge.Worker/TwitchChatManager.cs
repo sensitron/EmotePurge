@@ -11,11 +11,21 @@ public class TwitchChatManager(
     IEmoteMatchCache emoteMatchCache,
     IEmoteUsageCounter usageCounter) : ITwitchChatManager
 {
-    private readonly TwitchClient _client = new();
+    // Live beobachtet 2026-07-26: Nach einem "Fatal network error" in OnConnectionError blieb
+    // die zugrunde liegende TwitchLib-WebSocket-Verbindung dauerhaft in einem kaputten Zustand,
+    // aus dem ReconnectAsync() auf demselben Client-Objekt nie mehr herauskam (>45 Min. Ausfall,
+    // jeder Reconnect-Versuch scheiterte identisch, obwohl TCP/DNS/TLS nachweislich intakt waren).
+    // Ab dieser Zahl aufeinanderfolgender Fehler wird der komplette TwitchClient neu instanziiert
+    // statt nur reconnectet.
+    private const int MaxConsecutiveConnectionErrorsBeforeRecreate = 3;
+
     private readonly ConcurrentDictionary<string, byte> _joinedChannels = new();
+    private readonly SemaphoreSlim _reconnectLock = new(1, 1);
+    private TwitchClient _client = new();
     private bool _connected;
     private volatile bool _isConnected;
     private long _lastMessageReceivedUtcTicks;
+    private int _consecutiveConnectionErrors;
 
     public bool IsConnected => _isConnected;
 
@@ -30,15 +40,7 @@ public class TwitchChatManager(
 
     public void Initialize()
     {
-        _client.Initialize(new ConnectionCredentials()); // anonym/read-only
-        _client.OnConnected += OnConnected;
-        _client.OnReconnected += OnReconnected;
-        _client.OnDisconnected += OnDisconnected;
-        _client.OnFailureToReceiveJoinConfirmation += OnFailureToReceiveJoinConfirmation;
-        _client.OnConnectionError += OnConnectionError;
-        _client.OnJoinedChannel += OnJoinedChannel;
-        _client.OnLeftChannel += OnLeftChannel;
-        _client.OnMessageReceived += OnMessageReceived;
+        WireUpClient(_client);
     }
 
     public async Task ConnectAsync()
@@ -49,8 +51,72 @@ public class TwitchChatManager(
 
     public async Task ForceReconnectAsync()
     {
-        // OnReconnected rejoint bereits alle _joinedChannels — kein Duplizieren der Rejoin-Logik nötig.
-        await _client.ReconnectAsync();
+        await _reconnectLock.WaitAsync();
+        try
+        {
+            if (_consecutiveConnectionErrors >= MaxConsecutiveConnectionErrorsBeforeRecreate)
+            {
+                await RecreateClientAsync();
+                return;
+            }
+
+            // OnReconnected rejoint bereits alle _joinedChannels — kein Duplizieren der Rejoin-Logik nötig.
+            await _client.ReconnectAsync();
+        }
+        finally
+        {
+            _reconnectLock.Release();
+        }
+    }
+
+    private async Task RecreateClientAsync()
+    {
+        logger.LogWarning(
+            "{Count} aufeinanderfolgende Verbindungsfehler — TwitchClient wird komplett neu instanziiert statt nur reconnectet.",
+            _consecutiveConnectionErrors);
+
+        var oldClient = _client;
+        UnwireClient(oldClient);
+        try
+        {
+            await oldClient.DisconnectAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Aufräumen des alten TwitchClient beim Neu-Erstellen fehlgeschlagen (ignoriert).");
+        }
+
+        var newClient = new TwitchClient();
+        WireUpClient(newClient);
+        _client = newClient;
+        _consecutiveConnectionErrors = 0;
+
+        await _client.ConnectAsync();
+    }
+
+    private void WireUpClient(TwitchClient client)
+    {
+        client.Initialize(new ConnectionCredentials()); // anonym/read-only
+        client.OnConnected += OnConnected;
+        client.OnReconnected += OnReconnected;
+        client.OnDisconnected += OnDisconnected;
+        client.OnFailureToReceiveJoinConfirmation += OnFailureToReceiveJoinConfirmation;
+        client.OnConnectionError += OnConnectionError;
+        client.OnJoinedChannel += OnJoinedChannel;
+        client.OnLeftChannel += OnLeftChannel;
+        client.OnMessageReceived += OnMessageReceived;
+    }
+
+    private void UnwireClient(TwitchClient client)
+    {
+        client.OnConnected -= OnConnected;
+        client.OnReconnected -= OnReconnected;
+        client.OnDisconnected -= OnDisconnected;
+        client.OnFailureToReceiveJoinConfirmation -= OnFailureToReceiveJoinConfirmation;
+        client.OnConnectionError -= OnConnectionError;
+        client.OnJoinedChannel -= OnJoinedChannel;
+        client.OnLeftChannel -= OnLeftChannel;
+        client.OnMessageReceived -= OnMessageReceived;
     }
 
     public async Task JoinChannelAsync(string channelName)
@@ -98,6 +164,7 @@ public class TwitchChatManager(
     private Task OnConnected(object? sender, OnConnectedEventArgs e)
     {
         _isConnected = true;
+        Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
         logger.LogInformation("TwitchClient verbunden.");
         return Task.CompletedTask;
     }
@@ -125,6 +192,7 @@ public class TwitchChatManager(
 
     private Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
     {
+        Interlocked.Increment(ref _consecutiveConnectionErrors);
         logger.LogWarning(
             "TwitchClient-Verbindungsfehler für {BotUsername}: {Error}",
             e.BotUsername, e.Error.Message);
@@ -134,6 +202,7 @@ public class TwitchChatManager(
     private async Task OnReconnected(object? sender, OnConnectedEventArgs e)
     {
         _isConnected = true;
+        Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
         var channels = _joinedChannels.Keys.ToArray();
         logger.LogWarning("TwitchClient reconnected, rejoine {Count} Channel(s).", channels.Length);
 
