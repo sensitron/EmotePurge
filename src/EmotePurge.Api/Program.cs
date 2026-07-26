@@ -10,6 +10,7 @@ using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +49,17 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+// Hinter einem host-level Reverse Proxy (TLS-Termination) erreicht die Verbindung den Container
+// über die Docker-Bridge-Gateway-IP, nicht über Loopback — Default-Trust von ForwardedHeadersMiddleware
+// (nur Loopback) würde X-Forwarded-Proto sonst ignorieren. Sicher, weil der Container ausschließlich
+// über einen 127.0.0.1-gebundenen Host-Port erreichbar ist (einzig möglicher Absender ist der lokale Proxy).
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    KnownIPNetworks = { },
+    KnownProxies = { }
+});
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
