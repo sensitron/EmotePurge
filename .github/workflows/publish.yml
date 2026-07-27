@@ -9,7 +9,26 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      # Testcontainers pulls postgres:16-alpine/redis:7.2-alpine and needs the Docker daemon
+      # that ubuntu-latest runners already ship with.
+      - name: Run tests
+        run: dotnet test EmotePurge.slnx --configuration Release
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

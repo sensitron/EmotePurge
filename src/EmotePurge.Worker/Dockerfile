@@ -27,5 +27,8 @@ RUN dotnet publish "EmotePurge.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/pu
 
 FROM base AS final
 WORKDIR /app
+RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
 COPY --from=publish /app/publish .
+RUN chown -R appuser:appgroup /app
+USER appuser
 ENTRYPOINT ["dotnet", "EmotePurge.Worker.dll"]

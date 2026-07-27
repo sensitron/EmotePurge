@@ -5,4 +5,7 @@
     <Project Path="src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj" />
     <Project Path="src/EmotePurge.Worker/EmotePurge.Worker.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EmotePurge.Infrastructure.Tests/EmotePurge.Infrastructure.Tests.csproj" />
+  </Folder>
 </Solution>
