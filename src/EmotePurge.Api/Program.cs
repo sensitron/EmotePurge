@@ -11,7 +11,9 @@ using EmotePurge.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using StackExchange.Redis;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,6 +44,26 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 
+// Applied only to endpoints that trigger expensive downstream work per call (Twitch IRC join,
+// 7TV sync, DB writes) — not a blanket API-wide limit. Partitioned by authenticated user (all
+// three endpoints require auth already), falling back to the remote IP just in case.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("ExpensiveOps", httpContext =>
+    {
+        var partitionKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        });
+    });
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -62,9 +84,34 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 });
 
 app.UseHttpsRedirection();
+
+// Security headers on every response. CSP allow-lists are deliberately narrow: connect-src covers
+// the frontend's direct browser calls to 7TV (mass-delete GraphQL mutations bypass the API on
+// purpose, s. CLAUDE.md "Zero-Knowledge für Schreib-Tokens"), img-src covers the 7TV CDN that
+// serves emote preview images embedded via Emote.ImageUrl.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    headers["Content-Security-Policy"] =
+        "default-src 'self'; " +
+        "script-src 'self'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: https://*.7tv.app https://7tv.io; " +
+        "connect-src 'self' https://7tv.io; " +
+        "font-src 'self'; " +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "frame-ancestors 'none'";
+    await next();
+});
+
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapGet("/api/channels/{channelName}", async (
     string channelName,
@@ -131,13 +178,19 @@ app.MapPost("/api/channels/{channelName}/join", async (
     return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
 })
 .RequireAuthorization()
-.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+.RequireRateLimiting("ExpensiveOps");
 
 app.MapDelete("/api/channels/{channelName}", async (
     string channelName,
     IChannelService channelService,
     CancellationToken ct) =>
 {
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
     var removed = await channelService.LeaveAsync(channelName, ct);
     return removed ? Results.NoContent() : Results.NotFound();
 })
@@ -150,6 +203,11 @@ app.MapPost("/api/channels/{channelName}/emotes/sync-deleted", async (
     IEmoteService emoteService,
     CancellationToken ct) =>
 {
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
     if (request.EmoteIds is null || request.EmoteIds.Count == 0)
     {
         return Results.BadRequest(new { error = "EmoteIds must not be empty." });
@@ -159,7 +217,8 @@ app.MapPost("/api/channels/{channelName}/emotes/sync-deleted", async (
     return Results.Ok(new { archivedCount = result.ArchivedCount, notFoundIds = result.NotFoundIds });
 })
 .RequireAuthorization()
-.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+.RequireRateLimiting("ExpensiveOps");
 
 app.MapGet("/api/channels/{channelName}/usage-stats", async (
     string channelName,
@@ -173,7 +232,9 @@ app.MapGet("/api/channels/{channelName}/usage-stats", async (
 
     var stats = await usageStatQueryService.GetUsageStatsAsync(channelName, ct);
     return Results.Ok(stats);
-});
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
 app.MapGet("/api/channels/{channelName}/usage-stats/totals", async (
     string channelName,
@@ -364,7 +425,8 @@ app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/votes", 
     };
 })
 .RequireAuthorization()
-.AddEndpointFilter<VoteEligibilityFilter>();
+.AddEndpointFilter<VoteEligibilityFilter>()
+.RequireRateLimiting("ExpensiveOps");
 
 const string OAuthStateCookieName = "ep_oauth_state";
 const string TwitchOAuthScope = "user:read:email user:read:moderated_channels user:read:subscriptions";
