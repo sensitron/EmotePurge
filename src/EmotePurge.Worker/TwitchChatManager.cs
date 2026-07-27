@@ -20,6 +20,15 @@ public class TwitchChatManager(
     // statt nur reconnectet.
     private const int MaxConsecutiveConnectionErrorsBeforeRecreate = 3;
 
+    // Live beobachtet 2026-07-27, zwei unabhängige Umgebungen (lokal + VPS): der erste
+    // "Fatal network error" trat in beiden Läufen exakt beim 10. erzwungenen Reconnect derselben
+    // anonymen justinfanXXXXX-Identität auf (unterschiedliche Gesamtlaufzeit, aber identische
+    // Versuchsanzahl) — spricht für ein zählbasiertes Twitch-seitiges Limit pro Identität, nicht
+    // für ein Zeitfenster. Recreate erzeugt eine neue zufällige Identität und setzt den Zähler
+    // zurück. Schwelle mit Sicherheitsmarge unter dem beobachteten Wert, um den Fehler proaktiv
+    // zu vermeiden statt ihn erst über 3 Fehlversuche (s. o.) abzufangen.
+    private const int MaxReconnectsBeforeProactiveRecreate = 8;
+
     private readonly ConcurrentDictionary<string, byte> _joinedChannels = new();
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
     private TwitchClient _client = new(loggerFactory: loggerFactory);
@@ -27,6 +36,7 @@ public class TwitchChatManager(
     private volatile bool _isConnected;
     private long _lastMessageReceivedUtcTicks;
     private int _consecutiveConnectionErrors;
+    private int _reconnectCountSinceCreation;
 
     public bool IsConnected => _isConnected;
 
@@ -57,9 +67,25 @@ public class TwitchChatManager(
         {
             if (_consecutiveConnectionErrors >= MaxConsecutiveConnectionErrorsBeforeRecreate)
             {
+                logger.LogWarning(
+                    "Recreate ausgelöst durch {Count} aufeinanderfolgende Verbindungsfehler.",
+                    _consecutiveConnectionErrors);
                 await RecreateClientAsync();
                 return;
             }
+
+            if (_reconnectCountSinceCreation >= MaxReconnectsBeforeProactiveRecreate)
+            {
+                logger.LogWarning(
+                    "Proaktives Recreate ausgelöst: {Count} Reconnects seit letzter Client-Erzeugung erreicht (Schwelle {Max}).",
+                    _reconnectCountSinceCreation, MaxReconnectsBeforeProactiveRecreate);
+                await RecreateClientAsync();
+                return;
+            }
+
+            logger.LogInformation(
+                "Erzwinge Reconnect (Versuch Nr. {Count} seit letzter Client-Erzeugung).",
+                _reconnectCountSinceCreation + 1);
 
             // OnReconnected rejoint bereits alle _joinedChannels — kein Duplizieren der Rejoin-Logik nötig.
             await _client.ReconnectAsync();
@@ -91,6 +117,7 @@ public class TwitchChatManager(
         WireUpClient(newClient);
         _client = newClient;
         _consecutiveConnectionErrors = 0;
+        _reconnectCountSinceCreation = 0;
 
         await _client.ConnectAsync();
 
@@ -215,6 +242,10 @@ public class TwitchChatManager(
     {
         _isConnected = true;
         Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        var count = Interlocked.Increment(ref _reconnectCountSinceCreation);
+        logger.LogInformation(
+            "TwitchClient reconnected (Reconnect Nr. {Count} seit letzter Client-Erzeugung, Schwelle für proaktives Recreate: {Max}).",
+            count, MaxReconnectsBeforeProactiveRecreate);
         await RejoinTrackedChannelsAsync();
     }
 
