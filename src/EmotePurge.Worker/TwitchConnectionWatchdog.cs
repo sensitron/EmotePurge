@@ -12,6 +12,15 @@ public class TwitchConnectionWatchdog(
     // fälschlich als Freeze zu werten — bekannte Grenze bei Channels mit wirklich seltener Chat-Aktivität.
     private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(5);
 
+    // Live beobachtet 2026-07-26: Ein erzwungener Reconnect aktualisiert LastMessageReceivedUtc nicht
+    // (das passiert nur bei einer tatsächlich empfangenen Chat-Nachricht) — auf Channels ohne Chat
+    // (z. B. weil der Broadcaster offline ist) feuerte CheckOnceAsync dadurch bei JEDEM Tick erneut,
+    // also im 60-Sekunden-Takt auf unbegrenzte Zeit, statt nur einmalig. Dieser Reconnect-Sturm gegen
+    // Twitch IRC ist der wahrscheinlichste Auslöser der anschließend beobachteten dauerhaften
+    // "Fatal network error"-Fehlschläge. Dieselbe Schwelle wie StaleThreshold dient hier als Cooldown
+    // zwischen zwei erzwungenen Reconnects, unabhängig davon, ob inzwischen wieder eine Nachricht kam.
+    private DateTime? _lastForcedReconnectUtc;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(CheckInterval);
@@ -37,9 +46,18 @@ public class TwitchConnectionWatchdog(
                 return;
             }
 
+            var sinceLastForcedReconnect = _lastForcedReconnectUtc is null
+                ? (TimeSpan?)null
+                : DateTime.UtcNow - _lastForcedReconnectUtc.Value;
+            if (sinceLastForcedReconnect is not null && sinceLastForcedReconnect < StaleThreshold)
+            {
+                return; // Cooldown aktiv — erst kürzlich reconnectet, ohne dass seitdem eine Nachricht kam.
+            }
+
             logger.LogWarning(
                 "Keine Chat-Nachricht seit {IdleSeconds}s empfangen (Schwelle {ThresholdSeconds}s), erzwinge Reconnect.",
                 (int)idleFor.TotalSeconds, (int)StaleThreshold.TotalSeconds);
+            _lastForcedReconnectUtc = DateTime.UtcNow;
             await twitchChatManager.ForceReconnectAsync();
         }
         catch (Exception ex)
