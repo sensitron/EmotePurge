@@ -2,6 +2,7 @@ import { DatePipe, DecimalPipe, NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { Observable } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
@@ -105,25 +106,23 @@ const ROW_HEIGHT_PX = 176;
             [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
           >
             @for (emote of row; track emote.emoteId; let colIndex = $index) {
-              <div class="flex h-40 flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center">
-                <app-emote-card-header
-                  [name]="emote.emoteName"
-                  [checked]="selection.isSelected(emote)"
-                  [showCheckbox]="canManage()"
-                  (checkboxClick)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
-                />
+              <div
+                class="flex h-40 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center transition hover:bg-slate-800/70"
+                (click)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
+              >
+                <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" [showCheckbox]="canManage()" />
                 <div class="flex h-10 shrink-0 items-center justify-center">
                   <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
                 </div>
                 <span class="text-xs text-slate-500">{{ emote.totalUseCount }}x · {{ emote.score | number: '1.0-1' }}</span>
-                <div class="flex items-center justify-center gap-1">
+                <div class="mt-auto flex items-center justify-center gap-1" (click)="$event.stopPropagation()">
                   <button
                     type="button"
                     class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
                     [class]="emote.myVote === voteType.Keep ? 'text-emerald-400' : 'text-slate-500'"
                     (click)="vote(emote, voteType.Keep)"
                     aria-label="Behalten"
-                    [attr.title]="'Behalten (' + emote.keepVotes + ')'"
+                    [attr.title]="(emote.myVote === voteType.Keep ? 'Vote zurücknehmen' : 'Behalten') + ' (' + emote.keepVotes + ')'"
                   >
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                       <path
@@ -138,7 +137,7 @@ const ROW_HEIGHT_PX = 176;
                     [class]="emote.myVote === voteType.Delete ? 'text-red-400' : 'text-slate-500'"
                     (click)="vote(emote, voteType.Delete)"
                     aria-label="Löschen vorschlagen"
-                    [attr.title]="'Löschen vorschlagen (' + emote.deleteVotes + ')'"
+                    [attr.title]="(emote.myVote === voteType.Delete ? 'Vote zurücknehmen' : 'Löschen vorschlagen') + ' (' + emote.deleteVotes + ')'"
                   >
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="transform: rotate(180deg)">
                       <path
@@ -271,7 +270,15 @@ export class VoteSessionDetailPage {
     }
 
     this.errorMessage.set(null);
-    this.voteSessionService.castVote(this.channelName(), Number(this.sessionId()), emote.emoteId, type).subscribe({
+
+    // Clicking the same vote type again retracts it, returning the emote to the neutral state —
+    // otherwise a Keep vote could only ever be overwritten by a Delete vote, never undone.
+    const request$: Observable<unknown> =
+      emote.myVote === type
+        ? this.voteSessionService.retractVote(this.channelName(), Number(this.sessionId()), emote.emoteId)
+        : this.voteSessionService.castVote(this.channelName(), Number(this.sessionId()), emote.emoteId, type);
+
+    request$.subscribe({
       next: () => this.load({ freeze: false }),
       error: (error: HttpErrorResponse) => this.handleVoteError(error),
     });

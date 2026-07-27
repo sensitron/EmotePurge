@@ -428,6 +428,31 @@ app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/votes", 
 .AddEndpointFilter<VoteEligibilityFilter>()
 .RequireRateLimiting("ExpensiveOps");
 
+app.MapDelete("/api/channels/{channelName}/vote-sessions/{sessionId:long}/votes/{emoteId}", async (
+    string channelName,
+    long sessionId,
+    string emoteId,
+    IVoteSessionService voteSessionService,
+    HttpContext httpContext,
+    CancellationToken ct) =>
+{
+    // VoteEligibilityFilter already required an authenticated principal to reach this handler.
+    var twitchUserId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var result = await voteSessionService.RetractVoteAsync(channelName, sessionId, emoteId, twitchUserId, ct);
+
+    return result switch
+    {
+        VoteCastResult.Success => Results.NoContent(),
+        VoteCastResult.ChannelNotFound => Results.NotFound(new { error = "Channel not found." }),
+        VoteCastResult.SessionNotFound => Results.NotFound(new { error = "Vote session not found." }),
+        VoteCastResult.SessionEnded => Results.Conflict(new { error = "Vote session has ended." }),
+        _ => Results.Problem()
+    };
+})
+.RequireAuthorization()
+.AddEndpointFilter<VoteEligibilityFilter>()
+.RequireRateLimiting("ExpensiveOps");
+
 const string OAuthStateCookieName = "ep_oauth_state";
 const string TwitchOAuthScope = "user:read:email user:read:moderated_channels user:read:subscriptions";
 

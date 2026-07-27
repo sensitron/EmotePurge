@@ -47,4 +47,9 @@ export class VoteSessionService {
       type,
     });
   }
+
+  // Returns the emote to the neutral (unvoted) state — clicking the same vote button again.
+  retractVote(channelName: string, sessionId: number, emoteId: string): Observable<void> {
+    return this.http.delete<void>(`/api/channels/${channelName}/vote-sessions/${sessionId}/votes/${emoteId}`);
+  }
 }

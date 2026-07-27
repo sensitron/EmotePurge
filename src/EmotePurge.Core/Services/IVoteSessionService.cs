@@ -23,4 +23,9 @@ public interface IVoteSessionService
 
     Task<(VoteCastResult Result, Vote? Vote)> CastVoteAsync(
         string channelName, long sessionId, string emoteId, string voterTwitchUserId, VoteType type, CancellationToken cancellationToken = default);
+
+    // Removes the caller's vote for this emote, returning to the neutral (unvoted) state. Idempotent
+    // no-op (still Success) if no vote existed — mirrors EndAsync's idempotency.
+    Task<VoteCastResult> RetractVoteAsync(
+        string channelName, long sessionId, string emoteId, string voterTwitchUserId, CancellationToken cancellationToken = default);
 }

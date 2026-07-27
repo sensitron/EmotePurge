@@ -126,4 +126,37 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
         await db.SaveChangesAsync(cancellationToken);
         return (VoteCastResult.Success, vote);
     }
+
+    public async Task<VoteCastResult> RetractVoteAsync(
+        string channelName, long sessionId, string emoteId, string voterTwitchUserId, CancellationToken cancellationToken = default)
+    {
+        var normalized = channelName.Trim().ToLowerInvariant();
+        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        if (channel is null)
+        {
+            return VoteCastResult.ChannelNotFound;
+        }
+
+        var session = await db.VoteSessions.SingleOrDefaultAsync(
+            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
+        if (session is null)
+        {
+            return VoteCastResult.SessionNotFound;
+        }
+
+        if (!session.IsActive)
+        {
+            return VoteCastResult.SessionEnded;
+        }
+
+        var vote = await db.Votes.SingleOrDefaultAsync(
+            v => v.VoteSessionId == sessionId && v.EmoteId == emoteId && v.UserId == voterTwitchUserId, cancellationToken);
+        if (vote is not null)
+        {
+            db.Votes.Remove(vote);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return VoteCastResult.Success;
+    }
 }
