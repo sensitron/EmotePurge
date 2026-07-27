@@ -42,8 +42,11 @@ services:
       dockerfile: src/EmotePurge.Api/Dockerfile
     container_name: emotepurge-api
     restart: unless-stopped
+    # Loopback-gebunden wie redis/postgres oben — ForwardedHeadersMiddleware in Program.cs
+    # vertraut X-Forwarded-Proto/-For ohne KnownProxies-Einschränkung, was voraussetzt, dass
+    # der Container nicht direkt aus einem unvertrauten Netz erreichbar ist.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}

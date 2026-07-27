@@ -26,6 +26,9 @@ RUN dotnet publish "EmotePurge.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publi
 
 FROM base AS final
 WORKDIR /app
+RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
 COPY --from=publish /app/publish .
 COPY --from=web-build /web/dist/web/browser ./wwwroot
+RUN chown -R appuser:appgroup /app
+USER appuser
 ENTRYPOINT ["dotnet", "EmotePurge.Api.dll"]
