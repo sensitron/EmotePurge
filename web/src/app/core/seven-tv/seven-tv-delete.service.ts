@@ -118,6 +118,9 @@ export class SevenTvDeleteService {
 
   private describeHttpError(error: HttpErrorResponse): string {
     if (error.status === 401 || error.status === 403) {
+      // Invalid/expired token — drop it so the UI falls back to the token-input prompt instead
+      // of silently reusing the same bad token on the next delete attempt.
+      this.tokenService.clearToken();
       return 'Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.';
     }
     if (error.status === 429) {
