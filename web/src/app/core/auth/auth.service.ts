@@ -36,14 +36,20 @@ export class AuthService {
 
   /**
    * Full browser navigation, not an HttpClient call — Twitch OAuth needs a real redirect.
-   * `returnUrl` is stashed so an anonymous share-link visitor (e.g. a vote-session page) lands
-   * back where they started instead of the fixed post-login redirect the backend always uses.
+   * `returnUrl` is stashed so the visitor lands back where they started (e.g. a vote-session page
+   * they were redirected away from by a guard) instead of the fixed post-login redirect the
+   * backend always uses.
    */
   login(returnUrl?: string): void {
     if (returnUrl) {
-      sessionStorage.setItem(RETURN_URL_STORAGE_KEY, returnUrl);
+      this.stashReturnUrl(returnUrl);
     }
     window.location.href = '/api/auth/twitch/login';
+  }
+
+  /** Stashes a URL to return to after login — used by route guards before redirecting to /login. */
+  stashReturnUrl(returnUrl: string): void {
+    sessionStorage.setItem(RETURN_URL_STORAGE_KEY, returnUrl);
   }
 
   /** Reads and clears the stashed return URL, if any — consumed once by AppShell after login. */

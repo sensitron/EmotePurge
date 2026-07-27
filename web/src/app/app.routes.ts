@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 
 import { authGuard } from './core/auth/auth.guard';
 import { channelManagementGuard } from './core/channels/channel-management.guard';
+import { voteSessionAccessGuard } from './core/voting/vote-session-access.guard';
 import { LoginPage } from './features/login/login-page';
 
 export const routes: Routes = [
@@ -29,17 +30,19 @@ export const routes: Routes = [
             canActivate: [channelManagementGuard],
           },
           {
-            // Deliberately no authGuard — vote-session pages must be viewable (and shareable)
-            // by anonymous visitors; login is triggered from inside the page (the vote button),
-            // not by a route redirect.
+            // Requires login only — the list itself has no per-session role restriction.
             path: 'vote-sessions',
             loadComponent: () =>
               import('./features/voting/vote-session-list-page').then((m) => m.VoteSessionListPage),
+            canActivate: [authGuard],
           },
           {
+            // Requires login AND being part of this specific session's target audience
+            // (voteSessionAccessGuard — anonymous share-link viewing was removed, see decision log).
             path: 'vote-sessions/:sessionId',
             loadComponent: () =>
               import('./features/voting/vote-session-detail-page').then((m) => m.VoteSessionDetailPage),
+            canActivate: [voteSessionAccessGuard],
           },
         ],
       },

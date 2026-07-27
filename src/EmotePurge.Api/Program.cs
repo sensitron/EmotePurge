@@ -236,7 +236,12 @@ app.MapPost("/api/channels/{channelName}/vote-sessions", async (
         return Results.BadRequest(new { error = "AllowedRoles.VIPs is not supported yet (no Twitch self-check API available)." });
     }
 
-    var session = await voteSessionService.CreateAsync(channelName, request.Title, request.AllowedVoterRoles, ct);
+    if (request.StartedAt is { } startedAt && startedAt > DateTime.UtcNow)
+    {
+        return Results.BadRequest(new { error = "StartedAt must not be in the future." });
+    }
+
+    var session = await voteSessionService.CreateAsync(channelName, request.Title, request.AllowedVoterRoles, request.StartedAt, ct);
     if (session is null)
     {
         return Results.NotFound(new { error = "Channel not joined." });
@@ -266,7 +271,10 @@ app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/end", as
 
 app.MapGet("/api/channels/{channelName}/vote-sessions", async (
     string channelName,
+    HttpContext httpContext,
     IVoteSessionQueryService voteSessionQueryService,
+    IChannelAccessService channelAccessService,
+    IVoteEligibilityService voteEligibilityService,
     CancellationToken ct) =>
 {
     if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
@@ -274,9 +282,37 @@ app.MapGet("/api/channels/{channelName}/vote-sessions", async (
         return Results.BadRequest(new { error = "Invalid Twitch channel name." });
     }
 
+    var principal = httpContext.User.TryBuildTwitchPrincipal();
+    if (principal is null)
+    {
+        return Results.Unauthorized();
+    }
+
     var sessions = await voteSessionQueryService.ListSessionsAsync(channelName, ct);
-    return Results.Ok(sessions);
-});
+
+    // Managers (admin/broadcaster/live-moderator) see every session unfiltered — same standing as
+    // the "Neue Abstimmung erstellen" section. Everyone else only sees sessions they're personally
+    // part of the audience for (VoteEligibilityService.EvaluateAudienceAsync, same check used to
+    // gate the results page) — a session a viewer has no rights to shouldn't even reveal its
+    // existence to them.
+    if (await channelAccessService.CanManageChannelAsync(principal, channelName, ct))
+    {
+        return Results.Ok(sessions);
+    }
+
+    var visibleSessions = new List<VoteSessionSummaryDto>();
+    foreach (var session in sessions)
+    {
+        var eligibility = await voteEligibilityService.EvaluateAudienceAsync(principal, channelName, session.Id, ct);
+        if (eligibility == VoteEligibilityResult.Allowed)
+        {
+            visibleSessions.Add(session);
+        }
+    }
+
+    return Results.Ok(visibleSessions);
+})
+.RequireAuthorization();
 
 app.MapGet("/api/channels/{channelName}/vote-sessions/{sessionId:long}/results", async (
     string channelName,
@@ -285,12 +321,15 @@ app.MapGet("/api/channels/{channelName}/vote-sessions/{sessionId:long}/results",
     IVoteSessionQueryService voteSessionQueryService,
     CancellationToken ct) =>
 {
-    // Deliberately no RequireAuthorization()/filter here — anonymous share-link visitors must be
-    // able to see results. The viewer principal is only used, if present, to fill in "MyVote".
-    var viewerTwitchUserId = httpContext.User.TryBuildTwitchPrincipal()?.TwitchUserId;
+    // VoteAudienceFilter already required an authenticated, in-audience principal to reach this
+    // handler — anonymous viewing was removed (see decision log). MyVote is filled in from the
+    // now-guaranteed-present principal.
+    var viewerTwitchUserId = httpContext.User.TryBuildTwitchPrincipal()!.TwitchUserId;
     var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, viewerTwitchUserId, ct);
     return results is null ? Results.NotFound() : Results.Ok(results);
-});
+})
+.RequireAuthorization()
+.AddEndpointFilter<VoteAudienceFilter>();
 
 app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/votes", async (
     string channelName,
@@ -456,6 +495,6 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 internal sealed record WorkerHealthPayload(bool IsConnected, DateTime? LastMessageReceivedUtc);
-internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles);
+internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles, DateTime? StartedAt = null);
 internal sealed record CastVoteRequest(string EmoteId, VoteType Type);
 internal sealed record SyncDeletedRequest(IReadOnlyList<string> EmoteIds);

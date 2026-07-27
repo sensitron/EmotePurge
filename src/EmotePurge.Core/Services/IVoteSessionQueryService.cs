@@ -15,7 +15,8 @@ public interface IVoteSessionQueryService
     Task<IReadOnlyList<VoteSessionSummaryDto>> ListSessionsAsync(string channelName, CancellationToken cancellationToken = default);
 
     // null = channel or session not found / session doesn't belong to that channel.
-    // viewerTwitchUserId is optional — this endpoint stays reachable by anonymous share-link
-    // visitors; when supplied, each result row's MyVote reflects that viewer's own vote (or null).
+    // viewerTwitchUserId is optional at this service layer (kept nullable for testability), but the
+    // Api endpoint always supplies it now — VoteAudienceFilter guarantees an authenticated viewer
+    // before this is called, so each result row's MyVote reflects that viewer's own vote.
     Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, CancellationToken cancellationToken = default);
 }

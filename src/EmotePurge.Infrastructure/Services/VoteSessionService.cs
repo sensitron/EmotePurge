@@ -7,7 +7,7 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class VoteSessionService(AppDbContext db) : IVoteSessionService
 {
-    public async Task<VoteSession?> CreateAsync(string channelName, string title, AllowedRoles allowedVoterRoles, CancellationToken cancellationToken = default)
+    public async Task<VoteSession?> CreateAsync(string channelName, string title, AllowedRoles allowedVoterRoles, DateTime? startedAt = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(title))
         {
@@ -24,6 +24,11 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             throw new ArgumentException("AllowedRoles.VIPs is not supported (no Twitch self-check API available).", nameof(allowedVoterRoles));
         }
 
+        if (startedAt is { } requestedStartedAt && requestedStartedAt > DateTime.UtcNow)
+        {
+            throw new ArgumentException("StartedAt must not be in the future.", nameof(startedAt));
+        }
+
         var normalized = channelName.Trim().ToLowerInvariant();
         var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)
@@ -35,7 +40,8 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
         {
             ChannelId = channel.Id,
             Title = title.Trim(),
-            AllowedVoterRoles = allowedVoterRoles
+            AllowedVoterRoles = allowedVoterRoles,
+            StartedAt = startedAt ?? DateTime.UtcNow
         };
         db.VoteSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);

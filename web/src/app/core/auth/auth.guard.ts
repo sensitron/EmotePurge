@@ -4,11 +4,17 @@ import { map } from 'rxjs';
 
 import { AuthService } from './auth.service';
 
-export const authGuard: CanActivateFn = () => {
+export const authGuard: CanActivateFn = (_route, state) => {
   const authService = inject(AuthService);
   const router = inject(Router);
 
-  return authService
-    .ensureLoaded()
-    .pipe(map((user) => (user ? true : router.createUrlTree(['/login']))));
+  return authService.ensureLoaded().pipe(
+    map((user) => {
+      if (user) {
+        return true;
+      }
+      authService.stashReturnUrl(state.url);
+      return router.createUrlTree(['/login']);
+    }),
+  );
 };
