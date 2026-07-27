@@ -1,16 +1,26 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, effect, inject, input, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
+import { AbstractControl, FormControl, ReactiveFormsModule, ValidationErrors } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
 import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
+import { DateTimePicker } from '../../shared/datetime/datetime-picker';
+
+function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
+  return control.value?.trim().length > 0 ? null : { required: true };
+}
+
+function toLocalDateTimeInputValue(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 @Component({
   selector: 'app-vote-session-list-page',
-  imports: [ReactiveFormsModule, RouterLink],
+  imports: [ReactiveFormsModule, RouterLink, DateTimePicker],
   template: `
     <div class="flex flex-col gap-6">
       @if (canManage()) {
@@ -23,28 +33,42 @@ import { VoteSessionService } from '../../core/voting/vote-session.service';
               placeholder="Titel, z.B. Monats-Aufräumaktion Juli"
               class="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-600 focus:border-purple-500 focus:outline-none"
             />
-            <div class="flex flex-wrap gap-4 text-sm text-slate-300">
+            @if (titleControl.invalid && titleControl.touched) {
+              <p class="text-xs text-red-400">Titel darf nicht leer sein.</p>
+            }
+            <div class="flex gap-4 text-sm text-slate-300">
               <label class="flex items-center gap-2">
-                <input type="checkbox" [checked]="allowEveryone()" (change)="allowEveryone.set($any($event.target).checked)" />
+                <input
+                  type="radio"
+                  name="audience"
+                  [checked]="selectedAudience() === 'everyone'"
+                  (change)="selectedAudience.set('everyone')"
+                />
                 Alle
               </label>
               <label class="flex items-center gap-2">
-                <input type="checkbox" [checked]="allowSubs()" (change)="allowSubs.set($any($event.target).checked)" />
-                Subs
-              </label>
-              <label class="flex items-center gap-2">
-                <input type="checkbox" [checked]="allowMods()" (change)="allowMods.set($any($event.target).checked)" />
-                Mods
+                <input
+                  type="radio"
+                  name="audience"
+                  [checked]="selectedAudience() === 'subs'"
+                  (change)="selectedAudience.set('subs')"
+                />
+                Nur Subs
               </label>
               <label class="flex items-center gap-2">
                 <input
-                  type="checkbox"
-                  [checked]="allowBroadcaster()"
-                  (change)="allowBroadcaster.set($any($event.target).checked)"
+                  type="radio"
+                  name="audience"
+                  [checked]="selectedAudience() === 'mods'"
+                  (change)="selectedAudience.set('mods')"
                 />
-                Broadcaster
+                Nur Mods/Streamer
               </label>
             </div>
+            <label class="flex flex-col gap-1 text-sm text-slate-300">
+              Zählung ab (optional, Standard: jetzt)
+              <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" placeholder="Jetzt (Standard)" />
+            </label>
             <button
               type="button"
               class="self-start rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-500"
@@ -78,6 +102,13 @@ import { VoteSessionService } from '../../core/voting/vote-session.service';
                 <button type="button" class="text-slate-400 hover:underline" (click)="copyShareLink(session.id)">
                   Link kopieren
                 </button>
+                @if (copyFeedback(); as feedback) {
+                  @if (feedback.sessionId === session.id) {
+                    <span [class]="feedback.status === 'copied' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'">
+                      {{ feedback.status === 'copied' ? '✓ Kopiert' : 'Kopieren fehlgeschlagen' }}
+                    </span>
+                  }
+                }
                 @if (canManage() && session.isActive) {
                   <button type="button" class="text-red-400 hover:underline" (click)="endSession(session.id)">
                     Beenden
@@ -104,11 +135,13 @@ export class VoteSessionListPage {
   protected readonly canManage = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
-  protected readonly titleControl = new FormControl('', { nonNullable: true, validators: [Validators.required] });
-  protected readonly allowEveryone = signal(true);
-  protected readonly allowSubs = signal(false);
-  protected readonly allowMods = signal(false);
-  protected readonly allowBroadcaster = signal(false);
+  protected readonly titleControl = new FormControl('', { nonNullable: true, validators: [requiredTrimmed] });
+  protected readonly selectedAudience = signal<'everyone' | 'subs' | 'mods'>('everyone');
+  protected readonly customStartedAt = signal('');
+  protected readonly maxStartedAt = toLocalDateTimeInputValue(new Date());
+
+  protected readonly copyFeedback = signal<{ sessionId: number; status: 'copied' | 'error' } | null>(null);
+  private copyFeedbackTimeout?: ReturnType<typeof setTimeout>;
 
   constructor() {
     // Deferred, not called directly — `channelName()` is a required route-bound input and isn't
@@ -137,29 +170,21 @@ export class VoteSessionListPage {
       return;
     }
 
-    let roles = 0;
-    if (this.allowEveryone()) {
-      roles |= AllowedRoles.Everyone;
-    }
-    if (this.allowSubs()) {
-      roles |= AllowedRoles.Subs;
-    }
-    if (this.allowMods()) {
-      roles |= AllowedRoles.Mods;
-    }
-    if (this.allowBroadcaster()) {
-      roles |= AllowedRoles.Broadcaster;
-    }
+    const roles =
+      this.selectedAudience() === 'subs'
+        ? AllowedRoles.Subs
+        : this.selectedAudience() === 'mods'
+          ? AllowedRoles.Mods | AllowedRoles.Broadcaster
+          : AllowedRoles.Everyone;
 
-    if (roles === 0) {
-      this.errorMessage.set('Mindestens eine Zielgruppe auswählen.');
-      return;
-    }
+    const startedAtLocal = this.customStartedAt();
+    const startedAt = startedAtLocal ? new Date(startedAtLocal).toISOString() : undefined;
 
-    this.voteSessionService.create(this.channelName(), this.titleControl.value.trim(), roles).subscribe({
+    this.voteSessionService.create(this.channelName(), this.titleControl.value.trim(), roles, startedAt).subscribe({
       next: (session) => {
         this.sessions.update((sessions) => [session, ...sessions]);
         this.titleControl.reset('');
+        this.customStartedAt.set('');
       },
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
@@ -176,7 +201,20 @@ export class VoteSessionListPage {
 
   protected copyShareLink(sessionId: number): void {
     const url = `${window.location.origin}/channels/${this.channelName()}/vote-sessions/${sessionId}`;
-    navigator.clipboard?.writeText(url);
+    const setFeedback = (status: 'copied' | 'error') => {
+      clearTimeout(this.copyFeedbackTimeout);
+      this.copyFeedback.set({ sessionId, status });
+      this.copyFeedbackTimeout = setTimeout(() => this.copyFeedback.set(null), 2000);
+    };
+
+    if (!navigator.clipboard) {
+      setFeedback('error');
+      return;
+    }
+    navigator.clipboard.writeText(url).then(
+      () => setFeedback('copied'),
+      () => setFeedback('error'),
+    );
   }
 
   private handleError(error: HttpErrorResponse): void {

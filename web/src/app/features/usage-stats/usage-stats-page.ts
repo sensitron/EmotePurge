@@ -7,6 +7,8 @@ import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
+import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
@@ -29,7 +31,7 @@ function daysAgo(days: number): Date {
 
 @Component({
   selector: 'app-usage-stats-page',
-  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel],
+  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader],
   host: {
     '(window:resize)': 'updateColumns()',
   },
@@ -63,8 +65,41 @@ function daysAgo(days: number): Date {
           <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="toggleSort()">
             Nutzung ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
           </button>
+          <input
+            type="number"
+            min="0"
+            placeholder="Min"
+            [value]="usageFilter.min() ?? ''"
+            (change)="usageFilter.setMinCount($any($event.target).value)"
+            class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+          />
+          <input
+            type="number"
+            min="0"
+            placeholder="Max"
+            [value]="usageFilter.max() ?? ''"
+            (change)="usageFilter.setMaxCount($any($event.target).value)"
+            class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+          />
+          <input
+            type="text"
+            placeholder="Name (z.B. *cat*, ?og)"
+            [value]="usageFilter.nameQuery()"
+            (input)="usageFilter.setNameFilter($any($event.target).value)"
+            class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+          />
+          <button
+            type="button"
+            class="rounded-md px-3 py-1.5"
+            [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
+            (click)="usageFilter.toggleUnused()"
+          >
+            {{ usageFilter.isUnusedActive() ? 'Alle anzeigen' : 'Nur ungenutzte (0x)' }}
+          </button>
         </div>
       </header>
+
+      <p class="text-sm text-slate-400">{{ sortedEmotes().length }} von {{ emotes().length }} Emotes</p>
 
       @if (activeEmoteSetId(); as setId) {
         <app-mass-delete-panel
@@ -92,12 +127,13 @@ function daysAgo(days: number): Date {
           >
             @for (emote of row; track emote.emoteId; let colIndex = $index) {
               <div
-                class="flex h-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center transition hover:bg-slate-800/70"
+                class="flex h-24 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center transition hover:bg-slate-800/70"
                 (click)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
               >
-                <input type="checkbox" class="self-start" tabindex="-1" [checked]="selection.isSelected(emote)" />
-                <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" />
-                <span class="w-full truncate text-xs">{{ emote.emoteName }}</span>
+                <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" />
+                <div class="flex h-10 shrink-0 items-center justify-center">
+                  <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
+                </div>
                 <span class="text-xs text-slate-400">{{ emote.totalUseCount }}x</span>
               </div>
             }
@@ -126,8 +162,12 @@ export class UsageStatsPage {
   protected readonly isLoading = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
+  protected readonly usageFilter = new EmoteUsageFilter<EmoteUsageTotal>(() => this.selection.clear());
+
+  protected readonly filteredEmotes = computed(() => this.usageFilter.apply(this.emotes()));
+
   protected readonly sortedEmotes = computed(() => {
-    const items = [...this.emotes()];
+    const items = [...this.filteredEmotes()];
     items.sort((a, b) => (this.sortDirection() === 'desc' ? b.totalUseCount - a.totalUseCount : a.totalUseCount - b.totalUseCount));
     return items;
   });

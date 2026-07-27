@@ -10,19 +10,24 @@ import { ChannelService } from '../../core/channels/channel.service';
   template: `
     <div>
       <div class="mb-4 flex items-center justify-between">
-        <h1 class="text-xl font-semibold">#{{ channelName() }}</h1>
         <div class="flex items-center gap-4">
-          <a routerLink="/" class="text-sm text-slate-400 transition hover:text-slate-200">← Übersicht</a>
-          @if (canManage()) {
-            <button
-              type="button"
-              class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 transition hover:bg-red-950"
-              (click)="leave()"
-            >
-              Channel verlassen
-            </button>
-          }
+          <a
+            routerLink="/"
+            class="rounded-md border border-purple-700 px-3 py-1.5 text-sm text-purple-400 transition hover:bg-purple-950"
+          >
+            ← Übersicht
+          </a>
+          <h1 class="text-xl font-semibold">#{{ channelName() }}</h1>
         </div>
+        @if (canManage()) {
+          <button
+            type="button"
+            class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 transition hover:bg-red-950"
+            (click)="leave()"
+          >
+            Channel verlassen
+          </button>
+        }
       </div>
 
       @if (errorMessage(); as message) {
@@ -33,16 +38,26 @@ import { ChannelService } from '../../core/channels/channel.service';
         @if (canManage()) {
           <a
             routerLink="usage-stats"
-            routerLinkActive="border-purple-500 text-slate-100"
-            class="border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200"
+            routerLinkActive
+            #usageStatsTab="routerLinkActive"
+            [class]="
+              usageStatsTab.isActive
+                ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
+                : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+            "
           >
             Nutzung
           </a>
         }
         <a
           routerLink="vote-sessions"
-          routerLinkActive="border-purple-500 text-slate-100"
-          class="border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200"
+          routerLinkActive
+          #voteSessionsTab="routerLinkActive"
+          [class]="
+            voteSessionsTab.isActive
+              ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
+              : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+          "
         >
           Votings
         </a>

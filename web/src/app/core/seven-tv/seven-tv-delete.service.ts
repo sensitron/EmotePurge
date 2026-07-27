@@ -1,6 +1,6 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { Subscription, catchError, concatMap, delay, from, map, of, tap } from 'rxjs';
+import { Observable, Subscription, catchError, concatMap, delay, from, map, of, tap } from 'rxjs';
 
 import { EmoteAdminService } from '../emotes/emote-admin.service';
 import { SevenTvTokenService } from './seven-tv-token.service';
@@ -29,6 +29,12 @@ export type DeleteItemStatus = 'pending' | 'in-progress' | 'done' | 'failed' | '
 
 export interface DeleteQueueItem extends DeleteQueueEmote {
   status: DeleteItemStatus;
+  errorMessage?: string;
+}
+
+interface DeleteOneResult {
+  success: boolean;
+  errorMessage?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -67,7 +73,7 @@ export class SevenTvDeleteService {
         concatMap((emote) => {
           this.setStatus(emote.emoteId, 'in-progress');
           return this.deleteOne(setId, emote.sevenTvEmoteId, token).pipe(
-            tap((success) => this.setStatus(emote.emoteId, success ? 'done' : 'failed')),
+            tap((result) => this.setStatus(emote.emoteId, result.success ? 'done' : 'failed', result.errorMessage)),
             delay(DELETE_DELAY_MS),
           );
         }),
@@ -94,21 +100,39 @@ export class SevenTvDeleteService {
     this.queue.set([]);
   }
 
-  private deleteOne(setId: string, sevenTvEmoteId: string, token: string) {
+  private deleteOne(setId: string, sevenTvEmoteId: string, token: string): Observable<DeleteOneResult> {
     return this.http
-      .post<{ errors?: unknown[] }>(
+      .post<{ errors?: { message?: string }[] }>(
         SEVEN_TV_GQL_ENDPOINT,
         { query: REMOVE_EMOTE_MUTATION, variables: { setId, emoteId: sevenTvEmoteId } },
         { headers: { Authorization: `Bearer ${token}` } },
       )
       .pipe(
-        map((response) => !response?.errors?.length),
-        catchError(() => of(false)),
+        map((response) => {
+          const gqlErrorMessage = response?.errors?.[0]?.message;
+          return gqlErrorMessage ? { success: false, errorMessage: gqlErrorMessage } : { success: true };
+        }),
+        catchError((error: HttpErrorResponse) => of({ success: false, errorMessage: this.describeHttpError(error) })),
       );
   }
 
-  private setStatus(emoteId: string, status: DeleteItemStatus): void {
-    this.queue.update((items) => items.map((item) => (item.emoteId === emoteId ? { ...item, status } : item)));
+  private describeHttpError(error: HttpErrorResponse): string {
+    if (error.status === 401 || error.status === 403) {
+      return 'Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.';
+    }
+    if (error.status === 429) {
+      return 'Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.';
+    }
+    if (error.status === 0) {
+      return 'Keine Verbindung zu 7TV möglich (Netzwerkfehler).';
+    }
+    return `7TV-Fehler (Status ${error.status}).`;
+  }
+
+  private setStatus(emoteId: string, status: DeleteItemStatus, errorMessage?: string): void {
+    this.queue.update((items) =>
+      items.map((item) => (item.emoteId === emoteId ? { ...item, status, errorMessage } : item)),
+    );
   }
 
   private finish(): void {

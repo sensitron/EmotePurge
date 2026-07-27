@@ -18,10 +18,16 @@ export class VoteSessionService {
     return this.http.get<VoteSessionSummary[]>(`/api/channels/${channelName}/vote-sessions`);
   }
 
-  create(channelName: string, title: string, allowedVoterRoles: AllowedRoles): Observable<VoteSessionSummary> {
+  create(
+    channelName: string,
+    title: string,
+    allowedVoterRoles: AllowedRoles,
+    startedAt?: string,
+  ): Observable<VoteSessionSummary> {
     return this.http.post<VoteSessionSummary>(`/api/channels/${channelName}/vote-sessions`, {
       title,
       allowedVoterRoles,
+      ...(startedAt ? { startedAt } : {}),
     });
   }
 
@@ -29,7 +35,8 @@ export class VoteSessionService {
     return this.http.post<VoteSessionSummary>(`/api/channels/${channelName}/vote-sessions/${sessionId}/end`, {});
   }
 
-  // Deliberately reachable without auth — anonymous share-link visitors need to see results too.
+  // Requires login + being part of the session's target audience (VoteAudienceFilter,
+  // voteSessionAccessGuard) — anonymous viewing was removed, see CLAUDE.md decision log.
   getResults(channelName: string, sessionId: number): Observable<VoteSessionResults> {
     return this.http.get<VoteSessionResults>(`/api/channels/${channelName}/vote-sessions/${sessionId}/results`);
   }

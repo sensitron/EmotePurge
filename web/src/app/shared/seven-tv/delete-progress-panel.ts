@@ -19,7 +19,7 @@ import { DeleteQueueItem } from '../../core/seven-tv/seven-tv-delete.service';
       @if (failedItems().length > 0) {
         <ul class="mt-3 space-y-1 text-sm text-red-400">
           @for (item of failedItems(); track item.emoteId) {
-            <li>{{ item.name }}: Löschen fehlgeschlagen</li>
+            <li>{{ item.name }}: {{ item.errorMessage ?? 'Löschen fehlgeschlagen' }}</li>
           }
         </ul>
       }

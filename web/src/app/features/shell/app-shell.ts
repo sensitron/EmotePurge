@@ -68,9 +68,18 @@ export class AppShell {
   protected readonly statusLabel = computed(() => STATUS_LABEL[this.healthService.status()]);
 
   constructor() {
-    // Consumes a return URL stashed by AuthService.login() (e.g. from an anonymous vote-session
-    // visitor) once the session is confirmed, sending them back where they clicked "login" from
-    // instead of leaving them on the fixed post-login redirect the backend always uses.
+    // AppShell is mounted for every route (overview, usage-stats, vote-sessions), unlike
+    // ensureLoaded()'s other callers (authGuard only guards the overview route). Without this,
+    // a logged-in user landing directly on a usage-stats or vote-session deep link never gets
+    // currentUser populated, and the header wrongly shows "Login" despite a valid session cookie.
+    // ensureLoaded() is idempotent (cached via an internal isLoaded flag), so this never causes a
+    // duplicate /api/auth/me call when authGuard also runs.
+    this.authService.ensureLoaded().subscribe();
+
+    // Consumes a return URL stashed by AuthService.login()/stashReturnUrl() (e.g. a route guard
+    // redirecting a logged-out visitor) once the session is confirmed, sending them back to the
+    // page they originally tried to reach instead of the fixed post-login redirect the backend
+    // always uses.
     effect(() => {
       if (this.currentUser()) {
         const returnUrl = this.authService.consumeReturnUrl();

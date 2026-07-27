@@ -1,4 +1,4 @@
-import { DecimalPipe, NgOptimizedImage } from '@angular/common';
+import { DatePipe, DecimalPipe, NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
@@ -7,6 +7,8 @@ import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
 import { VoteSessionResult, VoteSessionResults, VoteType } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
+import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
@@ -17,18 +19,68 @@ const ROW_HEIGHT_PX = 176;
 
 @Component({
   selector: 'app-vote-session-detail-page',
-  imports: [ScrollingModule, NgOptimizedImage, DecimalPipe, MassDeletePanel],
+  imports: [ScrollingModule, NgOptimizedImage, DecimalPipe, DatePipe, MassDeletePanel, EmoteCardHeader],
   host: {
     '(window:resize)': 'updateColumns()',
   },
   template: `
     <div class="flex flex-col gap-6">
       @if (results(); as session) {
-        <header>
-          <h2 class="text-lg font-medium">{{ session.title }}</h2>
-          <p class="text-sm text-slate-500">{{ session.isActive ? 'Aktiv' : 'Beendet' }}</p>
+        <header class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-medium">{{ session.title }}</h2>
+            <p class="text-sm text-slate-500">
+              {{ session.isActive ? 'Aktiv' : 'Beendet' }} · Nutzungsdaten seit
+              {{ session.startedAt | date: 'dd.MM.yyyy HH:mm' }}
+              @if (session.endedAt) {
+                bis {{ session.endedAt | date: 'dd.MM.yyyy HH:mm' }}
+              }
+            </p>
+          </div>
+          <button
+            type="button"
+            class="rounded-md bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
+            (click)="refresh()"
+          >
+            Aktualisieren
+          </button>
         </header>
       }
+
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <input
+          type="number"
+          min="0"
+          placeholder="Min"
+          [value]="usageFilter.min() ?? ''"
+          (change)="usageFilter.setMinCount($any($event.target).value)"
+          class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+        />
+        <input
+          type="number"
+          min="0"
+          placeholder="Max"
+          [value]="usageFilter.max() ?? ''"
+          (change)="usageFilter.setMaxCount($any($event.target).value)"
+          class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+        />
+        <input
+          type="text"
+          placeholder="Name (z.B. *cat*, ?og)"
+          [value]="usageFilter.nameQuery()"
+          (input)="usageFilter.setNameFilter($any($event.target).value)"
+          class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+        />
+        <button
+          type="button"
+          class="rounded-md px-3 py-1.5"
+          [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
+          (click)="usageFilter.toggleUnused()"
+        >
+          {{ usageFilter.isUnusedActive() ? 'Alle anzeigen' : 'Nur ungenutzte (0x)' }}
+        </button>
+      </div>
+      <p class="text-sm text-slate-400">{{ emotes().length }} von {{ orderedEmotes().length }} Emotes</p>
 
       @if (activeEmoteSetId(); as setId) {
         <app-mass-delete-panel
@@ -53,19 +105,18 @@ const ROW_HEIGHT_PX = 176;
             [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
           >
             @for (emote of row; track emote.emoteId; let colIndex = $index) {
-              <div class="flex h-40 flex-col items-center justify-center gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center">
-                @if (canManage()) {
-                  <input
-                    type="checkbox"
-                    class="self-start"
-                    [checked]="selection.isSelected(emote)"
-                    (click)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
-                  />
-                }
-                <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" />
-                <span class="w-full truncate text-xs">{{ emote.emoteName }}</span>
+              <div class="flex h-40 flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center">
+                <app-emote-card-header
+                  [name]="emote.emoteName"
+                  [checked]="selection.isSelected(emote)"
+                  [showCheckbox]="canManage()"
+                  (checkboxClick)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
+                />
+                <div class="flex h-10 shrink-0 items-center justify-center">
+                  <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
+                </div>
                 <span class="text-xs text-slate-500">{{ emote.totalUseCount }}x · {{ emote.score | number: '1.0-1' }}</span>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center justify-center gap-1">
                   <button
                     type="button"
                     class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
@@ -124,7 +175,44 @@ export class VoteSessionDetailPage {
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
 
-  protected readonly emotes = computed(() => this.results()?.emotes ?? []);
+  // Freezes the card order (by emote id) across post-vote reloads, since the backend sorts by
+  // score descending — without this, voting an emote's score down to the bottom instantly yanks
+  // its card to the end of the list while the user is still looking at it.
+  protected readonly orderedEmoteIds = signal<string[] | null>(null);
+
+  protected readonly orderedEmotes = computed(() => {
+    const results = this.results();
+    if (!results) {
+      return [];
+    }
+    const order = this.orderedEmoteIds();
+    if (!order) {
+      return results.emotes;
+    }
+
+    const byId = new Map(results.emotes.map((emote) => [emote.emoteId, emote]));
+    const ordered: VoteSessionResult[] = [];
+    for (const id of order) {
+      const emote = byId.get(id);
+      if (emote) {
+        ordered.push(emote);
+        byId.delete(id);
+      }
+    }
+    // Emotes not present in the frozen order (e.g. synced since the last freeze) are appended at
+    // the end, in the backend's current order among themselves.
+    for (const emote of results.emotes) {
+      if (byId.has(emote.emoteId)) {
+        ordered.push(emote);
+      }
+    }
+    return ordered;
+  });
+
+  protected readonly usageFilter = new EmoteUsageFilter<VoteSessionResult>(() => this.selection.clear());
+
+  protected readonly emotes = computed(() => this.usageFilter.apply(this.orderedEmotes()));
+
   protected readonly rows = computed(() => chunkIntoRows(this.emotes(), this.columns()));
   protected readonly selection = new ListSelection(this.emotes);
 
@@ -145,14 +233,19 @@ export class VoteSessionDetailPage {
     this.columns.set(computeGridColumns(window.innerWidth));
   }
 
-  private load(): void {
+  private load(options: { freeze: boolean } = { freeze: true }): void {
     const channelName = this.channelName();
     const sessionId = Number(this.sessionId());
 
-    // Deliberately no auth requirement here — this must render for an anonymous share-link
-    // visitor too; MyVote just stays null for them until they log in and vote.
+    // voteSessionAccessGuard already verified login + audience eligibility before this component
+    // was even mounted — this call should always succeed for whoever reached this page normally.
     this.voteSessionService.getResults(channelName, sessionId).subscribe({
-      next: (results) => this.results.set(results),
+      next: (results) => {
+        this.results.set(results);
+        if (options.freeze) {
+          this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
+        }
+      },
       error: () => this.errorMessage.set('Abstimmung konnte nicht geladen werden.'),
     });
 
@@ -165,7 +258,13 @@ export class VoteSessionDetailPage {
     });
   }
 
+  protected refresh(): void {
+    this.load();
+  }
+
   protected vote(emote: VoteSessionResult, type: VoteType): void {
+    // Defensive fallback, not the primary gate — voteSessionAccessGuard already required a login
+    // to reach this page, but the session cookie/token can still expire while already viewing it.
     if (!this.currentUser()) {
       this.authService.login(window.location.pathname);
       return;
@@ -173,7 +272,7 @@ export class VoteSessionDetailPage {
 
     this.errorMessage.set(null);
     this.voteSessionService.castVote(this.channelName(), Number(this.sessionId()), emote.emoteId, type).subscribe({
-      next: () => this.load(),
+      next: () => this.load({ freeze: false }),
       error: (error: HttpErrorResponse) => this.handleVoteError(error),
     });
   }
