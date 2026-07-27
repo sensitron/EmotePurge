@@ -8,6 +8,7 @@ namespace EmotePurge.Worker;
 
 public class TwitchChatManager(
     ILogger<TwitchChatManager> logger,
+    ILoggerFactory loggerFactory,
     IEmoteMatchCache emoteMatchCache,
     IEmoteUsageCounter usageCounter) : ITwitchChatManager
 {
@@ -21,7 +22,7 @@ public class TwitchChatManager(
 
     private readonly ConcurrentDictionary<string, byte> _joinedChannels = new();
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
-    private TwitchClient _client = new();
+    private TwitchClient _client = new(loggerFactory: loggerFactory);
     private bool _connected;
     private volatile bool _isConnected;
     private long _lastMessageReceivedUtcTicks;
@@ -86,12 +87,19 @@ public class TwitchChatManager(
             logger.LogWarning(ex, "Aufräumen des alten TwitchClient beim Neu-Erstellen fehlgeschlagen (ignoriert).");
         }
 
-        var newClient = new TwitchClient();
+        var newClient = new TwitchClient(loggerFactory: loggerFactory);
         WireUpClient(newClient);
         _client = newClient;
         _consecutiveConnectionErrors = 0;
 
         await _client.ConnectAsync();
+
+        // ConnectAsync() auf einem frischen Client feuert OnConnected, nicht OnReconnected —
+        // die Rejoin-Schleife lebt aber nur in OnReconnected. Live beobachtet 2026-07-27: Ohne
+        // diesen expliziten Aufruf blieb der Worker nach einem Recreate mit Twitch IRC verbunden,
+        // aber in null Channels gejoint, bis zufällig der nächste Watchdog-Zyklus einen normalen
+        // ReconnectAsync() (statt erneutem Recreate) auslöste.
+        await RejoinTrackedChannelsAsync();
     }
 
     private void WireUpClient(TwitchClient client)
@@ -192,10 +200,14 @@ public class TwitchChatManager(
 
     private Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
     {
-        Interlocked.Increment(ref _consecutiveConnectionErrors);
+        var count = Interlocked.Increment(ref _consecutiveConnectionErrors);
+        // e.Error ist ein TwitchLib-eigener ErrorEvent (kein Exception), enthält also nur diese
+        // Message — keine tiefere Diagnose (Socket/TLS) über dieses Event allein möglich. Der
+        // Fehlerzähler wird deshalb jetzt zumindest mitgeloggt, um beim nächsten Vorfall ohne
+        // Rätselraten zu sehen, wie nah ein Recreate ist.
         logger.LogWarning(
-            "TwitchClient-Verbindungsfehler für {BotUsername}: {Error}",
-            e.BotUsername, e.Error.Message);
+            "TwitchClient-Verbindungsfehler für {BotUsername} ({Count}/{Max} aufeinanderfolgend): {Error}",
+            e.BotUsername, count, MaxConsecutiveConnectionErrorsBeforeRecreate, e.Error.Message);
         return Task.CompletedTask;
     }
 
@@ -203,8 +215,13 @@ public class TwitchChatManager(
     {
         _isConnected = true;
         Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        await RejoinTrackedChannelsAsync();
+    }
+
+    private async Task RejoinTrackedChannelsAsync()
+    {
         var channels = _joinedChannels.Keys.ToArray();
-        logger.LogWarning("TwitchClient reconnected, rejoine {Count} Channel(s).", channels.Length);
+        logger.LogWarning("Rejoine {Count} getrackte Channel(s).", channels.Length);
 
         foreach (var channelName in channels)
         {
@@ -214,7 +231,7 @@ public class TwitchChatManager(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Rejoin nach Reconnect fehlgeschlagen für {Channel}.", channelName);
+                logger.LogWarning(ex, "Rejoin fehlgeschlagen für {Channel}.", channelName);
             }
         }
     }
