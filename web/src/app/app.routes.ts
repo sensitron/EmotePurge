@@ -1,11 +1,17 @@
 import { Routes } from '@angular/router';
 
 import { authGuard } from './core/auth/auth.guard';
+import { homeGuard } from './core/auth/home.guard';
 import { usageStatsAccessGuard } from './core/channels/usage-stats-access.guard';
 import { voteSessionAccessGuard } from './core/voting/vote-session-access.guard';
 import { LoginPage } from './features/login/login-page';
 
 export const routes: Routes = [
+  {
+    // Public marketing page, no guard — first stop for anonymous visitors, e.g. via a shared link.
+    path: 'welcome',
+    loadComponent: () => import('./features/landing/landing-page').then((m) => m.LandingPage),
+  },
   { path: 'login', component: LoginPage },
   {
     path: '',
@@ -14,7 +20,7 @@ export const routes: Routes = [
       {
         path: '',
         loadComponent: () => import('./features/overview/overview-page').then((m) => m.OverviewPage),
-        canActivate: [authGuard],
+        canActivate: [homeGuard],
       },
       {
         // Cross-channel — a user's voting history isn't scoped to a single channelName route value,
