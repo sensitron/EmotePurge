@@ -40,6 +40,15 @@ function daysAgo(days: number): Date {
       <header class="flex flex-wrap items-center justify-between gap-4">
         <h2 class="text-lg font-medium">Emote-Nutzung</h2>
         <div class="flex flex-wrap items-center gap-2 text-sm">
+          <button
+            type="button"
+            class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700 disabled:opacity-40"
+            [disabled]="isLoading()"
+            (click)="refresh()"
+            title="Nutzungsdaten neu laden"
+          >
+            ⟳ Aktualisieren
+          </button>
           <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(0)">
             Heute
           </button>
@@ -192,6 +201,10 @@ export class UsageStatsPage {
 
   protected updateColumns(): void {
     this.columns.set(computeGridColumns(window.innerWidth));
+  }
+
+  protected refresh(): void {
+    this.load(this.channelName(), this.from(), this.to());
   }
 
   protected setPreset(days: number): void {

@@ -21,7 +21,7 @@ const STATUS_LABEL: Record<WorkerHealthStatus, string> = {
   imports: [RouterLink, RouterOutlet],
   template: `
     <div class="min-h-screen bg-slate-950 text-slate-100">
-      <header class="border-b border-slate-800 px-4 py-3">
+      <header class="sticky top-0 z-10 border-b border-slate-800 bg-slate-950 px-4 py-3">
         <div class="mx-auto flex max-w-5xl items-center justify-between">
           <a routerLink="/" class="text-lg font-semibold">Emote Purge</a>
 
@@ -32,6 +32,7 @@ const STATUS_LABEL: Record<WorkerHealthStatus, string> = {
             </span>
 
             @if (currentUser(); as user) {
+              <a routerLink="/my-votings" class="text-sm text-slate-400 hover:underline">Meine Abstimmungen</a>
               <span class="text-sm text-slate-400">{{ user.displayName }}</span>
               <button
                 type="button"
