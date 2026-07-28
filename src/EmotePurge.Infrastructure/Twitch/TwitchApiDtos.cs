@@ -30,6 +30,7 @@ internal sealed class TwitchGetModeratedChannelsResponseDto
 internal sealed class TwitchModeratedChannelDto
 {
     public string BroadcasterLogin { get; set; } = string.Empty;
+    public string BroadcasterId { get; set; } = string.Empty;
 }
 
 internal sealed class TwitchPaginationDto

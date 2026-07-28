@@ -1,7 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { authGuard } from './core/auth/auth.guard';
-import { channelManagementGuard } from './core/channels/channel-management.guard';
+import { usageStatsAccessGuard } from './core/channels/usage-stats-access.guard';
 import { voteSessionAccessGuard } from './core/voting/vote-session-access.guard';
 import { LoginPage } from './features/login/login-page';
 
@@ -23,11 +23,12 @@ export const routes: Routes = [
         children: [
           { path: '', redirectTo: 'usage-stats', pathMatch: 'full' },
           {
-            // Management tool — must actually be allowed to manage THIS channel, not just be
-            // logged in (channelManagementGuard), unlike the vote-session pages below.
+            // Must actually be allowed to view THIS channel's usage stats (Twitch mod/broadcaster/
+            // admin OR 7TV editor — usageStatsAccessGuard), not just be logged in, unlike the
+            // vote-session pages below.
             path: 'usage-stats',
             loadComponent: () => import('./features/usage-stats/usage-stats-page').then((m) => m.UsageStatsPage),
-            canActivate: [channelManagementGuard],
+            canActivate: [usageStatsAccessGuard],
           },
           {
             // Requires login only — the list itself has no per-session role restriction.

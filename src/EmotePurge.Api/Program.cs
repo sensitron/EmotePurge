@@ -217,7 +217,32 @@ app.MapPost("/api/channels/{channelName}/emotes/sync-deleted", async (
     return Results.Ok(new { archivedCount = result.ArchivedCount, notFoundIds = result.NotFoundIds });
 })
 .RequireAuthorization()
-.AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+// Same tier as the usage-stats reads and the active-set lookup that surfaces the delete button in
+// the first place: a 7TV editor can legitimately delete via 7TV directly, so this confirmation call
+// must accept them too — otherwise the delete succeeds on 7TV but 403s here, which without this
+// would only self-heal a minute later via SevenTvPeriodicResyncWorker instead of confirming immediately.
+.AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
+.RequireRateLimiting("ExpensiveOps");
+
+app.MapGet("/api/channels/{channelName}/emotes/set-warning", async (
+    string channelName,
+    HttpContext httpContext,
+    IEmoteSetOwnershipService emoteSetOwnershipService,
+    CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
+    var principal = httpContext.User.TryBuildTwitchPrincipal();
+    var warning = await emoteSetOwnershipService.CheckAsync(channelName, principal?.TwitchUserId, principal?.AccessToken, ct);
+    return Results.Ok(warning);
+})
+.RequireAuthorization()
+// Same tier as sync-deleted/active-set — a 7TV editor triggering the delete dialog should get the
+// real shared-set warning, not the conservative "unavailable" fallback a 403 here would force.
+.AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
 .RequireRateLimiting("ExpensiveOps");
 
 app.MapGet("/api/channels/{channelName}/usage-stats", async (
@@ -234,7 +259,29 @@ app.MapGet("/api/channels/{channelName}/usage-stats", async (
     return Results.Ok(stats);
 })
 .RequireAuthorization()
-.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+.AddEndpointFilter<UsageStatsAccessAuthorizationFilter>();
+
+// Deliberately separate from GET /api/channels/{channelName} (which stays management-only, since
+// it also backs the join-status/leave-button check): the mass-delete panel needs the active set id
+// to render its "Löschen" button, and 7TV editors — who can legitimately delete via 7TV's own
+// permission system — must be able to see it despite not being allowed to manage the channel at all.
+app.MapGet("/api/channels/{channelName}/emotes/active-set", async (
+    string channelName,
+    IChannelService channelService,
+    CancellationToken ct) =>
+{
+    if (!Regex.IsMatch(channelName.Trim().ToLowerInvariant(), "^[a-z0-9_]{4,25}$"))
+    {
+        return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+    }
+
+    var channel = await channelService.GetByNameAsync(channelName, ct);
+    return channel is null
+        ? Results.NotFound()
+        : Results.Ok(new { activeEmoteSetId = channel.ActiveEmoteSetId });
+})
+.RequireAuthorization()
+.AddEndpointFilter<UsageStatsAccessAuthorizationFilter>();
 
 app.MapGet("/api/channels/{channelName}/usage-stats/totals", async (
     string channelName,
@@ -269,7 +316,7 @@ app.MapGet("/api/channels/{channelName}/usage-stats/totals", async (
     return Results.Ok(totals);
 })
 .RequireAuthorization()
-.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+.AddEndpointFilter<UsageStatsAccessAuthorizationFilter>();
 
 app.MapPost("/api/channels/{channelName}/vote-sessions", async (
     string channelName,

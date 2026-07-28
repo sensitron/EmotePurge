@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IEmoteService, EmoteService>();
+        services.AddScoped<IEmoteSetOwnershipService, EmoteSetOwnershipService>();
 
         services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
         services.AddScoped<IUsageStatFlushService, UsageStatFlushService>();

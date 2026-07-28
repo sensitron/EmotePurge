@@ -37,7 +37,19 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
 
     public async Task<IReadOnlySet<string>?> GetModeratedChannelLoginsAsync(string accessToken, string twitchUserId, CancellationToken cancellationToken = default)
     {
-        var logins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var channels = await FetchModeratedChannelsAsync(accessToken, twitchUserId, cancellationToken);
+        return channels?.Select(c => c.BroadcasterLogin).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyList<TwitchModeratedChannelInfo>?> GetModeratedChannelsAsync(string accessToken, string twitchUserId, CancellationToken cancellationToken = default)
+    {
+        var channels = await FetchModeratedChannelsAsync(accessToken, twitchUserId, cancellationToken);
+        return channels?.Select(c => new TwitchModeratedChannelInfo(c.BroadcasterLogin, c.BroadcasterId)).ToList();
+    }
+
+    private async Task<List<TwitchModeratedChannelDto>?> FetchModeratedChannelsAsync(string accessToken, string twitchUserId, CancellationToken cancellationToken)
+    {
+        var channels = new List<TwitchModeratedChannelDto>();
         string? cursor = null;
 
         try
@@ -66,10 +78,7 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
                     return null;
                 }
 
-                foreach (var channel in dto.Data)
-                {
-                    logins.Add(channel.BroadcasterLogin);
-                }
+                channels.AddRange(dto.Data);
 
                 cursor = dto.Pagination?.Cursor;
                 if (string.IsNullOrEmpty(cursor))
@@ -78,7 +87,7 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
                 }
             }
 
-            return logins;
+            return channels;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

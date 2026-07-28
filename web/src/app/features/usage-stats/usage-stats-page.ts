@@ -4,7 +4,7 @@ import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { ChannelService } from '../../core/channels/channel.service';
+import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
@@ -147,7 +147,7 @@ export class UsageStatsPage {
   readonly channelName = input.required<string>();
 
   private readonly usageStatService = inject(UsageStatService);
-  private readonly channelService = inject(ChannelService);
+  private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly authService = inject(AuthService);
 
   protected readonly rowHeight = ROW_HEIGHT_PX;
@@ -212,8 +212,8 @@ export class UsageStatsPage {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    this.channelService.getStatus(channelName).subscribe({
-      next: (status) => this.activeEmoteSetId.set(status.activeEmoteSetId),
+    this.emoteAdminService.getActiveEmoteSetId(channelName).subscribe({
+      next: (result) => this.activeEmoteSetId.set(result.activeEmoteSetId),
       error: () => this.activeEmoteSetId.set(null),
     });
 

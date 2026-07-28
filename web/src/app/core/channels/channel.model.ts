@@ -13,20 +13,19 @@ export interface AdminChannelDto {
   createdAt: string;
 }
 
-// Matches EmotePurge.Core.Services.ChannelRole (numeric — no JsonStringEnumConverter registered).
-export enum ChannelRole {
-  Broadcaster = 1,
-  Moderator = 2,
-}
-
+// Independent flags, not a single role — a channel can be broadcaster-self, Twitch-moderator,
+// 7TV-editor, any combination, or (7TV-editor-only) none of the Twitch roles at all.
 export interface MyChannelDto {
   channelName: string;
-  role: ChannelRole;
+  isBroadcaster: boolean;
+  isModerator: boolean;
+  isSevenTvEditor: boolean;
   isTracked: boolean;
   isBotActive: boolean;
 }
 
 export interface MyChannelsResult {
   helixUnavailable: boolean;
+  sevenTvUnavailable: boolean;
   channels: MyChannelDto[];
 }

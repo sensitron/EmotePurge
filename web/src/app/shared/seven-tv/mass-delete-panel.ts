@@ -1,5 +1,6 @@
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 
+import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
 import { DeleteQueueEmote, SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { DeleteConfirmDialog } from './delete-confirm-dialog';
@@ -43,6 +44,8 @@ export interface DeletableEmote {
         @if (tokenService.hasToken()) {
           <app-delete-confirm-dialog
             [emotes]="selectedEmoteNames()"
+            [warning]="setWarning()"
+            [warningLoading]="warningLoading()"
             (confirmed)="startDelete()"
             (cancelled)="showConfirm.set(false)"
           />
@@ -68,8 +71,11 @@ export class MassDeletePanel {
 
   protected readonly tokenService = inject(SevenTvTokenService);
   protected readonly deleteService = inject(SevenTvDeleteService);
+  private readonly emoteAdminService = inject(EmoteAdminService);
 
   protected readonly showConfirm = signal(false);
+  protected readonly setWarning = signal<EmoteSetWarning | null>(null);
+  protected readonly warningLoading = signal(false);
   protected readonly selectedEmoteNames = computed(() => this.selectedEmotes().map((emote) => emote.name));
 
   constructor() {
@@ -93,6 +99,25 @@ export class MassDeletePanel {
 
   protected openConfirm(): void {
     this.showConfirm.set(true);
+    this.setWarning.set(null);
+    this.warningLoading.set(true);
+
+    this.emoteAdminService.getSetWarning(this.channelName()).subscribe({
+      next: (warning) => {
+        this.setWarning.set(warning);
+        this.warningLoading.set(false);
+      },
+      error: () => {
+        // Conservative fallback: an unresolved check must not read as "all clear".
+        this.setWarning.set({
+          available: false,
+          isOwnSet: false,
+          otherTrackedChannelsSharingSet: [],
+          otherModeratedChannelsSharingSet: [],
+        });
+        this.warningLoading.set(false);
+      },
+    });
   }
 
   protected startDelete(): void {

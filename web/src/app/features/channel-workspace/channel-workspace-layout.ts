@@ -3,6 +3,7 @@ import { Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 
 @Component({
   selector: 'app-channel-workspace-layout',
@@ -35,7 +36,7 @@ import { ChannelService } from '../../core/channels/channel.service';
       }
 
       <nav class="mb-6 flex gap-2 border-b border-slate-800">
-        @if (canManage()) {
+        @if (canViewUsageStats()) {
           <a
             routerLink="usage-stats"
             routerLinkActive
@@ -71,24 +72,40 @@ export class ChannelWorkspaceLayout {
   readonly channelName = input.required<string>();
 
   private readonly channelService = inject(ChannelService);
+  private readonly usageStatService = inject(UsageStatService);
   private readonly router = inject(Router);
 
-  // Same ChannelManagementAuthorizationFilter probe used by the voting pages — hides both the
-  // "Nutzung" tab and "Channel verlassen" for anyone who isn't actually allowed to manage this
-  // channel (anonymous visitors and unrelated logged-in users alike), not just unauthenticated ones.
-  // The route itself is additionally guarded (channelManagementGuard) — this is the UI-visibility
-  // half, not the enforcement; a direct URL hit still goes through the guard + the server-side filter.
+  // ChannelManagementAuthorizationFilter probe — hides "Channel verlassen" for anyone who isn't
+  // actually allowed to manage this channel (anonymous visitors and unrelated logged-in users
+  // alike), not just unauthenticated ones. This is the UI-visibility half, not the enforcement —
+  // a direct action still goes through the server-side filter regardless.
   protected readonly canManage = signal(false);
+
+  // Weaker, separate probe for the "Nutzung" tab: UsageStatsAccessAuthorizationFilter additionally
+  // admits a channel's 7TV editors, who aren't allowed to manage the channel (join/leave, vote
+  // sessions) at all — so this can't just reuse `canManage`. The route itself is additionally
+  // guarded (usageStatsAccessGuard) — this is only the UI-visibility half.
+  protected readonly canViewUsageStats = signal(false);
+
   protected readonly errorMessage = signal<string | null>(null);
 
   constructor() {
     effect(() => this.probeCanManage());
+    effect(() => this.probeCanViewUsageStats());
   }
 
   private probeCanManage(): void {
     this.channelService.getStatus(this.channelName()).subscribe({
       next: () => this.canManage.set(true),
       error: () => this.canManage.set(false),
+    });
+  }
+
+  private probeCanViewUsageStats(): void {
+    const today = new Date().toISOString().slice(0, 10);
+    this.usageStatService.getTotals(this.channelName(), today, today).subscribe({
+      next: () => this.canViewUsageStats.set(true),
+      error: () => this.canViewUsageStats.set(false),
     });
   }
 

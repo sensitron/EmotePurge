@@ -8,7 +8,7 @@ import { VoteSessionService } from './vote-session.service';
 /**
  * Vote-session detail pages used to be intentionally public (anonymous share-link viewing) —
  * removed on request: every viewer must now be logged in AND part of this specific session's
- * target audience (VoteAudienceFilter server-side). Mirrors channelManagementGuard's pattern:
+ * target audience (VoteAudienceFilter server-side). Mirrors usageStatsAccessGuard's pattern:
  * calls the real results endpoint and interprets success/failure as the authorization signal,
  * rather than adding a separate "am I allowed" endpoint.
  */

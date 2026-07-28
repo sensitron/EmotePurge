@@ -4,7 +4,7 @@ import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { AdminChannelDto, ChannelRole, MyChannelDto } from '../../core/channels/channel.model';
+import { AdminChannelDto, MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 
 // Case-insensitive: the backend lowercases the value before matching its own (case-sensitive)
@@ -26,6 +26,12 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
               nur dein eigener Channel wird sicher angezeigt. Neu einloggen, um die volle Liste zu sehen.
             </p>
           }
+          @if (sevenTvUnavailable()) {
+            <p class="mb-3 text-sm text-amber-400">
+              7TV-Editor-Status konnte nicht vollständig geprüft werden — Channels, wo du nur
+              7TV-Editor (ohne Twitch-Mod-Status) bist, fehlen hier ggf.
+            </p>
+          }
 
           @if (channels.length === 0) {
             <p class="text-sm text-slate-400">Keine Channels gefunden.</p>
@@ -33,9 +39,17 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
             <ul class="flex flex-col gap-2">
               @for (channel of channels; track channel.channelName) {
                 <li class="flex items-center justify-between rounded-md bg-slate-900 px-4 py-3">
-                  <div>
+                  <div class="flex items-center gap-2">
                     <span class="font-medium">#{{ channel.channelName }}</span>
-                    <span class="ml-2 text-xs text-slate-500">{{ roleLabel(channel.role) }}</span>
+                    @if (channel.isBroadcaster) {
+                      <span class="rounded-full bg-purple-950 px-2 py-0.5 text-xs text-purple-300">Broadcaster</span>
+                    }
+                    @if (channel.isModerator) {
+                      <span class="rounded-full bg-blue-950 px-2 py-0.5 text-xs text-blue-300">Moderator</span>
+                    }
+                    @if (channel.isSevenTvEditor) {
+                      <span class="rounded-full bg-emerald-950 px-2 py-0.5 text-xs text-emerald-300">7TV-Editor</span>
+                    }
                   </div>
                   <div class="flex items-center gap-3">
                     @if (channel.isTracked) {
@@ -49,7 +63,7 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
                       >
                         Öffnen
                       </button>
-                    } @else {
+                    } @else if (channel.isBroadcaster || channel.isModerator) {
                       <button
                         type="button"
                         class="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-500"
@@ -57,6 +71,8 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
                       >
                         Hinzufügen
                       </button>
+                    } @else {
+                      <span class="text-xs text-slate-500">Noch nicht getrackt — ein Mod muss den Bot zuerst hinzufügen.</span>
                     }
                   </div>
                 </li>
@@ -129,6 +145,7 @@ export class OverviewPage {
 
   protected readonly myChannels = signal<MyChannelDto[] | null>(null);
   protected readonly helixUnavailable = signal(false);
+  protected readonly sevenTvUnavailable = signal(false);
   protected readonly adminChannels = signal<AdminChannelDto[] | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly channelNameControl = new FormControl('', {
@@ -141,6 +158,7 @@ export class OverviewPage {
       next: (result) => {
         this.myChannels.set(result.channels);
         this.helixUnavailable.set(result.helixUnavailable);
+        this.sevenTvUnavailable.set(result.sevenTvUnavailable);
       },
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
@@ -150,10 +168,6 @@ export class OverviewPage {
       // 403 = not a global admin — the expected case for most users, not an error to surface.
       error: () => this.adminChannels.set(null),
     });
-  }
-
-  protected roleLabel(role: ChannelRole): string {
-    return role === ChannelRole.Broadcaster ? 'Broadcaster' : 'Moderator';
   }
 
   protected join(channelName: string): void {
