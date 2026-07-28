@@ -1,4 +1,5 @@
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
 import { DeleteQueueEmote, SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
@@ -20,7 +21,7 @@ export interface DeletableEmote {
  */
 @Component({
   selector: 'app-mass-delete-panel',
-  imports: [DeleteConfirmDialog, DeleteProgressPanel, SevenTvTokenInput],
+  imports: [DeleteConfirmDialog, DeleteProgressPanel, SevenTvTokenInput, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-3">
       <button
@@ -29,7 +30,7 @@ export interface DeletableEmote {
         [disabled]="selectedEmotes().length === 0 || deleteService.isRunning()"
         (click)="openConfirm()"
       >
-        Löschen ({{ selectedEmotes().length }})
+        {{ 'massDelete.deleteButton' | transloco: { count: selectedEmotes().length } }}
       </button>
 
       @if (deleteService.isRunning() || deleteService.queue().length > 0) {
@@ -54,7 +55,7 @@ export interface DeletableEmote {
             <div class="w-full max-w-md rounded-lg bg-slate-900 p-6 shadow-xl">
               <app-seven-tv-token-input />
               <button type="button" class="mt-4 text-sm text-slate-400 hover:underline" (click)="showConfirm.set(false)">
-                Abbrechen
+                {{ 'common.cancel' | transloco }}
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
+import { TranslocoService } from '@jsverse/transloco';
 import { Observable, Subscription, catchError, concatMap, delay, from, map, of, tap } from 'rxjs';
 
 import { EmoteAdminService } from '../emotes/emote-admin.service';
@@ -42,6 +43,7 @@ export class SevenTvDeleteService {
   private readonly http = inject(HttpClient);
   private readonly tokenService = inject(SevenTvTokenService);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  private readonly translocoService = inject(TranslocoService);
 
   private runSubscription: Subscription | null = null;
   private currentChannelName: string | null = null;
@@ -121,15 +123,15 @@ export class SevenTvDeleteService {
       // Invalid/expired token — drop it so the UI falls back to the token-input prompt instead
       // of silently reusing the same bad token on the next delete attempt.
       this.tokenService.clearToken();
-      return 'Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.';
+      return this.translocoService.translate('massDelete.errors.tokenInvalid');
     }
     if (error.status === 429) {
-      return 'Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.';
+      return this.translocoService.translate('massDelete.errors.rateLimited');
     }
     if (error.status === 0) {
-      return 'Keine Verbindung zu 7TV möglich (Netzwerkfehler).';
+      return this.translocoService.translate('massDelete.errors.networkError');
     }
-    return `7TV-Fehler (Status ${error.status}).`;
+    return this.translocoService.translate('massDelete.errors.genericStatus', { status: error.status });
   }
 
   private setStatus(emoteId: string, status: DeleteItemStatus, errorMessage?: string): void {

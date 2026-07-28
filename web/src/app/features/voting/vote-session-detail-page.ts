@@ -1,11 +1,15 @@
-import { DatePipe, DecimalPipe, NgOptimizedImage } from '@angular/common';
+import { DecimalPipe, NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { Observable } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
+import { LanguageService } from '../../core/i18n/language.service';
+import { toLocale } from '../../core/i18n/locale';
+import { pluralKey } from '../../core/i18n/plural';
 import { VoteSessionResult, VoteSessionResults, VoteType } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
@@ -20,7 +24,7 @@ const ROW_HEIGHT_PX = 176;
 
 @Component({
   selector: 'app-vote-session-detail-page',
-  imports: [ScrollingModule, NgOptimizedImage, DecimalPipe, DatePipe, MassDeletePanel, EmoteCardHeader],
+  imports: [ScrollingModule, NgOptimizedImage, DecimalPipe, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
   host: {
     '(window:resize)': 'updateColumns()',
   },
@@ -33,6 +37,8 @@ export class VoteSessionDetailPage {
   private readonly voteSessionService = inject(VoteSessionService);
   private readonly channelService = inject(ChannelService);
   private readonly authService = inject(AuthService);
+  private readonly translocoService = inject(TranslocoService);
+  private readonly languageService = inject(LanguageService);
 
   protected readonly voteType = VoteType;
   protected readonly currentUser = this.authService.currentUser;
@@ -86,6 +92,8 @@ export class VoteSessionDetailPage {
   protected readonly rows = computed(() => chunkIntoRows(this.emotes(), this.columns()));
   protected readonly selection = new ListSelection(this.emotes);
 
+  protected readonly emoteCountKey = computed(() => pluralKey(this.orderedEmotes().length, 'emoteCount'));
+
   protected readonly selectedForDelete = computed<DeletableEmote[]>(() =>
     this.selection.selected().map((emote) => ({
       emoteId: emote.emoteId,
@@ -103,6 +111,23 @@ export class VoteSessionDetailPage {
     this.columns.set(computeGridColumns(window.innerWidth));
   }
 
+  protected formatDateTime(iso: string): string {
+    return new Date(iso).toLocaleString(toLocale(this.languageService.lang()), {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+  }
+
+  protected keepButtonTitle(emote: VoteSessionResult): string {
+    const labelKey = emote.myVote === VoteType.Keep ? 'voting.detail.retractVote' : 'voting.detail.keepAriaLabel';
+    return `${this.translocoService.translate(labelKey)} (${emote.keepVotes})`;
+  }
+
+  protected deleteButtonTitle(emote: VoteSessionResult): string {
+    const labelKey = emote.myVote === VoteType.Delete ? 'voting.detail.retractVote' : 'voting.detail.deleteAriaLabel';
+    return `${this.translocoService.translate(labelKey)} (${emote.deleteVotes})`;
+  }
+
   private load(options: { freeze: boolean } = { freeze: true }): void {
     const channelName = this.channelName();
     const sessionId = Number(this.sessionId());
@@ -116,7 +141,7 @@ export class VoteSessionDetailPage {
           this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
         }
       },
-      error: () => this.errorMessage.set('Abstimmung konnte nicht geladen werden.'),
+      error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
     });
 
     this.channelService.getStatus(channelName).subscribe({
@@ -166,19 +191,19 @@ export class VoteSessionDetailPage {
 
     switch (error.status) {
       case 403:
-        this.errorMessage.set('Du darfst in dieser Abstimmung nicht mitvoten (falsche Rolle für diese Session).');
+        this.errorMessage.set('voting.detail.errors.forbidden');
         break;
       case 409:
-        this.errorMessage.set('Diese Abstimmung ist bereits beendet.');
+        this.errorMessage.set('voting.detail.errors.ended');
         break;
       case 404:
-        this.errorMessage.set('Abstimmung oder Channel nicht gefunden.');
+        this.errorMessage.set('voting.detail.errors.notFound');
         break;
       case 400:
-        this.errorMessage.set('Dieses Emote ist nicht mehr abstimmbar (unbekannt oder bereits archiviert).');
+        this.errorMessage.set('voting.detail.errors.emoteNotVotable');
         break;
       default:
-        this.errorMessage.set('Vote konnte nicht gespeichert werden.');
+        this.errorMessage.set('voting.detail.errors.voteFailed');
     }
   }
 

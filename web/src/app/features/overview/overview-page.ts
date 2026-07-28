@@ -2,10 +2,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
+import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { AdminChannelDto, MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
+import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 
 // Case-insensitive: the backend lowercases the value before matching its own (case-sensitive)
 // pattern, but Twitch channel names are commonly typed/displayed with capitals (e.g. "HandOfBlood").
@@ -13,7 +15,7 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
 
 @Component({
   selector: 'app-overview-page',
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, TranslocoPipe],
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
@@ -77,6 +79,6 @@ export class OverviewPage {
       this.authService.handleSessionExpired();
       return;
     }
-    this.errorMessage.set('Etwas ist schiefgelaufen. Bitte versuch es erneut.');
+    this.errorMessage.set(apiErrorTranslationKey(error));
   }
 }

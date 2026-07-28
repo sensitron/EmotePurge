@@ -4,10 +4,11 @@
       <div>
         <h2 class="text-lg font-medium">{{ session.title }}</h2>
         <p class="text-sm text-slate-500">
-          {{ session.isActive ? 'Aktiv' : 'Beendet' }} · Nutzungsdaten seit
-          {{ session.startedAt | date: 'dd.MM.yyyy HH:mm' }}
+          {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }} ·
+          {{ 'voting.detail.usageSince' | transloco }}
+          {{ formatDateTime(session.startedAt) }}
           @if (session.endedAt) {
-            bis {{ session.endedAt | date: 'dd.MM.yyyy HH:mm' }}
+            {{ 'usageStats.dateRangeTo' | transloco }} {{ formatDateTime(session.endedAt) }}
           }
         </p>
       </div>
@@ -16,7 +17,7 @@
         class="rounded-md bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
         (click)="refresh()"
       >
-        Aktualisieren
+        {{ 'usageStats.refresh' | transloco }}
       </button>
     </header>
   }
@@ -25,7 +26,7 @@
     <input
       type="number"
       min="0"
-      placeholder="Min"
+      [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
       [value]="usageFilter.min() ?? ''"
       (change)="usageFilter.setMinCount($any($event.target).value)"
       class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -33,14 +34,14 @@
     <input
       type="number"
       min="0"
-      placeholder="Max"
+      [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
       [value]="usageFilter.max() ?? ''"
       (change)="usageFilter.setMaxCount($any($event.target).value)"
       class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
     />
     <input
       type="text"
-      placeholder="Name (z.B. *cat*, ?og)"
+      [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
       [value]="usageFilter.nameQuery()"
       (input)="usageFilter.setNameFilter($any($event.target).value)"
       class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -51,10 +52,12 @@
       [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
       (click)="usageFilter.toggleUnused()"
     >
-      {{ usageFilter.isUnusedActive() ? 'Alle anzeigen' : 'Nur ungenutzte (0x)' }}
+      {{ (usageFilter.isUnusedActive() ? 'usageStats.showAll' : 'usageStats.showUnusedOnly') | transloco }}
     </button>
   </div>
-  <p class="text-sm text-slate-400">{{ emotes().length }} von {{ orderedEmotes().length }} Emotes</p>
+  <p class="text-sm text-slate-400">
+    {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}
+  </p>
 
   @if (activeEmoteSetId(); as setId) {
     <app-mass-delete-panel
@@ -66,11 +69,11 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message }}</p>
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
   }
 
   @if (emotes().length === 0) {
-    <p class="text-sm text-slate-400">Keine aktiven Emotes.</p>
+    <p class="text-sm text-slate-400">{{ 'voting.detail.noActiveEmotes' | transloco }}</p>
   } @else {
     <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="h-128 rounded-md border border-slate-800">
       <div
@@ -94,8 +97,8 @@
                 class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
                 [class]="emote.myVote === voteType.Keep ? 'text-emerald-400' : 'text-slate-500'"
                 (click)="vote(emote, voteType.Keep)"
-                aria-label="Behalten"
-                [attr.title]="(emote.myVote === voteType.Keep ? 'Vote zurücknehmen' : 'Behalten') + ' (' + emote.keepVotes + ')'"
+                [attr.aria-label]="'voting.detail.keepAriaLabel' | transloco"
+                [attr.title]="keepButtonTitle(emote)"
               >
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                   <path
@@ -109,8 +112,8 @@
                 class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
                 [class]="emote.myVote === voteType.Delete ? 'text-red-400' : 'text-slate-500'"
                 (click)="vote(emote, voteType.Delete)"
-                aria-label="Löschen vorschlagen"
-                [attr.title]="(emote.myVote === voteType.Delete ? 'Vote zurücknehmen' : 'Löschen vorschlagen') + ' (' + emote.deleteVotes + ')'"
+                [attr.aria-label]="'voting.detail.deleteAriaLabel' | transloco"
+                [attr.title]="deleteButtonTitle(emote)"
               >
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="transform: rotate(180deg)">
                   <path

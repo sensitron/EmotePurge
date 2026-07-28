@@ -1,24 +1,24 @@
 <div class="flex flex-col gap-6">
   <header class="flex flex-wrap items-center justify-between gap-4">
-    <h2 class="text-lg font-medium">Emote-Nutzung</h2>
+    <h2 class="text-lg font-medium">{{ 'usageStats.title' | transloco }}</h2>
     <div class="flex flex-wrap items-center gap-2 text-sm">
       <button
         type="button"
         class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700 disabled:opacity-40"
         [disabled]="isLoading()"
         (click)="refresh()"
-        title="Nutzungsdaten neu laden"
+        [title]="'usageStats.reloadTitle' | transloco"
       >
-        ⟳ Aktualisieren
+        ⟳ {{ 'usageStats.refresh' | transloco }}
       </button>
       <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(0)">
-        Heute
+        {{ 'usageStats.presetToday' | transloco }}
       </button>
       <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(7)">
-        7 Tage
+        {{ 'usageStats.preset7Days' | transloco }}
       </button>
       <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(30)">
-        30 Tage
+        {{ 'usageStats.preset30Days' | transloco }}
       </button>
       <input
         type="date"
@@ -26,7 +26,7 @@
         (change)="from.set($any($event.target).value)"
         class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
       />
-      <span class="text-slate-500">bis</span>
+      <span class="text-slate-500">{{ 'usageStats.dateRangeTo' | transloco }}</span>
       <input
         type="date"
         [value]="to()"
@@ -34,12 +34,12 @@
         class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
       />
       <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="toggleSort()">
-        Nutzung ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
+        {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
       </button>
       <input
         type="number"
         min="0"
-        placeholder="Min"
+        [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
         [value]="usageFilter.min() ?? ''"
         (change)="usageFilter.setMinCount($any($event.target).value)"
         class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -47,14 +47,14 @@
       <input
         type="number"
         min="0"
-        placeholder="Max"
+        [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
         [value]="usageFilter.max() ?? ''"
         (change)="usageFilter.setMaxCount($any($event.target).value)"
         class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
       />
       <input
         type="text"
-        placeholder="Name (z.B. *cat*, ?og)"
+        [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
         [value]="usageFilter.nameQuery()"
         (input)="usageFilter.setNameFilter($any($event.target).value)"
         class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -65,12 +65,14 @@
         [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
         (click)="usageFilter.toggleUnused()"
       >
-        {{ usageFilter.isUnusedActive() ? 'Alle anzeigen' : 'Nur ungenutzte (0x)' }}
+        {{ (usageFilter.isUnusedActive() ? 'usageStats.showAll' : 'usageStats.showUnusedOnly') | transloco }}
       </button>
     </div>
   </header>
 
-  <p class="text-sm text-slate-400">{{ sortedEmotes().length }} von {{ emotes().length }} Emotes</p>
+  <p class="text-sm text-slate-400">
+    {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
+  </p>
 
   @if (activeEmoteSetId(); as setId) {
     <app-mass-delete-panel
@@ -82,13 +84,13 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message }}</p>
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
   }
 
   @if (isLoading()) {
-    <p class="text-sm text-slate-400">Lädt…</p>
+    <p class="text-sm text-slate-400">{{ 'usageStats.loading' | transloco }}</p>
   } @else if (sortedEmotes().length === 0) {
-    <p class="text-sm text-slate-400">Keine aktiven Emotes für diesen Zeitraum.</p>
+    <p class="text-sm text-slate-400">{{ 'usageStats.noActiveEmotes' | transloco }}</p>
   } @else {
     <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="h-128 rounded-md border border-slate-800">
       <div

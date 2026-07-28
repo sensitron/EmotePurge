@@ -1,13 +1,14 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 
 @Component({
   selector: 'app-channel-workspace-layout',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, TranslocoPipe],
   template: `
     <div>
       <div class="mb-4 flex items-center justify-between">
@@ -16,7 +17,7 @@ import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
             routerLink="/"
             class="rounded-md border border-purple-700 px-3 py-1.5 text-sm text-purple-400 transition hover:bg-purple-950"
           >
-            ← Übersicht
+            ← {{ 'channelWorkspace.backToOverview' | transloco }}
           </a>
           <h1 class="text-xl font-semibold">#{{ channelName() }}</h1>
         </div>
@@ -26,13 +27,13 @@ import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
             class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 transition hover:bg-red-950"
             (click)="leave()"
           >
-            Channel verlassen
+            {{ 'channelWorkspace.leaveChannel' | transloco }}
           </button>
         }
       </div>
 
       @if (errorMessage(); as message) {
-        <p class="mb-4 rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message }}</p>
+        <p class="mb-4 rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
       }
 
       <nav class="mb-6 flex gap-2 border-b border-slate-800">
@@ -47,7 +48,7 @@ import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
                 : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
             "
           >
-            Nutzung
+            {{ 'channelWorkspace.tabs.usage' | transloco }}
           </a>
         }
         <a
@@ -60,7 +61,7 @@ import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
               : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
           "
         >
-          Votings
+          {{ 'channelWorkspace.tabs.voting' | transloco }}
         </a>
       </nav>
 
@@ -74,6 +75,7 @@ export class ChannelWorkspaceLayout {
   private readonly channelService = inject(ChannelService);
   private readonly usageStatService = inject(UsageStatService);
   private readonly router = inject(Router);
+  private readonly translocoService = inject(TranslocoService);
 
   // ChannelManagementAuthorizationFilter probe — hides "Channel verlassen" for anyone who isn't
   // actually allowed to manage this channel (anonymous visitors and unrelated logged-in users
@@ -113,7 +115,7 @@ export class ChannelWorkspaceLayout {
     // A leave hard-deletes the channel row and cascades all Emote/UsageStat/VoteSession rows
     // (existing backend behavior, see CLAUDE.md decision log) — worth a confirm, not a silent click.
     const confirmed = window.confirm(
-      `Channel #${this.channelName()} wirklich verlassen? Alle Emotes, Nutzungsstatistiken und Abstimmungen dieses Channels werden dabei unwiderruflich gelöscht.`,
+      this.translocoService.translate('channelWorkspace.leaveConfirm', { channelName: this.channelName() }),
     );
     if (!confirmed) {
       return;
@@ -123,7 +125,7 @@ export class ChannelWorkspaceLayout {
       next: () => this.router.navigateByUrl('/'),
       error: (error: HttpErrorResponse) => {
         this.errorMessage.set(
-          error.status === 403 ? 'Nicht berechtigt, diesen Channel zu verlassen.' : 'Channel konnte nicht verlassen werden.',
+          error.status === 403 ? 'channelWorkspace.errors.leaveForbidden' : 'channelWorkspace.errors.leaveFailed',
         );
       },
     });

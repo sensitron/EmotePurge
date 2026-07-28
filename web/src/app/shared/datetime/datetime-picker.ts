@@ -1,4 +1,8 @@
-import { Component, computed, input, model, signal } from '@angular/core';
+import { Component, computed, inject, input, model, signal } from '@angular/core';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+
+import { LanguageService } from '../../core/i18n/language.service';
+import { toLocale } from '../../core/i18n/locale';
 
 function pad(n: number): string {
   return n.toString().padStart(2, '0');
@@ -43,16 +47,25 @@ interface CalendarDay {
   isToday: boolean;
 }
 
-const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+const WEEKDAY_LABEL_KEYS = [
+  'datetimePicker.weekdays.mon',
+  'datetimePicker.weekdays.tue',
+  'datetimePicker.weekdays.wed',
+  'datetimePicker.weekdays.thu',
+  'datetimePicker.weekdays.fri',
+  'datetimePicker.weekdays.sat',
+  'datetimePicker.weekdays.sun',
+];
 
 /**
  * Self-built calendar-grid + time popup, used in place of a bare native `<input type="datetime-local">`.
  * Value is kept in the same "datetime-local" string format (`YYYY-MM-DDTHH:mm`, local time, empty
  * string = unset) so existing callers barely change. No click-outside-to-close handling (kept simple
- * on purpose) — the panel closes via the explicit "Fertig" button.
+ * on purpose) — the panel closes via the explicit "Fertig"/"Done" button.
  */
 @Component({
   selector: 'app-datetime-picker',
+  imports: [TranslocoPipe],
   template: `
     <div class="relative inline-block">
       <button
@@ -76,8 +89,8 @@ const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
           </div>
 
           <div class="grid grid-cols-7 gap-1 text-center text-xs text-slate-500">
-            @for (label of weekdayLabels; track label) {
-              <span>{{ label }}</span>
+            @for (labelKey of weekdayLabelKeys; track labelKey) {
+              <span>{{ labelKey | transloco }}</span>
             }
           </div>
           <div class="grid grid-cols-7 gap-1">
@@ -102,13 +115,15 @@ const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
           />
 
           <div class="mt-3 flex items-center justify-between text-sm">
-            <button type="button" class="text-slate-400 hover:underline" (click)="clear()">Zurücksetzen</button>
+            <button type="button" class="text-slate-400 hover:underline" (click)="clear()">
+              {{ 'datetimePicker.reset' | transloco }}
+            </button>
             <button
               type="button"
               class="rounded-md bg-purple-600 px-3 py-1.5 text-white hover:bg-purple-500"
               (click)="close()"
             >
-              Fertig
+              {{ 'datetimePicker.done' | transloco }}
             </button>
           </div>
         </div>
@@ -117,17 +132,24 @@ const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
   `,
 })
 export class DateTimePicker {
+  private readonly languageService = inject(LanguageService);
+  private readonly translocoService = inject(TranslocoService);
+
   readonly value = model('');
   readonly max = input<string>();
-  readonly placeholder = input('Jetzt (Standard)');
+  readonly placeholder = input<string>();
 
-  protected readonly weekdayLabels = WEEKDAY_LABELS;
+  protected readonly weekdayLabelKeys = WEEKDAY_LABEL_KEYS;
   protected readonly isOpen = signal(false);
   protected readonly viewMonth = signal(startOfMonth(new Date()));
 
   protected readonly displayValue = computed(() => {
     const parsed = parseDateTimeLocal(this.value());
-    return parsed ? `${toDateOnlyString(parsed)} ${toTimeOnlyString(parsed)}` : this.placeholder();
+    if (parsed) {
+      return `${toDateOnlyString(parsed)} ${toTimeOnlyString(parsed)}`;
+    }
+    const lang = this.languageService.lang();
+    return this.placeholder() ?? this.translocoService.translate('datetimePicker.placeholder', {}, lang);
   });
 
   protected readonly timeValue = computed(() => {
@@ -136,7 +158,7 @@ export class DateTimePicker {
   });
 
   protected readonly monthLabel = computed(() =>
-    this.viewMonth().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }),
+    this.viewMonth().toLocaleDateString(toLocale(this.languageService.lang()), { month: 'long', year: 'numeric' }),
   );
 
   protected readonly calendarDays = computed<CalendarDay[]>(() => {

@@ -1,10 +1,24 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
+import { firstValueFrom } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DeleteQueueEmote, SevenTvDeleteService } from './seven-tv-delete.service';
 import { SevenTvTokenService } from './seven-tv-token.service';
+
+// Only the keys this service actually translates — not the full app translation file.
+const DE_TRANSLATIONS = {
+  massDelete: {
+    errors: {
+      tokenInvalid: 'Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.',
+      rateLimited: 'Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.',
+      networkError: 'Keine Verbindung zu 7TV möglich (Netzwerkfehler).',
+      genericStatus: '7TV-Fehler (Status {{ status }}).',
+    },
+  },
+};
 
 const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 const DELETE_DELAY_MS = 275;
@@ -19,12 +33,22 @@ describe('SevenTvDeleteService', () => {
   let tokenService: SevenTvTokenService;
   let httpMock: HttpTestingController;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sessionStorage.clear();
     vi.useFakeTimers();
     TestBed.configureTestingModule({
+      imports: [
+        TranslocoTestingModule.forRoot({
+          langs: { de: DE_TRANSLATIONS },
+          translocoConfig: { availableLangs: ['de', 'en'], defaultLang: 'de' },
+        }),
+      ],
       providers: [provideHttpClient(), provideHttpClientTesting()],
     });
+    // Translations load asynchronously even with the synchronous TestingLoader — without this,
+    // a translate() call in the same tick as a test's assertions would still see no data loaded
+    // yet and fall back to returning the raw key.
+    await firstValueFrom(TestBed.inject(TranslocoService).load('de'));
     service = TestBed.inject(SevenTvDeleteService);
     tokenService = TestBed.inject(SevenTvTokenService);
     httpMock = TestBed.inject(HttpTestingController);

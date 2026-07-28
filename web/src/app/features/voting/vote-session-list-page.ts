@@ -2,9 +2,11 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, effect, inject, input, signal } from '@angular/core';
 import { AbstractControl, FormControl, ReactiveFormsModule, ValidationErrors } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
+import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
@@ -21,7 +23,7 @@ function toLocalDateTimeInputValue(date: Date): string {
 
 @Component({
   selector: 'app-vote-session-list-page',
-  imports: [ReactiveFormsModule, RouterLink, DateTimePicker, Pager],
+  imports: [ReactiveFormsModule, RouterLink, DateTimePicker, Pager, TranslocoPipe],
   templateUrl: './vote-session-list-page.html',
 })
 export class VoteSessionListPage {
@@ -30,6 +32,7 @@ export class VoteSessionListPage {
   private readonly voteSessionService = inject(VoteSessionService);
   private readonly channelService = inject(ChannelService);
   private readonly authService = inject(AuthService);
+  private readonly translocoService = inject(TranslocoService);
 
   protected readonly sessions = signal<VoteSessionSummary[]>([]);
   protected readonly page = signal(1);
@@ -112,7 +115,7 @@ export class VoteSessionListPage {
   }
 
   protected deleteSession(sessionId: number): void {
-    if (!window.confirm('Diese Abstimmung wirklich unwiderruflich löschen?')) {
+    if (!window.confirm(this.translocoService.translate('voting.list.deleteConfirm'))) {
       return;
     }
 
@@ -145,6 +148,6 @@ export class VoteSessionListPage {
       this.authService.handleSessionExpired();
       return;
     }
-    this.errorMessage.set('Etwas ist schiefgelaufen. Bitte versuch es erneut.');
+    this.errorMessage.set(apiErrorTranslationKey(error));
   }
 }

@@ -1,25 +1,27 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
+import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { MyVoteSession } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { Pager } from '../../shared/pagination/pager';
 
 @Component({
   selector: 'app-my-votings-page',
-  imports: [RouterLink, Pager],
+  imports: [RouterLink, Pager, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-6">
-      <h2 class="text-lg font-medium">Meine Abstimmungen</h2>
+      <h2 class="text-lg font-medium">{{ 'shell.myVotings' | transloco }}</h2>
 
       @if (errorMessage(); as message) {
-        <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message }}</p>
+        <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
       }
 
       @if (sessions().length === 0) {
-        <p class="text-sm text-slate-400">Du hast noch in keiner Abstimmung mitgemacht.</p>
+        <p class="text-sm text-slate-400">{{ 'myVotings.noSessions' | transloco }}</p>
       } @else {
         <ul class="flex max-h-128 flex-col gap-2 overflow-y-auto rounded-md border border-slate-800 p-2">
           @for (session of sessions(); track session.sessionId) {
@@ -32,7 +34,7 @@ import { Pager } from '../../shared/pagination/pager';
                   {{ session.title }}
                 </a>
                 <span [class]="session.isActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-500'">
-                  {{ session.isActive ? 'Aktiv' : 'Beendet' }}
+                  {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
                 </span>
               </div>
               <div class="mt-1 text-sm text-slate-400">#{{ session.channelName }}</div>
@@ -79,6 +81,6 @@ export class MyVotingsPage {
       this.authService.handleSessionExpired();
       return;
     }
-    this.errorMessage.set('Etwas ist schiefgelaufen. Bitte versuch es erneut.');
+    this.errorMessage.set(apiErrorTranslationKey(error));
   }
 }

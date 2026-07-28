@@ -1,0 +1,275 @@
+{
+  "languageSwitcher": {
+    "ariaLabel": "Switch language to {{ lang }}"
+  },
+  "shell": {
+    "workerStatus": {
+      "connected": "Worker connected",
+      "stale": "Worker disconnected",
+      "unknown": "Worker status unknown"
+    },
+    "myVotings": "My votings",
+    "logout": "Logout",
+    "login": "Login"
+  },
+  "login": {
+    "title": "Emote Purge",
+    "subtitle": "Log in with your Twitch account to manage the bot for your channel.",
+    "loginButton": "Log in with Twitch"
+  },
+  "landing": {
+    "nav": {
+      "features": "Features",
+      "how": "How it works",
+      "login": "Login"
+    },
+    "hero": {
+      "badge": "For Twitch streamers & their mod teams",
+      "titleLine1": "Bring order to your",
+      "titleHighlight": "7TV emote set",
+      "subtitle": "EmotePurge shows you which emotes your chat actually uses, and removes the rest from 7TV in bulk — no guesswork. Community voting is optional, not required.",
+      "ctaStart": "Get started",
+      "ctaFeatures": "See features"
+    },
+    "problem": {
+      "title": "Emote sets grow. Overview doesn't.",
+      "body": "After a few months, every active 7TV channel has accumulated hundreds of emotes — many long forgotten, never used, or not even wanted by the community. Figuring out by hand what's actually needed is tedious and subjective. EmotePurge turns that into a decision based on real chat data — optionally backed by real votes from your community."
+    },
+    "features": {
+      "eyebrow": "Features",
+      "title": "Everything you need to clean up",
+      "subtitle": "Four building blocks that together keep your emote set lean and relevant.",
+      "chatAnalytics": {
+        "title": "Chat analytics",
+        "description": "EmotePurge tracks live which emotes your chat actually uses — per emote, over any time range you choose."
+      },
+      "communityVoting": {
+        "title": "Community voting",
+        "badge": "Optional",
+        "description": "Let viewers, subs, or mods vote thumbs up/down as well. Not required — chat analytics alone are enough to pick emotes for removal."
+      },
+      "massDelete": {
+        "title": "7TV mass delete",
+        "description": "Flag unwanted emotes and remove them from your 7TV set in one go — no clicking through the list one by one."
+      },
+      "twitchLogin": {
+        "title": "Twitch login & roles",
+        "description": "Secure login via Twitch itself. Broadcasters, mods, and admins automatically get exactly the permissions they're entitled to."
+      }
+    },
+    "how": {
+      "eyebrow": "How it works",
+      "title": "How it works",
+      "subtitle": "From login to a cleaned-up set in four simple steps.",
+      "step1": {
+        "title": "Log in with Twitch",
+        "description": "One click is all it takes — no new password, no separate sign-up."
+      },
+      "step2": {
+        "title": "Join a channel",
+        "description": "The bot joins your chat and syncs your active 7TV set automatically."
+      },
+      "step3": {
+        "title": "Track usage",
+        "description": "Chat usage is tracked automatically — you can also start community voting, but you don't have to."
+      },
+      "step4": {
+        "title": "Clean up",
+        "description": "Select unwanted emotes and remove them from 7TV in bulk."
+      }
+    },
+    "finalCta": {
+      "title": "Ready to clean up your emote set?",
+      "subtitle": "Log in with your Twitch account and get started right away.",
+      "button": "Log in with Twitch"
+    },
+    "footer": {
+      "copyright": "© 2026 EmotePurge"
+    }
+  },
+  "datetimePicker": {
+    "placeholder": "Now (default)",
+    "reset": "Reset",
+    "done": "Done",
+    "weekdays": {
+      "mon": "Mo",
+      "tue": "Tu",
+      "wed": "We",
+      "thu": "Th",
+      "fri": "Fr",
+      "sat": "Sa",
+      "sun": "Su"
+    }
+  },
+  "overview": {
+    "title": "My channels",
+    "helixUnavailable": "Couldn't load the live moderator list (Twitch access token expired?) — only your own channel is shown reliably. Log in again to see the full list.",
+    "sevenTvUnavailable": "Couldn't fully check 7TV editor status — channels where you're only a 7TV editor (without Twitch mod status) may be missing here.",
+    "noChannels": "No channels found.",
+    "roleBadges": {
+      "broadcaster": "Broadcaster",
+      "moderator": "Moderator",
+      "sevenTvEditor": "7TV editor"
+    },
+    "botActive": "Bot active",
+    "botInactive": "Bot inactive",
+    "open": "Open",
+    "add": "Add",
+    "notTrackedYet": "Not tracked yet — a mod has to add the bot first.",
+    "admin": {
+      "title": "All channels (admin)",
+      "addChannel": "Add channel",
+      "invalidChannelName": "Invalid channel name (4–25 characters, letters/digits/underscore).",
+      "noChannelsTracked": "No channels tracked."
+    }
+  },
+  "channelWorkspace": {
+    "backToOverview": "Overview",
+    "leaveChannel": "Leave channel",
+    "leaveConfirm": "Really leave channel #{{ channelName }}? All emotes, usage stats, and votings for this channel will be permanently deleted.",
+    "tabs": {
+      "usage": "Usage",
+      "voting": "Votings"
+    },
+    "errors": {
+      "leaveForbidden": "Not allowed to leave this channel.",
+      "leaveFailed": "Could not leave the channel."
+    }
+  },
+  "emoteCount": {
+    "one": "{{ shown }} of {{ total }} emote",
+    "other": "{{ shown }} of {{ total }} emotes"
+  },
+  "usageStats": {
+    "title": "Emote usage",
+    "reloadTitle": "Reload usage data",
+    "refresh": "Refresh",
+    "presetToday": "Today",
+    "preset7Days": "7 days",
+    "preset30Days": "30 days",
+    "dateRangeTo": "to",
+    "sortByUsage": "Usage",
+    "filterMinPlaceholder": "Min",
+    "filterMaxPlaceholder": "Max",
+    "filterNamePlaceholder": "Name (e.g. *cat*, ?og)",
+    "showAll": "Show all",
+    "showUnusedOnly": "Unused only (0x)",
+    "loading": "Loading…",
+    "noActiveEmotes": "No active emotes for this time range.",
+    "errors": {
+      "loadFailed": "Couldn't load usage data."
+    }
+  },
+  "voting": {
+    "list": {
+      "createTitle": "Create new voting",
+      "titlePlaceholder": "Title, e.g. July cleanup round",
+      "titleRequired": "Title must not be empty.",
+      "audienceEveryone": "Everyone",
+      "audienceSubs": "Subs",
+      "audienceMods": "Mods/Broadcaster",
+      "startCountingLabel": "Count usage from (optional, default: now)",
+      "create": "Create",
+      "noSessions": "No votings for this channel yet.",
+      "statusActive": "Active",
+      "statusEnded": "Ended",
+      "copyLink": "Copy link",
+      "copied": "✓ Copied",
+      "copyFailed": "Copy failed",
+      "end": "End",
+      "delete": "Delete",
+      "deleteConfirm": "Really delete this voting permanently?"
+    },
+    "detail": {
+      "usageSince": "Usage data since",
+      "noActiveEmotes": "No active emotes.",
+      "keepAriaLabel": "Keep",
+      "deleteAriaLabel": "Suggest delete",
+      "retractVote": "Retract vote",
+      "errors": {
+        "loadFailed": "Couldn't load the voting.",
+        "forbidden": "You're not allowed to vote in this voting (wrong role for this session).",
+        "ended": "This voting has already ended.",
+        "notFound": "Voting or channel not found.",
+        "emoteNotVotable": "This emote can no longer be voted on (unknown or already archived).",
+        "voteFailed": "Couldn't save the vote."
+      }
+    }
+  },
+  "myVotings": {
+    "noSessions": "You haven't taken part in any voting yet."
+  },
+  "common": {
+    "cancel": "Cancel"
+  },
+  "pager": {
+    "previous": "Back",
+    "pageOf": "Page {{ page }} of {{ totalPages }}",
+    "next": "Next"
+  },
+  "massDelete": {
+    "deleteButton": "Delete ({{ count }})",
+    "progress": "{{ finished }} / {{ total }} processed",
+    "deleteFailedFallback": "Delete failed",
+    "confirmTitle": {
+      "one": "Delete {{ count }} emote from 7TV?",
+      "other": "Delete {{ count }} emotes from 7TV?"
+    },
+    "andMore": {
+      "one": "…and 1 more",
+      "other": "…and {{ count }} more"
+    },
+    "checkingSharedSets": "Checking shared sets…",
+    "sharedSetWarningTitle": "Warning: the active emote set may not (only) belong to this channel.",
+    "notOwnSet": "The active set doesn't belong to this channel's own 7TV account.",
+    "knownAffected": "Known to us as also affected: {{ list }}",
+    "moderatedAffected": "Moderated by you, also affected: {{ list }}",
+    "irreversibleNotice": "This can't be undone. Deletion then runs automatically, one emote at a time, with a short delay between each.",
+    "undetectableChannelsNotice": "Note: we generally can't detect other channels that use this same set but aren't tracked by us or moderated by you.",
+    "startDelete": "Start deleting",
+    "errors": {
+      "tokenInvalid": "Token invalid or expired — please enter a new 7TV token.",
+      "rateLimited": "Too many requests to 7TV (rate limit) — try again later.",
+      "networkError": "Couldn't connect to 7TV (network error).",
+      "genericStatus": "7TV error (status {{ status }})."
+    }
+  },
+  "sevenTvToken": {
+    "tokenSet": "7TV token set",
+    "remove": "Remove",
+    "intro": "To delete emotes you need your own 7TV write token from your logged-in 7tv.app session:",
+    "step1": "Log in on 7tv.app (if you haven't already).",
+    "step2": "Open dev tools (F12) → the \"Application\" tab (Chrome) or \"Storage\" tab (Firefox) → \"Local Storage\" → \"https://7tv.app\".",
+    "step3Prefix": "Find the entry with the key",
+    "step3Suffix": "and copy its value.",
+    "step4": "Paste the copied value below.",
+    "securityWarning": "⚠ This token grants full write access to your 7TV account (including deleting emotes). Treat it like a password — never share it. It stays only in this browser tab (sessionStorage), is never sent to our server, and is gone once you close the tab.",
+    "placeholder": "Paste 7TV token",
+    "save": "Save"
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "api": {
+      "invalid_channel_name": "Invalid channel name.",
+      "invalid_channel_or_session_id": "Invalid channel or voting identifier.",
+      "emote_ids_empty": "No emotes selected.",
+      "invalid_date_format": "Invalid date format.",
+      "from_after_to": "The start date must be before the end date.",
+      "range_too_large": "The selected time range is too large.",
+      "invalid_oauth_state": "Login failed (invalid security code) — please try again.",
+      "twitch_token_exchange_failed": "Login with Twitch failed.",
+      "twitch_user_info_unavailable": "Couldn't load your Twitch account data.",
+      "vote_session_title_empty": "Title must not be empty.",
+      "vote_session_roles_empty": "At least one target audience must be selected.",
+      "vips_not_supported": "VIPs aren't supported yet (no Twitch self-check available).",
+      "started_at_in_future": "The start time must not be in the future.",
+      "channel_not_joined": "The bot hasn't joined this channel.",
+      "emote_id_empty": "No emote selected.",
+      "invalid_vote_type": "Invalid vote type.",
+      "channel_not_found": "Channel not found.",
+      "vote_session_not_found": "Voting not found.",
+      "vote_session_ended": "This voting has already ended.",
+      "emote_not_eligible": "This emote can no longer be voted on."
+    }
+  }
+}

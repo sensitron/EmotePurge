@@ -6,14 +6,19 @@
         Emote Purge
       </a>
       <div class="flex items-center gap-6">
-        <a href="#features" class="hidden text-sm text-slate-400 transition hover:text-slate-100 sm:inline">Funktionen</a>
-        <a href="#how" class="hidden text-sm text-slate-400 transition hover:text-slate-100 sm:inline">Ablauf</a>
+        <a href="#features" class="hidden text-sm text-slate-400 transition hover:text-slate-100 sm:inline">{{
+          'landing.nav.features' | transloco
+        }}</a>
+        <a href="#how" class="hidden text-sm text-slate-400 transition hover:text-slate-100 sm:inline">{{
+          'landing.nav.how' | transloco
+        }}</a>
+        <app-language-switcher />
         <button
           type="button"
           (click)="login()"
           class="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-500"
         >
-          Login
+          {{ 'landing.nav.login' | transloco }}
         </button>
       </div>
     </nav>
@@ -29,17 +34,16 @@
         <span
           class="mb-6 inline-block rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-medium text-slate-400"
         >
-          Für Twitch-Streamer &amp; ihre Mod-Teams
+          {{ 'landing.hero.badge' | transloco }}
         </span>
         <h1 class="mb-5 text-4xl font-extrabold tracking-tight sm:text-5xl">
-          Bring Ordnung in dein
+          {{ 'landing.hero.titleLine1' | transloco }}
           <span class="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            7TV-Emote-Set
+            {{ 'landing.hero.titleHighlight' | transloco }}
           </span>
         </h1>
         <p class="mb-8 text-lg text-slate-400">
-          EmotePurge zeigt dir, welche Emotes dein Chat wirklich benutzt, und entfernt den Rest gebündelt aus 7TV —
-          ohne Rätselraten. Community-Voting kannst du optional dazuschalten, musst du aber nicht.
+          {{ 'landing.hero.subtitle' | transloco }}
         </p>
         <div class="flex flex-wrap items-center justify-center gap-3">
           <button
@@ -47,13 +51,13 @@
             (click)="login()"
             class="rounded-full bg-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-950/50 transition hover:bg-purple-500"
           >
-            Jetzt starten
+            {{ 'landing.hero.ctaStart' | transloco }}
           </button>
           <a
             href="#features"
             class="rounded-full border border-slate-700 bg-slate-900 px-6 py-3 text-sm font-semibold text-slate-100 transition hover:border-purple-500"
           >
-            Funktionen ansehen
+            {{ 'landing.hero.ctaFeatures' | transloco }}
           </a>
         </div>
       </div>
@@ -62,12 +66,9 @@
     <!-- Problem -->
     <section class="border-y border-slate-800 bg-slate-900/60 px-4 py-16">
       <div class="mx-auto max-w-2xl text-center">
-        <h2 class="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">Emote-Sets wachsen. Der Überblick nicht.</h2>
+        <h2 class="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">{{ 'landing.problem.title' | transloco }}</h2>
         <p class="text-slate-400">
-          Nach ein paar Monaten hat jeder aktive 7TV-Channel hunderte Emotes angesammelt — viele davon längst
-          vergessen, nie genutzt oder von der Community gar nicht gewollt. Von Hand herauszufinden, was wirklich
-          gebraucht wird, ist mühsam und subjektiv. EmotePurge macht daraus eine Entscheidung auf Basis echter
-          Chat-Daten — optional ergänzt um echte Stimmen deiner Community.
+          {{ 'landing.problem.body' | transloco }}
         </p>
       </div>
     </section>
@@ -76,14 +77,16 @@
     <section id="features" class="px-4 py-20">
       <div class="mx-auto max-w-5xl">
         <div class="mx-auto mb-12 max-w-xl text-center">
-          <span class="mb-2 block text-xs font-bold uppercase tracking-wider text-purple-400">Funktionen</span>
-          <h2 class="mb-3 text-2xl font-bold tracking-tight sm:text-3xl">Alles, was du zum Aufräumen brauchst</h2>
+          <span class="mb-2 block text-xs font-bold uppercase tracking-wider text-purple-400">{{
+            'landing.features.eyebrow' | transloco
+          }}</span>
+          <h2 class="mb-3 text-2xl font-bold tracking-tight sm:text-3xl">{{ 'landing.features.title' | transloco }}</h2>
           <p class="text-slate-400">
-            Vier Bausteine, die zusammen dafür sorgen, dass dein Emote-Set schlank und relevant bleibt.
+            {{ 'landing.features.subtitle' | transloco }}
           </p>
         </div>
         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          @for (feature of features; track feature.title) {
+          @for (feature of features; track feature.titleKey) {
             <div
               class="rounded-lg border border-slate-800 bg-slate-900 p-6 transition hover:-translate-y-1 hover:border-purple-500"
             >
@@ -91,14 +94,14 @@
                 <div class="flex h-11 w-11 items-center justify-center rounded-md bg-purple-950 text-xl">
                   {{ feature.icon }}
                 </div>
-                @if (feature.badge) {
+                @if (feature.badgeKey) {
                   <span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-400">
-                    {{ feature.badge }}
+                    {{ feature.badgeKey | transloco }}
                   </span>
                 }
               </div>
-              <h3 class="mb-2 font-semibold">{{ feature.title }}</h3>
-              <p class="text-sm text-slate-400">{{ feature.description }}</p>
+              <h3 class="mb-2 font-semibold">{{ feature.titleKey | transloco }}</h3>
+              <p class="text-sm text-slate-400">{{ feature.descriptionKey | transloco }}</p>
             </div>
           }
         </div>
@@ -109,20 +112,22 @@
     <section id="how" class="border-y border-slate-800 bg-slate-900/60 px-4 py-20">
       <div class="mx-auto max-w-5xl">
         <div class="mx-auto mb-12 max-w-xl text-center">
-          <span class="mb-2 block text-xs font-bold uppercase tracking-wider text-purple-400">Ablauf</span>
-          <h2 class="mb-3 text-2xl font-bold tracking-tight sm:text-3xl">So funktioniert's</h2>
-          <p class="text-slate-400">Vom Login bis zum aufgeräumten Set in vier einfachen Schritten.</p>
+          <span class="mb-2 block text-xs font-bold uppercase tracking-wider text-purple-400">{{
+            'landing.how.eyebrow' | transloco
+          }}</span>
+          <h2 class="mb-3 text-2xl font-bold tracking-tight sm:text-3xl">{{ 'landing.how.title' | transloco }}</h2>
+          <p class="text-slate-400">{{ 'landing.how.subtitle' | transloco }}</p>
         </div>
         <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          @for (step of steps; track step.title; let i = $index) {
+          @for (step of steps; track step.titleKey; let i = $index) {
             <div>
               <div
                 class="mb-4 flex h-9 w-9 items-center justify-center rounded-md border border-slate-700 bg-slate-950 font-bold text-purple-400"
               >
                 {{ i + 1 }}
               </div>
-              <h3 class="mb-1 font-semibold">{{ step.title }}</h3>
-              <p class="text-sm text-slate-400">{{ step.description }}</p>
+              <h3 class="mb-1 font-semibold">{{ step.titleKey | transloco }}</h3>
+              <p class="text-sm text-slate-400">{{ step.descriptionKey | transloco }}</p>
             </div>
           }
         </div>
@@ -132,14 +137,14 @@
     <!-- Final CTA -->
     <section class="px-4 py-24 text-center">
       <div class="mx-auto max-w-md">
-        <h2 class="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">Bereit, dein Emote-Set aufzuräumen?</h2>
-        <p class="mb-8 text-slate-400">Logg dich mit deinem Twitch-Account ein und leg direkt los.</p>
+        <h2 class="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">{{ 'landing.finalCta.title' | transloco }}</h2>
+        <p class="mb-8 text-slate-400">{{ 'landing.finalCta.subtitle' | transloco }}</p>
         <button
           type="button"
           (click)="login()"
           class="inline-block rounded-full bg-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-950/50 transition hover:bg-purple-500"
         >
-          Mit Twitch einloggen
+          {{ 'landing.finalCta.button' | transloco }}
         </button>
       </div>
     </section>
@@ -147,10 +152,10 @@
 
   <footer class="border-t border-slate-800 px-4 py-8">
     <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-      <span>&copy; 2026 EmotePurge</span>
+      <span>{{ 'landing.footer.copyright' | transloco }}</span>
       <div class="flex gap-5">
-        <a href="#features" class="transition hover:text-slate-300">Funktionen</a>
-        <a href="#how" class="transition hover:text-slate-300">Ablauf</a>
+        <a href="#features" class="transition hover:text-slate-300">{{ 'landing.nav.features' | transloco }}</a>
+        <a href="#how" class="transition hover:text-slate-300">{{ 'landing.nav.how' | transloco }}</a>
       </div>
     </div>
   </footer>

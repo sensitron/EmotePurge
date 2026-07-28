@@ -2,9 +2,11 @@ import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+import { pluralKey } from '../../core/i18n/plural';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
@@ -31,7 +33,7 @@ function daysAgo(days: number): Date {
 
 @Component({
   selector: 'app-usage-stats-page',
-  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader],
+  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
   host: {
     '(window:resize)': 'updateColumns()',
   },
@@ -67,6 +69,8 @@ export class UsageStatsPage {
   });
 
   protected readonly rows = computed(() => chunkIntoRows(this.sortedEmotes(), this.columns()));
+
+  protected readonly emoteCountKey = computed(() => pluralKey(this.emotes().length, 'emoteCount'));
 
   protected readonly selection = new ListSelection(this.sortedEmotes);
 
@@ -126,7 +130,7 @@ export class UsageStatsPage {
           this.authService.handleSessionExpired();
           return;
         }
-        this.errorMessage.set('Nutzungsdaten konnten nicht geladen werden.');
+        this.errorMessage.set('usageStats.errors.loadFailed');
         this.isLoading.set(false);
       },
     });

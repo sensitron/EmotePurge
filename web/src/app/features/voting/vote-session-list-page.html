@@ -1,16 +1,16 @@
 <div class="flex flex-col gap-6">
   @if (canManage()) {
     <section class="rounded-lg bg-slate-900 p-5">
-      <h2 class="mb-3 text-lg font-medium">Neue Abstimmung erstellen</h2>
+      <h2 class="mb-3 text-lg font-medium">{{ 'voting.list.createTitle' | transloco }}</h2>
       <div class="flex flex-col gap-3">
         <input
           type="text"
           [formControl]="titleControl"
-          placeholder="Titel, z.B. Monats-Aufräumaktion Juli"
+          [placeholder]="'voting.list.titlePlaceholder' | transloco"
           class="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-600 focus:border-purple-500 focus:outline-none"
         />
         @if (titleControl.invalid && titleControl.touched) {
-          <p class="text-xs text-red-400">Titel darf nicht leer sein.</p>
+          <p class="text-xs text-red-400">{{ 'voting.list.titleRequired' | transloco }}</p>
         }
         <div class="flex gap-4 text-sm text-slate-300">
           <label class="flex items-center gap-2">
@@ -20,7 +20,7 @@
               [checked]="selectedAudience() === 'everyone'"
               (change)="selectedAudience.set('everyone')"
             />
-            Alle
+            {{ 'voting.list.audienceEveryone' | transloco }}
           </label>
           <label class="flex items-center gap-2">
             <input
@@ -29,7 +29,7 @@
               [checked]="selectedAudience() === 'subs'"
               (change)="selectedAudience.set('subs')"
             />
-            Nur Subs
+            {{ 'voting.list.audienceSubs' | transloco }}
           </label>
           <label class="flex items-center gap-2">
             <input
@@ -38,30 +38,30 @@
               [checked]="selectedAudience() === 'mods'"
               (change)="selectedAudience.set('mods')"
             />
-            Nur Mods/Streamer
+            {{ 'voting.list.audienceMods' | transloco }}
           </label>
         </div>
         <label class="flex flex-col gap-1 text-sm text-slate-300">
-          Zählung ab (optional, Standard: jetzt)
-          <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" placeholder="Jetzt (Standard)" />
+          {{ 'voting.list.startCountingLabel' | transloco }}
+          <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
         </label>
         <button
           type="button"
           class="self-start rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-500"
           (click)="createSession()"
         >
-          Erstellen
+          {{ 'voting.list.create' | transloco }}
         </button>
       </div>
     </section>
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message }}</p>
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
   }
 
   @if (sessions().length === 0) {
-    <p class="text-sm text-slate-400">Noch keine Abstimmungen für diesen Channel.</p>
+    <p class="text-sm text-slate-400">{{ 'voting.list.noSessions' | transloco }}</p>
   } @else {
     <ul class="flex max-h-128 flex-col gap-2 overflow-y-auto rounded-md border border-slate-800 p-2">
       @for (session of sessions(); track session.id) {
@@ -71,28 +71,28 @@
               {{ session.title }}
             </a>
             <span [class]="session.isActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-500'">
-              {{ session.isActive ? 'Aktiv' : 'Beendet' }}
+              {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
             </span>
           </div>
           <div class="mt-2 flex items-center gap-3 text-sm">
             <button type="button" class="text-slate-400 hover:underline" (click)="copyShareLink(session.id)">
-              Link kopieren
+              {{ 'voting.list.copyLink' | transloco }}
             </button>
             @if (copyFeedback(); as feedback) {
               @if (feedback.sessionId === session.id) {
                 <span [class]="feedback.status === 'copied' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'">
-                  {{ feedback.status === 'copied' ? '✓ Kopiert' : 'Kopieren fehlgeschlagen' }}
+                  {{ (feedback.status === 'copied' ? 'voting.list.copied' : 'voting.list.copyFailed') | transloco }}
                 </span>
               }
             }
             @if (canManage() && session.isActive) {
               <button type="button" class="text-red-400 hover:underline" (click)="endSession(session.id)">
-                Beenden
+                {{ 'voting.list.end' | transloco }}
               </button>
             }
             @if (canManage()) {
               <button type="button" class="text-red-500 hover:underline" (click)="deleteSession(session.id)">
-                Löschen
+                {{ 'voting.list.delete' | transloco }}
               </button>
             }
           </div>

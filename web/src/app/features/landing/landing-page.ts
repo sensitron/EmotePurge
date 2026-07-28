@@ -1,59 +1,55 @@
 import { Component, inject } from '@angular/core';
+import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
+import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 
 interface Feature {
   icon: string;
-  title: string;
-  description: string;
-  badge?: string;
+  titleKey: string;
+  descriptionKey: string;
+  badgeKey?: string;
 }
 
 interface Step {
-  title: string;
-  description: string;
+  titleKey: string;
+  descriptionKey: string;
 }
 
 const FEATURES: Feature[] = [
   {
     icon: '💬',
-    title: 'Chat-Analytics',
-    description:
-      'EmotePurge verfolgt live, welche Emotes in deinem Chat tatsächlich benutzt werden — pro Emote, über frei wählbare Zeiträume.',
+    titleKey: 'landing.features.chatAnalytics.title',
+    descriptionKey: 'landing.features.chatAnalytics.description',
   },
   {
     icon: '🗳️',
-    title: 'Community-Voting',
-    badge: 'Optional',
-    description:
-      'Lass zusätzlich Zuschauer, Subs oder Mods per Daumen hoch/runter abstimmen. Kein Muss — die Chat-Analytics reichen allein schon aus, um Emotes zum Löschen auszuwählen.',
+    titleKey: 'landing.features.communityVoting.title',
+    badgeKey: 'landing.features.communityVoting.badge',
+    descriptionKey: 'landing.features.communityVoting.description',
   },
   {
     icon: '🧹',
-    title: '7TV Mass-Delete',
-    description:
-      'Ungewollte Emotes markieren und in einem Rutsch direkt aus deinem 7TV-Set entfernen — kein manuelles Klicken einzeln durch die Liste.',
+    titleKey: 'landing.features.massDelete.title',
+    descriptionKey: 'landing.features.massDelete.description',
   },
   {
     icon: '🔐',
-    title: 'Twitch-Login & Rollen',
-    description:
-      'Sicherer Login über Twitch selbst. Broadcaster, Mods und Admins bekommen automatisch genau die Rechte, die ihnen zustehen.',
+    titleKey: 'landing.features.twitchLogin.title',
+    descriptionKey: 'landing.features.twitchLogin.description',
   },
 ];
 
 const STEPS: Step[] = [
-  { title: 'Mit Twitch einloggen', description: 'Ein Klick genügt — kein neues Passwort, keine separate Registrierung.' },
-  { title: 'Channel beitreten', description: 'Der Bot joint deinen Chat und synct dein aktives 7TV-Set automatisch.' },
-  {
-    title: 'Nutzung tracken',
-    description: 'Chat-Nutzung wird automatisch getrackt — Community-Voting kannst du zusätzlich starten, musst du aber nicht.',
-  },
-  { title: 'Aufräumen', description: 'Unerwünschte Emotes auswählen und gebündelt aus 7TV entfernen.' },
+  { titleKey: 'landing.how.step1.title', descriptionKey: 'landing.how.step1.description' },
+  { titleKey: 'landing.how.step2.title', descriptionKey: 'landing.how.step2.description' },
+  { titleKey: 'landing.how.step3.title', descriptionKey: 'landing.how.step3.description' },
+  { titleKey: 'landing.how.step4.title', descriptionKey: 'landing.how.step4.description' },
 ];
 
 @Component({
   selector: 'app-landing-page',
+  imports: [TranslocoPipe, LanguageSwitcher],
   templateUrl: './landing-page.html',
 })
 export class LandingPage {

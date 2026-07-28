@@ -1,0 +1,275 @@
+{
+  "languageSwitcher": {
+    "ariaLabel": "Sprache auf {{ lang }} umstellen"
+  },
+  "shell": {
+    "workerStatus": {
+      "connected": "Worker verbunden",
+      "stale": "Worker getrennt",
+      "unknown": "Worker-Status unbekannt"
+    },
+    "myVotings": "Meine Abstimmungen",
+    "logout": "Logout",
+    "login": "Login"
+  },
+  "login": {
+    "title": "Emote Purge",
+    "subtitle": "Melde dich mit deinem Twitch-Account an, um den Bot für deinen Channel zu verwalten.",
+    "loginButton": "Mit Twitch einloggen"
+  },
+  "landing": {
+    "nav": {
+      "features": "Funktionen",
+      "how": "Ablauf",
+      "login": "Login"
+    },
+    "hero": {
+      "badge": "Für Twitch-Streamer & ihre Mod-Teams",
+      "titleLine1": "Bring Ordnung in dein",
+      "titleHighlight": "7TV-Emote-Set",
+      "subtitle": "EmotePurge zeigt dir, welche Emotes dein Chat wirklich benutzt, und entfernt den Rest gebündelt aus 7TV — ohne Rätselraten. Community-Voting kannst du optional dazuschalten, musst du aber nicht.",
+      "ctaStart": "Jetzt starten",
+      "ctaFeatures": "Funktionen ansehen"
+    },
+    "problem": {
+      "title": "Emote-Sets wachsen. Der Überblick nicht.",
+      "body": "Nach ein paar Monaten hat jeder aktive 7TV-Channel hunderte Emotes angesammelt — viele davon längst vergessen, nie genutzt oder von der Community gar nicht gewollt. Von Hand herauszufinden, was wirklich gebraucht wird, ist mühsam und subjektiv. EmotePurge macht daraus eine Entscheidung auf Basis echter Chat-Daten — optional ergänzt um echte Stimmen deiner Community."
+    },
+    "features": {
+      "eyebrow": "Funktionen",
+      "title": "Alles, was du zum Aufräumen brauchst",
+      "subtitle": "Vier Bausteine, die zusammen dafür sorgen, dass dein Emote-Set schlank und relevant bleibt.",
+      "chatAnalytics": {
+        "title": "Chat-Analytics",
+        "description": "EmotePurge verfolgt live, welche Emotes in deinem Chat tatsächlich benutzt werden — pro Emote, über frei wählbare Zeiträume."
+      },
+      "communityVoting": {
+        "title": "Community-Voting",
+        "badge": "Optional",
+        "description": "Lass zusätzlich Zuschauer, Subs oder Mods per Daumen hoch/runter abstimmen. Kein Muss — die Chat-Analytics reichen allein schon aus, um Emotes zum Löschen auszuwählen."
+      },
+      "massDelete": {
+        "title": "7TV Mass-Delete",
+        "description": "Ungewollte Emotes markieren und in einem Rutsch direkt aus deinem 7TV-Set entfernen — kein manuelles Klicken einzeln durch die Liste."
+      },
+      "twitchLogin": {
+        "title": "Twitch-Login & Rollen",
+        "description": "Sicherer Login über Twitch selbst. Broadcaster, Mods und Admins bekommen automatisch genau die Rechte, die ihnen zustehen."
+      }
+    },
+    "how": {
+      "eyebrow": "Ablauf",
+      "title": "So funktioniert's",
+      "subtitle": "Vom Login bis zum aufgeräumten Set in vier einfachen Schritten.",
+      "step1": {
+        "title": "Mit Twitch einloggen",
+        "description": "Ein Klick genügt — kein neues Passwort, keine separate Registrierung."
+      },
+      "step2": {
+        "title": "Channel beitreten",
+        "description": "Der Bot joint deinen Chat und synct dein aktives 7TV-Set automatisch."
+      },
+      "step3": {
+        "title": "Nutzung tracken",
+        "description": "Chat-Nutzung wird automatisch getrackt — Community-Voting kannst du zusätzlich starten, musst du aber nicht."
+      },
+      "step4": {
+        "title": "Aufräumen",
+        "description": "Unerwünschte Emotes auswählen und gebündelt aus 7TV entfernen."
+      }
+    },
+    "finalCta": {
+      "title": "Bereit, dein Emote-Set aufzuräumen?",
+      "subtitle": "Logg dich mit deinem Twitch-Account ein und leg direkt los.",
+      "button": "Mit Twitch einloggen"
+    },
+    "footer": {
+      "copyright": "© 2026 EmotePurge"
+    }
+  },
+  "datetimePicker": {
+    "placeholder": "Jetzt (Standard)",
+    "reset": "Zurücksetzen",
+    "done": "Fertig",
+    "weekdays": {
+      "mon": "Mo",
+      "tue": "Di",
+      "wed": "Mi",
+      "thu": "Do",
+      "fri": "Fr",
+      "sat": "Sa",
+      "sun": "So"
+    }
+  },
+  "overview": {
+    "title": "Meine Channels",
+    "helixUnavailable": "Live-Moderator-Liste konnte nicht geladen werden (Twitch-Zugriffstoken abgelaufen?) — nur dein eigener Channel wird sicher angezeigt. Neu einloggen, um die volle Liste zu sehen.",
+    "sevenTvUnavailable": "7TV-Editor-Status konnte nicht vollständig geprüft werden — Channels, wo du nur 7TV-Editor (ohne Twitch-Mod-Status) bist, fehlen hier ggf.",
+    "noChannels": "Keine Channels gefunden.",
+    "roleBadges": {
+      "broadcaster": "Broadcaster",
+      "moderator": "Moderator",
+      "sevenTvEditor": "7TV-Editor"
+    },
+    "botActive": "Bot aktiv",
+    "botInactive": "Bot inaktiv",
+    "open": "Öffnen",
+    "add": "Hinzufügen",
+    "notTrackedYet": "Noch nicht getrackt — ein Mod muss den Bot zuerst hinzufügen.",
+    "admin": {
+      "title": "Alle Channels (Admin)",
+      "addChannel": "Channel hinzufügen",
+      "invalidChannelName": "Ungültiger Channel-Name (4–25 Zeichen, Buchstaben/Ziffern/Unterstrich).",
+      "noChannelsTracked": "Keine Channels getrackt."
+    }
+  },
+  "channelWorkspace": {
+    "backToOverview": "Übersicht",
+    "leaveChannel": "Channel verlassen",
+    "leaveConfirm": "Channel #{{ channelName }} wirklich verlassen? Alle Emotes, Nutzungsstatistiken und Abstimmungen dieses Channels werden dabei unwiderruflich gelöscht.",
+    "tabs": {
+      "usage": "Nutzung",
+      "voting": "Votings"
+    },
+    "errors": {
+      "leaveForbidden": "Nicht berechtigt, diesen Channel zu verlassen.",
+      "leaveFailed": "Channel konnte nicht verlassen werden."
+    }
+  },
+  "emoteCount": {
+    "one": "{{ shown }} von {{ total }} Emote",
+    "other": "{{ shown }} von {{ total }} Emotes"
+  },
+  "usageStats": {
+    "title": "Emote-Nutzung",
+    "reloadTitle": "Nutzungsdaten neu laden",
+    "refresh": "Aktualisieren",
+    "presetToday": "Heute",
+    "preset7Days": "7 Tage",
+    "preset30Days": "30 Tage",
+    "dateRangeTo": "bis",
+    "sortByUsage": "Nutzung",
+    "filterMinPlaceholder": "Min",
+    "filterMaxPlaceholder": "Max",
+    "filterNamePlaceholder": "Name (z.B. *cat*, ?og)",
+    "showAll": "Alle anzeigen",
+    "showUnusedOnly": "Nur ungenutzte (0x)",
+    "loading": "Lädt…",
+    "noActiveEmotes": "Keine aktiven Emotes für diesen Zeitraum.",
+    "errors": {
+      "loadFailed": "Nutzungsdaten konnten nicht geladen werden."
+    }
+  },
+  "voting": {
+    "list": {
+      "createTitle": "Neue Abstimmung erstellen",
+      "titlePlaceholder": "Titel, z.B. Monats-Aufräumaktion Juli",
+      "titleRequired": "Titel darf nicht leer sein.",
+      "audienceEveryone": "Alle",
+      "audienceSubs": "Subs",
+      "audienceMods": "Mods/Streamer",
+      "startCountingLabel": "Zählung ab (optional, Standard: jetzt)",
+      "create": "Erstellen",
+      "noSessions": "Noch keine Abstimmungen für diesen Channel.",
+      "statusActive": "Aktiv",
+      "statusEnded": "Beendet",
+      "copyLink": "Link kopieren",
+      "copied": "✓ Kopiert",
+      "copyFailed": "Kopieren fehlgeschlagen",
+      "end": "Beenden",
+      "delete": "Löschen",
+      "deleteConfirm": "Diese Abstimmung wirklich unwiderruflich löschen?"
+    },
+    "detail": {
+      "usageSince": "Nutzungsdaten seit",
+      "noActiveEmotes": "Keine aktiven Emotes.",
+      "keepAriaLabel": "Behalten",
+      "deleteAriaLabel": "Löschen vorschlagen",
+      "retractVote": "Vote zurücknehmen",
+      "errors": {
+        "loadFailed": "Abstimmung konnte nicht geladen werden.",
+        "forbidden": "Du darfst in dieser Abstimmung nicht mitvoten (falsche Rolle für diese Session).",
+        "ended": "Diese Abstimmung ist bereits beendet.",
+        "notFound": "Abstimmung oder Channel nicht gefunden.",
+        "emoteNotVotable": "Dieses Emote ist nicht mehr abstimmbar (unbekannt oder bereits archiviert).",
+        "voteFailed": "Vote konnte nicht gespeichert werden."
+      }
+    }
+  },
+  "myVotings": {
+    "noSessions": "Du hast noch in keiner Abstimmung mitgemacht."
+  },
+  "common": {
+    "cancel": "Abbrechen"
+  },
+  "pager": {
+    "previous": "Zurück",
+    "pageOf": "Seite {{ page }} von {{ totalPages }}",
+    "next": "Weiter"
+  },
+  "massDelete": {
+    "deleteButton": "Löschen ({{ count }})",
+    "progress": "{{ finished }} / {{ total }} verarbeitet",
+    "deleteFailedFallback": "Löschen fehlgeschlagen",
+    "confirmTitle": {
+      "one": "{{ count }} Emote von 7TV löschen?",
+      "other": "{{ count }} Emotes von 7TV löschen?"
+    },
+    "andMore": {
+      "one": "…und ein weiteres",
+      "other": "…und {{ count }} weitere"
+    },
+    "checkingSharedSets": "Prüfe geteilte Sets…",
+    "sharedSetWarningTitle": "Achtung: Das aktive Emote-Set gehört möglicherweise nicht (nur) diesem Channel.",
+    "notOwnSet": "Das aktive Set gehört nicht dem eigenen 7TV-Account dieses Channels.",
+    "knownAffected": "Bei uns bekannt betroffen: {{ list }}",
+    "moderatedAffected": "Von dir moderiert, ebenfalls betroffen: {{ list }}",
+    "irreversibleNotice": "Das kann nicht rückgängig gemacht werden. Löschen läuft danach automatisch nacheinander mit kurzer Verzögerung zwischen den Emotes.",
+    "undetectableChannelsNotice": "Hinweis: Fremde Channels, die weder von uns getrackt werden noch von dir moderiert werden, aber ebenfalls dieses Set nutzen, können wir grundsätzlich nicht erkennen.",
+    "startDelete": "Löschen starten",
+    "errors": {
+      "tokenInvalid": "Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.",
+      "rateLimited": "Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.",
+      "networkError": "Keine Verbindung zu 7TV möglich (Netzwerkfehler).",
+      "genericStatus": "7TV-Fehler (Status {{ status }})."
+    }
+  },
+  "sevenTvToken": {
+    "tokenSet": "7TV-Token gesetzt",
+    "remove": "Entfernen",
+    "intro": "Zum Löschen brauchst du dein eigenes 7TV-Schreib-Token aus deiner eingeloggten 7tv.app-Session:",
+    "step1": "Auf 7tv.app einloggen (falls noch nicht geschehen).",
+    "step2": "Entwicklertools öffnen (F12) → Tab \"Application\" (Chrome) bzw. \"Speicher\" (Firefox) → \"Local Storage\" → \"https://7tv.app\".",
+    "step3Prefix": "Den Eintrag mit dem Schlüssel",
+    "step3Suffix": "suchen und dessen Wert kopieren.",
+    "step4": "Den kopierten Wert unten einfügen.",
+    "securityWarning": "⚠ Dieses Token gewährt vollen Schreibzugriff auf deinen 7TV-Account (u. a. Emotes löschen). Behandle es wie ein Passwort — gib es niemandem weiter. Es bleibt nur in diesem Browser-Tab (sessionStorage), wird nie an unseren Server geschickt und ist nach dem Schließen des Tabs wieder weg.",
+    "placeholder": "7TV-Token einfügen",
+    "save": "Speichern"
+  },
+  "errors": {
+    "generic": "Etwas ist schiefgelaufen. Bitte versuch es erneut.",
+    "api": {
+      "invalid_channel_name": "Ungültiger Channel-Name.",
+      "invalid_channel_or_session_id": "Ungültiger Channel- oder Abstimmungs-Identifier.",
+      "emote_ids_empty": "Keine Emotes ausgewählt.",
+      "invalid_date_format": "Ungültiges Datumsformat.",
+      "from_after_to": "Der Startzeitpunkt muss vor dem Endzeitpunkt liegen.",
+      "range_too_large": "Der gewählte Zeitraum ist zu groß.",
+      "invalid_oauth_state": "Login fehlgeschlagen (ungültiger Sicherheitscode) — bitte erneut versuchen.",
+      "twitch_token_exchange_failed": "Login bei Twitch fehlgeschlagen.",
+      "twitch_user_info_unavailable": "Twitch-Kontodaten konnten nicht geladen werden.",
+      "vote_session_title_empty": "Titel darf nicht leer sein.",
+      "vote_session_roles_empty": "Es muss mindestens eine Zielgruppe ausgewählt sein.",
+      "vips_not_supported": "VIPs werden aktuell nicht unterstützt (keine Twitch-Selbstauskunft verfügbar).",
+      "started_at_in_future": "Der Startzeitpunkt darf nicht in der Zukunft liegen.",
+      "channel_not_joined": "Der Bot ist diesem Channel nicht beigetreten.",
+      "emote_id_empty": "Kein Emote ausgewählt.",
+      "invalid_vote_type": "Ungültiger Vote-Typ.",
+      "channel_not_found": "Channel nicht gefunden.",
+      "vote_session_not_found": "Abstimmung nicht gefunden.",
+      "vote_session_ended": "Diese Abstimmung ist bereits beendet.",
+      "emote_not_eligible": "Dieses Emote ist nicht mehr abstimmbar."
+    }
+  }
+}
