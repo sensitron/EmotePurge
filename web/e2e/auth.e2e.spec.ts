@@ -9,10 +9,12 @@ test.describe('unauthenticated visitor', () => {
     await mockTwitchLoginRedirect(page);
   });
 
-  test('is redirected from the overview to /login and can trigger the Twitch login redirect', async ({ page }) => {
+  test('is redirected from the overview to /welcome and can trigger the Twitch login redirect', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page).toHaveURL(/\/login$/);
+    // homeGuard sends anonymous visitors to the public marketing page, not straight to /login
+    // (see home.guard.ts) — /login itself is still reachable directly, covered by authGuard below.
+    await expect(page).toHaveURL(/\/welcome$/);
     const loginButton = page.getByRole('button', { name: 'Mit Twitch einloggen' });
     await expect(loginButton).toBeVisible();
 

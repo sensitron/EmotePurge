@@ -12,6 +12,10 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4300',
     trace: 'on-first-retry',
+    // Every spec asserts on hardcoded German copy. The app now auto-detects the browser language
+    // (see LanguageService.resolveInitialLang) — without pinning this, a CI runner's default
+    // Chromium locale (en-US) would render English text and break those assertions.
+    locale: 'de-DE',
   },
   webServer: {
     command: 'npx ng serve --port 4300 --proxy-config proxy.conf.json',
