@@ -8,6 +8,7 @@ import { ChannelService } from '../../core/channels/channel.service';
 import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
+import { Pager } from '../../shared/pagination/pager';
 
 function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
   return control.value?.trim().length > 0 ? null : { required: true };
@@ -20,7 +21,7 @@ function toLocalDateTimeInputValue(date: Date): string {
 
 @Component({
   selector: 'app-vote-session-list-page',
-  imports: [ReactiveFormsModule, RouterLink, DateTimePicker],
+  imports: [ReactiveFormsModule, RouterLink, DateTimePicker, Pager],
   template: `
     <div class="flex flex-col gap-6">
       @if (canManage()) {
@@ -87,7 +88,7 @@ function toLocalDateTimeInputValue(date: Date): string {
       @if (sessions().length === 0) {
         <p class="text-sm text-slate-400">Noch keine Abstimmungen für diesen Channel.</p>
       } @else {
-        <ul class="flex flex-col gap-2">
+        <ul class="flex max-h-128 flex-col gap-2 overflow-y-auto rounded-md border border-slate-800 p-2">
           @for (session of sessions(); track session.id) {
             <li class="rounded-md bg-slate-900 px-4 py-3">
               <div class="flex items-center justify-between">
@@ -114,10 +115,16 @@ function toLocalDateTimeInputValue(date: Date): string {
                     Beenden
                   </button>
                 }
+                @if (canManage()) {
+                  <button type="button" class="text-red-500 hover:underline" (click)="deleteSession(session.id)">
+                    Löschen
+                  </button>
+                }
               </div>
             </li>
           }
         </ul>
+        <app-pager [page]="page()" [totalPages]="totalPages()" (pageChange)="onPageChange($event)" />
       }
     </div>
   `,
@@ -130,6 +137,8 @@ export class VoteSessionListPage {
   private readonly authService = inject(AuthService);
 
   protected readonly sessions = signal<VoteSessionSummary[]>([]);
+  protected readonly page = signal(1);
+  protected readonly totalPages = signal(0);
   // Reuses the ChannelManagementAuthorizationFilter semantics as a de-facto permission probe
   // (200 = can manage, 403 = plain voter/anonymous) instead of adding a new public "canManage" field.
   protected readonly canManage = signal(false);
@@ -153,8 +162,11 @@ export class VoteSessionListPage {
   private load(): void {
     const channelName = this.channelName();
 
-    this.voteSessionService.list(channelName).subscribe({
-      next: (sessions) => this.sessions.set(sessions),
+    this.voteSessionService.list(channelName, this.page()).subscribe({
+      next: (result) => {
+        this.sessions.set(result.items);
+        this.totalPages.set(result.totalPages);
+      },
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
 
@@ -162,6 +174,11 @@ export class VoteSessionListPage {
       next: () => this.canManage.set(true),
       error: () => this.canManage.set(false),
     });
+  }
+
+  protected onPageChange(newPage: number): void {
+    this.page.set(newPage);
+    this.load();
   }
 
   protected createSession(): void {
@@ -195,6 +212,17 @@ export class VoteSessionListPage {
       next: (updated) => {
         this.sessions.update((sessions) => sessions.map((session) => (session.id === updated.id ? updated : session)));
       },
+      error: (error: HttpErrorResponse) => this.handleError(error),
+    });
+  }
+
+  protected deleteSession(sessionId: number): void {
+    if (!window.confirm('Diese Abstimmung wirklich unwiderruflich löschen?')) {
+      return;
+    }
+
+    this.voteSessionService.delete(this.channelName(), sessionId).subscribe({
+      next: () => this.sessions.update((sessions) => sessions.filter((session) => session.id !== sessionId)),
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
   }

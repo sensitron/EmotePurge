@@ -50,3 +50,15 @@ export interface CastVoteResult {
   type: VoteType;
   updatedAt: string;
 }
+
+// A session the current user has ever cast a vote in, across any channel — see
+// GET /api/vote-sessions/mine.
+export interface MyVoteSession {
+  sessionId: number;
+  title: string;
+  channelName: string;
+  isActive: boolean;
+  startedAt: string;
+  endedAt: string | null;
+  lastVotedAt: string;
+}

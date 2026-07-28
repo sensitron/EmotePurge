@@ -2,9 +2,11 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { PagedResult } from '../shared/paged-result.model';
 import {
   AllowedRoles,
   CastVoteResult,
+  MyVoteSession,
   VoteSessionResults,
   VoteSessionSummary,
   VoteType,
@@ -14,8 +16,18 @@ import {
 export class VoteSessionService {
   private readonly http = inject(HttpClient);
 
-  list(channelName: string): Observable<VoteSessionSummary[]> {
-    return this.http.get<VoteSessionSummary[]>(`/api/channels/${channelName}/vote-sessions`);
+  list(channelName: string, page = 1, pageSize = 20): Observable<PagedResult<VoteSessionSummary>> {
+    return this.http.get<PagedResult<VoteSessionSummary>>(`/api/channels/${channelName}/vote-sessions`, {
+      params: { page, pageSize },
+    });
+  }
+
+  delete(channelName: string, sessionId: number): Observable<void> {
+    return this.http.delete<void>(`/api/channels/${channelName}/vote-sessions/${sessionId}`);
+  }
+
+  listMine(page = 1, pageSize = 20): Observable<PagedResult<MyVoteSession>> {
+    return this.http.get<PagedResult<MyVoteSession>>('/api/vote-sessions/mine', { params: { page, pageSize } });
   }
 
   create(

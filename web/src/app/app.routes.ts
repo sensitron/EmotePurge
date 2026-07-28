@@ -17,6 +17,13 @@ export const routes: Routes = [
         canActivate: [authGuard],
       },
       {
+        // Cross-channel — a user's voting history isn't scoped to a single channelName route value,
+        // so this is a sibling of the overview route, not nested under channels/:channelName.
+        path: 'my-votings',
+        loadComponent: () => import('./features/my-votings/my-votings-page').then((m) => m.MyVotingsPage),
+        canActivate: [authGuard],
+      },
+      {
         path: 'channels/:channelName',
         loadComponent: () =>
           import('./features/channel-workspace/channel-workspace-layout').then((m) => m.ChannelWorkspaceLayout),
