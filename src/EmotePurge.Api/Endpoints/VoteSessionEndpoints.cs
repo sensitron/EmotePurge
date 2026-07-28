@@ -20,33 +20,33 @@ public static class VoteSessionEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             if (string.IsNullOrWhiteSpace(request.Title))
             {
-                return Results.BadRequest(new { error = "Title must not be empty." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionTitleEmpty });
             }
 
             if (request.AllowedVoterRoles == 0)
             {
-                return Results.BadRequest(new { error = "AllowedVoterRoles must not be empty." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionRolesEmpty });
             }
 
             if (request.AllowedVoterRoles.HasFlag(AllowedRoles.VIPs))
             {
-                return Results.BadRequest(new { error = "AllowedRoles.VIPs is not supported yet (no Twitch self-check API available)." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.VipsNotSupported });
             }
 
             if (request.StartedAt is { } startedAt && startedAt > DateTime.UtcNow)
             {
-                return Results.BadRequest(new { error = "StartedAt must not be in the future." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.StartedAtInFuture });
             }
 
             var session = await voteSessionService.CreateAsync(channelName, request.Title, request.AllowedVoterRoles, request.StartedAt, ct);
             if (session is null)
             {
-                return Results.NotFound(new { error = "Channel not joined." });
+                return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotJoined });
             }
 
             return Results.Ok(new VoteSessionSummaryDto(session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt));
@@ -92,7 +92,7 @@ public static class VoteSessionEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var effectivePage = page <= 0 ? 1 : page;
@@ -163,12 +163,12 @@ public static class VoteSessionEndpoints
         {
             if (string.IsNullOrEmpty(request.EmoteId))
             {
-                return Results.BadRequest(new { error = "EmoteId must not be empty." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdEmpty });
             }
 
             if (request.Type is not (VoteType.Keep or VoteType.Delete))
             {
-                return Results.BadRequest(new { error = "Type must be Keep (1) or Delete (2)." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidVoteType });
             }
 
             // VoteEligibilityFilter already required an authenticated principal to reach this handler.
@@ -178,10 +178,10 @@ public static class VoteSessionEndpoints
             return result switch
             {
                 VoteCastResult.Success => Results.Ok(new { voteId = vote!.Id, emoteId = vote.EmoteId, type = vote.Type, updatedAt = vote.UpdatedAt }),
-                VoteCastResult.ChannelNotFound => Results.NotFound(new { error = "Channel not found." }),
-                VoteCastResult.SessionNotFound => Results.NotFound(new { error = "Vote session not found." }),
-                VoteCastResult.SessionEnded => Results.Conflict(new { error = "Vote session has ended." }),
-                VoteCastResult.EmoteNotEligible => Results.BadRequest(new { error = "Emote is unknown or archived." }),
+                VoteCastResult.ChannelNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotFound }),
+                VoteCastResult.SessionNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.VoteSessionNotFound }),
+                VoteCastResult.SessionEnded => Results.Conflict(new { errorCode = ApiErrorCodes.VoteSessionEnded }),
+                VoteCastResult.EmoteNotEligible => Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteNotEligible }),
                 _ => Results.Problem()
             };
         })
@@ -203,9 +203,9 @@ public static class VoteSessionEndpoints
             return result switch
             {
                 VoteCastResult.Success => Results.NoContent(),
-                VoteCastResult.ChannelNotFound => Results.NotFound(new { error = "Channel not found." }),
-                VoteCastResult.SessionNotFound => Results.NotFound(new { error = "Vote session not found." }),
-                VoteCastResult.SessionEnded => Results.Conflict(new { error = "Vote session has ended." }),
+                VoteCastResult.ChannelNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotFound }),
+                VoteCastResult.SessionNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.VoteSessionNotFound }),
+                VoteCastResult.SessionEnded => Results.Conflict(new { errorCode = ApiErrorCodes.VoteSessionEnded }),
                 _ => Results.Problem()
             };
         })

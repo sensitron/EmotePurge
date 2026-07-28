@@ -20,7 +20,7 @@ public static class UsageStatsEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var stats = await usageStatQueryService.GetUsageStatsAsync(channelName, ct);
@@ -36,24 +36,24 @@ public static class UsageStatsEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             if (!DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var fromDate) ||
                 !DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var toDate))
             {
-                return Results.BadRequest(new { error = "'from'/'to' must be ISO dates (yyyy-MM-dd)." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidDateFormat });
             }
 
             if (fromDate > toDate)
             {
-                return Results.BadRequest(new { error = "'from' must be on or before 'to'." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.FromAfterTo });
             }
 
             const int maxRangeDays = 366;
             if (toDate.DayNumber - fromDate.DayNumber > maxRangeDays)
             {
-                return Results.BadRequest(new { error = $"Range too large; max {maxRangeDays} days." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays });
             }
 
             var totals = await usageStatQueryService.GetUsageTotalsAsync(channelName, fromDate, toDate, ct);

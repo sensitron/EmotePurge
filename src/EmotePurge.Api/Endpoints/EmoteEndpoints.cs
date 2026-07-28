@@ -23,12 +23,12 @@ public static class EmoteEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             if (request.EmoteIds is null || request.EmoteIds.Count == 0)
             {
-                return Results.BadRequest(new { error = "EmoteIds must not be empty." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty });
             }
 
             var result = await emoteService.MarkDeletedAsync(channelName, request.EmoteIds, ct);
@@ -44,7 +44,7 @@ public static class EmoteEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var principal = httpContext.User.TryBuildTwitchPrincipal();
@@ -65,7 +65,7 @@ public static class EmoteEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var channel = await channelService.GetByNameAsync(channelName, ct);

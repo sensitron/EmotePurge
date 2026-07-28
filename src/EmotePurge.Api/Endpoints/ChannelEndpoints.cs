@@ -17,7 +17,7 @@ public static class ChannelEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var channel = await channelService.GetByNameAsync(channelName, ct);
@@ -65,7 +65,7 @@ public static class ChannelEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var channel = await channelService.JoinAsync(channelName, ct);
@@ -81,7 +81,7 @@ public static class ChannelEndpoints
         {
             if (!ChannelNameValidation.IsValid(channelName))
             {
-                return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
             var removed = await channelService.LeaveAsync(channelName, ct);

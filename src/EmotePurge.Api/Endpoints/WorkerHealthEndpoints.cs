@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EmotePurge.Api.Validation;
 using StackExchange.Redis;
 
 namespace EmotePurge.Api.Endpoints;
@@ -15,13 +16,13 @@ public static class WorkerHealthEndpoints
             var value = await redis.GetDatabase().StringGetAsync("worker:health:twitch");
             if (value.IsNullOrEmpty)
             {
-                return Results.Ok(new { status = "unknown", reason = "Kein aktueller Health-Status vom Worker (Key abgelaufen oder Worker nicht gestartet)." });
+                return Results.Ok(new { status = "unknown", reasonCode = ApiErrorCodes.NoHealthData });
             }
 
             var payload = JsonSerializer.Deserialize<WorkerHealthPayload>((string)value!, JsonSerializerOptions.Web);
             if (payload is null)
             {
-                return Results.Ok(new { status = "unknown", reason = "Health-Status konnte nicht gelesen werden." });
+                return Results.Ok(new { status = "unknown", reasonCode = ApiErrorCodes.HealthDataUnreadable });
             }
 
             var secondsSinceLastMessage = payload.LastMessageReceivedUtc is { } lastMessage

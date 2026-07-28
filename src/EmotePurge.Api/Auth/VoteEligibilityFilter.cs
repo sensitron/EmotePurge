@@ -1,3 +1,4 @@
+using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Api.Auth;
@@ -10,7 +11,7 @@ public class VoteEligibilityFilter : IEndpointFilter
         var sessionIdRaw = context.HttpContext.Request.RouteValues["sessionId"] as string;
         if (string.IsNullOrEmpty(channelName) || !long.TryParse(sessionIdRaw, out var sessionId))
         {
-            return Results.BadRequest(new { error = "Invalid channel name or session id." });
+            return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelOrSessionId });
         }
 
         var principal = context.HttpContext.User.TryBuildTwitchPrincipal();
@@ -25,8 +26,8 @@ public class VoteEligibilityFilter : IEndpointFilter
         return result switch
         {
             VoteEligibilityResult.Allowed => await next(context),
-            VoteEligibilityResult.SessionNotFound => Results.NotFound(new { error = "Vote session not found." }),
-            VoteEligibilityResult.SessionEnded => Results.Conflict(new { error = "Vote session has ended." }),
+            VoteEligibilityResult.SessionNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.VoteSessionNotFound }),
+            VoteEligibilityResult.SessionEnded => Results.Conflict(new { errorCode = ApiErrorCodes.VoteSessionEnded }),
             VoteEligibilityResult.RoleNotEligible => Results.Forbid(),
             _ => Results.Forbid()
         };

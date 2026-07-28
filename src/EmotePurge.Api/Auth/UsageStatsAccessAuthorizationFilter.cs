@@ -1,3 +1,4 @@
+using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Api.Auth;
@@ -12,7 +13,7 @@ public class UsageStatsAccessAuthorizationFilter : IEndpointFilter
         var channelName = context.HttpContext.Request.RouteValues["channelName"] as string;
         if (string.IsNullOrEmpty(channelName))
         {
-            return Results.BadRequest(new { error = "Invalid Twitch channel name." });
+            return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
         }
 
         var principal = context.HttpContext.User.TryBuildTwitchPrincipal();

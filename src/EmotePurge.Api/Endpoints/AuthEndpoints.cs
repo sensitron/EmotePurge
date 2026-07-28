@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
 using Microsoft.AspNetCore.Authentication;
@@ -59,7 +60,7 @@ public static class AuthEndpoints
 
             if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state) || expectedState is null || state != expectedState)
             {
-                return Results.BadRequest(new { error = "Invalid or missing OAuth state." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidOAuthState });
             }
 
             var redirectUri = configuration["Auth:Twitch:RedirectUri"]
@@ -68,13 +69,13 @@ public static class AuthEndpoints
             var token = await authClient.ExchangeAuthorizationCodeAsync(code, redirectUri, ct);
             if (token is null)
             {
-                return Results.BadRequest(new { error = "Twitch token exchange failed." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.TwitchTokenExchangeFailed });
             }
 
             var userInfo = await helixClient.GetUserInfoAsync(token.AccessToken, ct);
             if (userInfo is null)
             {
-                return Results.BadRequest(new { error = "Could not resolve Twitch user info." });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.TwitchUserInfoUnavailable });
             }
 
             await userService.UpsertLoginAsync(userInfo.Id, userInfo.Login, userInfo.DisplayName, ct);
