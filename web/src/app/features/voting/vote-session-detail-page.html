@@ -1,0 +1,128 @@
+<div class="flex flex-col gap-6">
+  @if (results(); as session) {
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-medium">{{ session.title }}</h2>
+        <p class="text-sm text-slate-500">
+          {{ session.isActive ? 'Aktiv' : 'Beendet' }} · Nutzungsdaten seit
+          {{ session.startedAt | date: 'dd.MM.yyyy HH:mm' }}
+          @if (session.endedAt) {
+            bis {{ session.endedAt | date: 'dd.MM.yyyy HH:mm' }}
+          }
+        </p>
+      </div>
+      <button
+        type="button"
+        class="rounded-md bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
+        (click)="refresh()"
+      >
+        Aktualisieren
+      </button>
+    </header>
+  }
+
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <input
+      type="number"
+      min="0"
+      placeholder="Min"
+      [value]="usageFilter.min() ?? ''"
+      (change)="usageFilter.setMinCount($any($event.target).value)"
+      class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+    />
+    <input
+      type="number"
+      min="0"
+      placeholder="Max"
+      [value]="usageFilter.max() ?? ''"
+      (change)="usageFilter.setMaxCount($any($event.target).value)"
+      class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+    />
+    <input
+      type="text"
+      placeholder="Name (z.B. *cat*, ?og)"
+      [value]="usageFilter.nameQuery()"
+      (input)="usageFilter.setNameFilter($any($event.target).value)"
+      class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+    />
+    <button
+      type="button"
+      class="rounded-md px-3 py-1.5"
+      [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
+      (click)="usageFilter.toggleUnused()"
+    >
+      {{ usageFilter.isUnusedActive() ? 'Alle anzeigen' : 'Nur ungenutzte (0x)' }}
+    </button>
+  </div>
+  <p class="text-sm text-slate-400">{{ emotes().length }} von {{ orderedEmotes().length }} Emotes</p>
+
+  @if (activeEmoteSetId(); as setId) {
+    <app-mass-delete-panel
+      [setId]="setId"
+      [channelName]="channelName()"
+      [selectedEmotes]="selectedForDelete()"
+      (deleted)="onDeleted($event)"
+    />
+  }
+
+  @if (errorMessage(); as message) {
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message }}</p>
+  }
+
+  @if (emotes().length === 0) {
+    <p class="text-sm text-slate-400">Keine aktiven Emotes.</p>
+  } @else {
+    <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="h-128 rounded-md border border-slate-800">
+      <div
+        *cdkVirtualFor="let row of rows(); let rowIndex = index"
+        class="grid gap-3 px-3 py-2"
+        [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
+      >
+        @for (emote of row; track emote.emoteId; let colIndex = $index) {
+          <div
+            class="flex h-40 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center transition hover:bg-slate-800/70"
+            (click)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
+          >
+            <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" [showCheckbox]="canManage()" />
+            <div class="flex h-10 shrink-0 items-center justify-center">
+              <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
+            </div>
+            <span class="text-xs text-slate-500">{{ emote.totalUseCount }}x · {{ emote.score | number: '1.0-1' }}</span>
+            <div class="mt-auto flex items-center justify-center gap-1" (click)="$event.stopPropagation()">
+              <button
+                type="button"
+                class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
+                [class]="emote.myVote === voteType.Keep ? 'text-emerald-400' : 'text-slate-500'"
+                (click)="vote(emote, voteType.Keep)"
+                aria-label="Behalten"
+                [attr.title]="(emote.myVote === voteType.Keep ? 'Vote zurücknehmen' : 'Behalten') + ' (' + emote.keepVotes + ')'"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path
+                    d="M2 21h2a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H2v11ZM22 11.5a2 2 0 0 0-2-2h-5.6l.8-4a2 2 0 0 0-2-2.4h-.2L8 9v12h11a2 2 0 0 0 1.9-1.4l1.9-6.6a2 2 0 0 0 .1-.5v-1Z"
+                  />
+                </svg>
+                <span class="text-xs">{{ emote.keepVotes }}</span>
+              </button>
+              <button
+                type="button"
+                class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
+                [class]="emote.myVote === voteType.Delete ? 'text-red-400' : 'text-slate-500'"
+                (click)="vote(emote, voteType.Delete)"
+                aria-label="Löschen vorschlagen"
+                [attr.title]="(emote.myVote === voteType.Delete ? 'Vote zurücknehmen' : 'Löschen vorschlagen') + ' (' + emote.deleteVotes + ')'"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="transform: rotate(180deg)">
+                  <path
+                    d="M2 21h2a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H2v11ZM22 11.5a2 2 0 0 0-2-2h-5.6l.8-4a2 2 0 0 0-2-2.4h-.2L8 9v12h11a2 2 0 0 0 1.9-1.4l1.9-6.6a2 2 0 0 0 .1-.5v-1Z"
+                  />
+                </svg>
+                <span class="text-xs">{{ emote.deleteVotes }}</span>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </cdk-virtual-scroll-viewport>
+  }
+</div>
