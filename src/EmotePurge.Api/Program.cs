@@ -377,8 +377,22 @@ app.MapPost("/api/channels/{channelName}/vote-sessions/{sessionId:long}/end", as
 .RequireAuthorization()
 .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
+app.MapDelete("/api/channels/{channelName}/vote-sessions/{sessionId:long}", async (
+    string channelName,
+    long sessionId,
+    IVoteSessionService voteSessionService,
+    CancellationToken ct) =>
+{
+    var deleted = await voteSessionService.DeleteAsync(channelName, sessionId, ct);
+    return deleted ? Results.NoContent() : Results.NotFound();
+})
+.RequireAuthorization()
+.AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+
 app.MapGet("/api/channels/{channelName}/vote-sessions", async (
     string channelName,
+    int page,
+    int pageSize,
     HttpContext httpContext,
     IVoteSessionQueryService voteSessionQueryService,
     IChannelAccessService channelAccessService,
@@ -390,26 +404,36 @@ app.MapGet("/api/channels/{channelName}/vote-sessions", async (
         return Results.BadRequest(new { error = "Invalid Twitch channel name." });
     }
 
+    var effectivePage = page <= 0 ? 1 : page;
+    var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+
     var principal = httpContext.User.TryBuildTwitchPrincipal();
     if (principal is null)
     {
         return Results.Unauthorized();
     }
 
-    var sessions = await voteSessionQueryService.ListSessionsAsync(channelName, ct);
-
     // Managers (admin/broadcaster/live-moderator) see every session unfiltered — same standing as
-    // the "Neue Abstimmung erstellen" section. Everyone else only sees sessions they're personally
-    // part of the audience for (VoteEligibilityService.EvaluateAudienceAsync, same check used to
-    // gate the results page) — a session a viewer has no rights to shouldn't even reveal its
-    // existence to them.
+    // the "Neue Abstimmung erstellen" section — and get true DB-level pagination since no per-session
+    // filter has to run first.
     if (await channelAccessService.CanManageChannelAsync(principal, channelName, ct))
     {
-        return Results.Ok(sessions);
+        var paged = await voteSessionQueryService.ListSessionsPagedAsync(channelName, effectivePage, effectivePageSize, ct);
+        return Results.Ok(paged);
     }
 
+    // Everyone else only sees sessions they're personally part of the audience for
+    // (VoteEligibilityService.EvaluateAudienceAsync, same check used to gate the results page) — a
+    // session a viewer has no rights to shouldn't even reveal its existence to them. Filter-then-
+    // paginate (in memory, over the full per-channel list) rather than paginate-then-filter: DB-side
+    // Skip/Take before filtering could return a page that shrinks to fewer than pageSize (or zero)
+    // items after eligibility is applied even though more eligible sessions exist further down —
+    // breaking the pagination contract and making TotalCount/TotalPages meaningless. A channel's
+    // vote-session history is small (one broadcaster's own history, not a global table), so the
+    // in-memory pass stays cheap.
+    var allSessions = await voteSessionQueryService.ListSessionsAsync(channelName, ct);
     var visibleSessions = new List<VoteSessionSummaryDto>();
-    foreach (var session in sessions)
+    foreach (var session in allSessions)
     {
         var eligibility = await voteEligibilityService.EvaluateAudienceAsync(principal, channelName, session.Id, ct);
         if (eligibility == VoteEligibilityResult.Allowed)
@@ -418,7 +442,8 @@ app.MapGet("/api/channels/{channelName}/vote-sessions", async (
         }
     }
 
-    return Results.Ok(visibleSessions);
+    var pageItems = visibleSessions.Skip((effectivePage - 1) * effectivePageSize).Take(effectivePageSize).ToList();
+    return Results.Ok(new PagedResult<VoteSessionSummaryDto>(pageItems, effectivePage, effectivePageSize, visibleSessions.Count));
 })
 .RequireAuthorization();
 
@@ -499,6 +524,29 @@ app.MapDelete("/api/channels/{channelName}/vote-sessions/{sessionId:long}/votes/
 .RequireAuthorization()
 .AddEndpointFilter<VoteEligibilityFilter>()
 .RequireRateLimiting("ExpensiveOps");
+
+// Deliberately NOT nested under /api/channels/{channelName}/... — a user's voting history spans
+// every channel they've ever voted in, so there's no single channelName route value to key off.
+app.MapGet("/api/vote-sessions/mine", async (
+    int page,
+    int pageSize,
+    HttpContext httpContext,
+    IVoteSessionQueryService voteSessionQueryService,
+    CancellationToken ct) =>
+{
+    var principal = httpContext.User.TryBuildTwitchPrincipal();
+    if (principal is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var effectivePage = page <= 0 ? 1 : page;
+    var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+
+    var result = await voteSessionQueryService.ListMyVoteSessionsAsync(principal.TwitchUserId, effectivePage, effectivePageSize, ct);
+    return Results.Ok(result);
+})
+.RequireAuthorization();
 
 const string OAuthStateCookieName = "ep_oauth_state";
 const string TwitchOAuthScope = "user:read:email user:read:moderated_channels user:read:subscriptions";

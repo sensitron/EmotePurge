@@ -159,4 +159,25 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
 
         return VoteCastResult.Success;
     }
+
+    public async Task<bool> DeleteAsync(string channelName, long sessionId, CancellationToken cancellationToken = default)
+    {
+        var normalized = channelName.Trim().ToLowerInvariant();
+        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        if (channel is null)
+        {
+            return false;
+        }
+
+        var session = await db.VoteSessions.SingleOrDefaultAsync(
+            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
+        if (session is null)
+        {
+            return false;
+        }
+
+        db.VoteSessions.Remove(session);
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
 }

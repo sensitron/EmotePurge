@@ -98,6 +98,155 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
         Assert.Null(results);
     }
 
+    [Fact]
+    public async Task ListSessionsPagedAsync_ReturnsCorrectPage_AndTotalCount()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "pagetest1");
+        var now = DateTime.UtcNow;
+        await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-3));
+        await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-2));
+        await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-1));
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+
+        var firstPage = await service.ListSessionsPagedAsync(channel.ChannelName, page: 1, pageSize: 2);
+        Assert.Equal(2, firstPage.Items.Count);
+        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Equal(2, firstPage.TotalPages);
+
+        var secondPage = await service.ListSessionsPagedAsync(channel.ChannelName, page: 2, pageSize: 2);
+        Assert.Single(secondPage.Items);
+    }
+
+    [Fact]
+    public async Task ListSessionsPagedAsync_OrdersByStartedAtDescending()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "pagetest2");
+        var now = DateTime.UtcNow;
+        var older = await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-10));
+        var newer = await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-1));
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListSessionsPagedAsync(channel.ChannelName, page: 1, pageSize: 10);
+
+        Assert.Equal(newer.Id, page.Items[0].Id);
+        Assert.Equal(older.Id, page.Items[1].Id);
+    }
+
+    [Fact]
+    public async Task ListMyVoteSessionsAsync_ReturnsSessionsAcrossMultipleChannels_ForOneVoter()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channelA = await SeedChannelAsync(db, "mvtest1a");
+        var channelB = await SeedChannelAsync(db, "mvtest1b");
+        var emoteA = await SeedEmoteAsync(db, channelA.Id, "EmoteA");
+        var emoteB = await SeedEmoteAsync(db, channelB.Id, "EmoteB");
+        var sessionA = await SeedActiveSessionAsync(db, channelA.Id);
+        var sessionB = await SeedActiveSessionAsync(db, channelB.Id);
+        var voter = await SeedUserAsync(db, "mvtest1-voter");
+        db.Votes.Add(new Vote { VoteSessionId = sessionA.Id, EmoteId = emoteA.Id, UserId = voter.Id, Type = VoteType.Keep });
+        db.Votes.Add(new Vote { VoteSessionId = sessionB.Id, EmoteId = emoteB.Id, UserId = voter.Id, Type = VoteType.Delete });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListMyVoteSessionsAsync(voter.Id, page: 1, pageSize: 20);
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.Contains(page.Items, i => i.SessionId == sessionA.Id && i.ChannelName == channelA.ChannelName);
+        Assert.Contains(page.Items, i => i.SessionId == sessionB.Id && i.ChannelName == channelB.ChannelName);
+    }
+
+    [Fact]
+    public async Task ListMyVoteSessionsAsync_ExcludesSessionsTheVoterNeverVotedIn()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "mvtest2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Emote");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var otherVoter = await SeedUserAsync(db, "mvtest2-othervoter");
+        var targetVoter = await SeedUserAsync(db, "mvtest2-targetvoter");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emote.Id, UserId = otherVoter.Id, Type = VoteType.Keep });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListMyVoteSessionsAsync(targetVoter.Id, page: 1, pageSize: 20);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(0, page.TotalCount);
+    }
+
+    [Fact]
+    public async Task ListMyVoteSessionsAsync_OrdersByLastVotedAtDescending()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channelA = await SeedChannelAsync(db, "mvtest3a");
+        var channelB = await SeedChannelAsync(db, "mvtest3b");
+        var emoteA = await SeedEmoteAsync(db, channelA.Id, "EmoteA");
+        var emoteB = await SeedEmoteAsync(db, channelB.Id, "EmoteB");
+        var sessionA = await SeedActiveSessionAsync(db, channelA.Id);
+        var sessionB = await SeedActiveSessionAsync(db, channelB.Id);
+        var voter = await SeedUserAsync(db, "mvtest3-voter");
+        var now = DateTime.UtcNow;
+        db.Votes.Add(new Vote { VoteSessionId = sessionA.Id, EmoteId = emoteA.Id, UserId = voter.Id, Type = VoteType.Keep, UpdatedAt = now.AddMinutes(-10) });
+        db.Votes.Add(new Vote { VoteSessionId = sessionB.Id, EmoteId = emoteB.Id, UserId = voter.Id, Type = VoteType.Keep, UpdatedAt = now.AddMinutes(-1) });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListMyVoteSessionsAsync(voter.Id, page: 1, pageSize: 20);
+
+        Assert.Equal(sessionB.Id, page.Items[0].SessionId);
+        Assert.Equal(sessionA.Id, page.Items[1].SessionId);
+    }
+
+    [Fact]
+    public async Task ListMyVoteSessionsAsync_PopulatesLastVotedAt_AsMaxOfThatVotersVotesInSession()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "mvtest4");
+        var emoteA = await SeedEmoteAsync(db, channel.Id, "EmoteA");
+        var emoteB = await SeedEmoteAsync(db, channel.Id, "EmoteB");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var voter = await SeedUserAsync(db, "mvtest4-voter");
+        var now = DateTime.UtcNow;
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emoteA.Id, UserId = voter.Id, Type = VoteType.Keep, UpdatedAt = now.AddMinutes(-5) });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emoteB.Id, UserId = voter.Id, Type = VoteType.Delete, UpdatedAt = now.AddMinutes(-1) });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListMyVoteSessionsAsync(voter.Id, page: 1, pageSize: 20);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(now.AddMinutes(-1), item.LastVotedAt, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task ListMyVoteSessionsAsync_Paginates_TotalCountAndPages()
+    {
+        await using var db = fixture.CreateDbContext();
+        var voter = await SeedUserAsync(db, "mvtest5-voter");
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 3; i++)
+        {
+            var channel = await SeedChannelAsync(db, $"mvtest5-{i}");
+            var emote = await SeedEmoteAsync(db, channel.Id, $"Emote{i}");
+            var session = await SeedActiveSessionAsync(db, channel.Id);
+            db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emote.Id, UserId = voter.Id, Type = VoteType.Keep, UpdatedAt = now.AddMinutes(-i) });
+            await db.SaveChangesAsync();
+        }
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+
+        var firstPage = await service.ListMyVoteSessionsAsync(voter.Id, page: 1, pageSize: 2);
+        Assert.Equal(2, firstPage.Items.Count);
+        Assert.Equal(3, firstPage.TotalCount);
+        Assert.Equal(2, firstPage.TotalPages);
+
+        var secondPage = await service.ListMyVoteSessionsAsync(voter.Id, page: 2, pageSize: 2);
+        Assert.Single(secondPage.Items);
+    }
+
     private static async Task<Channel> SeedChannelAsync(AppDbContext db, string channelName)
     {
         var channel = new Channel { ChannelName = channelName, IsBotActive = true };
@@ -120,14 +269,15 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
         return emote;
     }
 
-    private static async Task<VoteSession> SeedActiveSessionAsync(AppDbContext db, string channelId)
+    private static async Task<VoteSession> SeedActiveSessionAsync(AppDbContext db, string channelId, DateTime? startedAt = null)
     {
         var session = new VoteSession
         {
             ChannelId = channelId,
             Title = "Test Session",
             AllowedVoterRoles = AllowedRoles.Everyone,
-            IsActive = true
+            IsActive = true,
+            StartedAt = startedAt ?? DateTime.UtcNow
         };
         db.VoteSessions.Add(session);
         await db.SaveChangesAsync();

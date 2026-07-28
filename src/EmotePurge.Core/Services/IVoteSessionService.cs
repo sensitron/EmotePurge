@@ -28,4 +28,10 @@ public interface IVoteSessionService
     // no-op (still Success) if no vote existed — mirrors EndAsync's idempotency.
     Task<VoteCastResult> RetractVoteAsync(
         string channelName, long sessionId, string emoteId, string voterTwitchUserId, CancellationToken cancellationToken = default);
+
+    // Hard delete — cascades to the session's Votes (DeleteBehavior.Cascade in AppDbContext).
+    // No IsActive guard: a manager may delete an active session too, same as LeaveAsync being
+    // usable regardless of a channel's vote-session state. Returns false if the channel or session
+    // isn't found (bool convention, mirrors ChannelService.LeaveAsync).
+    Task<bool> DeleteAsync(string channelName, long sessionId, CancellationToken cancellationToken = default);
 }

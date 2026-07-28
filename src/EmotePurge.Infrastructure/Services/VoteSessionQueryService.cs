@@ -18,6 +18,22 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<PagedResult<VoteSessionSummaryDto>> ListSessionsPagedAsync(string channelName, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var normalized = channelName.Trim().ToLowerInvariant();
+        var query = db.VoteSessions.Where(s => s.Channel.ChannelName == normalized);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(s => s.StartedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => new VoteSessionSummaryDto(s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<VoteSessionSummaryDto>(items, page, pageSize, totalCount);
+    }
+
     public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, CancellationToken cancellationToken = default)
     {
         var normalized = channelName.Trim().ToLowerInvariant();
@@ -85,5 +101,33 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         .ToList();
 
         return new VoteSessionResultsDto(session.Id, session.Title, session.IsActive, session.StartedAt, session.EndedAt, results);
+    }
+
+    public async Task<PagedResult<MyVoteSessionDto>> ListMyVoteSessionsAsync(string voterTwitchUserId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        // Group over Votes first, then join back to VoteSessions/Channel — grouping directly on a
+        // navigation-joined query has previously failed to translate in this codebase (see
+        // UsageStatQueryService.GetUsageTotalsAsync's decision-log entry), so the reduction to a
+        // scalar (VoteSessionId, LastVotedAt) pair happens before any join.
+        var votedSessionIds = db.Votes
+            .Where(v => v.UserId == voterTwitchUserId)
+            .GroupBy(v => v.VoteSessionId)
+            .Select(g => new { SessionId = g.Key, LastVotedAt = g.Max(v => v.UpdatedAt) });
+
+        var joined = votedSessionIds.Join(
+            db.VoteSessions,
+            x => x.SessionId,
+            s => s.Id,
+            (x, s) => new { x.LastVotedAt, s.Id, s.Title, ChannelName = s.Channel.ChannelName, s.IsActive, s.StartedAt, s.EndedAt });
+
+        var totalCount = await joined.CountAsync(cancellationToken);
+        var items = await joined
+            .OrderByDescending(x => x.LastVotedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new MyVoteSessionDto(x.Id, x.Title, x.ChannelName, x.IsActive, x.StartedAt, x.EndedAt, x.LastVotedAt))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<MyVoteSessionDto>(items, page, pageSize, totalCount);
     }
 }
