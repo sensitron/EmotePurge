@@ -42,6 +42,7 @@ public class TwitchChatManager(
     private long _connectAttemptedUtcTicks;
     private int _consecutiveConnectionErrors;
     private int _openInFlight;
+    private int _joinsIssuedForCurrentClient;
 
     public bool IsConnected => _isConnected;
 
@@ -222,6 +223,8 @@ public class TwitchChatManager(
         WireUpClient(newClient);
         _client = newClient;
         Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        // The new client knows nothing about our channels, so its first OnConnected must rejoin.
+        Interlocked.Exchange(ref _joinsIssuedForCurrentClient, 0);
 
         // No explicit rejoin here: a fresh client raises OnConnected, and that handler rejoins.
         // Doing it here as well would issue every JOIN twice and produce spurious
@@ -329,17 +332,27 @@ public class TwitchChatManager(
         Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
         logger.LogInformation("TwitchClient verbunden.");
 
-        // Also the landing point for a connect that only succeeded after ConnectAsync() stopped
-        // waiting, and for the fresh client after a recreate: both raise OnConnected rather than
-        // OnReconnected, and both need the desired channels joined.
-        await RejoinDesiredChannelsAsync();
+        // Only a client that has not joined anything yet needs us. Verified in TwitchClient 4.0.1
+        // (_client_OnReconnected): on a reconnect of the *same* client TwitchLib re-enqueues its own
+        // joined channels, joins them, and only then clears its list and raises the event — so it
+        // rejoins by itself, and because that clear happens first, JoinChannelAsync's own duplicate
+        // check no longer suppresses anything we send afterwards. Observed on prod 2026-07-29: twelve
+        // join confirmations for six channels after a single reconnect. A fresh client (first boot,
+        // or after a recreate) has an empty list instead, so there nothing would ever be joined
+        // without us — that case, and only that case, is handled here. Raised by Handle004, i.e. once
+        // per completed IRC handshake, which is also why this fires after a reconnect at all.
+        if (Interlocked.Exchange(ref _joinsIssuedForCurrentClient, 1) == 0)
+        {
+            await RejoinDesiredChannelsAsync();
+        }
     }
 
     private Task OnDisconnected(object? sender, OnDisconnectedArgs e)
     {
-        // TwitchLib rejoint Channels nach einem Reconnect NICHT automatisch — ohne
-        // sichtbares Log hier würde ein stiller Verbindungsabbruch (z. B. Twitch-seitiges
-        // PING-Timeout) das Chat-Matching für alle Channels lautlos einfrieren.
+        // Without a log line here a silent drop (a Twitch-side PING timeout, say) would freeze chat
+        // matching for every channel without a trace. Marking the channels unconfirmed lets
+        // EnsureJoinedAsync verify them again — TwitchLib rejoins them itself on reconnect, but only
+        // those its own list happens to hold, not the ones we wanted and never got.
         _isConnected = false;
         MarkAllChannelsUnconfirmed();
         logger.LogWarning("TwitchClient getrennt.");
@@ -370,13 +383,18 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
-    private async Task OnReconnected(object? sender, OnConnectedEventArgs e)
+    private Task OnReconnected(object? sender, OnConnectedEventArgs e)
     {
         _isConnected = true;
         Interlocked.Exchange(ref _openInFlight, 0);
         Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+
+        // No rejoin here: TwitchLib has already done it in the very code path that raises this event
+        // (see OnConnected). Rejoining anyway doubled every JOIN on every reconnect — harmless at six
+        // channels, but Twitch allows 20 joins per 10 seconds, and exceeding that drops the
+        // connection, which is exactly what the watchdog then reacts to.
         logger.LogInformation("TwitchClient reconnected.");
-        await RejoinDesiredChannelsAsync();
+        return Task.CompletedTask;
     }
 
     private async Task RejoinDesiredChannelsAsync()
