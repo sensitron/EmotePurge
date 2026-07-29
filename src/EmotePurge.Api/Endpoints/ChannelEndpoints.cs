@@ -84,9 +84,37 @@ public static class ChannelEndpoints
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
-            var removed = await channelService.LeaveAsync(channelName, ct);
-            return removed ? Results.NoContent() : Results.NotFound();
+            // Deactivates the bot and keeps all history — see ChannelService.LeaveAsync for why this
+            // must not be a delete. The destructive variant lives behind /purge below.
+            var deactivated = await channelService.LeaveAsync(channelName, ct);
+            return deactivated ? Results.NoContent() : Results.NotFound();
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+
+        // Admin-only and deliberately without any UI: this is the only way to irreversibly remove a
+        // channel with its emotes, usage history, vote sessions and votes. Not behind
+        // ChannelManagementAuthorizationFilter, because that admits moderators — and a positively
+        // cached mod status survives a /unmod by up to ten minutes, which is exactly the window in
+        // which a just-removed moderator could have destroyed a channel's entire history.
+        group.MapDelete("/{channelName}/purge", async (
+            string channelName,
+            IChannelService channelService,
+            ILogger<Program> logger,
+            CancellationToken ct) =>
+        {
+            if (!ChannelNameValidation.IsValid(channelName))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+            }
+
+            var purged = await channelService.PurgeAsync(channelName, ct);
+            if (purged)
+            {
+                logger.LogWarning("Channel {Channel} wurde per Admin-Purge samt Historie gelöscht.", channelName);
+            }
+
+            return purged ? Results.NoContent() : Results.NotFound();
+        })
+        .AddEndpointFilter<GlobalAdminAuthorizationFilter>();
     }
 }

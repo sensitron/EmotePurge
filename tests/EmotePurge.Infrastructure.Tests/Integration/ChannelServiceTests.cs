@@ -41,18 +41,68 @@ public class ChannelServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task LeaveAsync_RemovesChannel_AndPublishesLeaveCommand()
+    public async Task LeaveAsync_DeactivatesChannel_ButKeepsTheRow()
     {
+        // The row must survive: it hangs on four cascade edges (emotes, usage stats, vote sessions,
+        // votes), and none of that history is reconstructible. Deleting on leave used to make a
+        // moderator's single click destroy the channel's entire recorded history.
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
         await service.JoinAsync("channelservicetest3");
 
-        var removed = await service.LeaveAsync("ChannelServiceTest3");
+        var deactivated = await service.LeaveAsync("ChannelServiceTest3");
 
-        Assert.True(removed);
-        Assert.Null(await service.GetByNameAsync("channelservicetest3"));
+        Assert.True(deactivated);
+        var channel = await service.GetByNameAsync("channelservicetest3");
+        Assert.NotNull(channel);
+        Assert.False(channel.IsBotActive);
         await redisPublisher.Received(1).PublishAsync("channel:bot:commands", "LEAVE:channelservicetest3", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task JoinAsync_AfterLeave_ReactivatesTheSameRow()
+    {
+        // The whole point of the soft deactivate: rejoining must bring the channel and its history
+        // back rather than start a second, empty row.
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+        var joined = await service.JoinAsync("channelservicetest5");
+        await service.LeaveAsync("channelservicetest5");
+
+        var rejoined = await service.JoinAsync("channelservicetest5");
+
+        Assert.Equal(joined.Id, rejoined.Id);
+        Assert.True(rejoined.IsBotActive);
+    }
+
+    [Fact]
+    public async Task PurgeAsync_RemovesChannel_AndPublishesLeaveCommand()
+    {
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+        await service.JoinAsync("channelservicetest6");
+
+        var purged = await service.PurgeAsync("ChannelServiceTest6");
+
+        Assert.True(purged);
+        Assert.Null(await service.GetByNameAsync("channelservicetest6"));
+        await redisPublisher.Received(1).PublishAsync("channel:bot:commands", "LEAVE:channelservicetest6", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PurgeAsync_ForUnknownChannel_ReturnsFalse_AndDoesNotPublish()
+    {
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+
+        var purged = await service.PurgeAsync("neverjoinedchannel");
+
+        Assert.False(purged);
+        await redisPublisher.DidNotReceive().PublishAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -62,9 +112,9 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
 
-        var removed = await service.LeaveAsync("neverjoinedchannel");
+        var deactivated = await service.LeaveAsync("neverjoinedchannel");
 
-        Assert.False(removed);
+        Assert.False(deactivated);
         await redisPublisher.DidNotReceive().PublishAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
