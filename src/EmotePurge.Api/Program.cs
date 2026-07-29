@@ -95,6 +95,7 @@ app.Use(async (context, next) =>
         "font-src 'self'; " +
         "object-src 'none'; " +
         "base-uri 'self'; " +
+        "form-action 'self'; " +
         "frame-ancestors 'none'";
     await next();
 });
