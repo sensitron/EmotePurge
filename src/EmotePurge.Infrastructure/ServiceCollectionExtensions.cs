@@ -44,6 +44,7 @@ public static class ServiceCollectionExtensions
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("EmotePurge/1.0");
         });
+        services.AddSingleton<ChannelSyncGate>();
         services.AddScoped<ISevenTvSyncService, SevenTvSyncService>();
 
         services.AddHttpClient<ITwitchAuthClient, TwitchAuthClient>(client =>

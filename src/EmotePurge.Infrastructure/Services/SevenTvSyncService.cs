@@ -11,12 +11,17 @@ public class SevenTvSyncService(
     AppDbContext db,
     ISevenTvApiClient sevenTvApiClient,
     IEmoteMatchCache emoteMatchCache,
+    ChannelSyncGate channelSyncGate,
     ILogger<SevenTvSyncService> logger)
     : ISevenTvSyncService
 {
     public async Task<string?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default)
     {
         var normalized = channelName.Trim().ToLowerInvariant();
+
+        // Two concurrent syncs of the same channel collide on the (ChannelId, SevenTvEmoteId)
+        // unique index — see ChannelSyncGate.
+        using var gate = await channelSyncGate.AcquireAsync(normalized, cancellationToken);
 
         var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)
@@ -36,6 +41,26 @@ public class SevenTvSyncService(
         if (emoteSet is null)
         {
             return null;
+        }
+
+        // A successful response with an empty emote list is indistinguishable from a real set wipe,
+        // but the consequences are wildly asymmetric: ReconcileAsync would archive every emote of
+        // the channel and RefreshMatchCacheAsync would install an empty dictionary, so chat
+        // matching stops entirely until the next successful sync (up to 60s — thousands of lost
+        // matches at HandOfBlood's message rate). Known triggers: a set change in progress, a
+        // partial 7TV outage, an owner briefly emptying the set. Treated as implausible and
+        // skipped; the next tick recovers on its own.
+        if (emoteSet.Emotes.Count == 0)
+        {
+            var knownActiveEmotes = await db.Emotes
+                .CountAsync(e => e.ChannelId == channel.Id && !e.IsArchived, cancellationToken);
+            if (knownActiveEmotes > 0)
+            {
+                logger.LogWarning(
+                    "7TV meldet 0 aktive Emotes für {Channel}, obwohl bisher {Count} bekannt waren — Sync übersprungen.",
+                    normalized, knownActiveEmotes);
+                return emoteSet.Id;
+            }
         }
 
         channel.TwitchChannelId ??= twitchUserId;
