@@ -67,19 +67,15 @@ public class TwitchChatManager(
         {
             if (_consecutiveConnectionErrors >= MaxConsecutiveConnectionErrorsBeforeRecreate)
             {
-                logger.LogWarning(
-                    "Recreate ausgelöst durch {Count} aufeinanderfolgende Verbindungsfehler.",
-                    _consecutiveConnectionErrors);
-                await RecreateClientAsync();
+                await RecreateClientAsync(
+                    $"{_consecutiveConnectionErrors} aufeinanderfolgende Verbindungsfehler erreicht (Schwelle {MaxConsecutiveConnectionErrorsBeforeRecreate}).");
                 return;
             }
 
             if (_reconnectCountSinceCreation >= MaxReconnectsBeforeProactiveRecreate)
             {
-                logger.LogWarning(
-                    "Proaktives Recreate ausgelöst: {Count} Reconnects seit letzter Client-Erzeugung erreicht (Schwelle {Max}).",
-                    _reconnectCountSinceCreation, MaxReconnectsBeforeProactiveRecreate);
-                await RecreateClientAsync();
+                await RecreateClientAsync(
+                    $"proaktive Schwelle erreicht: {_reconnectCountSinceCreation} Reconnects seit letzter Client-Erzeugung (Schwelle {MaxReconnectsBeforeProactiveRecreate}).");
                 return;
             }
 
@@ -96,11 +92,11 @@ public class TwitchChatManager(
         }
     }
 
-    private async Task RecreateClientAsync()
+    private async Task RecreateClientAsync(string reason)
     {
         logger.LogWarning(
-            "{Count} aufeinanderfolgende Verbindungsfehler — TwitchClient wird komplett neu instanziiert statt nur reconnectet.",
-            _consecutiveConnectionErrors);
+            "TwitchClient wird komplett neu instanziiert statt nur reconnectet. Grund: {Reason}",
+            reason);
 
         var oldClient = _client;
         UnwireClient(oldClient);
