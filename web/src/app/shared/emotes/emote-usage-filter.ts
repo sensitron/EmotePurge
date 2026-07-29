@@ -6,12 +6,18 @@ interface FilterableEmote {
 }
 
 function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .trim()
+  const trimmed = pattern.trim();
+  const escaped = trimmed
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '.*')
     .replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`, 'i');
+
+  // With ~1,000 emotes per channel, the expected default is a plain substring search ("peepo"
+  // should match "peepoHappy", "peepoSad", ...) — fully anchoring every query made that
+  // impossible unless the user also typed wildcards. Only anchor (classic glob semantics) once
+  // the user opts in by actually typing `*`/`?`; a bare query stays an unanchored substring match.
+  const hasWildcard = trimmed.includes('*') || trimmed.includes('?');
+  return hasWildcard ? new RegExp(`^${escaped}$`, 'i') : new RegExp(escaped, 'i');
 }
 
 /**
