@@ -10,6 +10,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="TwitchLib.Client" Version="4.0.1" />
+    <!-- Transitive via TwitchLib.Client, referenced explicitly because TwitchChatManager
+         configures the ReconnectionPolicy directly (see the comment in CreateClient). -->
+    <PackageReference Include="TwitchLib.Communication" Version="2.0.1" />
   </ItemGroup>
 
   <ItemGroup>
