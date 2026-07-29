@@ -226,6 +226,22 @@ Diese Punkte sind Teil eines Befunds, dessen Rest bewusst einer späteren Welle 
 - **S4-3 `style-src` ohne `unsafe-inline`** — braucht `ngCspNonce`, mit `MapFallbackToFile("index.html")` nicht ohne Weiteres möglich; im Report ausdrücklich kein Blocker.
 - **S3-17 Restfall** — `my-votings-page.ts` hat denselben `text-slate-500`-Statustext, war im Report aber nicht als Fundort genannt und blieb unangetastet. Trivialer Nachzug.
 
+### Offenes Skalierungsthema: Twitchs JOIN-Limit ab ~20 Channels
+
+Kein Befund des Reports — beim Auswerten eines Prod-Logs am 2026-07-30 aufgefallen und am TwitchLib-Quelltext nachgerechnet.
+
+Twitch erlaubt einer nicht-verifizierten Verbindung **20 JOINs pro 10 Sekunden**. TwitchLib drosselt JOINs überhaupt nicht: sie gehen an `ThrottlingService` vorbei (der deckt nur Chat-Nachrichten ab), und `QueueingJoinCheckAsync` schickt den nächsten, sobald `Handle366` die Bestätigung des vorherigen meldet — auf Prod gemessen ~180 ms pro Channel. 20 Channels am Stück liegen damit exakt auf der Grenze, darüber reißt jeder Reconnect sie.
+
+**Was dann passiert** (am Code belegt, nicht vermutet): Bleibt die Bestätigung aus, verfällt der Eintrag nach 5 s, `OnFailureToReceiveJoinConfirmation` feuert, der Channel fliegt aus TwitchLibs `_joinedChannelManager` — und **TwitchLib versucht es von sich aus nicht erneut**, es rejoint ihn auch beim nächsten Reconnect nicht mehr. Der Durchsatz fällt dabei auf etwa einen Channel alle 5–6 s, das System drosselt sich unter Last also selbst, statt in eine Schleife zu laufen. Die betroffenen Channels erfassen aber nichts, bis `EnsureJoinedAsync` sie im Minutentakt nachholt — ohne dieses Netz aus Welle B wären sie dauerhaft stumm geblieben.
+
+**Umgesetzt am 2026-07-30:** Alle Join-Pfade, die wir selbst auslösen (Boot-Recovery, Rejoin nach einem Recreate, Redis-Join-Kommandos, die `EnsureJoinedAsync`-Runde), laufen über eine gemeinsame Drossel in `TwitchChatManager.TryJoinAsync` — 600 ms Mindestabstand, also ~16 JOINs pro 10 Sekunden. Ein einzelner Join aus dem UI wird dadurch nicht spürbar verzögert, solange der vorherige lange genug her ist.
+
+**Nicht gelöst und vor einem größeren Ausbau zu entscheiden:** TwitchLibs eigener Rejoin nach einem Reconnect läuft innerhalb der Bibliothek und lässt sich nicht drosseln. Zwei Auswege:
+- **Verifizierter Bot-Account** (2.000 JOINs/10 s statt 20) — vom Nutzer als vorgesehene Richtung benannt (2026-07-30). Bedeutet: echter Twitch-Account statt anonymer `justinfan`-Verbindung, OAuth-Token für den Bot, `ConnectionCredentials` mit Nick+Token statt parameterlos, und ein Verifizierungsantrag bei Twitch. Macht nebenbei das Senden von Nachrichten möglich, was heute nicht geht.
+- **Sharding** über mehrere `TwitchClient`-Instanzen. Ungeklärt und nur empirisch beantwortbar: ob Twitch anonyme Verbindungen pro `justinfan`-Kennung limitiert (dann vervielfacht Sharding das Budget) oder pro IP (dann bringt es nichts).
+
+Billigster Vorabtest: lokal ~25 Channels tracken und prüfen, ob `Twitch hat den Join für … nicht bestätigt` auftaucht.
+
 ### Offene Wellen
 
 **Welle C — Refactorings.** S2-13 (HTTP-Interceptor) → S3-26 → S3-32 → `/permissions`-Endpoint → S3-31 → S3-30 → S3-33 (`strict`) → S4-11 → S3-6 → S3-27 (CLAUDE.md-Umbau; die Datei ist auf ~93 KB gewachsen).

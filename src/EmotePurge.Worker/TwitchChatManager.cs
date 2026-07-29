@@ -31,10 +31,25 @@ public class TwitchChatManager(
     // object is assumed wedged and gets replaced rather than waited on any further.
     private static readonly TimeSpan StuckOpenThreshold = TimeSpan.FromMinutes(10);
 
+    // Twitch permits 20 joins per 10 seconds on a non-verified connection, and TwitchLib paces them
+    // not at all: JOINs bypass its ThrottlingService (that one only covers chat messages) and its
+    // queue advances as fast as confirmations arrive — about 180ms per channel, measured on prod.
+    // Twenty channels back to back therefore sit exactly on the limit and anything above it exceeds
+    // it, which costs the excess channels their join until EnsureJoinedAsync retries them. 600ms
+    // keeps every join path we control at roughly 16 per 10 seconds.
+    //
+    // This cannot cover TwitchLib's own rejoin after a reconnect, which happens inside the library
+    // and bursts through all channels at full speed. Above ~20 channels that needs either sharding
+    // across several clients or a verified bot account — see the scaling note in
+    // Review-2026-07-29-Umsetzung.md.
+    private static readonly TimeSpan MinIntervalBetweenJoins = TimeSpan.FromMilliseconds(600);
+
     // Desired channels, not confirmed ones — the value records whether Twitch confirmed the JOIN.
     // Tracking intent instead of success is what makes a failed join retryable (see TryJoinAsync
     // and EnsureJoinedAsync).
     private readonly ConcurrentDictionary<string, bool> _desiredChannels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _joinGate = new(1, 1);
+    private DateTime _lastJoinIssuedUtc = DateTime.MinValue;
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
     private TwitchClient _client = CreateClient(loggerFactory);
     private volatile bool _isConnected;
@@ -290,14 +305,30 @@ public class TwitchChatManager(
             return;
         }
 
+        // Serialises and paces every join we issue, across all callers: boot recovery, the rejoin
+        // after a recreate, Redis join commands and the periodic EnsureJoinedAsync sweep would
+        // otherwise each burst independently. A single ad-hoc join is unaffected whenever the
+        // previous one is long enough ago.
+        await _joinGate.WaitAsync();
         try
         {
+            var sinceLastJoin = DateTime.UtcNow - _lastJoinIssuedUtc;
+            if (sinceLastJoin < MinIntervalBetweenJoins)
+            {
+                await Task.Delay(MinIntervalBetweenJoins - sinceLastJoin);
+            }
+
+            _lastJoinIssuedUtc = DateTime.UtcNow;
             await _client.JoinChannelAsync(channelName);
         }
         catch (Exception ex)
         {
             // Must not abort the caller's loop (boot recovery, rejoin, periodic resync).
             logger.LogWarning(ex, "Join fehlgeschlagen für {Channel} — wird beim nächsten Reconnect nachgeholt.", channelName);
+        }
+        finally
+        {
+            _joinGate.Release();
         }
     }
 
