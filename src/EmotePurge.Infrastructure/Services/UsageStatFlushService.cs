@@ -1,8 +1,9 @@
-using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace EmotePurge.Infrastructure.Services;
 
@@ -18,12 +19,13 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var emoteIds = usageCounts.Keys.ToList();
 
-        // A channel leave hard-deletes its Emote rows (cascade); a count buffered before
-        // that leave could otherwise violate the UsageStat.EmoteId FK on flush.
+        // A channel leave deactivates instead of deleting nowadays, but archived emotes can still
+        // be hard-deleted by an admin purge — and a count buffered before that would otherwise
+        // violate the UsageStat.EmoteId FK and take the whole batch down with it.
         var validIds = await db.Emotes
             .Where(e => emoteIds.Contains(e.Id))
             .Select(e => e.Id)
-            .ToHashSetAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
         if (validIds.Count < emoteIds.Count)
         {
@@ -32,22 +34,34 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
                 emoteIds.Count - validIds.Count);
         }
 
-        var existingStats = await db.UsageStats
-            .Where(u => u.Date == today && validIds.Contains(u.EmoteId))
-            .ToDictionaryAsync(u => u.EmoteId, cancellationToken);
-
-        foreach (var emoteId in validIds)
+        if (validIds.Count == 0)
         {
-            if (existingStats.TryGetValue(emoteId, out var stat))
-            {
-                stat.UseCount += usageCounts[emoteId];
-            }
-            else
-            {
-                db.UsageStats.Add(new UsageStat { EmoteId = emoteId, Date = today, UseCount = usageCounts[emoteId] });
-            }
+            return;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        var useCounts = validIds.Select(id => usageCounts[id]).ToArray();
+
+        // Atomic upsert rather than read-then-insert. The previous version decided per emote between
+        // += and Add based on a prior SELECT, which is only correct while there is exactly one
+        // writer: the final flush in UsageFlushWorker.StopAsync can overlap a regular 30s tick, and
+        // both would then see "row missing" and insert it — one loses on the unique index and its
+        // entire batch (up to 30s of chat across ~1.000 emotes) is discarded. This also drops the
+        // extra SELECT with its ~1.000-element IN list every 30 seconds.
+        const string sql = """
+            INSERT INTO "UsageStats" ("EmoteId", "Date", "UseCount")
+            SELECT input."EmoteId", @date, input."UseCount"
+            FROM UNNEST(@emoteIds, @useCounts) AS input("EmoteId", "UseCount")
+            ON CONFLICT ("EmoteId", "Date")
+            DO UPDATE SET "UseCount" = "UsageStats"."UseCount" + EXCLUDED."UseCount";
+            """;
+
+        await db.Database.ExecuteSqlRawAsync(
+            sql,
+            [
+                new NpgsqlParameter("date", NpgsqlDbType.Date) { Value = today },
+                new NpgsqlParameter("emoteIds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = validIds.ToArray() },
+                new NpgsqlParameter("useCounts", NpgsqlDbType.Array | NpgsqlDbType.Integer) { Value = useCounts },
+            ],
+            cancellationToken);
     }
 }
