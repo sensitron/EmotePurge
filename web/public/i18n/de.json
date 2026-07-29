@@ -115,6 +115,7 @@
     "botInactive": "Bot inaktiv",
     "open": "Öffnen",
     "add": "Hinzufügen",
+    "reactivate": "Bot reaktivieren",
     "notTrackedYet": "Noch nicht getrackt — ein Mod muss den Bot zuerst hinzufügen.",
     "admin": {
       "title": "Alle Channels (Admin)",
@@ -127,14 +128,17 @@
   "channelWorkspace": {
     "backToOverview": "Übersicht",
     "leaveChannel": "Channel verlassen",
-    "leaveConfirm": "Channel #{{ channelName }} wirklich verlassen? Alle Emotes, Nutzungsstatistiken und Abstimmungen dieses Channels werden dabei unwiderruflich gelöscht.",
+    "rejoinChannel": "Bot reaktivieren",
+    "botInactiveNotice": "Der Bot ist für diesen Channel derzeit inaktiv und erfasst keine neuen Chat-Daten. Bereits erfasste Daten bleiben erhalten.",
+    "leaveConfirm": "Channel #{{ channelName }} wirklich verlassen? Der Bot verlässt den Chat und erfasst keine neuen Daten mehr. Bereits erfasste Emotes, Nutzungsstatistiken und Abstimmungen bleiben erhalten und sind nach einem erneuten Beitritt wieder da.",
     "tabs": {
       "usage": "Nutzung",
       "voting": "Votings"
     },
     "errors": {
       "leaveForbidden": "Nicht berechtigt, diesen Channel zu verlassen.",
-      "leaveFailed": "Channel konnte nicht verlassen werden."
+      "leaveFailed": "Channel konnte nicht verlassen werden.",
+      "rejoinFailed": "Bot konnte nicht reaktiviert werden."
     }
   },
   "emoteCount": {
@@ -232,6 +236,10 @@
     "irreversibleNotice": "Das kann nicht rückgängig gemacht werden. Löschen läuft danach automatisch nacheinander mit kurzer Verzögerung zwischen den Emotes.",
     "undetectableChannelsNotice": "Hinweis: Fremde Channels, die weder von uns getrackt werden noch von dir moderiert werden, aber ebenfalls dieses Set nutzen, können wir grundsätzlich nicht erkennen.",
     "startDelete": "Löschen starten",
+    "syncFailedTitle": "Rückmeldung an EmotePurge fehlgeschlagen",
+    "syncFailed": "Die Emotes sind bei 7TV gelöscht, aber EmotePurge konnte es nicht vermerken. Normalerweise zieht sich das innerhalb einer Minute von selbst nach.",
+    "syncRetry": "Erneut melden",
+    "syncRetrySucceeded": "Rückmeldung erfolgreich nachgeholt.",
     "errors": {
       "tokenInvalid": "Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.",
       "rateLimited": "Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.",
@@ -274,7 +282,8 @@
       "channel_not_found": "Channel nicht gefunden.",
       "vote_session_not_found": "Abstimmung nicht gefunden.",
       "vote_session_ended": "Diese Abstimmung ist bereits beendet.",
-      "emote_not_eligible": "Dieses Emote ist nicht mehr abstimmbar."
+      "emote_not_eligible": "Dieses Emote ist nicht mehr abstimmbar.",
+      "unexpected_error": "Auf dem Server ist ein unerwarteter Fehler aufgetreten. Bitte versuch es erneut."
     }
   }
 }

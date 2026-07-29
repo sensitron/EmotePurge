@@ -115,6 +115,7 @@
     "botInactive": "Bot inactive",
     "open": "Open",
     "add": "Add",
+    "reactivate": "Reactivate bot",
     "notTrackedYet": "Not tracked yet — a mod has to add the bot first.",
     "admin": {
       "title": "All channels (admin)",
@@ -127,14 +128,17 @@
   "channelWorkspace": {
     "backToOverview": "Overview",
     "leaveChannel": "Leave channel",
-    "leaveConfirm": "Really leave channel #{{ channelName }}? All emotes, usage stats, and votings for this channel will be permanently deleted.",
+    "rejoinChannel": "Reactivate bot",
+    "botInactiveNotice": "The bot is currently inactive for this channel and is not collecting new chat data. Everything collected so far is kept.",
+    "leaveConfirm": "Really leave channel #{{ channelName }}? The bot leaves the chat and stops collecting new data. Emotes, usage stats, and votings collected so far are kept and will be there again if you rejoin.",
     "tabs": {
       "usage": "Usage",
       "voting": "Votings"
     },
     "errors": {
       "leaveForbidden": "Not allowed to leave this channel.",
-      "leaveFailed": "Could not leave the channel."
+      "leaveFailed": "Could not leave the channel.",
+      "rejoinFailed": "Could not reactivate the bot."
     }
   },
   "emoteCount": {
@@ -232,6 +236,10 @@
     "irreversibleNotice": "This can't be undone. Deletion then runs automatically, one emote at a time, with a short delay between each.",
     "undetectableChannelsNotice": "Note: we generally can't detect other channels that use this same set but aren't tracked by us or moderated by you.",
     "startDelete": "Start deleting",
+    "syncFailedTitle": "Reporting back to EmotePurge failed",
+    "syncFailed": "The emotes were deleted on 7TV, but EmotePurge could not record it. This usually resolves itself within a minute.",
+    "syncRetry": "Report again",
+    "syncRetrySucceeded": "Reported back successfully.",
     "errors": {
       "tokenInvalid": "Token invalid or expired — please enter a new 7TV token.",
       "rateLimited": "Too many requests to 7TV (rate limit) — try again later.",
@@ -274,7 +282,8 @@
       "channel_not_found": "Channel not found.",
       "vote_session_not_found": "Voting not found.",
       "vote_session_ended": "This voting has already ended.",
-      "emote_not_eligible": "This emote can no longer be voted on."
+      "emote_not_eligible": "This emote can no longer be voted on.",
+      "unexpected_error": "An unexpected error occurred on the server. Please try again."
     }
   }
 }
