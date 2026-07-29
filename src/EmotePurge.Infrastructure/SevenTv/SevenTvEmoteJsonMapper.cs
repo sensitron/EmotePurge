@@ -14,14 +14,6 @@ public static class SevenTvEmoteJsonMapper
     internal static SevenTvEmote MapDto(SevenTvEmoteJsonDto dto) =>
         new(dto.Id, dto.Name, BuildImageUrl(dto.Data?.Host));
 
-    // Used by the 7TV EventAPI dispatch parser (Worker), which only has raw JsonElements, not the typed DTOs.
-    public static SevenTvEmote MapFromJsonElement(JsonElement emoteJson)
-    {
-        var dto = emoteJson.Deserialize<SevenTvEmoteJsonDto>(JsonOptions)
-            ?? throw new JsonException("7TV emote JSON konnte nicht deserialisiert werden.");
-        return MapDto(dto);
-    }
-
     private static string BuildImageUrl(SevenTvHostJsonDto? host)
     {
         if (host is null || host.Files.Count == 0)

@@ -20,9 +20,10 @@ public interface IVoteSessionQueryService
     Task<IReadOnlyList<VoteSessionSummaryDto>> ListSessionsAsync(string channelName, CancellationToken cancellationToken = default);
 
     // DB-level Skip/Take + Count, same ordering (StartedAt descending) as ListSessionsAsync. Only
-    // used on the "manager sees everything" path in Program.cs — the non-manager path still needs
-    // the full unpaged ListSessionsAsync list to run its per-session eligibility filter first
-    // (filter-then-paginate, see Program.cs comment), so that method is left untouched.
+    // used on the "manager sees everything" path in VoteSessionEndpoints.cs — the non-manager path
+    // still needs the full unpaged ListSessionsAsync list to run its per-session eligibility filter
+    // first (filter-then-paginate, see VoteSessionEndpoints.cs comment), so that method is left
+    // untouched.
     Task<PagedResult<VoteSessionSummaryDto>> ListSessionsPagedAsync(string channelName, int page, int pageSize, CancellationToken cancellationToken = default);
 
     // null = channel or session not found / session doesn't belong to that channel.
