@@ -57,6 +57,22 @@ export class OverviewPage {
     });
   }
 
+  // Same call as join(), but stays on the overview and flips the row in place — the admin is likely
+  // reactivating one of several channels, and being navigated away after each one is in the way.
+  protected reactivate(channelName: string): void {
+    this.channelService.join(channelName).subscribe({
+      next: () => {
+        this.myChannels.update((channels) =>
+          channels?.map((c) => (c.channelName === channelName ? { ...c, isTracked: true, isBotActive: true } : c)) ?? null,
+        );
+        this.adminChannels.update((channels) =>
+          channels?.map((c) => (c.channelName === channelName ? { ...c, isBotActive: true } : c)) ?? null,
+        );
+      },
+      error: (error: HttpErrorResponse) => this.handleError(error),
+    });
+  }
+
   protected onAddChannelSubmit(event: Event): void {
     event.preventDefault();
 
