@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { PagedResult } from '../shared/paged-result.model';
+import { PagedResult } from '../models/paged-result.model';
 import {
   AllowedRoles,
   CastVoteResult,
