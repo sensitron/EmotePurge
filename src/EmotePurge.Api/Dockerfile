@@ -30,5 +30,9 @@ RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-ho
 COPY --from=publish /app/publish .
 COPY --from=web-build /web/dist/web/browser ./wwwroot
 RUN chown -R appuser:appgroup /app
+# Mount point for the Data Protection key ring (DataProtection__KeyPath). appuser has --no-create-home,
+# so without an explicitly owned directory there is nowhere writable to persist keys to, and every
+# restart would silently invalidate all auth cookies.
+RUN mkdir -p /keys && chown appuser:appgroup /keys
 USER appuser
 ENTRYPOINT ["dotnet", "EmotePurge.Api.dll"]
