@@ -61,17 +61,24 @@ export class AuthService {
     return returnUrl;
   }
 
+  /**
+   * A failed server-side logout (network error, 5xx) must not leave the client believing the
+   * session is still active — that would strand a mod's own session open on a shared/streamer
+   * machine. Both outcomes reset the same client-side state; only the request itself may fail.
+   */
   logout(): void {
-    this.http.post('/api/auth/logout', {}).subscribe(() => {
-      this.currentUser.set(null);
-      this.isLoaded.set(true);
-      this.sevenTvTokenService.clearToken();
-      this.router.navigateByUrl('/login');
+    this.http.post('/api/auth/logout', {}).subscribe({
+      next: () => this.resetClientSession(),
+      error: () => this.resetClientSession(),
     });
   }
 
   /** Called when a request 401s mid-session (cookie expired) — resets state and sends the user back to /login. */
   handleSessionExpired(): void {
+    this.resetClientSession();
+  }
+
+  private resetClientSession(): void {
     this.currentUser.set(null);
     this.isLoaded.set(true);
     this.sevenTvTokenService.clearToken();

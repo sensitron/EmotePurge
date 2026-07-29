@@ -121,6 +121,19 @@ describe('AuthService', () => {
       expect(service.currentUser()).toBeNull();
       expect(navigateSpy).toHaveBeenCalledWith('/login');
     });
+
+    it('still clears currentUser and navigates to /login when the server call fails', () => {
+      service.currentUser.set(USER);
+      const navigateSpy = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+
+      service.logout();
+      httpMock
+        .expectOne('/api/auth/logout')
+        .flush(null, { status: 500, statusText: 'Internal Server Error' });
+
+      expect(service.currentUser()).toBeNull();
+      expect(navigateSpy).toHaveBeenCalledWith('/login');
+    });
   });
 
   describe('handleSessionExpired', () => {
