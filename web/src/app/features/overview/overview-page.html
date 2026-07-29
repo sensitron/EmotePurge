@@ -40,7 +40,7 @@
               </div>
               <div class="flex items-center gap-3">
                 @if (channel.isTracked) {
-                  <span [class]="channel.isBotActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-500'">
+                  <span [class]="channel.isBotActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-400'">
                     {{ (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive') | transloco }}
                   </span>
                   <button
@@ -59,7 +59,7 @@
                     {{ 'overview.add' | transloco }}
                   </button>
                 } @else {
-                  <span class="text-xs text-slate-500">{{ 'overview.notTrackedYet' | transloco }}</span>
+                  <span class="text-xs text-slate-400">{{ 'overview.notTrackedYet' | transloco }}</span>
                 }
               </div>
             </li>
@@ -77,8 +77,9 @@
         <input
           type="text"
           [formControl]="channelNameControl"
-          placeholder="twitch-channel-name"
-          class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-600 focus:border-purple-500 focus:outline-none"
+          [placeholder]="'overview.admin.channelNamePlaceholder' | transloco"
+          [attr.aria-label]="'overview.admin.channelNamePlaceholder' | transloco"
+          class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500 focus:outline-none"
         />
         <button
           type="submit"
@@ -101,7 +102,7 @@
             <li class="flex items-center justify-between rounded-md bg-slate-900 px-4 py-3">
               <span class="font-medium">#{{ channel.channelName }}</span>
               <div class="flex items-center gap-3">
-                <span [class]="channel.isBotActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-500'">
+                <span [class]="channel.isBotActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-400'">
                   {{ (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive') | transloco }}
                 </span>
                 <button
@@ -120,6 +121,6 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
   }
 </div>

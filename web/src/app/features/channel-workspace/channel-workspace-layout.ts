@@ -33,7 +33,7 @@ import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
       </div>
 
       @if (errorMessage(); as message) {
-        <p class="mb-4 rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
+        <p class="mb-4 rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
       }
 
       <nav class="mb-6 flex gap-2 border-b border-slate-800">
