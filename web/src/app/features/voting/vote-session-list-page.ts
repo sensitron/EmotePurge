@@ -75,8 +75,13 @@ export class VoteSessionListPage {
   }
 
   protected onPageChange(newPage: number): void {
+    // `load()` reads `page()` (and `channelName()`) inside the reactive `effect()` above — setting
+    // the signal alone already marks that effect dirty and triggers a reload. Calling `load()`
+    // again here was firing a second, redundant `GET .../vote-sessions` + `GET /api/channels/{c}`
+    // per page change. Contrast with MyVotingsPage.onPageChange(), which calls `load()` directly and
+    // correctly so — its `load()` runs from the constructor, not an effect, so there's no dirty-effect
+    // path to double up with.
     this.page.set(newPage);
-    this.load();
   }
 
   protected createSession(): void {
@@ -114,13 +119,15 @@ export class VoteSessionListPage {
     });
   }
 
-  protected deleteSession(sessionId: number): void {
-    if (!window.confirm(this.translocoService.translate('voting.list.deleteConfirm'))) {
+  protected deleteSession(session: VoteSessionSummary): void {
+    // Names the session in the confirmation dialog — with 20 sessions in the list, a mis-click one
+    // row off had no way to notice before committing to an irreversible delete (all votes included).
+    if (!window.confirm(this.translocoService.translate('voting.list.deleteConfirm', { title: session.title }))) {
       return;
     }
 
-    this.voteSessionService.delete(this.channelName(), sessionId).subscribe({
-      next: () => this.sessions.update((sessions) => sessions.filter((session) => session.id !== sessionId)),
+    this.voteSessionService.delete(this.channelName(), session.id).subscribe({
+      next: () => this.sessions.update((sessions) => sessions.filter((s) => s.id !== session.id)),
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
   }

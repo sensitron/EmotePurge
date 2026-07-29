@@ -7,7 +7,8 @@
           type="text"
           [formControl]="titleControl"
           [placeholder]="'voting.list.titlePlaceholder' | transloco"
-          class="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-600 focus:border-purple-500 focus:outline-none"
+          [attr.aria-label]="'voting.list.titlePlaceholder' | transloco"
+          class="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500 focus:outline-none"
         />
         @if (titleControl.invalid && titleControl.touched) {
           <p class="text-xs text-red-400">{{ 'voting.list.titleRequired' | transloco }}</p>
@@ -57,7 +58,7 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
   }
 
   @if (sessions().length === 0) {
@@ -70,7 +71,7 @@
             <a [routerLink]="['/channels', channelName(), 'vote-sessions', session.id]" class="font-medium hover:underline">
               {{ session.title }}
             </a>
-            <span [class]="session.isActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-500'">
+            <span [class]="session.isActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-400'">
               {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
             </span>
           </div>
@@ -80,18 +81,29 @@
             </button>
             @if (copyFeedback(); as feedback) {
               @if (feedback.sessionId === session.id) {
-                <span [class]="feedback.status === 'copied' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'">
+                <span
+                  role="status"
+                  [class]="feedback.status === 'copied' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'"
+                >
                   {{ (feedback.status === 'copied' ? 'voting.list.copied' : 'voting.list.copyFailed') | transloco }}
                 </span>
               }
             }
             @if (canManage() && session.isActive) {
-              <button type="button" class="text-red-400 hover:underline" (click)="endSession(session.id)">
+              <button
+                type="button"
+                class="text-slate-300 transition hover:text-slate-100 hover:underline"
+                (click)="endSession(session.id)"
+              >
                 {{ 'voting.list.end' | transloco }}
               </button>
             }
             @if (canManage()) {
-              <button type="button" class="text-red-500 hover:underline" (click)="deleteSession(session.id)">
+              <button
+                type="button"
+                class="ml-2 rounded-md border border-red-800 px-2 py-1 text-red-500 transition hover:bg-red-950"
+                (click)="deleteSession(session)"
+              >
                 {{ 'voting.list.delete' | transloco }}
               </button>
             }
