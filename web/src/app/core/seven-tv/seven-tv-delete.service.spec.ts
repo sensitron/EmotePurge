@@ -21,6 +21,7 @@ const DE_TRANSLATIONS = {
 };
 
 const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
+const SYNC_ENDPOINT = '/api/channels/sensitron/emotes/sync-deleted';
 const DELETE_DELAY_MS = 275;
 
 const EMOTES: DeleteQueueEmote[] = [
@@ -58,6 +59,79 @@ describe('SevenTvDeleteService', () => {
   afterEach(() => {
     httpMock.verify();
     vi.useRealTimers();
+  });
+
+  // Drives one emote all the way through the 7TV queue and returns the closing sync-deleted request,
+  // which is what the sync-report tests below are actually about.
+  function runOneDeleteToSyncRequest() {
+    service.startDelete('set-1', 'sensitron', [EMOTES[0]]);
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(DELETE_DELAY_MS);
+    return httpMock.expectOne(SYNC_ENDPOINT);
+  }
+
+  describe('sync report', () => {
+    it('reports success only when the backend archived everything', () => {
+      runOneDeleteToSyncRequest().flush({ archivedCount: 1, notFoundIds: [] });
+
+      expect(service.syncReport()).toBe('succeeded');
+    });
+
+    it('treats an under-count as partial — all ids in notFoundIds used to look like success', () => {
+      runOneDeleteToSyncRequest().flush({ archivedCount: 0, notFoundIds: ['internal-1'] });
+
+      expect(service.syncReport()).toBe('partial');
+    });
+
+    it('retries a transient failure and succeeds on the second attempt', () => {
+      runOneDeleteToSyncRequest().flush(null, { status: 429, statusText: 'Too Many Requests' });
+      expect(service.syncReport()).toBe('pending');
+
+      vi.advanceTimersByTime(2000);
+      httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 1, notFoundIds: [] });
+
+      expect(service.syncReport()).toBe('succeeded');
+    });
+
+    it('gives up after the automatic retries are exhausted', () => {
+      runOneDeleteToSyncRequest().flush(null, { status: 500, statusText: 'Server Error' });
+
+      vi.advanceTimersByTime(2000);
+      httpMock.expectOne(SYNC_ENDPOINT).flush(null, { status: 500, statusText: 'Server Error' });
+
+      vi.advanceTimersByTime(4000);
+      httpMock.expectOne(SYNC_ENDPOINT).flush(null, { status: 500, statusText: 'Server Error' });
+
+      expect(service.syncReport()).toBe('failed');
+    });
+
+    it('does not retry a 401 — an expired session cannot be fixed by waiting', () => {
+      runOneDeleteToSyncRequest().flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      expect(service.syncReport()).toBe('failed');
+      vi.advanceTimersByTime(10_000);
+      httpMock.verify(); // no further attempt was made
+    });
+
+    it('retrySyncReport() re-sends the same ids after a failure', () => {
+      runOneDeleteToSyncRequest().flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      service.retrySyncReport();
+
+      const retryReq = httpMock.expectOne(SYNC_ENDPOINT);
+      expect(retryReq.request.body).toEqual({ emoteIds: ['internal-1'] });
+      retryReq.flush({ archivedCount: 1, notFoundIds: [] });
+
+      expect(service.syncReport()).toBe('succeeded');
+    });
+
+    it('reset() clears the sync report as well', () => {
+      runOneDeleteToSyncRequest().flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      service.reset();
+
+      expect(service.syncReport()).toBe('idle');
+    });
   });
 
   it('does nothing without a stored token', () => {

@@ -228,4 +228,10 @@ export class VoteSessionDetailPage {
     this.selection.clear();
   }
 
+  // The delete run finished on 7TV, but the backend could not confirm it — refetch instead of
+  // filtering locally, so the list never claims a state the server does not share.
+  protected onReloadRequested(): void {
+    this.selection.clear();
+    this.load();
+  }
 }

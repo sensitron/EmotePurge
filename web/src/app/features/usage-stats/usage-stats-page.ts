@@ -114,6 +114,13 @@ export class UsageStatsPage {
     this.selection.clear();
   }
 
+  // The delete run finished on 7TV, but the backend could not confirm it — refetch instead of
+  // filtering locally, so the list never claims a state the server does not share.
+  protected onReloadRequested(): void {
+    this.selection.clear();
+    this.refresh();
+  }
+
   private load(channelName: string, from: string, to: string): void {
     this.isLoading.set(true);
     this.errorMessage.set(null);

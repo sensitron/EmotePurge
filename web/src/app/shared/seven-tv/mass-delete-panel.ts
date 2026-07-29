@@ -38,7 +38,9 @@ export interface DeletableEmote {
         <app-delete-progress-panel
           [items]="deleteService.queue()"
           [isRunning]="deleteService.isRunning()"
+          [syncReport]="deleteService.syncReport()"
           (cancelled)="deleteService.cancel()"
+          (syncRetryRequested)="deleteService.retrySyncReport()"
         />
       }
 
@@ -83,7 +85,14 @@ export class MassDeletePanel {
   readonly setId = input.required<string>();
   readonly channelName = input.required<string>();
   readonly selectedEmotes = input.required<DeletableEmote[]>();
+
+  /** Ids the host page may drop from its list without a refetch — emitted only once the backend has
+   *  confirmed it archived them. */
   readonly deleted = output<string[]>();
+
+  /** The run finished on 7TV, but the backend does not (fully) know about it. The host page must
+   *  reload rather than filter locally, so it never shows a state the server does not share. */
+  readonly reloadRequested = output<void>();
 
   protected readonly tokenService = inject(SevenTvTokenService);
   protected readonly deleteService = inject(SevenTvDeleteService);
@@ -95,21 +104,39 @@ export class MassDeletePanel {
   protected readonly selectedEmoteNames = computed(() => this.selectedEmotes().map((emote) => emote.name));
 
   constructor() {
-    // Emits `deleted` once per run, right when the queue settles (isRunning flips back to
-    // false), so the host page can optimistically drop finished emotes without a refetch.
-    let wasRunning = false;
+    // The queue settling is not on its own a reason to tell the host page anything: the backend only
+    // learns about the deletion through the closing sync-deleted call, and that call can fail (rate
+    // limit, session expired mid-run). Emitting on the isRunning edge alone therefore showed a
+    // cleaned-up list while the database still held every emote. So: wait for a terminal sync
+    // report, then either allow the optimistic drop or ask for a real reload.
+    let notifiedForThisRun = false;
     effect(() => {
       const running = this.deleteService.isRunning();
-      if (wasRunning && !running) {
-        const doneIds = this.deleteService
-          .queue()
-          .filter((item) => item.status === 'done')
-          .map((item) => item.emoteId);
-        if (doneIds.length > 0) {
-          this.deleted.emit(doneIds);
-        }
+      const report = this.deleteService.syncReport();
+
+      if (running) {
+        notifiedForThisRun = false;
+        return;
       }
-      wasRunning = running;
+
+      // 'idle' also covers a run in which nothing succeeded — there is nothing to report either way.
+      if (notifiedForThisRun || report === 'idle' || report === 'pending') {
+        return;
+      }
+
+      notifiedForThisRun = true;
+      if (report !== 'succeeded') {
+        this.reloadRequested.emit();
+        return;
+      }
+
+      const doneIds = this.deleteService
+        .queue()
+        .filter((item) => item.status === 'done')
+        .map((item) => item.emoteId);
+      if (doneIds.length > 0) {
+        this.deleted.emit(doneIds);
+      }
     });
   }
 

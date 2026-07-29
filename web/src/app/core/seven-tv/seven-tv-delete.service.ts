@@ -1,14 +1,32 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { TranslocoService } from '@jsverse/transloco';
-import { Observable, Subscription, catchError, concatMap, delay, from, map, of, tap } from 'rxjs';
+import {
+  Observable,
+  Subscription,
+  catchError,
+  concatMap,
+  delay,
+  from,
+  map,
+  of,
+  retry,
+  tap,
+  throwError,
+  timer,
+} from 'rxjs';
 
-import { EmoteAdminService } from '../emotes/emote-admin.service';
+import { EmoteAdminService, SyncDeletedResult } from '../emotes/emote-admin.service';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
 const SEVEN_TV_GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 // Sequential, not parallel — per Architectur.md Modul D spec (250-300ms delay between requests).
 const DELETE_DELAY_MS = 275;
+const MAX_AUTOMATIC_SYNC_RETRIES = 2;
+// Multiplied by the attempt number, so the two automatic attempts land at 2s and 4s. Kept short on
+// purpose: the deletions themselves are already done, the admin is waiting on a verdict, and a
+// manual retry button covers the cases a short backoff cannot.
+const SYNC_RETRY_DELAY_MS = 2000;
 
 const REMOVE_EMOTE_MUTATION = `
   mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
@@ -38,6 +56,10 @@ interface DeleteOneResult {
   errorMessage?: string;
 }
 
+/** Outcome of reporting the finished run back to our own API (not to 7TV).
+ *  'partial' means the call succeeded but the backend archived fewer emotes than we reported. */
+export type SyncReportState = 'idle' | 'pending' | 'succeeded' | 'partial' | 'failed';
+
 @Injectable({ providedIn: 'root' })
 export class SevenTvDeleteService {
   private readonly http = inject(HttpClient);
@@ -47,6 +69,7 @@ export class SevenTvDeleteService {
 
   private runSubscription: Subscription | null = null;
   private currentChannelName: string | null = null;
+  private lastReportedIds: string[] = [];
 
   readonly queue = signal<DeleteQueueItem[]>([]);
   readonly isRunning = signal(false);
@@ -55,6 +78,11 @@ export class SevenTvDeleteService {
     const finished = items.filter((item) => item.status === 'done' || item.status === 'failed').length;
     return { finished, total: items.length };
   });
+
+  /** State of the closing sync-deleted call. Consumers must wait for a terminal value before
+   *  optimistically removing rows: 'failed'/'partial' means the backend does not (fully) know about
+   *  the deletion yet, so filtering the list client-side would show a state that isn't real. */
+  readonly syncReport = signal<SyncReportState>('idle');
 
   startDelete(setId: string, channelName: string, emotes: DeleteQueueEmote[]): void {
     if (this.isRunning() || emotes.length === 0) {
@@ -68,6 +96,7 @@ export class SevenTvDeleteService {
 
     this.currentChannelName = channelName;
     this.queue.set(emotes.map((emote) => ({ ...emote, status: 'pending' as DeleteItemStatus })));
+    this.syncReport.set('idle');
     this.isRunning.set(true);
 
     this.runSubscription = from(emotes)
@@ -100,6 +129,18 @@ export class SevenTvDeleteService {
   /** Clears the panel after the admin has acknowledged a finished/cancelled run. */
   reset(): void {
     this.queue.set([]);
+    this.syncReport.set('idle');
+  }
+
+  /** Manual retry for the closing report. The 7TV deletions are long done at this point, so this
+   *  only re-sends the bookkeeping call — safe to repeat, ids already archived come back in
+   *  notFoundIds. */
+  retrySyncReport(): void {
+    if (this.syncReport() === 'pending' || this.lastReportedIds.length === 0 || this.currentChannelName === null) {
+      return;
+    }
+
+    this.reportDeleted(this.currentChannelName, this.lastReportedIds);
   }
 
   private deleteOne(setId: string, sevenTvEmoteId: string, token: string): Observable<DeleteOneResult> {
@@ -150,7 +191,35 @@ export class SevenTvDeleteService {
       .map((item) => item.emoteId);
 
     if (channelName && doneIds.length > 0) {
-      this.emoteAdminService.syncDeleted(channelName, doneIds).subscribe();
+      this.lastReportedIds = doneIds;
+      this.reportDeleted(channelName, doneIds);
     }
+  }
+
+  private reportDeleted(channelName: string, emoteIds: string[]): void {
+    this.syncReport.set('pending');
+
+    this.emoteAdminService
+      .syncDeleted(channelName, emoteIds)
+      .pipe(
+        // A 429 is the realistic case: sync-deleted shares a rate-limit budget with other calls, and
+        // a swallowed 429 used to look exactly like success. A 401 (session expired during a long
+        // run) cannot be fixed by waiting, so it is not retried.
+        retry({
+          count: MAX_AUTOMATIC_SYNC_RETRIES,
+          delay: (error: HttpErrorResponse, attempt) =>
+            error.status === 401 || error.status === 403
+              ? throwError(() => error)
+              : timer(SYNC_RETRY_DELAY_MS * attempt),
+        }),
+      )
+      .subscribe({
+        next: (result: SyncDeletedResult) =>
+          // notFoundIds covers ids the backend could not archive (unknown, foreign channel, already
+          // archived). All of them coming back is indistinguishable from success in the raw numbers,
+          // which is why the result is evaluated at all instead of being discarded.
+          this.syncReport.set(result.archivedCount >= emoteIds.length ? 'succeeded' : 'partial'),
+        error: () => this.syncReport.set('failed'),
+      });
   }
 }
