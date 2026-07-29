@@ -1,68 +1,150 @@
+import { computed, signal } from '@angular/core';
 import { describe, expect, it } from 'vitest';
 
 import { ListSelection } from './list-selection';
+
+interface Row {
+  id: string;
+  label: string;
+}
+
+function rows(...ids: string[]): Row[] {
+  return ids.map((id) => ({ id, label: id.toUpperCase() }));
+}
 
 function click(shiftKey = false): MouseEvent {
   return { shiftKey } as MouseEvent;
 }
 
-describe('ListSelection', () => {
-  const items = ['a', 'b', 'c', 'd', 'e'];
+// The item source is a signal, mirroring how the pages pass a computed() — a plain array would
+// never invalidate selectedItems(), so the reorder/refetch cases below could not be observed.
+function setup(...ids: string[]) {
+  const items = signal(rows(...ids));
+  const selection = new ListSelection<Row>(items, (row) => row.id);
+  const byId = (id: string): Row => items().find((row) => row.id === id)!;
+  return { items, selection, byId };
+}
 
+describe('ListSelection', () => {
   it('starts with nothing selected', () => {
-    const selection = new ListSelection(() => items);
-    expect(selection.selected()).toEqual([]);
-    expect(selection.isSelected('a')).toBe(false);
+    const { selection, byId } = setup('a', 'b', 'c');
+
+    expect(selection.selectedKeys()).toEqual([]);
+    expect(selection.selectedItems()).toEqual([]);
+    expect(selection.isSelected(byId('a'))).toBe(false);
   });
 
-  it('toggles selection on a plain click', () => {
-    const selection = new ListSelection(() => items);
+  it('toggles a row on a plain click', () => {
+    const { selection, byId } = setup('a', 'b', 'c');
 
-    selection.onRowClick('b', 1, click());
-    expect(selection.isSelected('b')).toBe(true);
-    expect(selection.selected()).toEqual(['b']);
+    selection.onRowClick(byId('b'), click());
+    expect(selection.isSelected(byId('b'))).toBe(true);
+    expect(selection.selectedKeys()).toEqual(['b']);
+    expect(selection.selectedItems()).toEqual([byId('b')]);
 
-    selection.onRowClick('b', 1, click());
-    expect(selection.isSelected('b')).toBe(false);
-    expect(selection.selected()).toEqual([]);
+    selection.onRowClick(byId('b'), click());
+    expect(selection.isSelected(byId('b'))).toBe(false);
+    expect(selection.selectedKeys()).toEqual([]);
   });
 
   it('selects a contiguous range on shift-click', () => {
-    const selection = new ListSelection(() => items);
+    const { selection, byId } = setup('a', 'b', 'c', 'd', 'e');
 
-    selection.onRowClick('a', 0, click());
-    selection.onRowClick('d', 3, click(true));
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('d'), click(true));
 
-    expect(selection.selected().sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('selects a range regardless of click direction (end before start)', () => {
-    const selection = new ListSelection(() => items);
+    const { selection, byId } = setup('a', 'b', 'c', 'd', 'e');
 
-    selection.onRowClick('d', 3, click());
-    selection.onRowClick('b', 1, click(true));
+    selection.onRowClick(byId('d'), click());
+    selection.onRowClick(byId('b'), click(true));
 
-    expect(selection.selected().sort()).toEqual(['b', 'c', 'd']);
+    expect(selection.selectedKeys().sort()).toEqual(['b', 'c', 'd']);
   });
 
   it('a shift-click with no prior anchor behaves like a plain toggle', () => {
-    const selection = new ListSelection(() => items);
+    const { selection, byId } = setup('a', 'b', 'c');
 
-    selection.onRowClick('c', 2, click(true));
+    selection.onRowClick(byId('c'), click(true));
 
-    expect(selection.selected()).toEqual(['c']);
+    expect(selection.selectedKeys()).toEqual(['c']);
   });
 
-  it('clear() empties the selection and resets the shift-click anchor', () => {
-    const selection = new ListSelection(() => items);
-    selection.onRowClick('a', 0, click());
-    selection.onRowClick('c', 2, click(true));
+  it('survives a refetch that replaces every item object with an equal-keyed one', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c');
+    selection.onRowClick(byId('b'), click());
+
+    // Same rows, brand new object identities — what an HTTP refetch produces.
+    items.set(rows('a', 'b', 'c'));
+
+    expect(selection.selectedKeys()).toEqual(['b']);
+    expect(selection.isSelected(byId('b'))).toBe(true);
+    // Resolved against the new objects, so a delete path reading selectedItems() submits fresh data
+    // instead of double-counting the stale ones.
+    expect(selection.selectedItems()).toEqual([byId('b')]);
+    expect(selection.selectedItems()[0]).toBe(byId('b'));
+  });
+
+  it('resolves the shift range against the current order, not the order at anchor time', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd', 'e');
+    selection.onRowClick(byId('a'), click());
+
+    // Sort direction flipped after the anchor was set.
+    items.set(rows('e', 'd', 'c', 'b', 'a'));
+    selection.onRowClick(byId('c'), click(true));
+
+    // 'a' sits last now, so the range from the anchor to 'c' is c-b-a. A position-index anchor
+    // would have produced e-d-c here — a completely different set of rows.
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('falls back to a plain toggle when the anchor is no longer in the list', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click());
+
+    // 'a' (the anchor) and 'b' filtered out of view.
+    items.set(rows('c', 'd'));
+
+    expect(() => selection.onRowClick(byId('d'), click(true))).not.toThrow();
+    // Only the clicked row was added — and the invisible 'a' stays authoritatively selected.
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'd']);
+    expect(selection.selectedItems()).toEqual([byId('d')]);
+  });
+
+  it('clear() empties the keys and resets the shift-click anchor', () => {
+    const { selection, byId } = setup('a', 'b', 'c', 'd', 'e');
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('c'), click(true));
+    expect(selection.selectedKeys()).toHaveLength(3);
 
     selection.clear();
 
-    expect(selection.selected()).toEqual([]);
+    expect(selection.selectedKeys()).toEqual([]);
+    expect(selection.selectedItems()).toEqual([]);
     // Anchor was reset — a subsequent shift-click has nothing to range from.
-    selection.onRowClick('e', 4, click(true));
-    expect(selection.selected()).toEqual(['e']);
+    selection.onRowClick(byId('e'), click(true));
+    expect(selection.selectedKeys()).toEqual(['e']);
+  });
+
+  it('notifies a computed() that reads the selection', () => {
+    const { selection, byId } = setup('a', 'b', 'c');
+    // Regression guard: with a plain mutable set instead of a signal, these stayed frozen at their
+    // first value, which left the mass-delete button reading "(0)" and disabled forever.
+    const keyCount = computed(() => selection.selectedKeys().length);
+    const itemLabels = computed(() => selection.selectedItems().map((row) => row.label));
+
+    expect(keyCount()).toBe(0);
+    expect(itemLabels()).toEqual([]);
+
+    selection.onRowClick(byId('a'), click());
+    expect(keyCount()).toBe(1);
+    expect(itemLabels()).toEqual(['A']);
+
+    selection.onRowClick(byId('a'), click());
+    expect(keyCount()).toBe(0);
+    expect(itemLabels()).toEqual([]);
   });
 });

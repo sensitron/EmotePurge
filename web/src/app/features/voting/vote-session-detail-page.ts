@@ -90,12 +90,16 @@ export class VoteSessionDetailPage {
   protected readonly emotes = computed(() => this.usageFilter.apply(this.orderedEmotes()));
 
   protected readonly rows = computed(() => chunkIntoRows(this.emotes(), this.columns()));
-  protected readonly selection = new ListSelection(this.emotes);
+  protected readonly selection = new ListSelection(this.emotes, (emote) => emote.emoteId);
 
   protected readonly emoteCountKey = computed(() => pluralKey(this.orderedEmotes().length, 'emoteCount'));
 
+  // Resolved items rather than selection.selectedKeys(): the delete engine needs sevenTvEmoteId and
+  // the display name, which only the loaded row carries. Should a selected emote vanish from the
+  // list between selecting and deleting (archived by the periodic 7TV resync), it silently drops
+  // out here — the conservative direction, since it can only ever delete fewer emotes than shown.
   protected readonly selectedForDelete = computed<DeletableEmote[]>(() =>
-    this.selection.selected().map((emote) => ({
+    this.selection.selectedItems().map((emote) => ({
       emoteId: emote.emoteId,
       sevenTvEmoteId: emote.sevenTvEmoteId,
       name: emote.emoteName,
@@ -147,12 +151,9 @@ export class VoteSessionDetailPage {
         if (options.freeze) {
           this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
         }
-        // ListSelection's shift-anchor is a position index into items(), and the selection itself
-        // holds object identity — this replaces `results` with freshly deserialized objects (new
-        // identity even for the "same" emote), so a stale selection would silently keep mapping
-        // formerly-checked emotes to valid ids while every checkbox renders unchecked. Covers both
-        // refresh() and vote()'s load({freeze:false}) call, since both route through this handler.
-        this.selection.clear();
+        // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
+        // deserialized objects this assigns resolve back to the same selection. Clearing would
+        // throw away a 50-emote selection on every single vote, since vote() reloads through here.
       },
       error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
     });
@@ -226,4 +227,5 @@ export class VoteSessionDetailPage {
     );
     this.selection.clear();
   }
+
 }

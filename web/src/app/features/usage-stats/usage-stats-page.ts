@@ -72,10 +72,14 @@ export class UsageStatsPage {
 
   protected readonly emoteCountKey = computed(() => pluralKey(this.emotes().length, 'emoteCount'));
 
-  protected readonly selection = new ListSelection(this.sortedEmotes);
+  protected readonly selection = new ListSelection(this.sortedEmotes, (emote) => emote.emoteId);
 
+  // Resolved items, not selection.selectedKeys(): the delete engine needs sevenTvEmoteId and the
+  // display name, which only the loaded row carries. Safe because every path that removes a row
+  // from sortedEmotes() while keeping the page open (filter change, reload, finished delete)
+  // clears the selection — so nothing selected can be missing here.
   protected readonly selectedForDelete = computed<DeletableEmote[]>(() =>
-    this.selection.selected().map((emote) => ({
+    this.selection.selectedItems().map((emote) => ({
       emoteId: emote.emoteId,
       sevenTvEmoteId: emote.sevenTvEmoteId,
       name: emote.emoteName,
@@ -103,11 +107,6 @@ export class UsageStatsPage {
 
   protected toggleSort(): void {
     this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
-    // ListSelection's shift-anchor is a position index into items(), and the selection itself holds
-    // object identity — reversing the sort order shifts every index to a different emote without
-    // changing which objects are "selected", so a stale selection would silently point at the wrong
-    // emotes after a sort-direction flip. Clear it whenever the underlying order changes.
-    this.selection.clear();
   }
 
   protected onDeleted(deletedIds: string[]): void {
@@ -127,6 +126,10 @@ export class UsageStatsPage {
     this.usageStatService.getTotals(channelName, from, to).subscribe({
       next: (emotes) => {
         this.emotes.set(emotes);
+        // Kept even though a keyed selection survives a plain refetch: load() also runs on a
+        // channel or date-range change, where the existing selection was made against different
+        // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
+        // over would be its own deliberate feature, not a by-product of the keying.
         this.selection.clear();
         this.isLoading.set(false);
       },
