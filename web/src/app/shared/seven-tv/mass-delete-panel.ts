@@ -1,4 +1,5 @@
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { A11yModule } from '@angular/cdk/a11y';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
@@ -21,7 +22,7 @@ export interface DeletableEmote {
  */
 @Component({
   selector: 'app-mass-delete-panel',
-  imports: [DeleteConfirmDialog, DeleteProgressPanel, SevenTvTokenInput, TranslocoPipe],
+  imports: [A11yModule, DeleteConfirmDialog, DeleteProgressPanel, SevenTvTokenInput, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-3">
       <button
@@ -51,10 +52,24 @@ export interface DeletableEmote {
             (cancelled)="showConfirm.set(false)"
           />
         } @else {
-          <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="dialog" aria-modal="true">
+          <div
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+            role="dialog"
+            aria-modal="true"
+            [attr.aria-label]="'sevenTvToken.intro' | transloco"
+            tabindex="-1"
+            cdkTrapFocus
+            cdkTrapFocusAutoCapture
+            (keydown.escape)="showConfirm.set(false)"
+          >
             <div class="w-full max-w-md rounded-lg bg-slate-900 p-6 shadow-xl">
               <app-seven-tv-token-input />
-              <button type="button" class="mt-4 text-sm text-slate-400 hover:underline" (click)="showConfirm.set(false)">
+              <button
+                type="button"
+                class="mt-4 text-sm text-slate-400 hover:underline"
+                cdkFocusInitial
+                (click)="showConfirm.set(false)"
+              >
                 {{ 'common.cancel' | transloco }}
               </button>
             </div>
@@ -109,7 +124,11 @@ export class MassDeletePanel {
         this.warningLoading.set(false);
       },
       error: () => {
-        // Conservative fallback: an unresolved check must not read as "all clear".
+        // `available: false` is the signal the dialog acts on — it renders a neutral "couldn't
+        // check" notice instead of the red "confirmed foreign set" alarm, so a failed check no
+        // longer produces a false accusation. `isOwnSet` stays `false` deliberately: it is
+        // meaningless while `available` is false, and should a future reader consume it without
+        // checking `available`, the conservative direction ("not verified as ours") is the safe one.
         this.setWarning.set({
           available: false,
           isOwnSet: false,

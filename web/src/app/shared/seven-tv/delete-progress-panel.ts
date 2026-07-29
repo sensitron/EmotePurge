@@ -7,7 +7,7 @@ import { DeleteQueueItem } from '../../core/seven-tv/seven-tv-delete.service';
   selector: 'app-delete-progress-panel',
   imports: [TranslocoPipe],
   template: `
-    <div class="rounded-md bg-slate-800 px-4 py-3">
+    <div class="rounded-md bg-slate-800 px-4 py-3" role="status">
       <div class="mb-2 flex items-center justify-between text-sm">
         <span>{{ 'massDelete.progress' | transloco: { finished: finished(), total: total() } }}</span>
         @if (isRunning()) {
@@ -21,7 +21,7 @@ import { DeleteQueueItem } from '../../core/seven-tv/seven-tv-delete.service';
       </div>
 
       @if (failedItems().length > 0) {
-        <ul class="mt-3 space-y-1 text-sm text-red-400">
+        <ul class="mt-3 space-y-1 text-sm text-red-400" role="alert">
           @for (item of failedItems(); track item.emoteId) {
             <li>{{ item.name }}: {{ item.errorMessage ?? deleteFailedFallback() }}</li>
           }

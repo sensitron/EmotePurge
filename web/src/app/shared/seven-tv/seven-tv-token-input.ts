@@ -34,11 +34,13 @@ import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service'
           {{ 'sevenTvToken.securityWarning' | transloco }}
         </p>
         <form class="flex gap-2" (submit)="onSubmit($event)">
+          <label class="sr-only" for="seven-tv-token-input-field">{{ 'sevenTvToken.placeholder' | transloco }}</label>
           <input
+            id="seven-tv-token-input-field"
             type="password"
             [formControl]="tokenControl"
             [placeholder]="'sevenTvToken.placeholder' | transloco"
-            class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-600 focus:border-purple-500 focus:outline-none"
+            class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500 focus:outline-none"
           />
           <button
             type="submit"
