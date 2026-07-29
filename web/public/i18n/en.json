@@ -119,6 +119,7 @@
     "admin": {
       "title": "All channels (admin)",
       "addChannel": "Add channel",
+      "channelNamePlaceholder": "twitch-channel-name",
       "invalidChannelName": "Invalid channel name (4–25 characters, letters/digits/underscore).",
       "noChannelsTracked": "No channels tracked."
     }
@@ -147,11 +148,14 @@
     "presetToday": "Today",
     "preset7Days": "7 days",
     "preset30Days": "30 days",
+    "fromLabel": "from",
+    "toLabel": "to",
     "dateRangeTo": "to",
     "sortByUsage": "Usage",
     "filterMinPlaceholder": "Min",
     "filterMaxPlaceholder": "Max",
-    "filterNamePlaceholder": "Name (e.g. *cat*, ?og)",
+    "filterNamePlaceholder": "Search name…",
+    "filterNameTitle": "Wildcards supported: * for any number of characters, ? for a single character",
     "showAll": "Show all",
     "showUnusedOnly": "Unused only (0x)",
     "loading": "Loading…",
@@ -178,7 +182,7 @@
       "copyFailed": "Copy failed",
       "end": "End",
       "delete": "Delete",
-      "deleteConfirm": "Really delete this voting permanently?"
+      "deleteConfirm": "Permanently delete voting \"{{ title }}\"? All votes cast will be lost."
     },
     "detail": {
       "usageSince": "Usage data since",
@@ -224,6 +228,7 @@
     "notOwnSet": "The active set doesn't belong to this channel's own 7TV account.",
     "knownAffected": "Known to us as also affected: {{ list }}",
     "moderatedAffected": "Moderated by you, also affected: {{ list }}",
+    "ownershipCheckUnavailable": "We couldn't check right now whether this set really belongs to this channel — please verify on 7tv.app yourself before deleting.",
     "irreversibleNotice": "This can't be undone. Deletion then runs automatically, one emote at a time, with a short delay between each.",
     "undetectableChannelsNotice": "Note: we generally can't detect other channels that use this same set but aren't tracked by us or moderated by you.",
     "startDelete": "Start deleting",

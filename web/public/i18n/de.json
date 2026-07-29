@@ -119,6 +119,7 @@
     "admin": {
       "title": "Alle Channels (Admin)",
       "addChannel": "Channel hinzufügen",
+      "channelNamePlaceholder": "twitch-channel-name",
       "invalidChannelName": "Ungültiger Channel-Name (4–25 Zeichen, Buchstaben/Ziffern/Unterstrich).",
       "noChannelsTracked": "Keine Channels getrackt."
     }
@@ -147,11 +148,14 @@
     "presetToday": "Heute",
     "preset7Days": "7 Tage",
     "preset30Days": "30 Tage",
+    "fromLabel": "von",
+    "toLabel": "bis",
     "dateRangeTo": "bis",
     "sortByUsage": "Nutzung",
     "filterMinPlaceholder": "Min",
     "filterMaxPlaceholder": "Max",
-    "filterNamePlaceholder": "Name (z.B. *cat*, ?og)",
+    "filterNamePlaceholder": "Name suchen…",
+    "filterNameTitle": "Platzhalter möglich: * für beliebig viele Zeichen, ? für ein Zeichen",
     "showAll": "Alle anzeigen",
     "showUnusedOnly": "Nur ungenutzte (0x)",
     "loading": "Lädt…",
@@ -178,7 +182,7 @@
       "copyFailed": "Kopieren fehlgeschlagen",
       "end": "Beenden",
       "delete": "Löschen",
-      "deleteConfirm": "Diese Abstimmung wirklich unwiderruflich löschen?"
+      "deleteConfirm": "Abstimmung „{{ title }}“ unwiderruflich löschen? Alle abgegebenen Stimmen gehen dabei verloren."
     },
     "detail": {
       "usageSince": "Nutzungsdaten seit",
@@ -224,6 +228,7 @@
     "notOwnSet": "Das aktive Set gehört nicht dem eigenen 7TV-Account dieses Channels.",
     "knownAffected": "Bei uns bekannt betroffen: {{ list }}",
     "moderatedAffected": "Von dir moderiert, ebenfalls betroffen: {{ list }}",
+    "ownershipCheckUnavailable": "Wir konnten gerade nicht prüfen, ob dieses Set wirklich diesem Channel gehört — bitte vor dem Löschen selbst auf 7tv.app kontrollieren.",
     "irreversibleNotice": "Das kann nicht rückgängig gemacht werden. Löschen läuft danach automatisch nacheinander mit kurzer Verzögerung zwischen den Emotes.",
     "undetectableChannelsNotice": "Hinweis: Fremde Channels, die weder von uns getrackt werden noch von dir moderiert werden, aber ebenfalls dieses Set nutzen, können wir grundsätzlich nicht erkennen.",
     "startDelete": "Löschen starten",
