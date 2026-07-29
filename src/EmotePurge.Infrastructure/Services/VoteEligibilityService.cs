@@ -9,7 +9,8 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class VoteEligibilityService(
     AppDbContext db,
-    IModeratorCheckService moderatorCheckService,
+    IChannelAccessService channelAccessService,
+    IModRoleCache modRoleCache,
     ITwitchHelixClient helixClient,
     ILogger<VoteEligibilityService> logger) : IVoteEligibilityService
 {
@@ -68,15 +69,13 @@ public class VoteEligibilityService(
             return VoteEligibilityResult.Allowed;
         }
 
-        // Broadcaster/Mods can always vote in their own channel's sessions, regardless of which
-        // roles a session otherwise targets — same "channel management" precedence as join/leave
-        // (ChannelAccessService), not gated behind the AllowedVoterRoles flags like Subs/Everyone.
-        if (string.Equals(principal.TwitchLogin, normalizedChannel, StringComparison.OrdinalIgnoreCase))
-        {
-            return VoteEligibilityResult.Allowed;
-        }
-
-        if (await moderatorCheckService.IsModeratorAsync(principal, normalizedChannel, cancellationToken))
+        // Admin/broadcaster/mods can always vote in their own channel's sessions, regardless of which
+        // roles a session otherwise targets — same "channel management" precedence as join/leave, not
+        // gated behind the AllowedVoterRoles flags like Subs/Everyone. Delegated to
+        // IChannelAccessService rather than re-implemented: the local copy had no admin branch, so a
+        // global admin could list a session and then be bounced off its own results page, and "who
+        // manages this channel?" answered differently in two places with nothing pointing that out.
+        if (await channelAccessService.CanManageChannelAsync(principal, normalizedChannel, cancellationToken))
         {
             return VoteEligibilityResult.Allowed;
         }
@@ -89,17 +88,40 @@ public class VoteEligibilityService(
                     "Sub-Check für {User}/{Channel} übersprungen: TwitchChannelId oder Access Token fehlt.",
                     principal.TwitchUserId, normalizedChannel);
             }
-            else
+            else if (await IsSubscriberAsync(principal, channel.TwitchChannelId, cancellationToken))
             {
-                var isSubscribed = await helixClient.GetUserSubscriptionStatusAsync(
-                    principal.AccessToken, channel.TwitchChannelId, principal.TwitchUserId, cancellationToken);
-                if (isSubscribed == true)
-                {
-                    return VoteEligibilityResult.Allowed;
-                }
+                return VoteEligibilityResult.Allowed;
             }
         }
 
         return VoteEligibilityResult.RoleNotEligible;
+    }
+
+    private async Task<bool> IsSubscriberAsync(TwitchPrincipalInfo principal, string broadcasterTwitchId, CancellationToken cancellationToken)
+    {
+        // Cached, because the session list evaluates eligibility per session: a channel with ten Subs
+        // sessions used to fire ten identical Helix calls (10s timeout each) for a single page view.
+        var cached = await modRoleCache.TryGetIsSubscriberAsync(principal.TwitchUserId, broadcasterTwitchId, cancellationToken);
+        if (cached is { } isSubscriberCached)
+        {
+            return isSubscriberCached;
+        }
+
+        var isSubscribed = await helixClient.GetUserSubscriptionStatusAsync(
+            principal.AccessToken!, broadcasterTwitchId, principal.TwitchUserId, cancellationToken);
+
+        // null is "Helix could not tell us" (rate limit, outage, expired token) — deliberately not
+        // cached, otherwise a transient 429 would silently drop a subscriber's sessions off their list
+        // for the full TTL with no error anywhere.
+        if (isSubscribed is null)
+        {
+            logger.LogInformation(
+                "Sub-Status für {User}/{Broadcaster} von Twitch nicht ermittelbar — wird nicht gecacht.",
+                principal.TwitchUserId, broadcasterTwitchId);
+            return false;
+        }
+
+        await modRoleCache.SetIsSubscriberAsync(principal.TwitchUserId, broadcasterTwitchId, isSubscribed.Value, cancellationToken);
+        return isSubscribed.Value;
     }
 }

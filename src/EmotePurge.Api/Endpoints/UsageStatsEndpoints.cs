@@ -9,9 +9,13 @@ public static class UsageStatsEndpoints
 {
     public static void MapUsageStatsEndpoints(this WebApplication app)
     {
+        // Rate limited at group level: UsageStatsAccessAuthorizationFilter makes two uncached 7TV
+        // GraphQL calls for every caller who is not admin/broadcaster/mod, purely to decide access —
+        // so even a plain read here can be turned into pressure on someone else's API quota.
         var group = app.MapGroup("/api/channels/{channelName}/usage-stats")
             .RequireAuthorization()
-            .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>();
+            .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
+            .RequireRateLimiting("ExternalApi");
 
         group.MapGet("", async (
             string channelName,

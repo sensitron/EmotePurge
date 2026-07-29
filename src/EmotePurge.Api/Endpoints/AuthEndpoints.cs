@@ -86,7 +86,12 @@ public static class AuthEndpoints
                 new(TwitchClaimTypes.Login, userInfo.Login),
                 new(TwitchClaimTypes.DisplayName, userInfo.DisplayName),
                 new(TwitchClaimTypes.AccessToken, token.AccessToken),
-                new(TwitchClaimTypes.TokenExpiresAtUtc, token.ExpiresAtUtc.ToString("O", CultureInfo.InvariantCulture))
+                new(TwitchClaimTypes.TokenExpiresAtUtc, token.ExpiresAtUtc.ToString("O", CultureInfo.InvariantCulture)),
+                // Compared against User.SessionsValidFromUtc on every request (OnValidatePrincipal).
+                // One second of slack: the claim is written before SignInAsync, and a logout landing
+                // in the same second must not invalidate the session being created right now.
+                new(TwitchClaimTypes.SessionIssuedAtUtc,
+                    DateTime.UtcNow.AddSeconds(1).ToString("O", CultureInfo.InvariantCulture))
             };
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
@@ -103,8 +108,21 @@ public static class AuthEndpoints
             tokenExpiresAtUtc = user.FindFirstValue(TwitchClaimTypes.TokenExpiresAtUtc)
         })).RequireAuthorization();
 
-        group.MapPost("/logout", async (HttpContext httpContext) =>
+        group.MapPost("/logout", async (
+            HttpContext httpContext,
+            IUserService userService,
+            CancellationToken ct) =>
         {
+            // Revoke server-side as well, not just delete the browser's copy: the cookie stays
+            // cryptographically valid otherwise, and with persisted Data Protection keys nothing
+            // else would ever invalidate it. Deliberately not behind RequireAuthorization — an
+            // already-expired session must still be able to clear its cookie.
+            var twitchUserId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (twitchUserId is not null)
+            {
+                await userService.RevokeSessionsAsync(twitchUserId, ct);
+            }
+
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.Ok();
         });

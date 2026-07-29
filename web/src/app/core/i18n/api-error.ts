@@ -23,6 +23,7 @@ const KNOWN_API_ERROR_CODES = new Set([
   'vote_session_not_found',
   'vote_session_ended',
   'emote_not_eligible',
+  'unexpected_error',
 ]);
 
 /** Resolves an HTTP error from the EmotePurge API to a translation key — `errors.api.<code>` for a

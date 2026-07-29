@@ -1,7 +1,13 @@
+using System.Globalization;
 using System.Security.Claims;
+using EmotePurge.Api.Auth;
 using EmotePurge.Api.Endpoints;
+using EmotePurge.Api.Validation;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
@@ -15,11 +21,34 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddEmotePurgeInfrastructure(builder.Configuration);
 
+// Without a shared key ring every container restart invalidates every auth cookie, and two API
+// replicas would reject each other's logins outright. Only enabled when a path is configured
+// (docker-compose sets DataProtection__KeyPath=/keys onto a named volume) — local `dotnet run`
+// keeps the default per-user key store, which already persists.
+var dataProtectionKeyPath = builder.Configuration["DataProtection:KeyPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeyPath))
+{
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyPath))
+        .SetApplicationName("EmotePurge");
+}
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.ExpireTimeSpan = TimeSpan.FromDays(14);
         options.SlidingExpiration = true;
+
+        // Secure regardless of what the proxy sends. The default SameAsRequest derives the flag from
+        // Request.IsHttps, which in this topology exists *only* because ForwardedHeadersMiddleware
+        // saw an X-Forwarded-Proto that the app cannot guarantee: a replaced reverse proxy or a new
+        // vhost missing `proxy_set_header X-Forwarded-Proto` would silently start handing out a
+        // cookie without Secure — carrying the Twitch access token and all of the victim's
+        // broadcaster/mod rights. Fail closed: a missing header now breaks login visibly instead of
+        // working insecurely. Browsers treat http://localhost as trustworthy, so dev is unaffected.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.HttpOnly = true;
 
         // Default cookie-auth behavior redirects to a login page on 401/403 — wrong for a JSON API.
         options.Events.OnRedirectToLogin = context =>
@@ -32,28 +61,68 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return Task.CompletedTask;
         };
+
+        // Server-side revocation. Costs one primary-key lookup per authenticated request, which buys
+        // the only way to invalidate an issued cookie: before this, logout deleted the browser's
+        // copy while the cookie itself stayed valid for its full 14 days.
+        options.Events.OnValidatePrincipal = async context =>
+        {
+            var twitchUserId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            var issuedAtRaw = context.Principal?.FindFirstValue(TwitchClaimTypes.SessionIssuedAtUtc);
+
+            // A cookie without the claim predates session tracking. Rejected rather than
+            // grandfathered in — accepting it would leave a permanent bypass of the check.
+            if (twitchUserId is null
+                || !DateTime.TryParse(issuedAtRaw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var issuedAt))
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return;
+            }
+
+            var userService = context.HttpContext.RequestServices.GetRequiredService<IUserService>();
+            var validFrom = await userService.GetSessionsValidFromUtcAsync(twitchUserId, context.HttpContext.RequestAborted);
+            if (validFrom is { } revokedBefore && issuedAt.ToUniversalTime() < revokedBefore)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            }
+        };
     });
 builder.Services.AddAuthorization();
 
-// Applied only to endpoints that trigger expensive downstream work per call (Twitch IRC join,
-// 7TV sync, DB writes) — not a blanket API-wide limit. Partitioned by authenticated user (all
-// three endpoints require auth already), falling back to the remote IP just in case.
+// Two policies rather than one, because "expensive" meant two unrelated things. Both partition by
+// authenticated user (every endpoint carrying them requires auth), falling back to the remote IP.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("ExpensiveOps", httpContext =>
-    {
-        var partitionKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? httpContext.Connection.RemoteIpAddress?.ToString()
-            ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 20,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0
-        });
-    });
+
+    // Strict: every endpoint under this policy makes uncached calls to Twitch Helix or 7TV, and
+    // those quotas are per application, not per user. A single looping account could therefore
+    // exhaust the app-wide bucket, at which point Helix returns nothing for *everyone* and
+    // ModeratorCheckService can no longer distinguish "not a mod" from "quota exhausted" — every
+    // moderator of every channel silently loses their permissions.
+    options.AddPolicy("ExternalApi", httpContext => PartitionPerUser(httpContext, permitLimit: 20));
+
+    // Generous: bookkeeping against our own database with no downstream cost. Deliberately split
+    // out of the strict policy — sync-deleted is the one call that must never be dropped (a 429
+    // there leaves the database diverging from 7TV with no signal), and it used to share the
+    // 20/min budget with join and the vote endpoints.
+    options.AddPolicy("Bookkeeping", httpContext => PartitionPerUser(httpContext, permitLimit: 120));
 });
+
+static RateLimitPartition<string> PartitionPerUser(HttpContext httpContext, int permitLimit)
+{
+    var partitionKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? httpContext.Connection.RemoteIpAddress?.ToString()
+        ?? "unknown";
+    return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = permitLimit,
+        Window = TimeSpan.FromMinutes(1),
+        QueueLimit = 0
+    });
+}
 
 var app = builder.Build();
 
@@ -62,6 +131,17 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+// Without this an unhandled exception aborts the response body-less, so the frontend cannot tell a
+// crash apart from a network failure and shows its generic message. Concretely reachable: two
+// concurrent votes racing the (VoteSessionId, EmoteId, UserId) unique index. Deliberately no
+// exception detail in the body — only a stable errorCode the frontend can translate.
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsJsonAsync(new { errorCode = ApiErrorCodes.UnexpectedError });
+}));
 
 // Hinter einem host-level Reverse Proxy (TLS-Termination) erreicht die Verbindung den Container
 // über die Docker-Bridge-Gateway-IP, nicht über Loopback — Default-Trust von ForwardedHeadersMiddleware
@@ -74,7 +154,9 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
     KnownProxies = { }
 });
 
-app.UseHttpsRedirection();
+// Deliberately no UseHttpsRedirection(): Kestrel only listens on http://+:8080 inside the container
+// and no ASPNETCORE_HTTPS_PORT is set, so it was a no-op that merely suggested protection it never
+// provided. TLS is terminated by the host reverse proxy; HSTS below is what actually enforces it.
 
 // Security headers on every response. CSP allow-lists are deliberately narrow: connect-src covers
 // the frontend's direct browser calls to 7TV (mass-delete GraphQL mutations bypass the API on
@@ -86,6 +168,14 @@ app.Use(async (context, next) =>
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
     headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    // Set as a plain response header rather than via app.UseHsts(), which takes the same unreliable
+    // Request.IsHttps detour as the cookie flag did. Without HSTS, a user typing "emotepurge.app"
+    // without a scheme makes the first request over http:// — enough for an sslstrip attacker on an
+    // open network to read the session cookie once. Browsers ignore this header over plain http, so
+    // local development is unaffected. Deliberately no includeSubDomains and no preload: both are
+    // effectively irreversible for a year once cached, and would also bind subdomains this app knows
+    // nothing about. Adding them later is safe; removing them is not.
+    headers["Strict-Transport-Security"] = "max-age=31536000";
     headers["Content-Security-Policy"] =
         "default-src 'self'; " +
         "script-src 'self'; " +

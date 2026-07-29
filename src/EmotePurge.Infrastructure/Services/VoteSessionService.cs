@@ -123,7 +123,31 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             vote.UpdatedAt = DateTime.UtcNow;
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Read-then-insert loses a race against a second request from the same user: a double click
+            // sends both clicks down the insert path (the first has not committed when the second reads),
+            // and the (VoteSessionId, EmoteId, UserId) unique index rejects the loser — a 500 for what is
+            // in truth an idempotent action. Reload and apply it as the update it always was.
+            db.Entry(vote).State = EntityState.Detached;
+
+            var existing = await db.Votes.SingleOrDefaultAsync(
+                v => v.VoteSessionId == sessionId && v.EmoteId == emoteId && v.UserId == voterTwitchUserId, cancellationToken);
+            if (existing is null)
+            {
+                throw;
+            }
+
+            existing.Type = type;
+            existing.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(cancellationToken);
+            return (VoteCastResult.Success, existing);
+        }
+
         return (VoteCastResult.Success, vote);
     }
 

@@ -34,7 +34,7 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         return new PagedResult<VoteSessionSummaryDto>(items, page, pageSize, totalCount);
     }
 
-    public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, CancellationToken cancellationToken = default)
+    public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, bool includeRawUsage = false, CancellationToken cancellationToken = default)
     {
         var normalized = channelName.Trim().ToLowerInvariant();
 
@@ -95,7 +95,10 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             var score = normalizedUsage + (keep - delete);
             var myVote = myVotesByEmoteId.TryGetValue(e.Id, out var voteType) ? voteType : (VoteType?)null;
 
-            return new VoteSessionResultDto(e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, useCount, normalizedUsage, keep, delete, score, myVote);
+            // Normalisation and score still use the real useCount — only the reported figure is
+            // withheld, so a non-manager sees identical ranking without the absolute numbers.
+            return new VoteSessionResultDto(
+                e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, includeRawUsage ? useCount : 0, normalizedUsage, keep, delete, score, myVote);
         })
         .OrderByDescending(r => r.Score)
         .ToList();

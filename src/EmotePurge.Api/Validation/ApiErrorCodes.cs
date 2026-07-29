@@ -28,6 +28,8 @@ internal static class ApiErrorCodes
     public const string VoteSessionNotFound = "vote_session_not_found";
     public const string VoteSessionEnded = "vote_session_ended";
     public const string EmoteNotEligible = "emote_not_eligible";
+    // Returned by the global exception handler — deliberately opaque, no exception detail.
+    public const string UnexpectedError = "unexpected_error";
     public const string NoHealthData = "no_health_data";
     public const string HealthDataUnreadable = "health_data_unreadable";
 }

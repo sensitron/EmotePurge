@@ -56,7 +56,12 @@ public static class ChannelEndpoints
 
             var result = await myChannelsService.GetMyChannelsAsync(principal, ct);
             return Results.Ok(result);
-        });
+        })
+        // The heaviest endpoint in the app per incoming request: up to ten Helix calls plus a 7TV
+        // identity resolve plus an editor lookup, none of them cached. Unlimited, it let any logged-in
+        // account exhaust the app-wide Twitch quota, at which point Helix returns nothing for
+        // everyone and every moderator of every channel silently loses their permissions.
+        .RequireRateLimiting("ExternalApi");
 
         group.MapPost("/{channelName}/join", async (
             string channelName,
@@ -72,7 +77,7 @@ public static class ChannelEndpoints
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
-        .RequireRateLimiting("ExpensiveOps");
+        .RequireRateLimiting("ExternalApi");
 
         group.MapDelete("/{channelName}", async (
             string channelName,

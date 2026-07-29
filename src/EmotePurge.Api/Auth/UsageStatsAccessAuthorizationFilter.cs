@@ -19,8 +19,10 @@ public class UsageStatsAccessAuthorizationFilter : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
+        // Full format check (not just non-empty) before any Redis/external-system access — an
+        // unvalidated route value would otherwise reach ModRoleCache.BuildKey as a Redis key part.
         var channelName = context.HttpContext.Request.RouteValues["channelName"] as string;
-        if (string.IsNullOrEmpty(channelName))
+        if (channelName is null || !ChannelNameValidation.IsValid(channelName))
         {
             return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
         }

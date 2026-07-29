@@ -12,9 +12,11 @@ public class VoteAudienceFilter : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
+        // Full format check (not just non-empty) before any Redis/external-system access — an
+        // unvalidated route value would otherwise reach ModRoleCache.BuildKey as a Redis key part.
         var channelName = context.HttpContext.Request.RouteValues["channelName"] as string;
         var sessionIdRaw = context.HttpContext.Request.RouteValues["sessionId"] as string;
-        if (string.IsNullOrEmpty(channelName) || !long.TryParse(sessionIdRaw, out var sessionId))
+        if (channelName is null || !ChannelNameValidation.IsValid(channelName) || !long.TryParse(sessionIdRaw, out var sessionId))
         {
             return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelOrSessionId });
         }

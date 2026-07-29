@@ -30,7 +30,11 @@ public interface IVoteSessionQueryService
     // viewerTwitchUserId is optional at this service layer (kept nullable for testability), but the
     // Api endpoint always supplies it now — VoteAudienceFilter guarantees an authenticated viewer
     // before this is called, so each result row's MyVote reflects that viewer's own vote.
-    Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, CancellationToken cancellationToken = default);
+    // includeRawUsage gates TotalUseCount only: false reports 0 per emote, while NormalizedUsageScore,
+    // Score and the ordering stay exactly the same. Raw per-emote chat usage is management data (the
+    // usage-stats endpoints are access-filtered for that reason), and a session's audience can include
+    // every logged-in user.
+    Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, bool includeRawUsage = false, CancellationToken cancellationToken = default);
 
     // Cross-channel "My Votings": every session the given voter has ever voted in, across all
     // channels, ordered by most-recently-voted-in first. Deliberately not gated by current audience

@@ -43,6 +43,15 @@ public static class VoteSessionEndpoints
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.StartedAtInFuture });
             }
 
+            // Backdating was unbounded, and the results window is StartedAt..(EndedAt ?? now) — so a
+            // single session backdated far enough covered the channel's entire usage history. Capped at
+            // the same 366 days as the usage-stats range.
+            const int maxBackdateDays = 366;
+            if (request.StartedAt is { } backdated && backdated < DateTime.UtcNow.AddDays(-maxBackdateDays))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays = maxBackdateDays });
+            }
+
             var session = await voteSessionService.CreateAsync(channelName, request.Title, request.AllowedVoterRoles, request.StartedAt, ct);
             if (session is null)
             {
@@ -59,6 +68,11 @@ public static class VoteSessionEndpoints
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
+            if (!ChannelNameValidation.IsValid(channelName))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+            }
+
             var session = await voteSessionService.EndAsync(channelName, sessionId, ct);
             if (session is null)
             {
@@ -75,6 +89,11 @@ public static class VoteSessionEndpoints
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
+            if (!ChannelNameValidation.IsValid(channelName))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+            }
+
             var deleted = await voteSessionService.DeleteAsync(channelName, sessionId, ct);
             return deleted ? Results.NoContent() : Results.NotFound();
         })
@@ -135,23 +154,35 @@ public static class VoteSessionEndpoints
 
             var pageItems = visibleSessions.Skip((effectivePage - 1) * effectivePageSize).Take(effectivePageSize).ToList();
             return Results.Ok(new PagedResult<VoteSessionSummaryDto>(pageItems, effectivePage, effectivePageSize, visibleSessions.Count));
-        });
+        })
+        // Rate limited because the non-manager branch above runs EvaluateAudienceAsync per session, and
+        // every session with the Subs flag triggers its own uncached Helix call with a 10s timeout.
+        .RequireRateLimiting("ExternalApi");
 
         group.MapGet("/{sessionId:long}/results", async (
             string channelName,
             long sessionId,
             HttpContext httpContext,
             IVoteSessionQueryService voteSessionQueryService,
+            IChannelAccessService channelAccessService,
             CancellationToken ct) =>
         {
             // VoteAudienceFilter already required an authenticated, in-audience principal to reach this
             // handler — anonymous viewing was removed (see decision log). MyVote is filled in from the
             // now-guaranteed-present principal.
-            var viewerTwitchUserId = httpContext.User.TryBuildTwitchPrincipal()!.TwitchUserId;
-            var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, viewerTwitchUserId, ct);
+            var principal = httpContext.User.TryBuildTwitchPrincipal()!;
+
+            // Raw per-emote chat usage is management data: usage-stats/totals sits behind an access
+            // filter for exactly that reason, but this endpoint served the same numbers to anyone in a
+            // session's audience — and an Everyone session (the default) admits every logged-in user.
+            // The score itself does not need them: NormalizedUsageScore is delivered separately, and
+            // both it and the ordering stay unchanged.
+            var includeRawUsage = await channelAccessService.CanManageChannelAsync(principal, channelName, ct);
+            var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, principal.TwitchUserId, includeRawUsage, ct);
             return results is null ? Results.NotFound() : Results.Ok(results);
         })
-        .AddEndpointFilter<VoteAudienceFilter>();
+        .AddEndpointFilter<VoteAudienceFilter>()
+        .RequireRateLimiting("ExternalApi");
 
         group.MapPost("/{sessionId:long}/votes", async (
             string channelName,
@@ -186,7 +217,7 @@ public static class VoteSessionEndpoints
             };
         })
         .AddEndpointFilter<VoteEligibilityFilter>()
-        .RequireRateLimiting("ExpensiveOps");
+        .RequireRateLimiting("ExternalApi");
 
         group.MapDelete("/{sessionId:long}/votes/{emoteId}", async (
             string channelName,
@@ -210,7 +241,7 @@ public static class VoteSessionEndpoints
             };
         })
         .AddEndpointFilter<VoteEligibilityFilter>()
-        .RequireRateLimiting("ExpensiveOps");
+        .RequireRateLimiting("ExternalApi");
 
         // Deliberately NOT nested under /api/channels/{channelName}/... — a user's voting history spans
         // every channel they've ever voted in, so there's no single channelName route value to key off.
