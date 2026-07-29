@@ -1,0 +1,283 @@
+# Backup und Restore (Postgres)
+
+Schließt Befund **S1-2** aus `Review-2026-07-29.md`: Aktuell existiert **kein** Backup
+des EmotePurge-Datenbestands (Channels, Emotes, UsageStats, VoteSessions, User-Logins) —
+alles liegt ausschließlich im lokalen Docker-Volume `postgres-data` auf dem VPS. Ein
+`docker compose down -v`-Tippfehler, ein VPS-Crash oder ein defektes Volume bedeutet
+heute unwiederbringlichen Totalverlust.
+
+Dieses Dokument deckt zwei Dinge ab: die einmalige Einrichtung des nächtlichen
+Backup-Jobs auf dem VPS, und — genauso wichtig — den tatsächlichen Restore. Ein
+Backup, dessen Wiederherstellung nie geprobt wurde, ist kein Backup.
+
+Das Skript selbst liegt unter [`scripts/backup-postgres.sh`](../scripts/backup-postgres.sh)
+und ist so gebaut, dass ein fehlgeschlagener `pg_dump` niemals ein gültig aussehendes,
+aber abgeschnittenes Archiv hinterlässt (dump zuerst in eine `.tmp`-Datei, Exit-Code +
+Größe prüfen, erst dann atomar per `mv` umbenennen).
+
+> **Werte in diesem Dokument, die aus dem Repo belegt sind:** Container-Name
+> `emotepurge-postgres` (identisch in `docker-compose.yml` und
+> `docker-compose.prod.yml`), Container-Namen `emotepurge-api`/`emotepurge-worker`,
+> Datenbankname `emotepurge` (in beiden Compose-Dateien als `POSTGRES_DB`
+> hartkodiert), DB-User-Default `emotepurge` (aus `.env.example`,
+> `POSTGRES_USER`). **Werte, die NICHT aus dem Repo stammen** und vom Nutzer zu
+> prüfen/anzupassen sind, sind unten explizit als Platzhalter markiert
+> (Backup-Zielverzeichnis, VPS-Zugangsdaten, Off-Site-Ziel).
+
+## 1. Einrichtung auf dem VPS
+
+Alle Schritte laufen auf dem **Host** (VPS), nicht in einem Container — `docker`
+muss auf dem PATH verfügbar sein und der ausführende User braucht Rechte, `docker
+exec`/`docker inspect` gegen `emotepurge-postgres` auszuführen (i. d. R. root oder
+ein User in der `docker`-Gruppe).
+
+### 1.1 Skript ablegen
+
+`<VPS-HOST>`/`<VPS-USER>` sind Platzhalter — durch die tatsächlichen SSH-Zugangsdaten
+des VPS ersetzen.
+
+```sh
+# Vom lokalen Checkout aus:
+scp scripts/backup-postgres.sh <VPS-USER>@<VPS-HOST>:/tmp/backup-postgres.sh
+ssh <VPS-USER>@<VPS-HOST> 'sudo mv /tmp/backup-postgres.sh /usr/local/bin/backup-postgres.sh && sudo chmod 755 /usr/local/bin/backup-postgres.sh'
+```
+
+(Alternativ: Falls das Repo ohnehin auf dem VPS gecloned ist, genügt `sudo cp
+scripts/backup-postgres.sh /usr/local/bin/backup-postgres.sh && sudo chmod 755
+/usr/local/bin/backup-postgres.sh` direkt dort.)
+
+### 1.2 Zielverzeichnis anlegen
+
+Das Skript legt `$BACKUP_DIR` zwar selbst per `mkdir -p` an, empfohlen ist trotzdem
+ein expliziter erster Schritt mit sinnvollen Rechten (nur root lesbar, da ein
+Datenbank-Dump potenziell sensible Daten wie Twitch-Access-Tokens/User-Logins
+enthält):
+
+```sh
+sudo mkdir -p /var/backups/emotepurge
+sudo chmod 700 /var/backups/emotepurge
+```
+
+> `/var/backups/emotepurge` ist der Skript-Default (`BACKUP_DIR`), aber **nicht**
+> aus dem Repo belegt — es ist der im Review (`Review-2026-07-29.md:146-149`)
+> vorgeschlagene Pfad. Bei Bedarf per `BACKUP_DIR=...` überschreiben (s. Tabelle
+> unten), z. B. falls auf dem VPS bereits eine andere Backup-Konvention existiert.
+
+### 1.3 Einmal manuell testen
+
+Vor dem Cron-Eintrag immer erst manuell laufen lassen, um Berechtigungsfehler o. Ä.
+sofort zu sehen statt erst nachts:
+
+```sh
+sudo /usr/local/bin/backup-postgres.sh
+echo "Exit-Code: $?"
+ls -lh /var/backups/emotepurge
+```
+
+Erwartung: Exit-Code `0`, eine neue Datei
+`emotepurge-<Datum>_<Uhrzeit>.sql.gz` mit plausibler Größe (nicht 0 Byte — bei
+der aktuellen Datenmenge im niedrigen einstelligen MB-Bereich zu erwarten, wächst
+mit der Zeit).
+
+### 1.4 Cronjob einrichten (nächtlich)
+
+Eine `/etc/cron.d/`-Datei anlegen (läuft dann unabhängig vom Crontab eines
+einzelnen Users, mit explizitem User-Feld):
+
+```sh
+sudo tee /etc/cron.d/emotepurge-backup >/dev/null <<'EOF'
+# EmotePurge: naechtliches Postgres-Backup, taeglich 03:00 Uhr Server-Zeit.
+# Log-Ausgabe landet zusaetzlich zur Stdout/Stderr-Ausgabe von cron selbst
+# (die je nach System-Konfiguration per Mail an root geht) in dieser Datei.
+0 3 * * * root /usr/local/bin/backup-postgres.sh >> /var/log/emotepurge-backup.log 2>&1
+EOF
+sudo chmod 644 /etc/cron.d/emotepurge-backup
+```
+
+Falls vom Default abweichende Werte nötig sind (z. B. anderes `BACKUP_DIR`), die
+Env-Variablen direkt in der Zeile setzen:
+
+```
+0 3 * * * root BACKUP_DIR=/mnt/backup-disk/emotepurge RETENTION_DAYS=30 /usr/local/bin/backup-postgres.sh >> /var/log/emotepurge-backup.log 2>&1
+```
+
+Ein einzelner Cronjob genügt — Backup und Rotation laufen im selben Skriptdurchlauf
+(anders als der zweizeilige Vorschlag im Review, funktional identisch).
+
+## 2. Restore
+
+**Vor jedem Restore: `emotepurge-api` und `emotepurge-worker` stoppen.** Beide
+schreiben aktiv in die Datenbank (Chat-Matching-Flush, 7TV-Resync, Join/Leave) —
+läuft einer der beiden während des Restores weiter, sind Race Conditions mit
+teils widersprüchlichem Endzustand möglich.
+
+```sh
+docker stop emotepurge-api emotepurge-worker
+```
+
+### 2.1 Restore in eine laufende, bereits befüllte Instanz
+
+Der Normalfall: Postgres läuft, hat aber (versehentlich gelöschte/korrumpierte)
+Daten, die durch den Stand aus dem Dump ersetzt werden sollen. Ein `pg_dump` im
+hier verwendeten `--format=plain` enthält keine `DROP`-Anweisungen — ein direktes
+Zurückspielen in eine nicht-leere Datenbank scheitert an `already exists`-Fehlern.
+Die Datenbank muss daher erst geleert werden:
+
+```sh
+# Verbindung zur Wartungsdatenbank "postgres", NICHT zu "emotepurge" selbst --
+# eine Datenbank kann sich nicht selbst droppen, waehrend die Verbindung offen ist.
+docker exec -i emotepurge-postgres psql -U emotepurge -d postgres -c "DROP DATABASE emotepurge;"
+docker exec -i emotepurge-postgres psql -U emotepurge -d postgres -c "CREATE DATABASE emotepurge OWNER emotepurge;"
+
+# Dump einspielen (Dateiname anpassen):
+gunzip -c /var/backups/emotepurge/emotepurge-2026-07-29_030000.sql.gz \
+  | docker exec -i emotepurge-postgres psql -U emotepurge -d emotepurge
+
+# Api/Worker wieder starten:
+docker start emotepurge-api emotepurge-worker
+```
+
+Bei Erfolg gibt der `psql`-Restore-Lauf eine lange Folge von `CREATE
+TABLE`/`COPY`/`ALTER TABLE`-Bestätigungen aus, ohne `ERROR:`-Zeilen dazwischen —
+kurz durchscrollen und auf `ERROR` prüfen.
+
+### 2.2 Sonderfall: Volume ist weg, Stack neu hochgezogen
+
+Nach einem VPS-Totalverlust, einem versehentlichen `docker compose down -v` oder
+einem neu aufgesetzten Host existiert das `postgres-data`-Volume überhaupt nicht
+mehr. Wird der Compose-Stack neu gestartet, legt der offizielle Postgres-Container
+automatisch ein frisches, leeres `postgres-data`-Volume sowie eine leere
+`emotepurge`-Datenbank an (über die `POSTGRES_DB`/`POSTGRES_USER`-Env-Variablen in
+`docker-compose.prod.yml`) — in diesem Fall **ohne** Schema, da die EF-Core-
+Migrationen nur beim erstmaligen App-Start liefen.
+
+```sh
+# 1. Sicherstellen, dass Api/Worker NICHT laufen, waehrend die DB neu befuellt wird.
+docker stop emotepurge-api emotepurge-worker
+
+# 2. Postgres (neu) hochfahren -- Docker legt das fehlende Volume automatisch neu an.
+#    Pfad zur Compose-Datei auf dem VPS ggf. anpassen (haengt davon ab, wo der
+#    Portainer-Stack die Datei ablegt bzw. ob sie dort ueberhaupt als Datei existiert --
+#    alternativ ueber die Portainer-UI neu deployen).
+docker compose -f docker-compose.prod.yml up -d postgres
+
+# Warten, bis der Healthcheck "healthy" meldet:
+docker ps --filter name=emotepurge-postgres --format '{{.Status}}'
+
+# 3. Dump einspielen. Ein pg_dump im Plain-Format enthaelt volles Schema + Daten
+#    (inkl. der EF-Core-Migrationshistorie-Tabelle) -- die frisch angelegte, leere
+#    "emotepurge"-Datenbank aus Schritt 2 muss NICHT vorher gedroppt/neu angelegt
+#    werden, ein direktes Einspielen in die leere DB genuegt:
+gunzip -c /var/backups/emotepurge/emotepurge-<DATUM>_<UHRZEIT>.sql.gz \
+  | docker exec -i emotepurge-postgres psql -U emotepurge -d emotepurge
+
+# 4. Restlichen Stack starten:
+docker compose -f docker-compose.prod.yml up -d api worker
+# oder, falls die Compose-Datei auf dem VPS nicht verfuegbar ist:
+docker start emotepurge-api emotepurge-worker
+```
+
+Da der Dump das komplette Schema mitbringt, ist ein separater
+`dotnet ef database update`-Lauf für diesen Restore-Pfad **nicht** nötig — nur
+relevant, falls seit dem letzten Backup neue Migrationen im laufenden Betrieb
+hinzugekommen sind, die im Dump noch fehlen (dann nach dem Restore einmal
+`dotnet ef database update` wie in `CLAUDE.md`, Abschnitt "EF Core Migrationen",
+beschrieben nachziehen).
+
+## 3. Off-Site-Kopie — Backup ≠ Schutz vor VPS-Totalverlust
+
+**Ein Dump, der auf demselben VPS liegt wie die Datenbank, die er sichert, schützt
+nicht vor VPS-Totalverlust** (Hosting-Kündigung/-Ausfall, Festplattendefekt,
+kompromittierter Host, versehentliches Löschen der ganzen Maschine). Er schützt
+ausschließlich vor Datenfehlern *innerhalb* des laufenden Systems (Fehlbedienung,
+Volume-Korruption, fehlgeschlagenes Upgrade).
+
+Das Skript bringt dafür einen optionalen, standardmäßig **deaktivierten**
+Off-Site-Schritt per [`rclone`](https://rclone.org/) mit (`OFFSITE_ENABLED=1` +
+`OFFSITE_RCLONE_REMOTE=<remote>:<pfad>`). Konkreter, unverbindlicher Vorschlag aus
+dem Review: ein kostenloses [Backblaze B2](https://www.backblaze.com/cloud-storage)-
+Free-Tier-Bucket (bis 10 GB, für Textdumps dieser Größenordnung lange ausreichend).
+Einrichtung (Platzhalter `<b2-key-id>`/`<b2-app-key>`/`<bucket>` durch echte Werte
+ersetzen):
+
+```sh
+# Einmalig, auf dem VPS:
+sudo apt-get install -y rclone   # oder: curl https://rclone.org/install.sh | sudo bash
+rclone config   # Remote-Typ "Backblaze B2" waehlen, Key-ID/App-Key eintragen, Remote-Name z.B. "b2"
+
+# Danach im Cronjob (s. 1.4) ergaenzen:
+0 3 * * * root OFFSITE_ENABLED=1 OFFSITE_RCLONE_REMOTE=b2:<bucket>/emotepurge /usr/local/bin/backup-postgres.sh >> /var/log/emotepurge-backup.log 2>&1
+```
+
+Falls `rclone` fehlt oder `OFFSITE_RCLONE_REMOTE` nicht gesetzt ist, überspringt
+das Skript diesen Schritt nur mit einer Log-Warnung — das lokale Backup schlägt
+dadurch nie fehl, nur weil die Off-Site-Kopie (noch) nicht eingerichtet ist. Bis
+diese eingerichtet ist, bleibt der Datenbestand weiterhin durch genau einen
+VPS-Ausfall verwundbar — Priorität entsprechend hoch halten.
+
+## 4. Prüfen, dass es tatsächlich läuft
+
+Kurzcheck, jederzeit auf dem VPS ausführbar:
+
+```sh
+# Gibt es eine Datei von heute, und ist sie groesser als 0 Byte?
+ls -lh /var/backups/emotepurge/ | tail -5
+
+# Cron-Log auf Fehler pruefen (jede Zeile mit "FEHLER:" ist ein fehlgeschlagener Lauf):
+grep FEHLER /var/log/emotepurge-backup.log
+```
+
+Erwartung: eine Datei mit heutigem Datum im Namen
+(`emotepurge-<heutiges Datum>_<Uhrzeit>.sql.gz`), Größe plausibel im Vergleich zum
+letzten Lauf (ein stark abweichend kleinerer Dump als üblich ist ein Warnsignal,
+auch wenn das Skript selbst ihn nicht als Fehler wertet, solange er > 0 Byte ist).
+
+Kein automatisiertes Monitoring dieses Checks ist Teil dieser Änderung — das ist
+Gegenstand des separaten Befunds **S3-36** (Mindest-Monitoring) aus demselben
+Review. Bis dahin: `grep FEHLER` gelegentlich manuell prüfen, oder cron selbst
+per lokalem MTA (`mail`/`sendmail`, falls auf dem VPS konfiguriert) bei
+Non-Zero-Exit an root mailen lassen — Cron tut das standardmäßig, sofern ein MTA
+installiert ist (auf den meisten schlanken VPS-Images nicht der Fall, dann bleibt
+nur das Log).
+
+## 5. Konfigurierbare Umgebungsvariablen
+
+| Variable | Default | Herkunft des Defaults |
+|---|---|---|
+| `POSTGRES_CONTAINER` | `emotepurge-postgres` | `container_name` in `docker-compose.yml`/`docker-compose.prod.yml` (identisch in beiden) |
+| `POSTGRES_USER` | `emotepurge` | `POSTGRES_USER` in `.env.example` |
+| `POSTGRES_DB` | `emotepurge` | `POSTGRES_DB` in beiden Compose-Dateien (hartkodiert, kein Env-Override im Repo) |
+| `BACKUP_DIR` | `/var/backups/emotepurge` | Nicht aus dem Repo — Review-Vorschlag, s. o. |
+| `RETENTION_DAYS` | `14` | Nicht aus dem Repo — Review-Vorschlag, s. o. |
+| `BACKUP_FILE_PREFIX` | `emotepurge` | Frei gewählt, für die Rotations-Namensmuster-Prüfung |
+| `OFFSITE_ENABLED` | `0` (aus) | — |
+| `OFFSITE_RCLONE_REMOTE` | *(leer)* | Vom Nutzer zu setzen, s. Abschnitt 3 |
+
+## 6. Offene Punkte / vom Nutzer zu prüfen
+
+- **VPS-SSH-Zugangsdaten** (`<VPS-USER>@<VPS-HOST>` in Abschnitt 1.1) — nicht im
+  Repo hinterlegt, rein illustrativ.
+- **`BACKUP_DIR=/var/backups/emotepurge`** — Review-Vorschlag, kein Repo-Fakt;
+  prüfen, ob auf dem VPS bereits eine andere Backup-Verzeichnis-Konvention
+  existiert (z. B. für die andere, bereits auf demselben VPS laufende App).
+  Speicherplatz auf dieser Partition ausreichend? Nicht geprüft.
+  **Wichtiger Sicherheitshinweis:** Ein Dump enthält potenziell sensible Daten
+  (Twitch-Access-Tokens im `User`-Datensatz, s. Entscheidungslog in `CLAUDE.md`
+  zu "Access Token als Claim im Cookie") — `chmod 700` auf das Verzeichnis wie
+  in Abschnitt 1.2 beschrieben ist daher kein optionales Detail.
+- **Pfad zu `docker-compose.prod.yml` auf dem VPS** (Abschnitt 2.2) — unklar, ob
+  die Datei dort überhaupt als lokale Datei existiert oder nur Portainer-intern
+  verwaltet wird; ggf. per Portainer-UI redeployen statt `docker compose -f ...`.
+- **Off-Site-Ziel** (`OFFSITE_RCLONE_REMOTE`, Backblaze-B2-Zugangsdaten) — nicht
+  eingerichtet, rein als Vorschlag dokumentiert; bis zur Einrichtung bleibt der
+  Datenbestand durch einen VPS-Totalverlust verwundbar (s. Abschnitt 3).
+  Zusätzliche Empfehlung außerhalb dieses Dokuments: parallel oder alternativ
+  prüfen, ob der Hosting-Anbieter selbst Volume-/Snapshot-Backups anbietet — laut
+  Review-Kontext (`Review-2026-07-29.md:1205`) war zum Zeitpunkt der Erstellung
+  dieses Dokuments unklar, ob so etwas bereits existiert.
+- **Mail-Zustellung bei Cron-Fehlschlag** (Abschnitt 4) — ob auf dem VPS ein MTA
+  installiert ist, wurde nicht geprüft; ohne MTA bleibt nur das Log-File als
+  Fehlerquelle, bis S3-36 (Monitoring) umgesetzt ist.
+- **Retention-Grenzfall Downtime:** Läuft der VPS an einem geplanten Wartungstag
+  keinen Cronjob, entsteht eine Backup-Lücke von einem Tag — bei
+  `RETENTION_DAYS=14` unkritisch, bei kürzeren Werten ggf. relevant.
