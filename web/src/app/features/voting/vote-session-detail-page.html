@@ -27,6 +27,7 @@
       type="number"
       min="0"
       [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
+      [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
       [value]="usageFilter.min() ?? ''"
       (change)="usageFilter.setMinCount($any($event.target).value)"
       class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -35,6 +36,7 @@
       type="number"
       min="0"
       [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
+      [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
       [value]="usageFilter.max() ?? ''"
       (change)="usageFilter.setMaxCount($any($event.target).value)"
       class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -42,6 +44,8 @@
     <input
       type="text"
       [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
+      [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
+      [title]="'usageStats.filterNameTitle' | transloco"
       [value]="usageFilter.nameQuery()"
       (input)="usageFilter.setNameFilter($any($event.target).value)"
       class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
@@ -55,7 +59,7 @@
       {{ (usageFilter.isUnusedActive() ? 'usageStats.showAll' : 'usageStats.showUnusedOnly') | transloco }}
     </button>
   </div>
-  <p class="text-sm text-slate-400">
+  <p class="text-sm text-slate-400" role="status">
     {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}
   </p>
 
@@ -69,7 +73,7 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
+    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
   }
 
   @if (emotes().length === 0) {
@@ -83,14 +87,17 @@
       >
         @for (emote of row; track emote.emoteId; let colIndex = $index) {
           <div
-            class="flex h-40 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 text-center transition hover:bg-slate-800/70"
+            [class]="
+              'flex h-40 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              (selection.isSelected(emote) ? 'ring-2 ring-purple-500 bg-purple-950/40' : 'bg-slate-900')
+            "
             (click)="selection.onRowClick(emote, rowIndex * columns() + colIndex, $event)"
           >
             <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" [showCheckbox]="canManage()" />
             <div class="flex h-10 shrink-0 items-center justify-center">
               <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
             </div>
-            <span class="text-xs text-slate-500">{{ emote.totalUseCount }}x · {{ emote.score | number: '1.0-1' }}</span>
+            <span class="text-xs text-slate-400">{{ emote.totalUseCount }}x · {{ formatScore(emote.score) }}</span>
             <div class="mt-auto flex items-center justify-center gap-1" (click)="$event.stopPropagation()">
               <button
                 type="button"

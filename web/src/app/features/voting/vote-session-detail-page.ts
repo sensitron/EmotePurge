@@ -1,4 +1,4 @@
-import { DecimalPipe, NgOptimizedImage } from '@angular/common';
+import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
@@ -24,7 +24,7 @@ const ROW_HEIGHT_PX = 176;
 
 @Component({
   selector: 'app-vote-session-detail-page',
-  imports: [ScrollingModule, NgOptimizedImage, DecimalPipe, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
+  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
   host: {
     '(window:resize)': 'updateColumns()',
   },
@@ -118,6 +118,13 @@ export class VoteSessionDetailPage {
     });
   }
 
+  // LOCALE_ID is never set app-wide (bootstrap-time static, can't react to a runtime language
+  // switch), so DecimalPipe always formatted with 'en-US' regardless of the active UI language —
+  // same reasoning as formatDateTime()/toLocale() above, just for numbers instead of dates.
+  protected formatScore(value: number): string {
+    return new Intl.NumberFormat(toLocale(this.languageService.lang()), { maximumFractionDigits: 1 }).format(value);
+  }
+
   protected keepButtonTitle(emote: VoteSessionResult): string {
     const labelKey = emote.myVote === VoteType.Keep ? 'voting.detail.retractVote' : 'voting.detail.keepAriaLabel';
     return `${this.translocoService.translate(labelKey)} (${emote.keepVotes})`;
@@ -140,6 +147,12 @@ export class VoteSessionDetailPage {
         if (options.freeze) {
           this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
         }
+        // ListSelection's shift-anchor is a position index into items(), and the selection itself
+        // holds object identity — this replaces `results` with freshly deserialized objects (new
+        // identity even for the "same" emote), so a stale selection would silently keep mapping
+        // formerly-checked emotes to valid ids while every checkbox renders unchecked. Covers both
+        // refresh() and vote()'s load({freeze:false}) call, since both route through this handler.
+        this.selection.clear();
       },
       error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
     });
@@ -181,8 +194,8 @@ export class VoteSessionDetailPage {
   }
 
   // Status codes are unambiguous for this one endpoint (VoteEligibilityFilter/CastVoteAsync each
-  // return a distinct code per reason — see Program.cs), so a plain status switch is enough without
-  // needing to parse the response body.
+  // return a distinct code per reason — see src/EmotePurge.Api/Endpoints/VoteSessionEndpoints.cs),
+  // so a plain status switch is enough without needing to parse the response body.
   private handleVoteError(error: HttpErrorResponse): void {
     if (error.status === 401) {
       this.authService.handleSessionExpired();

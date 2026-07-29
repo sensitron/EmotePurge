@@ -103,6 +103,11 @@ export class UsageStatsPage {
 
   protected toggleSort(): void {
     this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
+    // ListSelection's shift-anchor is a position index into items(), and the selection itself holds
+    // object identity — reversing the sort order shifts every index to a different emote without
+    // changing which objects are "selected", so a stale selection would silently point at the wrong
+    // emotes after a sort-direction flip. Clear it whenever the underlying order changes.
+    this.selection.clear();
   }
 
   protected onDeleted(deletedIds: string[]): void {
