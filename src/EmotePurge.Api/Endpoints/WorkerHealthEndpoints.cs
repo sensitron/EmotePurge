@@ -29,9 +29,27 @@ public static class WorkerHealthEndpoints
                 ? (int)(DateTime.UtcNow - lastMessage).TotalSeconds
                 : (int?)null;
 
+            // Deriving the status from isConnected alone let the endpoint report "connected" while
+            // nothing was arriving — the flag can lag reality (silent freeze) and, before the
+            // recreate path reset it, could stay true on a client that had already been discarded.
+            // "stale" therefore also covers "connected, but no chat data for a while". Falls back to
+            // the connect attempt while no message has ever arrived, so a worker that just started
+            // isn't reported as stale for the few seconds before the first chat line. Mirrors
+            // TwitchConnectionWatchdog's 5-minute threshold; a literal because Api and Worker share
+            // no code here.
+            const int staleAfterSeconds = 300;
+            var quietSince = payload.LastMessageReceivedUtc ?? payload.ConnectAttemptedUtc;
+            var quietForSeconds = quietSince is { } since ? (int)(DateTime.UtcNow - since).TotalSeconds : (int?)null;
+            var status = payload.IsConnected switch
+            {
+                false => "disconnected",
+                true when quietForSeconds is null or > staleAfterSeconds => "stale",
+                true => "connected",
+            };
+
             return Results.Ok(new
             {
-                status = payload.IsConnected ? "connected" : "disconnected",
+                status,
                 payload.IsConnected,
                 payload.LastMessageReceivedUtc,
                 secondsSinceLastMessage,
@@ -40,4 +58,4 @@ public static class WorkerHealthEndpoints
     }
 }
 
-internal sealed record WorkerHealthPayload(bool IsConnected, DateTime? LastMessageReceivedUtc);
+internal sealed record WorkerHealthPayload(bool IsConnected, DateTime? LastMessageReceivedUtc, DateTime? ConnectAttemptedUtc);

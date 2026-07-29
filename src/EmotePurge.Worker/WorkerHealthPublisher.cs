@@ -33,6 +33,10 @@ public class WorkerHealthPublisher(
             {
                 isConnected = twitchChatManager.IsConnected,
                 lastMessageReceivedUtc = twitchChatManager.LastMessageReceivedUtc,
+                // Reference point for the Api's staleness check while no chat message has ever
+                // arrived — without it a freshly started worker is indistinguishable from one that
+                // has been connected but silent for hours.
+                connectAttemptedUtc = twitchChatManager.ConnectAttemptedUtc,
             });
 
             await redis.GetDatabase().StringSetAsync(RedisKey, payload, KeyTtl);

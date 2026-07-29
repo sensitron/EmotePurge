@@ -25,7 +25,12 @@ export class WorkerHealthService {
         ),
       )
       .subscribe((response) => {
-        this.status.set(response.status === 'connected' ? 'connected' : response.status === 'disconnected' ? 'stale' : 'unknown');
+        // The backend reports 'connected' | 'stale' | 'disconnected' | 'unknown'. Both
+        // 'disconnected' and 'stale' (connected, but no chat data arriving) collapse into the same
+        // warning dot — for a viewer the distinction changes nothing actionable.
+        this.status.set(
+          response.status === 'connected' ? 'connected' : response.status === 'unknown' ? 'unknown' : 'stale',
+        );
       });
   }
 }
