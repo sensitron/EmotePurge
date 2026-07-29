@@ -5,6 +5,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddEmotePurgeInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<ITwitchChatManager, TwitchChatManager>();
 builder.Services.AddSingleton<IEmoteUsageCounter, EmoteUsageCounter>();
+builder.Services.AddSingleton<BootRecoveryGate>();
 builder.Services.AddHostedService<Worker>();
 builder.Services.AddHostedService<UsageFlushWorker>();
 builder.Services.AddHostedService<SevenTvPeriodicResyncWorker>();
