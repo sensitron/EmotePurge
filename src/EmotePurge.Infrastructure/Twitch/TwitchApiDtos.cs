@@ -5,6 +5,8 @@ internal sealed class TwitchTokenResponseDto
 {
     public string AccessToken { get; set; } = string.Empty;
     public int ExpiresIn { get; set; }
+    public string? RefreshToken { get; set; }
+    public List<string>? Scope { get; set; }
 }
 
 // GET api.twitch.tv/helix/users

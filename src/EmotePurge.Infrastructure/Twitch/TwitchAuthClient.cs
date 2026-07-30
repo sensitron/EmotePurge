@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using EmotePurge.Core.Twitch;
 using Microsoft.Extensions.Configuration;
@@ -9,17 +11,12 @@ public class TwitchAuthClient(HttpClient httpClient, IConfiguration configuratio
 {
     public async Task<TwitchTokenResult?> ExchangeAuthorizationCodeAsync(string code, string redirectUri, CancellationToken cancellationToken = default)
     {
-        var clientId = configuration["Auth:Twitch:ClientId"]
-            ?? throw new InvalidOperationException("Konfigurationswert 'Auth:Twitch:ClientId' fehlt.");
-        var clientSecret = configuration["Auth:Twitch:ClientSecret"]
-            ?? throw new InvalidOperationException("Konfigurationswert 'Auth:Twitch:ClientSecret' fehlt.");
-
         try
         {
             var form = new Dictionary<string, string>
             {
-                ["client_id"] = clientId,
-                ["client_secret"] = clientSecret,
+                ["client_id"] = GetRequired("Auth:Twitch:ClientId"),
+                ["client_secret"] = GetRequired("Auth:Twitch:ClientSecret"),
                 ["code"] = code,
                 ["grant_type"] = "authorization_code",
                 ["redirect_uri"] = redirectUri
@@ -32,13 +29,7 @@ public class TwitchAuthClient(HttpClient httpClient, IConfiguration configuratio
                 return null;
             }
 
-            var dto = await response.Content.ReadFromJsonAsync<TwitchTokenResponseDto>(TwitchJsonOptions.Value, cancellationToken);
-            if (dto is null || string.IsNullOrEmpty(dto.AccessToken))
-            {
-                return null;
-            }
-
-            return new TwitchTokenResult(dto.AccessToken, DateTime.UtcNow.AddSeconds(dto.ExpiresIn));
+            return await ReadTokenResultAsync(response, cancellationToken);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
@@ -46,4 +37,111 @@ public class TwitchAuthClient(HttpClient httpClient, IConfiguration configuratio
             return null;
         }
     }
+
+    public async Task<TwitchTokenRefreshResult> RefreshUserTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // FormUrlEncodedContent already URL-encodes each value — Twitch refresh tokens contain
+            // reserved characters ('%', '='), and encoding them a second time would corrupt them.
+            var form = new Dictionary<string, string>
+            {
+                ["client_id"] = GetRequired("Auth:Twitch:ClientId"),
+                ["client_secret"] = GetRequired("Auth:Twitch:ClientSecret"),
+                ["grant_type"] = "refresh_token",
+                ["refresh_token"] = refreshToken
+            };
+
+            var response = await httpClient.PostAsync("oauth2/token", new FormUrlEncodedContent(form), cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                // Twitch answers an invalid/revoked refresh token with 400 "Invalid refresh token".
+                // Matched against the message, not the status alone: a 400 caused by a malformed
+                // request on our side must not destroy a possibly still-valid stored token.
+                if (response.StatusCode == HttpStatusCode.BadRequest)
+                {
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                    if (body.Contains("invalid refresh token", StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger.LogWarning("Twitch-Refresh endgültig abgelehnt (Invalid refresh token) — Re-Login nötig.");
+                        return new TwitchTokenRefreshResult(TwitchRefreshStatus.InvalidGrant, null);
+                    }
+                }
+
+                logger.LogWarning("Twitch-Refresh fehlgeschlagen mit Status {Status} — wird als transient behandelt.", response.StatusCode);
+                return new TwitchTokenRefreshResult(TwitchRefreshStatus.TransientFailure, null);
+            }
+
+            var token = await ReadTokenResultAsync(response, cancellationToken);
+            return token is null
+                ? new TwitchTokenRefreshResult(TwitchRefreshStatus.TransientFailure, null)
+                : new TwitchTokenRefreshResult(TwitchRefreshStatus.Success, token);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Twitch-Refresh fehlgeschlagen — wird als transient behandelt.");
+            return new TwitchTokenRefreshResult(TwitchRefreshStatus.TransientFailure, null);
+        }
+    }
+
+    public async Task<bool?> ValidateTokenAsync(string accessToken, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "oauth2/validate");
+            request.Headers.Authorization = new AuthenticationHeaderValue("OAuth", accessToken);
+
+            var response = await httpClient.SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return true;
+            }
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                return false;
+            }
+
+            logger.LogWarning("Twitch-Validate fehlgeschlagen mit Status {Status} — Ergebnis unbekannt.", response.StatusCode);
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Twitch-Validate fehlgeschlagen — Ergebnis unbekannt.");
+            return null;
+        }
+    }
+
+    private async Task<TwitchTokenResult?> ReadTokenResultAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var dto = await response.Content.ReadFromJsonAsync<TwitchTokenResponseDto>(TwitchJsonOptions.Value, cancellationToken);
+        if (dto is null || string.IsNullOrEmpty(dto.AccessToken))
+        {
+            return null;
+        }
+
+        return new TwitchTokenResult(
+            dto.AccessToken,
+            DateTime.UtcNow.AddSeconds(GetEffectiveExpiresIn(dto.ExpiresIn)),
+            string.IsNullOrEmpty(dto.RefreshToken) ? null : dto.RefreshToken,
+            dto.Scope is { Count: > 0 } ? string.Join(' ', dto.Scope) : null);
+    }
+
+    // Test-only knob (Auth:Twitch:AccessTokenLifetimeOverrideSeconds): shortens the local view of
+    // the token lifetime so the refresh path can be exercised live without waiting ~4 hours.
+    // Twitch's actual token lifetime is unaffected — we merely treat the token as expired earlier.
+    private int GetEffectiveExpiresIn(int expiresIn)
+    {
+        var overrideRaw = configuration["Auth:Twitch:AccessTokenLifetimeOverrideSeconds"];
+        if (int.TryParse(overrideRaw, out var seconds) && seconds > 0)
+        {
+            logger.LogWarning("Twitch-Token-Lebensdauer per Override auf {Seconds}s verkürzt — nur für Tests gedacht.", seconds);
+            return Math.Min(seconds, expiresIn);
+        }
+
+        return expiresIn;
+    }
+
+    private string GetRequired(string key) => configuration[key]
+        ?? throw new InvalidOperationException($"Konfigurationswert '{key}' fehlt.");
 }
