@@ -1,8 +1,9 @@
 import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { Subscription, catchError, first, map, of, switchMap, take, timer } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
@@ -20,6 +21,14 @@ type SortDirection = 'asc' | 'desc';
 // Row height (px) fed to CdkVirtualScrollViewport — must match the fixed card height + row
 // wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same height.
 const ROW_HEIGHT_PX = 112;
+
+// Joining a channel does not fill it with emotes right away: POST /join only writes the channel row
+// and publishes JOIN to Redis, and the worker resolves the 7TV set a beat later. Since the overview
+// navigates straight into the workspace, the user reliably landed inside that window and saw an
+// empty grid that only a manual reload fixed. 30 seconds of polling covers a sync that normally
+// takes one or two, with headroom for a slow 7TV.
+const SYNC_POLL_INTERVAL_MS = 2000;
+const SYNC_POLL_MAX_ATTEMPTS = 15;
 
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -56,7 +65,11 @@ export class UsageStatsPage {
   protected readonly emotes = signal<EmoteUsageTotal[]>([]);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly isLoading = signal(false);
+  protected readonly isAwaitingSync = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+
+  private readonly destroyRef = inject(DestroyRef);
+  private syncPoll?: Subscription;
 
   protected readonly usageFilter = new EmoteUsageFilter<EmoteUsageTotal>(() => this.selection.clear());
 
@@ -90,6 +103,7 @@ export class UsageStatsPage {
     effect(() => {
       this.load(this.channelName(), this.from(), this.to());
     });
+    this.destroyRef.onDestroy(() => this.syncPoll?.unsubscribe());
   }
 
   protected updateColumns(): void {
@@ -122,14 +136,55 @@ export class UsageStatsPage {
   }
 
   private load(channelName: string, from: string, to: string): void {
+    // A poll from a previous channel or date range must not survive into this one.
+    this.syncPoll?.unsubscribe();
+    this.isAwaitingSync.set(false);
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     this.emoteAdminService.getActiveEmoteSetId(channelName).subscribe({
-      next: (result) => this.activeEmoteSetId.set(result.activeEmoteSetId),
+      next: (result) => {
+        this.activeEmoteSetId.set(result.activeEmoteSetId);
+        // An empty id means SevenTvSyncService has not completed a run for this channel yet. It is
+        // the only thing that tells "sync still pending" apart from "channel genuinely has no
+        // emotes" — an empty totals response looks identical in both cases.
+        if (!result.activeEmoteSetId) {
+          this.awaitSync(channelName, from, to);
+        }
+      },
       error: () => this.activeEmoteSetId.set(null),
     });
 
+    this.loadTotals(channelName, from, to);
+  }
+
+  // Waits for the worker's 7TV sync to fill in the set id, then loads the totals once more.
+  // Deliberately bounded: a channel with no 7TV emote set at all never gets an id, so this has to
+  // give up eventually — at which point the ordinary "no active emotes" state is the honest answer.
+  private awaitSync(channelName: string, from: string, to: string): void {
+    this.isAwaitingSync.set(true);
+    this.syncPoll = timer(SYNC_POLL_INTERVAL_MS, SYNC_POLL_INTERVAL_MS)
+      .pipe(
+        // catchError sits on the inner request, not on the outer pipe: out here it would replace the
+        // whole polling stream on the first hiccup and end the wait. Inside, one failed tick just
+        // counts as "still empty" and the next tick tries again.
+        switchMap(() => this.emoteAdminService.getActiveEmoteSetId(channelName).pipe(catchError(() => of({ activeEmoteSetId: '' })))),
+        map((result) => result.activeEmoteSetId),
+        take(SYNC_POLL_MAX_ATTEMPTS),
+        // Completes on the first non-empty id; if the attempts run out first, the default '' arrives
+        // instead, so the subscriber always runs exactly once and never errors.
+        first((setId) => setId.length > 0, ''),
+      )
+      .subscribe((setId) => {
+        this.isAwaitingSync.set(false);
+        if (setId) {
+          this.activeEmoteSetId.set(setId);
+          this.loadTotals(channelName, from, to);
+        }
+      });
+  }
+
+  private loadTotals(channelName: string, from: string, to: string): void {
     this.usageStatService.getTotals(channelName, from, to).subscribe({
       next: (emotes) => {
         this.emotes.set(emotes);

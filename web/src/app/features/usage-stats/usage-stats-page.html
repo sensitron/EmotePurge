@@ -97,6 +97,10 @@
 
   @if (isLoading()) {
     <p class="text-sm text-slate-400">{{ 'usageStats.loading' | transloco }}</p>
+  } @else if (isAwaitingSync()) {
+    <p class="rounded-md bg-slate-900 px-4 py-3 text-sm text-slate-300" role="status">
+      {{ 'usageStats.awaitingSync' | transloco }}
+    </p>
   } @else if (sortedEmotes().length === 0) {
     <p class="text-sm text-slate-400">{{ 'usageStats.noActiveEmotes' | transloco }}</p>
   } @else {

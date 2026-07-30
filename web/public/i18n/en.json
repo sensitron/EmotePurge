@@ -163,6 +163,7 @@
     "showAll": "Show all",
     "showUnusedOnly": "Unused only (0x)",
     "loading": "Loading…",
+    "awaitingSync": "Loading the emote set – the bot is syncing this channel's emotes with 7TV. This takes a moment.",
     "noActiveEmotes": "No active emotes for this time range.",
     "errors": {
       "loadFailed": "Couldn't load usage data."

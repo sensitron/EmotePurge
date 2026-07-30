@@ -163,6 +163,7 @@
     "showAll": "Alle anzeigen",
     "showUnusedOnly": "Nur ungenutzte (0x)",
     "loading": "Lädt…",
+    "awaitingSync": "Emote-Set wird geladen – der Bot gleicht die Emotes gerade mit 7TV ab. Das dauert einen Moment.",
     "noActiveEmotes": "Keine aktiven Emotes für diesen Zeitraum.",
     "errors": {
       "loadFailed": "Nutzungsdaten konnten nicht geladen werden."
