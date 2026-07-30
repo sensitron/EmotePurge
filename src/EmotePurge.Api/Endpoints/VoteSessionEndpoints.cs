@@ -10,7 +10,12 @@ public static class VoteSessionEndpoints
 {
     public static void MapVoteSessionEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/channels/{channelName}/vote-sessions").RequireAuthorization();
+        // Ahead of every per-endpoint authorization filter — see ChannelNameValidationFilter. This also
+        // closes the five endpoints that carried no check at all (end, delete, results, cast vote,
+        // retract vote).
+        var group = app.MapGroup("/api/channels/{channelName}/vote-sessions")
+            .RequireAuthorization()
+            .AddEndpointFilter<ChannelNameValidationFilter>();
 
         group.MapPost("", async (
             string channelName,
@@ -18,47 +23,24 @@ public static class VoteSessionEndpoints
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
+            // Pure translation — the rules themselves live in VoteSessionService, which is the tested
+            // layer and the one every non-HTTP caller goes through.
+            var (result, session) = await voteSessionService.CreateAsync(
+                channelName, request.Title, request.AllowedVoterRoles, request.StartedAt, ct);
 
-            if (string.IsNullOrWhiteSpace(request.Title))
+            return result switch
             {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionTitleEmpty });
-            }
-
-            if (request.AllowedVoterRoles == 0)
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionRolesEmpty });
-            }
-
-            if (request.AllowedVoterRoles.HasFlag(AllowedRoles.VIPs))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.VipsNotSupported });
-            }
-
-            if (request.StartedAt is { } startedAt && startedAt > DateTime.UtcNow)
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.StartedAtInFuture });
-            }
-
-            // Backdating was unbounded, and the results window is StartedAt..(EndedAt ?? now) — so a
-            // single session backdated far enough covered the channel's entire usage history. Capped at
-            // the same 366 days as the usage-stats range.
-            const int maxBackdateDays = 366;
-            if (request.StartedAt is { } backdated && backdated < DateTime.UtcNow.AddDays(-maxBackdateDays))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays = maxBackdateDays });
-            }
-
-            var session = await voteSessionService.CreateAsync(channelName, request.Title, request.AllowedVoterRoles, request.StartedAt, ct);
-            if (session is null)
-            {
-                return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotJoined });
-            }
-
-            return Results.Ok(new VoteSessionSummaryDto(session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt));
+                CreateVoteSessionResult.Success => Results.Ok(new VoteSessionSummaryDto(
+                    session!.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt)),
+                CreateVoteSessionResult.ChannelNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotJoined }),
+                CreateVoteSessionResult.TitleEmpty => Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionTitleEmpty }),
+                CreateVoteSessionResult.RolesEmpty => Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionRolesEmpty }),
+                CreateVoteSessionResult.VipsNotSupported => Results.BadRequest(new { errorCode = ApiErrorCodes.VipsNotSupported }),
+                CreateVoteSessionResult.StartedAtInFuture => Results.BadRequest(new { errorCode = ApiErrorCodes.StartedAtInFuture }),
+                CreateVoteSessionResult.StartedAtTooFarBack => Results.BadRequest(
+                    new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays = VoteSessionLimits.MaxBackdateDays }),
+                _ => Results.Problem()
+            };
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
@@ -68,11 +50,6 @@ public static class VoteSessionEndpoints
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var session = await voteSessionService.EndAsync(channelName, sessionId, ct);
             if (session is null)
             {
@@ -89,11 +66,6 @@ public static class VoteSessionEndpoints
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var deleted = await voteSessionService.DeleteAsync(channelName, sessionId, ct);
             return deleted ? Results.NoContent() : Results.NotFound();
         })
@@ -109,11 +81,6 @@ public static class VoteSessionEndpoints
             IVoteEligibilityService voteEligibilityService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var effectivePage = page <= 0 ? 1 : page;
             var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
 

@@ -7,33 +7,45 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class VoteSessionService(AppDbContext db) : IVoteSessionService
 {
-    public async Task<VoteSession?> CreateAsync(string channelName, string title, AllowedRoles allowedVoterRoles, DateTime? startedAt = null, CancellationToken cancellationToken = default)
+    public async Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
+        string channelName, string title, AllowedRoles allowedVoterRoles, DateTime? startedAt = null, CancellationToken cancellationToken = default)
     {
+        // Validated here rather than in the endpoint: this is the layer that has tests, and it is the
+        // one every future caller goes through. The endpoint only maps these results to error codes.
         if (string.IsNullOrWhiteSpace(title))
         {
-            throw new ArgumentException("Title must not be empty.", nameof(title));
+            return (CreateVoteSessionResult.TitleEmpty, null);
         }
 
         if (allowedVoterRoles == 0)
         {
-            throw new ArgumentException("AllowedVoterRoles must not be empty.", nameof(allowedVoterRoles));
+            return (CreateVoteSessionResult.RolesEmpty, null);
         }
 
+        // Not a design choice: Twitch has no self-report endpoint for VIP status, so a voter cannot
+        // prove their own (see the decision log).
         if (allowedVoterRoles.HasFlag(AllowedRoles.VIPs))
         {
-            throw new ArgumentException("AllowedRoles.VIPs is not supported (no Twitch self-check API available).", nameof(allowedVoterRoles));
+            return (CreateVoteSessionResult.VipsNotSupported, null);
         }
 
-        if (startedAt is { } requestedStartedAt && requestedStartedAt > DateTime.UtcNow)
+        if (startedAt is { } requestedStartedAt)
         {
-            throw new ArgumentException("StartedAt must not be in the future.", nameof(startedAt));
+            if (requestedStartedAt > DateTime.UtcNow)
+            {
+                return (CreateVoteSessionResult.StartedAtInFuture, null);
+            }
+
+            if (requestedStartedAt < DateTime.UtcNow.AddDays(-VoteSessionLimits.MaxBackdateDays))
+            {
+                return (CreateVoteSessionResult.StartedAtTooFarBack, null);
+            }
         }
 
-        var normalized = channelName.Trim().ToLowerInvariant();
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
-            return null;
+            return (CreateVoteSessionResult.ChannelNotFound, null);
         }
 
         var session = new VoteSession
@@ -46,20 +58,12 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
         db.VoteSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
 
-        return session;
+        return (CreateVoteSessionResult.Success, session);
     }
 
     public async Task<VoteSession?> EndAsync(string channelName, long sessionId, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
-        if (channel is null)
-        {
-            return null;
-        }
-
-        var session = await db.VoteSessions.SingleOrDefaultAsync(
-            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
+        var (_, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
         if (session is null)
         {
             return null;
@@ -78,15 +82,12 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
     public async Task<(VoteCastResult Result, Vote? Vote)> CastVoteAsync(
         string channelName, long sessionId, string emoteId, string voterTwitchUserId, VoteType type, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var (channel, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
         if (channel is null)
         {
             return (VoteCastResult.ChannelNotFound, null);
         }
 
-        var session = await db.VoteSessions.SingleOrDefaultAsync(
-            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
         if (session is null)
         {
             return (VoteCastResult.SessionNotFound, null);
@@ -154,15 +155,12 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
     public async Task<VoteCastResult> RetractVoteAsync(
         string channelName, long sessionId, string emoteId, string voterTwitchUserId, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var (channel, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
         if (channel is null)
         {
             return VoteCastResult.ChannelNotFound;
         }
 
-        var session = await db.VoteSessions.SingleOrDefaultAsync(
-            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
         if (session is null)
         {
             return VoteCastResult.SessionNotFound;
@@ -186,15 +184,7 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
 
     public async Task<bool> DeleteAsync(string channelName, long sessionId, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
-        if (channel is null)
-        {
-            return false;
-        }
-
-        var session = await db.VoteSessions.SingleOrDefaultAsync(
-            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
+        var (_, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
         if (session is null)
         {
             return false;
