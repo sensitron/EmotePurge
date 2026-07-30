@@ -10,7 +10,23 @@ namespace EmotePurge.Core.Services;
 /// Reference point for staleness while no chat message has ever arrived. Without it a freshly started
 /// worker is indistinguishable from one that has been connected but silent for hours.
 /// </param>
-public record WorkerHealthSnapshot(bool IsConnected, DateTime? LastMessageReceivedUtc, DateTime? ConnectAttemptedUtc);
+/// <param name="SevenTvLastFrameUtc">
+/// Any received EventAPI frame including heartbeats (~45s cadence) — the liveness signal. The last
+/// dispatch is deliberately not used for staleness: a channel whose set nobody edits receives no
+/// dispatches for days and would read as permanently stale.
+/// </param>
+/// <param name="SevenTvLastDispatchUtc">Observability only; never feeds a status derivation.</param>
+public record WorkerHealthSnapshot(
+    bool IsConnected,
+    DateTime? LastMessageReceivedUtc,
+    DateTime? ConnectAttemptedUtc,
+    // 7TV EventAPI fields, appended 2026-07-30. Defaults equal default(T) so a payload written by
+    // an older worker deserializes without special-casing during a rolling deploy.
+    bool SevenTvEnabled = false,
+    bool SevenTvConnected = false,
+    DateTime? SevenTvLastFrameUtc = null,
+    DateTime? SevenTvLastDispatchUtc = null,
+    DateTime? SevenTvConnectAttemptedUtc = null);
 
 /// <summary>
 /// Reads the health snapshot the worker publishes. The API and the worker deliberately never talk

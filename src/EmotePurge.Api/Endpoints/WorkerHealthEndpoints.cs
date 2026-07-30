@@ -9,6 +9,10 @@ public static class WorkerHealthEndpoints
     // share no code here beyond the snapshot contract.
     private const int StaleAfterSeconds = 300;
 
+    // Mirrors the 7TV event client's heartbeat watchdog (3 × ~45s heartbeat interval, plus slack).
+    // Same literal-by-design reasoning as StaleAfterSeconds above.
+    private const int SevenTvStaleAfterSeconds = 150;
+
     public static void MapWorkerHealthEndpoints(this WebApplication app)
     {
         app.MapGet("/api/worker/health", async (IWorkerHealthReader healthReader, CancellationToken ct) =>
@@ -44,12 +48,34 @@ public static class WorkerHealthEndpoints
                 true => "connected",
             };
 
+            // 7TV staleness keys off frames (heartbeats arrive every ~45s), never off dispatches —
+            // a channel whose emote set nobody edits gets no dispatches for days and would
+            // otherwise read as permanently stale. "disabled" keeps a deliberately switched-off
+            // event path distinguishable from a broken one.
+            var sevenTvQuietSince = snapshot.SevenTvLastFrameUtc ?? snapshot.SevenTvConnectAttemptedUtc;
+            var sevenTvQuietForSeconds = sevenTvQuietSince is { } sevenTvSince
+                ? (int)(DateTime.UtcNow - sevenTvSince).TotalSeconds
+                : (int?)null;
+            var sevenTvStatus = snapshot switch
+            {
+                { SevenTvEnabled: false } => "disabled",
+                { SevenTvConnected: false } => "disconnected",
+                _ when sevenTvQuietForSeconds is null or > SevenTvStaleAfterSeconds => "stale",
+                _ => "connected",
+            };
+
             return Results.Ok(new
             {
                 status,
                 snapshot.IsConnected,
                 snapshot.LastMessageReceivedUtc,
                 secondsSinceLastMessage,
+                sevenTv = new
+                {
+                    status = sevenTvStatus,
+                    snapshot.SevenTvLastDispatchUtc,
+                    secondsSinceLastFrame = sevenTvQuietForSeconds,
+                },
             });
         });
     }

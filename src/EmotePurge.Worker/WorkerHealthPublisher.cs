@@ -1,6 +1,7 @@
 using System.Text.Json;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Redis;
+using EmotePurge.Worker.SevenTv;
 using StackExchange.Redis;
 
 namespace EmotePurge.Worker;
@@ -16,6 +17,7 @@ namespace EmotePurge.Worker;
 public class WorkerHealthPublisher(
     ILogger<WorkerHealthPublisher> logger,
     ITwitchChatManager twitchChatManager,
+    ISevenTvEventClient sevenTvEventClient,
     IConnectionMultiplexer redis) : BackgroundService
 {
     private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(20);
@@ -33,11 +35,18 @@ public class WorkerHealthPublisher(
     {
         try
         {
+            // Same key, one contract (see the class comment): the 7TV connection state rides in the
+            // same snapshot instead of a second Redis key.
             var payload = JsonSerializer.Serialize(
                 new WorkerHealthSnapshot(
                     twitchChatManager.IsConnected,
                     twitchChatManager.LastMessageReceivedUtc,
-                    twitchChatManager.ConnectAttemptedUtc),
+                    twitchChatManager.ConnectAttemptedUtc,
+                    sevenTvEventClient.IsEnabled,
+                    sevenTvEventClient.IsConnected,
+                    sevenTvEventClient.LastFrameReceivedUtc,
+                    sevenTvEventClient.LastDispatchReceivedUtc,
+                    sevenTvEventClient.ConnectAttemptedUtc),
                 JsonSerializerOptions.Web);
 
             await redis.GetDatabase().StringSetAsync(WorkerHealthKeys.TwitchConnection, payload, WorkerHealthKeys.Ttl);
