@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — Worker-Testprojekt `tests/EmotePurge.Worker.Tests` eingeführt (container-frei)
+
+**Betrifft:** `tests/EmotePurge.Worker.Tests/EmotePurge.Worker.Tests.csproj` · `EmotePurge.slnx` · `tests/EmotePurge.Worker.Tests/ReconnectPolicyTests.cs` · `tests/EmotePurge.Worker.Tests/SevenTvSubscriptionRegistryTests.cs` · `tests/EmotePurge.Worker.Tests/SevenTvBackoffPolicyTests.cs`
+
+**Neues Testprojekt für die puren Entscheidungs-/Zustandsklassen der Worker-Transporte — 2026-07-30.** Auslöser war die WS-Wiedereinführung (s. Eintrag darüber): `SevenTvSubscriptionRegistry` und `SevenTvBackoffPolicy` sind Verbindungs-/Subscription-Zustand eines Worker-Transports; sie nach Infrastructure zu verschieben, nur um sie im bestehenden Testprojekt testen zu können, hätte die Platzierungsentscheidung „Transport lebt im Worker wie `TwitchChatManager`" unterlaufen. Das Projekt ist bewusst **ohne** Testcontainers-Pakete (schnell, kein Docker nötig); alles mit Postgres/Redis-Berührung gehört weiterhin in `tests/EmotePurge.Infrastructure.Tests`. Im selben Zug erledigt: die offene Welle-D-Schuld **`ReconnectPolicy`-Unit-Tests** (Review 2026-07-29, S3-6 — „Die Tests dazu sind Welle D") mit den fünf dokumentierten Entscheidungsfällen. `dotnet test EmotePurge.slnx` und die CI greifen das Projekt ohne Workflow-Änderung automatisch mit. Regel 11 in `CLAUDE.md` ist entsprechend erweitert: neue reine Logik im Worker bekommt ihren Test hier.
+
 ### 2026-07-30 — Doku-Umbau: Entscheidungslog aus `CLAUDE.md` hierher, `Architectur.md` auf den Ist-Zustand
 
 **Betrifft:** `CLAUDE.md` · `docs/DECISIONS.md` · `Architectur.md`

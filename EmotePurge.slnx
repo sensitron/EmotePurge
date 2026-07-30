@@ -7,5 +7,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EmotePurge.Infrastructure.Tests/EmotePurge.Infrastructure.Tests.csproj" />
+    <Project Path="tests/EmotePurge.Worker.Tests/EmotePurge.Worker.Tests.csproj" />
   </Folder>
 </Solution>
