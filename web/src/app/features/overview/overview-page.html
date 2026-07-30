@@ -3,7 +3,20 @@
     <section>
       <h2 class="mb-3 text-lg font-medium">{{ 'overview.title' | transloco }}</h2>
 
-      @if (helixUnavailable()) {
+      @if (reauthRequired()) {
+        <div class="mb-3 flex items-center justify-between gap-4 rounded-md bg-amber-950 px-4 py-3">
+          <p class="text-sm text-amber-300">
+            {{ 'overview.reauthRequired' | transloco }}
+          </p>
+          <button
+            type="button"
+            class="shrink-0 rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-500"
+            (click)="relogin()"
+          >
+            {{ 'overview.reloginButton' | transloco }}
+          </button>
+        </div>
+      } @else if (helixUnavailable()) {
         <p class="mb-3 text-sm text-amber-400">
           {{ 'overview.helixUnavailable' | transloco }}
         </p>

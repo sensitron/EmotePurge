@@ -103,7 +103,9 @@
   },
   "overview": {
     "title": "Meine Channels",
-    "helixUnavailable": "Live-Moderator-Liste konnte nicht geladen werden (Twitch-Zugriffstoken abgelaufen?) — nur dein eigener Channel wird sicher angezeigt. Neu einloggen, um die volle Liste zu sehen.",
+    "helixUnavailable": "Live-Moderator-Liste konnte gerade nicht geladen werden (Twitch/Helix nicht erreichbar?) — nur dein eigener Channel wird sicher angezeigt. Später neu laden hilft meist.",
+    "reauthRequired": "Deine Twitch-Anmeldung ist abgelaufen oder wurde widerrufen — Moderator-Funktionen und die volle Channel-Liste gibt es erst nach einem neuen Login wieder.",
+    "reloginButton": "Neu einloggen",
     "sevenTvUnavailable": "7TV-Editor-Status konnte nicht vollständig geprüft werden — Channels, wo du nur 7TV-Editor (ohne Twitch-Mod-Status) bist, fehlen hier ggf.",
     "noChannels": "Keine Channels gefunden.",
     "roleBadges": {

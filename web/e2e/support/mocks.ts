@@ -42,6 +42,7 @@ export async function mockMyChannels(page: Page, channels: MockChannel[]): Promi
   await page.route('**/api/channels/mine', (route) =>
     fulfillJson(route, 200, {
       helixUnavailable: false,
+      reauthRequired: false,
       sevenTvUnavailable: false,
       channels: channels.map((c) => ({
         channelName: c.channelName,

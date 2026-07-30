@@ -40,6 +40,12 @@ export interface MyChannelDto {
 
 export interface MyChannelsResult {
   helixUnavailable: boolean;
+  /**
+   * Sharper than `helixUnavailable`: the backend's token store says only a fresh Twitch login can
+   * restore Helix access (refresh token revoked/absent) — show a re-login prompt, not a generic
+   * "Helix is down" note. Transient Helix failures keep this false.
+   */
+  reauthRequired: boolean;
   sevenTvUnavailable: boolean;
   channels: MyChannelDto[];
 }

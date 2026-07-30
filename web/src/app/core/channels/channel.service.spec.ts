@@ -86,7 +86,7 @@ describe('ChannelService', () => {
   });
 
   it('listMine GETs /api/channels/mine', () => {
-    const result: MyChannelsResult = { helixUnavailable: false, sevenTvUnavailable: false, channels: [] };
+    const result: MyChannelsResult = { helixUnavailable: false, reauthRequired: false, sevenTvUnavailable: false, channels: [] };
     service.listMine().subscribe();
 
     const req = httpMock.expectOne('/api/channels/mine');

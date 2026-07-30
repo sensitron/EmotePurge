@@ -103,7 +103,9 @@
   },
   "overview": {
     "title": "My channels",
-    "helixUnavailable": "Couldn't load the live moderator list (Twitch access token expired?) — only your own channel is shown reliably. Log in again to see the full list.",
+    "helixUnavailable": "Couldn't load the live moderator list right now (Twitch/Helix unreachable?) — only your own channel is shown reliably. Reloading later usually helps.",
+    "reauthRequired": "Your Twitch login has expired or was revoked — moderator features and the full channel list come back after logging in again.",
+    "reloginButton": "Log in again",
     "sevenTvUnavailable": "Couldn't fully check 7TV editor status — channels where you're only a 7TV editor (without Twitch mod status) may be missing here.",
     "noChannels": "No channels found.",
     "roleBadges": {

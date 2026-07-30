@@ -29,6 +29,7 @@ public class MyChannelsService(
         var helixUnavailable = false;
 
         var token = await userTokenService.GetValidAccessTokenAsync(principal, cancellationToken);
+        var reauthRequired = token.ReauthRequired;
         if (token.AccessToken is null)
         {
             helixUnavailable = true;
@@ -79,7 +80,7 @@ public class MyChannelsService(
             .ThenBy(c => c.ChannelName)
             .ToList();
 
-        return new MyChannelsResultDto(helixUnavailable, sevenTvUnavailable, channels);
+        return new MyChannelsResultDto(helixUnavailable, reauthRequired, sevenTvUnavailable, channels);
     }
 
     private static ChannelFlags GetOrAdd(Dictionary<string, ChannelFlags> flagsByChannel, string channelName)

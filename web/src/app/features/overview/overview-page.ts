@@ -4,6 +4,7 @@ import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
+import { AuthService } from '../../core/auth/auth.service';
 import { AdminChannelDto, MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
@@ -18,11 +19,13 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
+  private readonly authService = inject(AuthService);
   private readonly channelService = inject(ChannelService);
   private readonly router = inject(Router);
 
   protected readonly myChannels = signal<MyChannelDto[] | null>(null);
   protected readonly helixUnavailable = signal(false);
+  protected readonly reauthRequired = signal(false);
   protected readonly sevenTvUnavailable = signal(false);
   protected readonly adminChannels = signal<AdminChannelDto[] | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
@@ -36,6 +39,7 @@ export class OverviewPage {
       next: (result) => {
         this.myChannels.set(result.channels);
         this.helixUnavailable.set(result.helixUnavailable);
+        this.reauthRequired.set(result.reauthRequired);
         this.sevenTvUnavailable.set(result.sevenTvUnavailable);
       },
       error: (error: HttpErrorResponse) => this.handleError(error),
@@ -86,6 +90,12 @@ export class OverviewPage {
 
   protected openChannel(channelName: string): void {
     this.router.navigate(['/channels', channelName]);
+  }
+
+  // Fresh Twitch OAuth round-trip (full browser redirect). Returning to the overview afterwards
+  // is exactly the backend's default post-login redirect, so no returnUrl stash is needed.
+  protected relogin(): void {
+    this.authService.login();
   }
 
   // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
