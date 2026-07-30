@@ -14,22 +14,11 @@ public class TwitchChatManager(
     IEmoteMatchCache emoteMatchCache,
     IEmoteUsageCounter usageCounter) : ITwitchChatManager
 {
-    // Live observed 2026-07-26: after a "Fatal network error" the underlying TwitchLib socket
-    // stayed permanently broken and ReconnectAsync() on the same client object never recovered
-    // (>45 min outage). Replacing the whole client is the escape hatch. The root cause of that
-    // specific outage is fixed in CreateClient below; this threshold remains as a safety net for
-    // any other way a client object can end up wedged.
-    private const int MaxConsecutiveConnectionErrorsBeforeRecreate = 3;
-
     // Bounds how long we *wait* for a connect/reconnect, not how long TwitchLib tries: the
     // reconnection policy retries indefinitely in the background and still raises
     // OnConnected/OnReconnected when it gets through. Without this bound a Twitch outage during
     // startup would block Worker.ExecuteAsync — no Redis subscription, no join/leave commands.
     private static readonly TimeSpan OpenWaitTimeout = TimeSpan.FromSeconds(30);
-
-    // If an open loop has been running this long without ever reaching OnConnected, the client
-    // object is assumed wedged and gets replaced rather than waited on any further.
-    private static readonly TimeSpan StuckOpenThreshold = TimeSpan.FromMinutes(10);
 
     // Twitch permits 20 joins per 10 seconds on a non-verified connection, and TwitchLib paces them
     // not at all: JOINs bypass its ThrottlingService (that one only covers chat messages) and its
@@ -51,12 +40,15 @@ public class TwitchChatManager(
     private readonly SemaphoreSlim _joinGate = new(1, 1);
     private DateTime _lastJoinIssuedUtc = DateTime.MinValue;
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
+
+    // Decides reconnect vs. recreate vs. wait, and owns the two counters that decision rests on.
+    // Deliberately not injected: it is pure state belonging to this manager, not a dependency.
+    private readonly ReconnectPolicy _reconnectPolicy = new();
+
     private TwitchClient _client = CreateClient(loggerFactory);
     private volatile bool _isConnected;
     private long _lastMessageReceivedUtcTicks;
     private long _connectAttemptedUtcTicks;
-    private int _consecutiveConnectionErrors;
-    private int _openInFlight;
     private int _joinsIssuedForCurrentClient;
 
     public bool IsConnected => _isConnected;
@@ -100,31 +92,22 @@ public class TwitchChatManager(
 
         try
         {
-            if (_consecutiveConnectionErrors >= MaxConsecutiveConnectionErrorsBeforeRecreate)
-            {
-                await RecreateClientAsync(
-                    $"{_consecutiveConnectionErrors} aufeinanderfolgende Verbindungsfehler erreicht (Schwelle {MaxConsecutiveConnectionErrorsBeforeRecreate}).");
-                return;
-            }
+            var openRunningFor = ConnectAttemptedUtc is { } attemptedAt ? DateTime.UtcNow - attemptedAt : (TimeSpan?)null;
+            var decision = _reconnectPolicy.Decide(openRunningFor);
 
-            if (_openInFlight == 1)
+            switch (decision.Action)
             {
-                var openingFor = DateTime.UtcNow - (ConnectAttemptedUtc ?? DateTime.UtcNow);
-                if (openingFor < StuckOpenThreshold)
-                {
-                    logger.LogInformation(
-                        "Verbindungsaufbau läuft seit {Seconds}s noch — kein zusätzlicher Reconnect.",
-                        (int)openingFor.TotalSeconds);
+                case ReconnectAction.Wait:
+                    logger.LogInformation("{Reason}", decision.Reason);
                     return;
-                }
-
-                await RecreateClientAsync(
-                    $"Verbindungsaufbau hängt seit {(int)openingFor.TotalMinutes} Minuten ohne Erfolg.");
-                return;
+                case ReconnectAction.Recreate:
+                    await RecreateClientAsync(decision.Reason);
+                    return;
+                default:
+                    logger.LogInformation("Erzwinge Reconnect. Grund: {Reason}", decision.Reason);
+                    await ReconnectClientAsync();
+                    return;
             }
-
-            logger.LogInformation("Erzwinge Reconnect.");
-            await ReconnectClientAsync();
         }
         finally
         {
@@ -143,7 +126,7 @@ public class TwitchChatManager(
             // throwing — discarding that result used to make a failed connect indistinguishable
             // from a successful one, leaving the worker "started" with no IRC connection.
             var opened = await open.WaitAsync(OpenWaitTimeout);
-            Interlocked.Exchange(ref _openInFlight, 0);
+            _reconnectPolicy.RegisterOpenSettled();
 
             if (!opened)
             {
@@ -172,7 +155,7 @@ public class TwitchChatManager(
         try
         {
             await reconnect.WaitAsync(OpenWaitTimeout);
-            Interlocked.Exchange(ref _openInFlight, 0);
+            _reconnectPolicy.RegisterOpenSettled();
         }
         catch (TimeoutException)
         {
@@ -184,7 +167,7 @@ public class TwitchChatManager(
     private void MarkOpenStarted()
     {
         Interlocked.Exchange(ref _connectAttemptedUtcTicks, DateTime.UtcNow.Ticks);
-        Interlocked.Exchange(ref _openInFlight, 1);
+        _reconnectPolicy.RegisterOpenStarted();
     }
 
     // Not a failure: the policy has no attempt limit, so the open loop keeps retrying in the
@@ -199,7 +182,7 @@ public class TwitchChatManager(
     private void ObserveInBackground(Task open) => _ = open.ContinueWith(
         completed =>
         {
-            Interlocked.Exchange(ref _openInFlight, 0);
+            _reconnectPolicy.RegisterOpenSettled();
             if (completed.IsFaulted)
             {
                 logger.LogWarning(
@@ -222,7 +205,7 @@ public class TwitchChatManager(
         // Without it the health key keeps reporting "connected" for a client we just discarded —
         // in exactly the situation where that signal matters most.
         _isConnected = false;
-        Interlocked.Exchange(ref _openInFlight, 0);
+        _reconnectPolicy.RegisterOpenSettled();
         MarkAllChannelsUnconfirmed();
 
         try
@@ -237,7 +220,7 @@ public class TwitchChatManager(
         var newClient = CreateClient(loggerFactory);
         WireUpClient(newClient);
         _client = newClient;
-        Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        _reconnectPolicy.RegisterClientReplaced();
         // The new client knows nothing about our channels, so its first OnConnected must rejoin.
         Interlocked.Exchange(ref _joinsIssuedForCurrentClient, 0);
 
@@ -359,8 +342,7 @@ public class TwitchChatManager(
     private async Task OnConnected(object? sender, OnConnectedEventArgs e)
     {
         _isConnected = true;
-        Interlocked.Exchange(ref _openInFlight, 0);
-        Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        _reconnectPolicy.RegisterConnected();
         logger.LogInformation("TwitchClient verbunden.");
 
         // Only a client that has not joined anything yet needs us. Verified in TwitchClient 4.0.1
@@ -402,23 +384,21 @@ public class TwitchChatManager(
 
     private Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
     {
-        Interlocked.Exchange(ref _openInFlight, 0);
-        var count = Interlocked.Increment(ref _consecutiveConnectionErrors);
+        var count = _reconnectPolicy.RegisterConnectionError();
         // e.Error ist ein TwitchLib-eigener ErrorEvent (kein Exception), enthält also nur diese
         // Message — keine tiefere Diagnose (Socket/TLS) über dieses Event allein möglich. Der
         // Fehlerzähler wird deshalb jetzt zumindest mitgeloggt, um beim nächsten Vorfall ohne
         // Rätselraten zu sehen, wie nah ein Recreate ist.
         logger.LogWarning(
             "TwitchClient-Verbindungsfehler für {BotUsername} ({Count}/{Max} aufeinanderfolgend): {Error}",
-            e.BotUsername, count, MaxConsecutiveConnectionErrorsBeforeRecreate, e.Error.Message);
+            e.BotUsername, count, ReconnectPolicy.MaxConsecutiveConnectionErrors, e.Error.Message);
         return Task.CompletedTask;
     }
 
     private Task OnReconnected(object? sender, OnConnectedEventArgs e)
     {
         _isConnected = true;
-        Interlocked.Exchange(ref _openInFlight, 0);
-        Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        _reconnectPolicy.RegisterConnected();
 
         // No rejoin here: TwitchLib has already done it in the very code path that raises this event
         // (see OnConnected). Rejoining anyway doubled every JOIN on every reconnect — harmless at six
