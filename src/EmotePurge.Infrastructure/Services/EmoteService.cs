@@ -1,3 +1,4 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ public class EmoteService(AppDbContext db) : IEmoteService
 {
     public async Task<SyncDeletedResultDto> MarkDeletedAsync(string channelName, IReadOnlyList<string> emoteIds, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)

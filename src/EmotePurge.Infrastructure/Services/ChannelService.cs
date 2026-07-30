@@ -12,7 +12,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 
     public async Task<Channel> JoinAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)
@@ -33,7 +33,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 
     public async Task<bool> LeaveAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)
@@ -58,7 +58,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 
     public async Task<bool> PurgeAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)
@@ -78,7 +78,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 
     public async Task<Channel?> GetByNameAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
         return await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
     }
 

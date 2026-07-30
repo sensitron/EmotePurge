@@ -1,3 +1,4 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
 using Microsoft.Extensions.Logging;
@@ -11,7 +12,7 @@ public class ModeratorCheckService(
 {
     public async Task<bool> IsModeratorAsync(TwitchPrincipalInfo principal, string channelName, CancellationToken cancellationToken = default)
     {
-        var normalizedChannel = channelName.Trim().ToLowerInvariant();
+        var normalizedChannel = ChannelName.Normalize(channelName);
 
         var cached = await modRoleCache.TryGetIsModeratorAsync(principal.TwitchUserId, normalizedChannel, cancellationToken);
         if (cached is not null)

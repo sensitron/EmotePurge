@@ -1,3 +1,4 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
 {
     public async Task<IReadOnlyList<EmoteUsageDto>> GetUsageStatsAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         return await db.UsageStats
             .Where(u => u.Emote.Channel.ChannelName == normalized)
@@ -25,7 +26,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
         }
 
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         // GroupBy+Sum fails to translate when the filtered source still carries the
         // Emote/Channel navigation joins from the Where clause (EF Core/Npgsql limitation:

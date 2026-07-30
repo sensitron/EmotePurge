@@ -1,3 +1,4 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
@@ -23,7 +24,7 @@ public class EmoteSetOwnershipService(
         string? callerAccessToken,
         CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         var channel = await db.Channels.AsNoTracking()
             .SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);

@@ -9,7 +9,7 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 {
     public async Task<IReadOnlyList<VoteSessionSummaryDto>> ListSessionsAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         return await db.VoteSessions
             .Where(s => s.Channel.ChannelName == normalized)
@@ -20,7 +20,7 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 
     public async Task<PagedResult<VoteSessionSummaryDto>> ListSessionsPagedAsync(string channelName, int page, int pageSize, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
         var query = db.VoteSessions.Where(s => s.Channel.ChannelName == normalized);
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -36,17 +36,10 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 
     public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, bool includeRawUsage = false, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
-        if (channel is null)
-        {
-            return null;
-        }
-
-        var session = await db.VoteSessions.SingleOrDefaultAsync(
-            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
-        if (session is null)
+        var (channel, session) = await db.LoadChannelSessionAsync(normalized, sessionId, cancellationToken);
+        if (channel is null || session is null)
         {
             return null;
         }

@@ -17,8 +17,8 @@ public class VoteEligibilityService(
     public async Task<VoteEligibilityResult> EvaluateAsync(
         TwitchPrincipalInfo principal, string channelName, long sessionId, CancellationToken cancellationToken = default)
     {
-        var normalizedChannel = channelName.Trim().ToLowerInvariant();
-        var (channel, session) = await LoadSessionAsync(normalizedChannel, sessionId, cancellationToken);
+        var normalizedChannel = ChannelName.Normalize(channelName);
+        var (channel, session) = await db.LoadChannelSessionAsync(normalizedChannel, sessionId, cancellationToken);
         if (channel is null || session is null)
         {
             return VoteEligibilityResult.SessionNotFound;
@@ -35,28 +35,14 @@ public class VoteEligibilityService(
     public async Task<VoteEligibilityResult> EvaluateAudienceAsync(
         TwitchPrincipalInfo principal, string channelName, long sessionId, CancellationToken cancellationToken = default)
     {
-        var normalizedChannel = channelName.Trim().ToLowerInvariant();
-        var (channel, session) = await LoadSessionAsync(normalizedChannel, sessionId, cancellationToken);
+        var normalizedChannel = ChannelName.Normalize(channelName);
+        var (channel, session) = await db.LoadChannelSessionAsync(normalizedChannel, sessionId, cancellationToken);
         if (channel is null || session is null)
         {
             return VoteEligibilityResult.SessionNotFound;
         }
 
         return await EvaluateRoleAsync(principal, normalizedChannel, channel, session, cancellationToken);
-    }
-
-    private async Task<(Channel? Channel, VoteSession? Session)> LoadSessionAsync(
-        string normalizedChannel, long sessionId, CancellationToken cancellationToken)
-    {
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalizedChannel, cancellationToken);
-        if (channel is null)
-        {
-            return (null, null);
-        }
-
-        var session = await db.VoteSessions.SingleOrDefaultAsync(
-            s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
-        return (channel, session);
     }
 
     private async Task<VoteEligibilityResult> EvaluateRoleAsync(

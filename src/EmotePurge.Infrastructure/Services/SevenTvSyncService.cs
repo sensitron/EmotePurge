@@ -17,7 +17,7 @@ public class SevenTvSyncService(
 {
     public async Task<string?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         // Two concurrent syncs of the same channel collide on the (ChannelId, SevenTvEmoteId)
         // unique index — see ChannelSyncGate.

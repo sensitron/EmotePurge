@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.SevenTv;
 using Microsoft.Extensions.Logging;
 
@@ -25,7 +26,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
 
     public async Task<string?> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = channelName.Trim().ToLowerInvariant();
+        var normalized = ChannelName.Normalize(channelName);
 
         try
         {
