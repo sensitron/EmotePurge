@@ -70,6 +70,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
         services.AddScoped<IMyChannelsService, MyChannelsService>();
         services.AddSingleton<IModRoleCache, ModRoleCache>();
+        services.AddSingleton<IWorkerHealthReader, WorkerHealthReader>();
 
         services.AddScoped<IVoteSessionService, VoteSessionService>();
         services.AddScoped<IVoteSessionQueryService, VoteSessionQueryService>();

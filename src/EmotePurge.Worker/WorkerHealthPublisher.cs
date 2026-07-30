@@ -1,4 +1,6 @@
 using System.Text.Json;
+using EmotePurge.Core.Services;
+using EmotePurge.Infrastructure.Redis;
 using StackExchange.Redis;
 
 namespace EmotePurge.Worker;
@@ -7,14 +9,16 @@ namespace EmotePurge.Worker;
 // über GET /api/worker/health nach außen zeigen kann, ohne dass Api und Worker direkt
 // miteinander kommunizieren müssen — nutzt dieselbe Redis-Infrastruktur wie die
 // channel:bot:commands-Pub/Sub. Läuft der Worker nicht (mehr), läuft der Key einfach ab.
+//
+// Key, TTL und Payload-Typ kommen aus Infrastructure bzw. Core (WorkerHealthKeys,
+// WorkerHealthSnapshot): Vorher war das Format hier ein anonymes Objekt und in der Api ein
+// eigenes privates Record — dasselbe Wire-Format zweimal deklariert, ohne Verbindung.
 public class WorkerHealthPublisher(
     ILogger<WorkerHealthPublisher> logger,
     ITwitchChatManager twitchChatManager,
     IConnectionMultiplexer redis) : BackgroundService
 {
-    public const string RedisKey = "worker:health:twitch";
     private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan KeyTtl = TimeSpan.FromSeconds(60);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -29,17 +33,14 @@ public class WorkerHealthPublisher(
     {
         try
         {
-            var payload = JsonSerializer.Serialize(new
-            {
-                isConnected = twitchChatManager.IsConnected,
-                lastMessageReceivedUtc = twitchChatManager.LastMessageReceivedUtc,
-                // Reference point for the Api's staleness check while no chat message has ever
-                // arrived — without it a freshly started worker is indistinguishable from one that
-                // has been connected but silent for hours.
-                connectAttemptedUtc = twitchChatManager.ConnectAttemptedUtc,
-            });
+            var payload = JsonSerializer.Serialize(
+                new WorkerHealthSnapshot(
+                    twitchChatManager.IsConnected,
+                    twitchChatManager.LastMessageReceivedUtc,
+                    twitchChatManager.ConnectAttemptedUtc),
+                JsonSerializerOptions.Web);
 
-            await redis.GetDatabase().StringSetAsync(RedisKey, payload, KeyTtl);
+            await redis.GetDatabase().StringSetAsync(WorkerHealthKeys.TwitchConnection, payload, WorkerHealthKeys.Ttl);
         }
         catch (Exception ex)
         {
