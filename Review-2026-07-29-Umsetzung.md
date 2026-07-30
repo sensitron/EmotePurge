@@ -6,7 +6,7 @@ Begleitdokument zu [`Review-2026-07-29.md`](Review-2026-07-29.md). Hält fest, w
 |---|---|---|
 | **A** | Quick Wins | ✅ **abgeschlossen** (2026-07-29) |
 | **B** | Sicherheit & Korrektheit (S1/S2) | ✅ **abgeschlossen** (2026-07-30) |
-| **C** | Refactorings | ⬜ offen |
+| **C** | Refactorings | ✅ **abgeschlossen** (2026-07-30) |
 | **D** | Tests | ⬜ offen |
 | **E** | Infra & Launch | ⬜ offen |
 
@@ -212,6 +212,115 @@ Der neue `INSERT … ON CONFLICT`-Pfad war der einzige handgeschriebene SQL-Code
 
 ---
 
+## Welle C — umgesetzt am 2026-07-30
+
+Zehn Befunde, in der Reihenfolge aus Abschnitt 8 des Reports. Alles, was Semantik verschiebt, ist Fix für Fix von Hand entstanden; ein Sonnet-Sub-Agent hat mit ausschließlicher Eigentümerschaft an `Architectur.md` gearbeitet (Ergebnis gegengelesen, ein Fehler korrigiert — s. u.).
+
+### S2-13 Schritt 1 — ein HTTP-Interceptor statt sechs Kopien
+
+`web/src/app/core/http/api-auth.interceptor.ts`, registriert per `provideHttpClient(withFetch(), withInterceptors([apiAuthInterceptor]))`. Der 401-Block stand sechsmal, fünfmal wortgleich, und fehlte in `channel-workspace-layout.ts` ganz.
+
+Die erste Zeile `if (!req.url.startsWith('/api/')) return next(req)` ist der tragende Teil: die Mass-Delete-Engine spricht direkt mit `7tv.io/v3/gql` und mit einer **anderen** Credential. Ein `401` von dort heißt „das 7TV-Schreib-Token ist abgelaufen", nie „deine Session ist weg" — vorher existierte diese Unterscheidung nur darin, dass niemand den 401-Block dorthin kopiert hatte.
+
+**Über den Report hinaus:** `/api/auth/me` und `/api/auth/logout` sind ausgenommen. `auth/me` antwortet für **jeden** anonymen Besucher mit 401 (jeder Guard ruft es zuerst) — ohne die Ausnahme hätte der Interceptor die öffentliche Landing-Page auf `/login` umgeleitet. Fehler werden weitergeworfen, nicht geschluckt, damit Aufrufer ihre Spinner beenden und eine Meldung rendern können.
+
+### S2-13 Schritt 2 — Status-Fallback im Fehler-Mapping
+
+`apiErrorTranslationKey` las ausschließlich `error.error.errorCode`. Body-lose Antworten — alle vier Autorisierungsfilter (`Results.Forbid()`), der Rate Limiter, ein Verbindungsabbruch (Status 0) — fielen damit auf „Etwas ist schiefgelaufen. Bitte versuch es erneut." und sagten einem frisch gemoddeten Nutzer, er solle etwas wiederholen, das bis zum Ablauf des Mod-Cache nicht gelingen kann. Neu: sieben `errors.status.*`-Keys (0/401/403/404/409/429/≥500) in beiden Locales, mit dem 10-Minuten-Hinweis im 403-Text.
+
+**Über den Report hinaus:** 429 ist mit aufgenommen — der Policy-Schnitt aus Welle B (`ExternalApi`, 20/min auf `channels/mine`, den Emote- und Usage-Stats-Gruppen) hat diesen Fall real erreichbar gemacht.
+
+**Abweichung:** Der Sonderweg in `vote-session-detail-page.ts` ist auf `apiErrorTranslationKey` umgestellt — **außer für 403**. Dort kommt der Code von `VoteEligibilityFilter` und bedeutet genau eine Sache („falsche Rolle für *diese* Session"), während der generische 403-Text auf den Mod-Cache zeigt und in einer Subs-Session aktiv irreführend wäre. Vier dadurch unbenutzte Keys unter `voting.detail.errors.*` sind entfallen.
+
+### S3-26 — `ChannelName.Normalize` und `LoadChannelSessionAsync`
+
+`Trim().ToLowerInvariant()` stand 28-mal; der Gewinn ist nicht die gesparte Zeichenzahl, sondern dass die stille Invariante „`Channel.ChannelName` ist in der DB immer getrimmt und lowercase" jetzt einen Namen und eine XML-Doc hat. `EmoteMatchCache.Normalize` und `ChannelNameValidation` delegieren dorthin.
+
+Der Block „Channel laden → Session per `Id == sessionId && ChannelId == channel.Id` laden" stand sechsmal in drei Services — und dieses `ChannelId`-Prädikat ist die **einzige** Absicherung dagegen, dass Channel A eine Session von Channel B beendet, löscht oder abstimmt. Jetzt einmal in `src/EmotePurge.Infrastructure/Persistence/ChannelQueries.cs`, kein generisches Repository. Die Entitäten bleiben getrackt geladen wie an allen sechs Stellen vorher, weil `EndAsync`/`DeleteAsync` das brauchen.
+
+### S3-32 — `ISevenTvEditorService`
+
+Zwei Abweichungen vom vorgeschlagenen Fix, beide notwendig:
+
+1. **Rückgabe ist nicht `IReadOnlySet<string>`**, sondern ein `SevenTvEditorGrants`-Record mit Logins **und** Twitch-IDs. Eine reine Login-Menge hätte die S3-2-Härtung aus Welle B (Vergleich auf der unveränderlichen `TwitchChannelId`, weil Twitch freigewordene Logins zur Neuregistrierung freigibt) für den Editor-Pfad wieder zurückgedreht.
+2. **Rückgabetyp ist nullable.** `null` = „7TV konnte nicht antworten", unterscheidbar von der leeren Menge = „antwortete: editiert nichts". `MyChannelsService` braucht diese Unterscheidung für sein `sevenTvUnavailable`-Flag, und ein Ausfall darf nicht als Negativ gecacht werden.
+
+**Redis-Topologie geändert:** aus dem Per-Channel-Bool `7tveditor:{uid}:{channel}` ist der Grant-Satz `7tveditor:{uid}` (JSON) geworden, `IModRoleCache.TryGetIsSevenTvEditorAsync`/`SetIsSevenTvEditorAsync` sind durch `TryGetSevenTvEditorGrantsAsync`/`SetSevenTvEditorGrantsAsync` ersetzt. Grund: Der 7TV-Call liefert ohnehin alle Grants; der alte Schnitt zahlte die zwei Calls für den zweiten Channel desselben Nutzers erneut, und die Übersicht — die die volle Liste braucht — konnte ihn gar nicht nutzen und lief bei **jedem** Aufruf ungecacht. Ein unlesbares Payload gilt als Cache-Miss, nicht als „keine Grants": bei einer Autorisierungs-Eingabe ist Neuauflösen die sichere Richtung.
+
+### S2-13 Schritt 3 — `GET /api/channels/{channelName}/permissions`
+
+Löst alle vier UI-Sonden ab (Nutzerentscheidung, inkl. Guard): zwei in `ChannelWorkspaceLayout`, eine in `VoteSessionListPage`, eine im `usageStatsAccessGuard` — Letztere war eine vollständige, sofort weggeworfene Aggregat-Query pro Navigation.
+
+Bewusst **hinter keinem** Autorisierungsfilter: der Endpoint berichtet, ob man sie passieren würde. `CanViewUsageStatsAsync` wird nur aufgerufen, wenn `CanManageChannelAsync` schon `false` war — der Unterschied zwischen beiden *ist* der 7TV-Editor-Zweig, und den in den Request-Pfad jedes Managers zu ziehen hätte mehr gekostet als der Endpoint spart.
+
+**Ergänzung gegenüber dem Report:** Payload trägt `isTracked` und `isBotActive`. Ohne Letzteres wäre beim Ablösen der Sonden der Reaktivieren-Button verschwunden, den Welle B eingeführt hat (ein Leave deaktiviert nur noch).
+
+**Abweichung:** kein `isSevenTvEditor`-Feld. Es hat heute keinen Konsumenten und würde die obige Abkürzung zunichte machen — kommt mit seinem ersten Konsumenten.
+
+Der Guard klärt jetzt zuerst den Login (`ensureLoaded`, Muster von `voteSessionAccessGuard`), damit sein Aufruf nicht 401t und dabei mit dem Redirect des Interceptors um dieselbe Navigation konkurriert.
+
+### S3-31 / Zielkonflikt Z4 — Gruppen-Filter, und der Service als Wahrheit
+
+**Nutzerentscheidung: Gruppen-Filter, kein Route-Constraint.** `ChannelNameValidationFilter` läuft als **erster** Filter jeder der vier Gruppen, vor den Autorisierungsfiltern; diese Reihenfolge *ist* der Fehlercode-Vertrag (400 mit `invalid_channel_name`, nicht 403 und nicht 404). Ein Constraint `{channelName:regex(...)}` wäre kürzer, liefert aber 404 ohne Body — und könnte nicht normalisieren, hätte also gemischt geschriebene Logins wie `HandOfBlood` abgelehnt.
+
+Zehn inline-Prüfungen entfallen; die fünf channel-scoped Endpoints, die gar keine hatten (`end`, `delete`, `results`, Vote setzen, Vote zurücknehmen), sind mit abgedeckt. Der Filter verlangt keinen `channelName`, er prüft ihn nur, wenn einer da ist — `GET /api/channels` und `/api/channels/mine` liegen in derselben Gruppe und gehen unberührt durch. Die Prüfung in den vier Autorisierungsfiltern (S3-3, Welle B) bleibt bewusst stehen: letzte Instanz vor dem ersten Redis-Key, und sie gilt weiter für einen künftigen Endpoint, der außerhalb einer validierten Gruppe registriert wird.
+
+Zweiter Teil: `CreateAsync` gibt `CreateVoteSessionResult` zurück (Muster von `VoteCastResult`), der Endpoint mappt nur noch. Die 24 Zeilen Vorab-Validierung sind weg, die vier `ArgumentException`-Regeln im Service — vorher unerreichbar — sind der einzige Ort. Vorher divergierten die Ausfallmodi: eine fünfte Regel nur im Service ergab eine 500 statt einer 400, nur im Endpoint einen für jeden anderen Aufrufer durchlässigen Service. `VoteSessionLimits.MaxBackdateDays` liegt jetzt in Core, damit die Zahl, die der Endpoint zurückmeldet, nicht von der abweichen kann, die der Service durchsetzt.
+
+### S3-30 — `rxResource`-Pilot auf `VoteSessionListPage`
+
+Seite nach Nutzerentscheidung: zwei Parameter, und keine RxJS-Poll-Nachbarschaft wie auf der Usage-Stats-Seite. `params: () => ({ channel, page })` ersetzt `effect(() => this.load())` und löst denselben Grund mit, aus dem der Effect existierte (NG0950 beim Lesen eines Route-Inputs im Konstruktor) — ohne dessen Falle, dass jeder weitere Signal-Read in `load()` still zum Reload-Trigger wird.
+
+**Verhaltensänderung, bewusst:** `create` und `delete` laden jetzt neu statt die Liste optimistisch zu patchen. Beides verschiebt die Paginierung; die alte Variante konnte eine Seite auf `pageSize + 1` Zeilen wachsen lassen oder eine neue Session auf Seite 3 anzeigen, wo sie nicht hingehört. `end` patcht weiterhin lokal — In-Place-Feldänderung an einer sichtbaren Zeile, keine Paginierungswirkung. Fehler aus Aktionen liegen in einem eigenen Signal, damit ein fehlgeschlagenes Löschen nicht vom nächsten erfolgreichen Listen-Reload weggewischt wird und umgekehrt.
+
+Die anderen vier Loader-`effect()`s bleiben unverändert, bis dieser Pilot sich getragen hat.
+
+### S3-33 — alle drei Flags aktiviert, vorher gemessen
+
+`tsc --strict` über `tsconfig.app.json` **und** `tsconfig.spec.json`: **0 Fehler**. Ein voller Produktions-`ng build` mit zusätzlich `strictTemplates` + `typeCheckHostBindings`: **0 Fehler**, Build grün. Damit war die im Report offengelassene Frage („erst zählen, dann entscheiden") beantwortet, bevor der Schalter umgelegt wurde — alle drei sind gesetzt. `strict` hat sofort etwas gefangen: einen falsch typisierten `vi.fn()`-Mock im neuen Interceptor-Spec.
+
+### S4-11 — `IWorkerHealthReader`
+
+Der einzige Ort, an dem die Api an ihrem eigenen Service-Layer vorbei auf Infrastruktur zugriff: `IConnectionMultiplexer` direkt im Handler, der Key `"worker:health:twitch"` als String-Literal, das Payload in ein privat definiertes Record deserialisiert — dasselbe Wire-Format zweimal deklariert, in Api und Worker, ohne Verbindung (die Projekte referenzieren sich nicht). Jetzt besitzt `WorkerHealthKeys` Key und TTL, `WorkerHealthSnapshot` (Core) das Format, und beide Seiten serialisieren denselben Typ. `grep StackExchange.Redis src/EmotePurge.Api` findet danach nichts mehr; die Schichtentabelle ist auf der Api-Zeile verstoßfrei.
+
+### S3-6 Teil 1 — `ReconnectPolicy` extrahiert
+
+`src/EmotePurge.Worker/ReconnectPolicy.cs`: TwitchLib-frei, ohne Uhr (die verstrichene Zeit wird hereingegeben), mit `Decide(TimeSpan?) → {Reconnect, Recreate, Wait}` plus den beiden `Interlocked`-Zählern und den Registrierungsmethoden für die Event-Handler. Die Fallunterscheidung ist zeichengleich zur vorherigen Fassung übernommen und einzeln gegengeprüft (Fehlerstreak ≥ 3 → Recreate; kein Open aktiv → Reconnect; Open < 10 min → Wait; Open ≥ 10 min → Recreate; unbekannte Laufzeit zählt als „gerade gestartet"). `TwitchChatManager` behält nur den Transport und ist um die beiden Zählerfelder und zwei Konstanten leichter. Die Tests dazu sind Welle D.
+
+### S3-27 — Doku-Umbau
+
+Die 72 Log-Einträge sind **wortgleich** nach `docs/DECISIONS.md` verschoben, absteigend nach Datum, jeder mit `### <Datum> — <Titel>` und einer neu ergänzten `**Betrifft:**`-Zeile (macht das Log per `grep <dateiname> docs/DECISIONS.md` durchsuchbar). Verifiziert per Skript: jede der 72 Original-Zeilen kommt zeichengleich in der neuen Datei vor, 0 Verluste. Die 27 Einträge aus der Anfangsphase sind **nicht** nachträglich datiert worden und stehen am Ende — ein geschätztes Datum wäre schlechter als keins. Dass der erste Absatz jedes Eintrags seinen Titel nun ein zweites Mal nennt, ist der Preis dafür, den Originaltext nicht anzufassen.
+
+`CLAUDE.md`: 96 KB → **14,3 KB**. Überblick, Umsetzungsstand als Sechs-Zeilen-Tabelle statt 7,7-KB-Absatz, Commands, die Schichtentreue-Tabelle aus Anhang E, 17 geltende Regeln als imperative Liste, Sprachkonvention, und ein kurzer Abschnitt „Bekannte offene Grenzen" (JOIN-Limit, fehlendes Refresh-Token).
+**Abweichung:** Der Report nannte ≤ 12 KB. 14,3 KB ist das Ergebnis, wenn man die Commands vollständig behält und die Regeln so ausschreibt, dass sie ohne Nachschlagen anwendbar sind — weiter zu kürzen hätte Inhalt gekostet, nicht Redundanz.
+
+`Architectur.md`: 337 → 214 Zeilen, kürzer trotz mehr Inhalt, weil die gespiegelten YAML- und C#-Blöcke wegfielen. Korrigiert: „`User`/`VoteSession`/`Vote` noch nicht implementiert" (seit 2026-07-25 falsch), der nicht mehr existierende Guard und „Voting bewusst ohne Login-Zwang" (am 2026-07-27 umgekehrt), „WebSocket"-Recovery in Grundsatz 3, Abschnitt 6 in **6a Lokal** / **6b Produktion** geteilt mit Unterschieds-Tabelle statt zweier YAML-Kopien, und Modul D um i18n, Fehlercode-Vertrag und Pagination ergänzt. Der Sub-Agent hatte dabei genau einen Fehler in der Tabelle („lokal ohne `maxmemory`-Limit" — beide Compose-Dateien setzen es); korrigiert und als bewusste Nicht-Abweichung ausformuliert. Zwei Stellen hat er über den Auftrag hinaus richtig mitkorrigiert (`sync-deleted` hängt an `UsageStatsAccessAuthorizationFilter`, der Ergebnis-Endpoint an `VoteAudienceFilter`).
+
+Zusätzlich zwei neue Log-Einträge in `docs/DECISIONS.md` (Regel: ein Commit, der eine Konvention ändert, enthält seinen Eintrag): der Welle-C-Eintrag selbst, und ein **Nachtrag am 2026-07-28-Eintrag**, der die dort dokumentierte Begründung „Validierung bewusst als Helfer im Handler-Body, nicht als `IEndpointFilter`" ausdrücklich für überholt erklärt — genau wie Z4 es verlangt, als datierter Nachtrag statt als Umschreiben des historischen Texts.
+
+### Verifikation
+
+| Prüfung | Ergebnis |
+|---|---|
+| `dotnet build EmotePurge.slnx` | grün, 0 Warnungen |
+| `dotnet test EmotePurge.slnx` | 47/47 grün (unverändert — Welle C ändert kein getestetes Verhalten) |
+| `ng build --configuration production` | grün, **mit** `strict` + `strictTemplates` + `typeCheckHostBindings` |
+| `npm --prefix web test -- --watch=false` | 110/110 grün (90 vorher: +6 Interceptor, +11 Fehler-Mapping, +1 `getPermissions`, +2 Guard-Fälle) |
+| `npm --prefix web run e2e` | 4/4 grün |
+| Locale-Parität de/en | 201/201 Keys, keine Lücke in beiden Richtungen (197 vorher: +7 `errors.status.*`, −4 ungenutzte `voting.detail.errors.*`) |
+| `docker compose up -d --build` | Stack läuft, Worker verbindet und joint alle Channels inkl. 7TV-Sync |
+| Smoke-Test | `GET /api/worker/health` liefert über den neuen `IWorkerHealthReader` `{"status":"connected"}`; `/permissions` ohne Cookie `401`; unbekannter `/api/*`-Pfad weiterhin `404`, SPA-Shell `200` |
+
+**Noch nicht live gegen echte Twitch-/7TV-Accounts getestet.** Besonders prüfenswert:
+
+- **Der Fehlercode-Vertrag mit Cookie.** Ein malformierter Channel-Name in der URL muss **400** mit `invalid_channel_name` liefern, nicht 403 — ohne Cookie greift die Auth-Middleware vorher, der Fall ist per curl also nicht prüfbar. Er hängt daran, dass ASP.NET Core Gruppen-Filter vor Endpoint-Filtern ausführt; das ist dokumentiertes Framework-Verhalten, aber hier zum ersten Mal tragend für einen Fehlercode.
+- **Der Interceptor an einer echten ablaufenden Session** (401 → Redirect auf `/login`), und dass ein 7TV-401 im Löschlauf **nicht** ausloggt.
+- **Die 403-Meldungen**: ein Nicht-Manager auf einer Aktion sollte jetzt den Mod-Cache-Hinweis sehen statt „Etwas ist schiefgelaufen".
+- **`/permissions`** für alle vier Rollen (Admin, Broadcaster, Mod, 7TV-Editor) — insbesondere, dass der „Nutzung"-Tab für einen reinen 7TV-Editor weiter erscheint und der Reaktivieren-Button bei `isBotActive: false`.
+- **Die Vote-Session-Liste** (rxResource): Seitenwechsel, Erstellen, Beenden, Löschen — Letztere laden jetzt neu statt lokal zu patchen.
+
+---
+
 ## Was noch offen ist
 
 ### Direkte Anschlussarbeiten aus den Wellen A und B
@@ -219,12 +328,13 @@ Der neue `INSERT … ON CONFLICT`-Pfad war der einzige handgeschriebene SQL-Code
 Diese Punkte sind Teil eines Befunds, dessen Rest bewusst einer späteren Welle zugeordnet ist:
 
 - **S2-16 (Auswahl über Filterwechsel erhalten)** ist durch die keyed `ListSelection` jetzt sicher baubar — aber nicht automatisch fertig: beide Host-Seiten leiten ihre Löschliste über `selectedItems()` ab, sodass eine über einen Filterwechsel erhaltene Auswahl beim Löschen still auf die sichtbaren Zeilen zusammenschrumpfen würde. Die Richtung ist ungefährlich (es würde weniger gelöscht, nie das Falsche), widerspräche aber der vom Befund geforderten Anzeige „50 ausgewählt (12 ausgeblendet)". Wer S2-16 baut, muss die Zählung auf `selectedKeys()` umstellen und eine Key→Zeile-Zuordnung für ausgeblendete Einträge mitführen.
-- **`ReconnectPolicy` extrahieren (S3-6, Welle D)** — die Entscheidungslogik in `ForceReconnectAsync` ist jetzt eine reine Fallunterscheidung über vier Zustände (kein Open läuft + Fehler < 3 → Reconnect; Fehler ≥ 3 → Recreate; Open läuft < 10 min → warten; Open läuft ≥ 10 min → Recreate). Sie herauszuziehen und ohne TwitchLib zu testen ist damit ein kurzer Handgriff geworden.
+- ~~**`ReconnectPolicy` extrahieren (S3-6)**~~ — in Welle C erledigt. Die Unit-Tests dafür bleiben Welle D.
 - **Redis-Cache für `OnValidatePrincipal`** — der Widerruf kostet einen Primärschlüssel-Lookup pro authentifiziertem Request. Sauber, aber cachebar, falls es je auffällt.
-- **S3-30 `rxResource`-Pilot** (Welle C) — nur der doppelte Request ist behoben, das strukturelle Muster „`effect()` als Datenlader" existiert an fünf Stellen weiter.
+- **S3-30 restliche vier Loader-`effect()`s** — der Pilot auf `VoteSessionListPage` steht (Welle C); `channel-workspace-layout.ts`, `usage-stats-page.ts`, `vote-session-detail-page.ts` und `my-votings-page.ts` laden weiter über `effect()` bzw. den Konstruktor. Erst nachziehen, wenn der Pilot sich im Live-Betrieb getragen hat. Bei der Usage-Stats-Seite ist zusätzlich der 7TV-Sync-Poll in dieselbe Ressource einzuweben — der aufwändigste der vier.
 - **S3-16 `@angular/cdk/dialog`** (mittelfristig) — Fokusfalle/Escape sind nachgerüstet, aber weiter handgebaut.
 - **S4-3 `style-src` ohne `unsafe-inline`** — braucht `ngCspNonce`, mit `MapFallbackToFile("index.html")` nicht ohne Weiteres möglich; im Report ausdrücklich kein Blocker.
 - **S3-17 Restfall** — `my-votings-page.ts` hat denselben `text-slate-500`-Statustext, war im Report aber nicht als Fundort genannt und blieb unangetastet. Trivialer Nachzug.
+- **`isSevenTvEditor` im `/permissions`-Payload** — bewusst weggelassen (kein Konsument, und es würde die Kurzschluss-Optimierung zunichte machen). Wer es braucht, ergänzt es zusammen mit dem Konsumenten.
 
 ### Offenes Skalierungsthema: Twitchs JOIN-Limit ab ~20 Channels
 
@@ -244,8 +354,6 @@ Billigster Vorabtest: lokal ~25 Channels tracken und prüfen, ob `Twitch hat den
 
 ### Offene Wellen
 
-**Welle C — Refactorings.** S2-13 (HTTP-Interceptor) → S3-26 → S3-32 → `/permissions`-Endpoint → S3-31 → S3-30 → S3-33 (`strict`) → S4-11 → S3-6 → S3-27 (CLAUDE.md-Umbau; die Datei ist auf ~93 KB gewachsen).
-
 **Welle D — Tests.** In dieser Reihenfolge, die ersten beiden ohne Container: `ChannelAccessServiceTests` → `VoteEligibilityServiceTests` → `VoteSessionService.CastVoteAsync` → `SevenTvSyncService` → `UsageStatFlushService` → `ReconnectPolicy`/`EmoteUsageCounter` → zwei Struktur-Tests (Core-Assembly-Referenzen, Fehlercode-Key-Parität beider Locale-Dateien).
 
 **Welle E — Infra & Launch.** S2-21 (Ressourcenlimits, vor dem Stresstest) → Z1-Aufteilung der Health-Endpoints + S3-35 → S3-36 → S3-34 → S3-38 → S3-37 (`pull_request`-Trigger) → S4-15/S4-16 → S4-17/S4-18 → S2-20 (Rechtstexte) → `robots.txt` öffnen.
@@ -258,7 +366,7 @@ Abschnitt 10 des Reports listet 21. Diese blockieren oder verbilligen konkret di
 2. ~~**`ReconnectionPolicy.Reset(bool)`-Verhalten**~~ — am Quelltext verifiziert, s. Welle B oben.
 3. ~~**Existiert außerhalb des Repos schon ein Backup?**~~ — beantwortet: nein, keins. S1-2 ist damit der erste überhaupt.
 4. **Wie viele Vote-Sessions hat ein Channel typisch?** `SELECT "ChannelId", COUNT(*) FROM "VoteSessions" GROUP BY 1` — durch den Sub-Cache aus S2-11 entschärft, aber weiterhin relevant für die Kosten der Listen-Route.
-5. **Kosten von `strictTemplates`** — ein `ng build` mit gesetzter Flagge beantwortet es in zwei Minuten (S3-33).
+5. ~~**Kosten von `strictTemplates`**~~ — gemessen (2026-07-30): **0 Fehler**, wie auch `strict` und `typeCheckHostBindings`. Alle drei sind gesetzt.
 6. **Wird `VoteSession.IsActive` je automatisch beendet?** Produktentscheidung. Durch die 366-Tage-Grenze auf rückdatiertes `StartedAt` entschärft, aber eine nie beendete Session erweitert ihr Auswertungsfenster weiter laufend.
 
 Die restlichen (Stresstest-Messungen, 7TV-Editor-Permissions-Bitfeld, GHCR-Sichtbarkeit, Branch-Protection, Docker-Log-Rotation) sind in Abschnitt 10 des Reports unverändert nachlesbar.

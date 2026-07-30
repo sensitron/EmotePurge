@@ -17,7 +17,7 @@
 
 1. **Single Source of Truth (PostgreSQL):** Die PostgreSQL-Datenbank speichert dauerhaft, welche Kanäle aktiv sind (`IsBotActive = true`), welche Emotes existieren und wie die Chat-Statistiken aussehen.
 2. **Entkoppelte Echtzeit-Steuerung (Redis Pub/Sub):** Web API und Worker Service sind strikt getrennt. Betritt ein Streamer den Bot im Dashboard, schreibt die API dies in PostgreSQL und publisht ein Event via Redis (`channel:bot:commands`). Der Worker empfängt dieses Event in Echtzeit (< 5ms) und join den Chat.
-3. **Automatisches Recovery bei Neustarts:** Beim Start liest der Worker-Service alle aktiven Kanäle aus PostgreSQL aus und stellt alle Chat- und WebSocket-Verbindungen automatisch wieder her.
+3. **Automatisches Recovery bei Neustarts:** Beim Start liest der Worker-Service alle aktiven Kanäle aus PostgreSQL aus, stellt die Twitch-IRC-Chat-Verbindungen automatisch wieder her und synct 7TV für jeden Kanal einmalig voll (kein WebSocket mehr — s. A.3, der periodische `SevenTvPeriodicResyncWorker` übernimmt danach den laufenden Betrieb).
 4. **Zero-Knowledge für Schreib-Tokens:** 7TV-Access-Tokens mit Schreibrechten verbleiben _ausschließlich_ im Browser des Admins. Das Backend speichert oder verarbeitet zu keinem Zeitpunkt 7TV-Tokens.
 5. **Dynamisches Rollen-Caching:** Rollen (Sub, VIP, Mod) werden nicht fest in der Datenbank abgelegt, sondern live über die Twitch API abgefragt und kurzzeitig in Redis / MemoryCache gecacht.
 6. **High-Performance Analytics:** Der Chat-Bot verarbeitet hohe Chat-Volumen ressourcenschonend durch In-Memory-Pufferung (`ConcurrentDictionary`) und führt alle 30 Sekunden einen Batch-Flush in PostgreSQL aus.
@@ -113,7 +113,7 @@ $$\text{Score} = f(\text{Chat-Nutzung}) + (\text{Keep-Votes} - \text{Delete-Vote
 
 > **Umsetzungsstand:** Vollständig implementiert (2026-07-26) — vollständige Details/Gotchas im CLAUDE.md-Entscheidungslog, hier nur die konkretisierte Spezifikation.
 
-- **Seiten/Routen:** `/login`, `/` (Übersicht — Admin sieht alle getrackten Channels + Formular zum Joinen eines beliebigen Channel-Namens, `GET /api/channels`; Mods/Broadcaster sehen ihre getrackten **und** ungetrackten moderierten Channels, `GET /api/channels/mine`), `/channels/:channelName/usage-stats` (nur für Manager — `channelManagementGuard`), `/channels/:channelName/vote-sessions[/:sessionId]` (bewusst **ohne** Login-Zwang — Share-Link-fähig).
+- **Seiten/Routen (`web/src/app/app.routes.ts`):** `/welcome` (öffentliche, guard-lose Landing-Page — Einstieg für anonyme Besucher, z. B. über einen geteilten Link), `/login`, `/` (Übersicht, `homeGuard` — anonyme Besucher landen auf `/welcome` statt dem Login-Formular; eingeloggt: Admin sieht alle getrackten Channels + Formular zum Joinen eines beliebigen Channel-Namens, `GET /api/channels`, Mods/Broadcaster ihre getrackten **und** ungetrackten moderierten Channels, `GET /api/channels/mine`), `/my-votings` (kanalübergreifende eigene Stimmhistorie, `authGuard` — bewusst Geschwister-Route der Channel-Workspace-Routen, nicht darunter verschachtelt, da sie an keinen einzelnen `channelName`-Routenwert gebunden ist), `/channels/:channelName/usage-stats` (`usageStatsAccessGuard` — echte Berechtigung fürs Channel, nicht nur Login: Admin/Broadcaster/Live-Moderator oder 7TV-Editor), `/channels/:channelName/vote-sessions` (Liste, `authGuard` — nur Login-Pflicht, die Liste selbst hat keine sitzungsspezifische Rolleneinschränkung), `/channels/:channelName/vote-sessions/:sessionId` (Detail, `voteSessionAccessGuard` — Login **und** echte Zugehörigkeit zur Zielgruppe dieser konkreten Session). **Anonyme Share-Links wurden am 2026-07-27 entfernt** (explizite Nutzerentscheidung, reversiert eine frühere Design-Entscheidung): Voting-Seiten waren ursprünglich bewusst ohne Login-Zwang erreichbar, verlangen jetzt aber durchgängig Login — s. CLAUDE.md-Entscheidungslog für den vollständigen Verlauf.
 - **Grid statt Liste:** Bei bis zu ~1.000 Emoten pro Channel wäre eine Ein-Spalten-Liste unpraktikabel lang zum Scrollen. Usage-Stats und Voting-Ergebnisse rendern die Emotes daher als responsives Grid (2–8 Spalten je Fensterbreite) — `CdkVirtualScrollViewport` virtualisiert dabei **Zeilen** von je mehreren Karten (Row-Chunking), nicht einzelne Emotes; Spaltenzahl reagiert live auf Resize.
 - Mehrfachauswahl (Checkbox + Shift-Klick-Bereichsauswahl) auf beiden Grid-Seiten identisch.
 - Virtual Scrolling: Nutzung von Angular CDK `CdkVirtualScrollViewport` für flüssiges Rendering.
@@ -131,8 +131,11 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 ```
 
 - Rate-Limiting: Sequenzielle Ausführung mit ~275 ms Verzögerung zwischen Requests.
-- **Backend-Sync — Abweichung von der urspr. Spezifikation:** Das Frontend meldet gelöschte IDs an die C#-API über `POST /api/channels/{channelName}/emotes/sync-deleted` (channel-scoped), nicht den ursprünglich skizzierten globalen Pfad `POST /api/emotes/sync-deleted` — konsistent mit jedem anderen channel-bezogenen Endpoint und ermöglicht die Wiederverwendung von `ChannelManagementAuthorizationFilter` (Route-Value-basiert). Markiert die betroffenen `Emote`-Zeilen als `IsArchived = true` (Soft-Archive, kein Hard-Delete — s. CLAUDE.md-Entscheidungslog), der 1-Minuten-`SevenTvPeriodicResyncWorker` bleibt das eigentliche Sicherheitsnetz.
-- **Voting-UI:** Daumen-hoch/-runter pro Emote (Keep/Delete), eigener Vote wird hervorgehoben (`MyVote`, in den Ergebnissen mitgeliefert, auch für anonyme Besucher `null`); Session-Erstellung/-Beendigung nur für Manager sichtbar (dieselbe `ChannelManagementAuthorizationFilter`-Prüfung als Client-seitige Sichtbarkeits-Probe wiederverwendet).
+- **Backend-Sync — Abweichung von der urspr. Spezifikation:** Das Frontend meldet gelöschte IDs an die C#-API über `POST /api/channels/{channelName}/emotes/sync-deleted` (channel-scoped), nicht den ursprünglich skizzierten globalen Pfad `POST /api/emotes/sync-deleted` — konsistent mit jedem anderen channel-bezogenen Endpoint. Route-Gruppe hängt hinter `UsageStatsAccessAuthorizationFilter` (nicht `ChannelManagementAuthorizationFilter` — 7TV-Editoren des Channels dürfen ebenfalls archivieren, s. dessen Klassenkommentar für die aktuelle Endpoint-Liste). Markiert die betroffenen `Emote`-Zeilen als `IsArchived = true` (Soft-Archive, kein Hard-Delete — s. CLAUDE.md-Entscheidungslog), der 1-Minuten-`SevenTvPeriodicResyncWorker` bleibt das eigentliche Sicherheitsnetz.
+- **Voting-UI:** Daumen-hoch/-runter pro Emote (Keep/Delete), eigener Vote wird hervorgehoben (`MyVote`, in den Ergebnissen mitgeliefert — seit der Login-Pflicht vom 2026-07-27 immer ein echter Nutzer, kein anonymer `null`-Fall mehr); Session-Erstellung/-Beendigung/-Löschung nur für Manager sichtbar (`ChannelManagementAuthorizationFilter`), Ergebnis-Ansicht hinter `VoteAudienceFilter` (Login + Zugehörigkeit zur Zielgruppe der Session, auch nach Session-Ende weiterhin sichtbar für das ursprüngliche Zielpublikum).
+- **Internationalisierung (i18n):** Transloco (`@jsverse/transloco`), zwei Sprachen (`de`/`en`), Locale-Dateien unter `web/public/i18n/{de,en}.json`. `web/src/app/core/i18n/language.service.ts` (`LanguageService`) hält die aktive Sprache als Signal, persistiert die Wahl in `localStorage` und fällt ohne gespeicherte Präferenz auf die Browsersprache bzw. Deutsch zurück (primäre Zielgruppe). Umschaltung zur Laufzeit ohne Reload.
+- **Stabiler Fehlercode-Vertrag:** Die Api liefert bei Fehlern ausschließlich sprachneutrale Codes (`{ errorCode = "..." }`), nie fertigen Text — übersetzt wird genau einmal im Frontend. Kette: `src/EmotePurge.Api/Validation/ApiErrorCodes.cs` (Konstanten) → `web/src/app/core/i18n/api-error.ts` (`apiErrorTranslationKey`, mappt `errorCode` auf einen `errors.api.<code>`-Übersetzungsschlüssel, mit Status-Code-Fallback für Antworten ohne Body, z. B. ein blankes `Forbid()`) → `errors.api.*`-Einträge in beiden Locale-Dateien. Der Vertrag lebt bewusst manuell synchron in diesen drei Stellen (kein Generator); `web/src/app/core/i18n/api-error.spec.ts` gleicht die bekannten Codes gegen beide Locale-Dateien ab.
+- **Pagination:** `PagedResult<T>` (`src/EmotePurge.Core/Services/PagedResult.cs`, `record` mit `Items`/`Page`/`PageSize`/`TotalCount`/berechnetem `TotalPages`) als generisches Paging-Envelope für Listen-Endpoints (u. a. Vote-Session-Listen). `web/src/app/shared/pagination/pager.ts` (`Pager`-Komponente) rendert Vor/Zurück + „Seite X von Y" darüber, wiederverwendet auf allen paginierten Listenseiten.
 
 ## 5. Datenbankmodell (Entity Framework Core Schema)
 
@@ -140,192 +143,66 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 >
 > Zusätzlich hat `UsageStat` einen Unique-Index auf `(EmoteId, Date)`, damit der 30-Sekunden-Batch-Flush pro Emote und Tag genau eine aggregierte Zeile pflegt statt vieler Einzelzeilen. `Date` ist als `DateOnly`/Postgres `date` typisiert (nicht `DateTime`/`timestamptz`) — macht den "UTC-Kalendertag"-Charakter der Spalte typsicher statt nur per Kommentar, und der Index trägt `UseCount` als Include-Spalte, damit Zeitraum-Summenabfragen (`SUM(UseCount) WHERE Date BETWEEN from AND to`) als Index-Only-Scan laufen. Diese Tages-Granularität ist bewusst die Grundlage für flexible Dashboard-Zeiträume (Tag/Woche/Monat/Custom) — ein Zeitraum ist einfach eine Summe über die passenden Tages-Zeilen, keine feinere Granularität oder Rollup-Tabelle nötig (siehe CLAUDE.md-Entscheidungslog).
 >
-> `User`, `VoteSession`, `Vote` und `AllowedRoles`/`VoteType` (Modul B/C) sind noch nicht implementiert — nur `Channel`, `Emote`, `UsageStat` existieren bisher (Modul 1: Chat-Analytics & Live-Synchronisation).
+> **Alle sechs Entitäten sind implementiert:** `Channel`, `Emote`, `UsageStat`, `User`, `VoteSession`, `Vote` (plus `AllowedRoles`/`VoteType` als Enums) liegen vollständig unter `src/EmotePurge.Core/Entities/` und sind über Migrationen angewendet — der bis 2026-07-25 gültige Stand ("nur Modul 1 implementiert") ist überholt. Zusätzlich liegt dort `ChannelName.cs` — keine Entität, sondern eine statische Normalisierungs-Hilfsklasse (`Normalize(string) => value.Trim().ToLowerInvariant()`), die die stille Invariante "`Channel.ChannelName` ist in der DB immer lowercase/getrimmt" an einer Stelle festhält.
 >
 > **Zweite Abweichung (`Channel.TwitchChannelId`):** ist `string?` (nullable) statt non-nullable — da die Spalte einen Unique-Index hat, hätte ein non-nullable Default (`""`) beim zweiten angelegten Channel einen Unique-Constraint-Verstoß ausgelöst (leerer String zählt für Unique-Indizes, NULL nicht). Bleibt `null`, bis sie aufgelöst werden kann. Wird inzwischen (Modul A.3) beim Channel-Join über 7TVs GraphQL-Nutzersuche befüllt, nicht erst durch das künftige Modul B (Twitch-OAuth) — siehe Modul-A.3-Abschnitt.
 
+Die vollständigen Feldlisten für alle sechs Entitäten stehen direkt in `src/EmotePurge.Core/Entities/` (`Channel.cs`, `Emote.cs`, `UsageStat.cs`, `User.cs`, `VoteSession.cs`, `Vote.cs`) — bewusst nicht hier gespiegelt, das war genau der Grund, warum dieser Abschnitt zuletzt veraltete. Was man beim Lesen der Datenbank kennen muss, sind die beiden oben beschriebenen Invarianten:
+
 ```csharp
-namespace EmotePurge.Core.Entities;
-
-public class Channel
-{
-    public string Id { get; set; } = Guid.NewGuid().ToString();
-    public string? TwitchChannelId { get; set; }
-    public string ChannelName { get; set; } = string.Empty;
-    public string ActiveEmoteSetId { get; set; } = string.Empty;
-    public bool IsBotActive { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-    public ICollection<Emote> Emotes { get; set; } = new List<Emote>();
-}
-
 public class Emote
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString(); // interner PK
+    public string Id { get; set; } = Guid.NewGuid().ToString(); // interner PK, NICHT die 7TV-ObjectID
 
-    // 7TV ObjectID (24-hex string). Nicht der PK: dasselbe 7TV-Emote kann in
-    // mehreren Channels gleichzeitig aktiv sein, daher gilt Eindeutigkeit nur
-    // pro Channel via Unique-Index auf (ChannelId, SevenTvEmoteId).
+    // 7TV ObjectID (24-hex string). Eindeutig nur pro Channel via Unique-Index
+    // auf (ChannelId, SevenTvEmoteId) — dasselbe 7TV-Emote kann in mehreren
+    // Channels gleichzeitig aktiv sein.
     public string SevenTvEmoteId { get; set; } = string.Empty;
-
-    public string ChannelId { get; set; } = string.Empty;
-    public string Name { get; set; } = string.Empty;
-    public string ImageUrl { get; set; } = string.Empty;
-    public bool IsArchived { get; set; }
-    public DateTime LastSyncedAt { get; set; } = DateTime.UtcNow;
-
-    public Channel Channel { get; set; } = null!;
-    public ICollection<UsageStat> UsageStats { get; set; } = new List<UsageStat>();
+    // ... ChannelId, Name, ImageUrl, IsArchived, LastSyncedAt, Channel, UsageStats
 }
 
 public class UsageStat
 {
     public long Id { get; set; }
     public string EmoteId { get; set; } = string.Empty; // FK auf Emote.Id (interner PK)
-    public DateOnly Date { get; set; } // UTC-Kalendertag, Unique-Index (Include UseCount) mit EmoteId
+
+    // UTC-Kalendertag, Postgres `date` (nicht `timestamptz`) — Unique-Index (Include UseCount)
+    // zusammen mit EmoteId.
+    public DateOnly Date { get; set; }
     public int UseCount { get; set; }
-
-    public Emote Emote { get; set; } = null!;
-}
-
-// Noch nicht implementiert (Modul B/C):
-public class User
-{
-    public string Id { get; set; } = string.Empty; // Twitch User ID
-    public string TwitchUsername { get; set; } = string.Empty;
-    public string DisplayName { get; set; } = string.Empty;
-    public DateTime LastLogin { get; set; } = DateTime.UtcNow;
-}
-
-public class VoteSession
-{
-    public long Id { get; set; }
-    public string ChannelId { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
-    public AllowedRoles AllowedVoterRoles { get; set; } = AllowedRoles.Everyone;
-    public bool IsActive { get; set; }
-    public DateTime StartedAt { get; set; } = DateTime.UtcNow;
-    public DateTime? EndedAt { get; set; }
-
-    public ICollection<Vote> Votes { get; set; } = new List<Vote>();
-}
-
-[Flags]
-public enum AllowedRoles
-{
-    Everyone = 1,
-    Subs = 2,
-    VIPs = 4,
-    Mods = 8,
-    Broadcaster = 16
-}
-
-public class Vote
-{
-    public long Id { get; set; }
-    public long VoteSessionId { get; set; }
-    public string EmoteId { get; set; } = string.Empty;
-    public string UserId { get; set; } = string.Empty;
-    public VoteType Type { get; set; }
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-}
-
-public enum VoteType
-{
-    Keep = 1,
-    Delete = 2
+    // ... Emote
 }
 ```
 
-## 6. Docker Compose Topologie
+## 6. Docker-Topologie
 
-> **Abweichungen von der urspr. Spezifikation:** `redis:7-alpine` → `redis:7.2-alpine` (Lizenz-Grund, siehe Abschnitt 2). `depends_on` nutzt `condition: service_healthy` statt einer einfachen Liste, dazu Healthchecks für `postgres`/`redis` — ohne das starten `api`/`worker` sonst, bevor die Datenbank überhaupt Verbindungen annimmt, und crashen beim ersten Zugriff. `postgres` ist zusätzlich lokal auf `127.0.0.1:5432` exponiert (DB-Tools wie DataGrip/pgAdmin während der Entwicklung). Die konkreten Dockerfiles liegen unter `src/EmotePurge.Api/Dockerfile` und `src/EmotePurge.Worker/Dockerfile` (Multi-Stage-Build: SDK-Image für Build/Publish, schlankes Runtime-Image für `final`).
+> **Abweichungen von der urspr. Spezifikation:** `redis:7-alpine` → `redis:7.2-alpine` (Lizenz-Grund, siehe Abschnitt 2). `depends_on` nutzt `condition: service_healthy` statt einer einfachen Liste, dazu Healthchecks für `postgres`/`redis` — ohne das starten `api`/`worker` sonst, bevor die Datenbank überhaupt Verbindungen annimmt, und crashen beim ersten Zugriff. Die konkreten Dockerfiles liegen unter `src/EmotePurge.Api/Dockerfile` und `src/EmotePurge.Worker/Dockerfile` (Multi-Stage-Build: SDK-Image für Build/Publish, schlankes Runtime-Image für `final`, bei der Api zusätzlich eine `web-build`-Node-Stage für den Angular-Build, s. Modul D).
 
-```yaml
-name: emote-purge
+Es gibt zwei Compose-Dateien, kein YAML mehr hier gespiegelt — die eingebettete Kopie war genau deshalb veraltet, weil sie eine Kopie war. Für den vollständigen, aktuellen Inhalt gilt jeweils die Datei selbst als Quelle der Wahrheit.
 
-services:
-  redis:
-    image: redis:7.2-alpine
-    container_name: emotepurge-redis
-    restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD}
-    ports:
-      - "127.0.0.1:6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks:
-      - emotepurge-network
+### 6a. Lokal (`docker-compose.yml`)
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: emotepurge-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: emotepurge
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d emotepurge"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks:
-      - emotepurge-network
+Für lokale Entwicklung/Tests: `docker compose up -d --build` baut `api`/`worker` aus dem Repo-Stand (`build:`-Sektion, kein vorgebautes Image). Gestartet mit `redis`, `postgres`, `api`, `worker` im gemeinsamen `emotepurge-network`-Bridge-Netz.
 
-  api:
-    build:
-      context: .
-      dockerfile: src/EmotePurge.Api/Dockerfile
-    container_name: emotepurge-api
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    environment:
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
-    networks:
-      - emotepurge-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+### 6b. Produktion (`docker-compose.prod.yml` + `.github/workflows/publish.yml`)
 
-  worker:
-    build:
-      context: .
-      dockerfile: src/EmotePurge.Worker/Dockerfile
-    container_name: emotepurge-worker
-    restart: unless-stopped
-    environment:
-      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
-    networks:
-      - emotepurge-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+Läuft auf einem VPS neben einer bestehenden, unabhängigen App, als Portainer-Stack importiert (`docker-compose.prod.yml` ist die Datei, die dafür auf GitHub liegt). `.github/workflows/publish.yml` baut bei jedem Push auf `main` (nach grünem `test`- und `test-web`-Job) beide Images und pusht sie nach `ghcr.io/sensitron/emotepurge-{api,worker}:latest` (zusätzlich mit dem Commit-SHA getaggt); ein Redeploy des Portainer-Stacks zieht `:latest` neu.
 
-volumes:
-  postgres-data:
-    driver: local
+**Unterschiede lokal vs. Produktion:**
 
-networks:
-  emotepurge-network:
-    driver: bridge
-```
+| Aspekt | Lokal (`docker-compose.yml`) | Produktion (`docker-compose.prod.yml`) |
+| :--- | :--- | :--- |
+| `api`/`worker`-Images | `build:` aus dem lokalen Repo-Stand | `image: ghcr.io/sensitron/emotepurge-{api,worker}:latest`, per CI gebaut |
+| Host-Port `api` | `127.0.0.1:8080:8080` | `127.0.0.1:4300:8080` — Port 8080 ist auf dem VPS bereits von der anderen App belegt |
+| Host-Port `postgres` | `127.0.0.1:5432:5432` | `127.0.0.1:5433:5432` — analog, eigene isolierte Postgres-Instanz statt Mitnutzung der anderen App |
+| Host-Port `redis` | `127.0.0.1:6379:6379` | `127.0.0.1:6380:6379` |
+| TLS/Reverse Proxy | keiner, direkter HTTP-Zugriff auf `localhost:8080` | Ein host-nativer (nicht containerisierter) Reverse Proxy vor dem Loopback-Port terminiert TLS für `emotepurge.app` und setzt `X-Forwarded-Proto`/`-For`; `ForwardedHeadersMiddleware` in `Program.cs` vertraut dem mit leerem `KnownIPNetworks`/`KnownProxies`, da der Container ausschließlich über den lokal gebundenen Port erreichbar ist |
+| `Auth:Twitch:RedirectUri` | `http://localhost:8080/api/auth/twitch/callback` | `https://emotepurge.app/api/auth/twitch/callback` |
+| `dataprotection-keys`-Volume | vorhanden — bewusste Parität zu Prod, damit dieser Pfad lokal überhaupt getestet wird | vorhanden — ohne persistierten Schlüsselring würde jeder Container-Neustart alle eingeloggten Nutzer aus der Cookie-Session werfen |
 
-Konfiguration erfolgt über eine `.env`-Datei am Repo-Root (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`) — Vorlage in `.env.example`, `.env` selbst ist git-ignored.
+Bewusst **nicht** unterschiedlich: `redis` läuft in beiden Dateien mit `--maxmemory 256mb --maxmemory-policy allkeys-lru`. Redis trägt hier neben dem Rollen-/Health-Cache auch `channel:bot:commands`; ein unkontrolliert wachsender Redis würde also die Bot-Steuerung mitreißen, und ein lokal unlimitierter Redis hätte genau den Pfad ungetestet gelassen, auf den es ankommt.
+
+Konfiguration erfolgt in beiden Fällen über eine `.env`-Datei am Repo-Root (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`) — Vorlage in `.env.example`, `.env` selbst ist git-ignored.
 
 ## 7. Lokale Entwicklung & Debugging (Dev Containers)
 
