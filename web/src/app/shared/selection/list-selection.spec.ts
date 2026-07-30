@@ -129,6 +129,37 @@ describe('ListSelection', () => {
     expect(selection.selectedKeys()).toEqual(['e']);
   });
 
+  it('retainVisible() keeps visible selections and drops filtered-out ones', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('c'), click(true)); // a, b, c selected
+
+    // A filter change hides 'a' and 'b'.
+    items.set(rows('c', 'd'));
+    selection.retainVisible();
+
+    // The invisible rows are gone from the authoritative key set — nothing off-screen can reach
+    // the delete path — while the still-visible 'c' survives the filter change (S2-16).
+    expect(selection.selectedKeys()).toEqual(['c']);
+
+    // The anchor ('c') is still visible, so shift-click ranges keep working from it.
+    selection.onRowClick(byId('d'), click(true));
+    expect(selection.selectedKeys().sort()).toEqual(['c', 'd']);
+  });
+
+  it('retainVisible() resets the anchor when the anchored row was filtered out', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click());
+
+    items.set(rows('b', 'c', 'd'));
+    selection.retainVisible();
+
+    expect(selection.selectedKeys()).toEqual([]);
+    // Anchor was reset — a shift-click has nothing to range from and degrades to a toggle.
+    selection.onRowClick(byId('d'), click(true));
+    expect(selection.selectedKeys()).toEqual(['d']);
+  });
+
   it('notifies a computed() that reads the selection', () => {
     const { selection, byId } = setup('a', 'b', 'c');
     // Regression guard: with a plain mutable set instead of a signal, these stayed frozen at their

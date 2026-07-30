@@ -10,6 +10,14 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — `SegmentedControl` als erster `shared/ui/`-Baustein; Filterwechsel beschneiden die Auswahl statt sie zu löschen (S2-16)
+
+**Betrifft:** `web/src/app/shared/ui/segmented-control.ts` · `web/src/app/shared/selection/list-selection.ts` · `web/src/app/features/usage-stats/usage-stats-page.ts` · `web/src/app/features/usage-stats/usage-stats-page.html` · `web/src/app/features/voting/vote-session-detail-page.ts`
+
+**Zwei Entscheidungen aus dem UI/UX-Audit vom 2026-07-30.** Erstens: Die drei Zeitraum-Presets der Usage-Stats-Seite („Heute/7 Tage/30 Tage") zeigten nie einen Aktiv-Zustand — direkt neben dem „Nur ungenutzte"-Toggle, der einen hat. Sie sind jetzt ein **Segmented Control** (wenige, sich gegenseitig ausschließende Optionen ⇒ das passende Pattern laut Audit-Referenzen; Chips wären Multi-Select-Semantik, ein Dropdown versteckt die Alternativen). Neues viertes Segment „Eigener": erst dessen Wahl blendet die beiden Datumsfelder ein — der aktive Zustand ist ein eigenes `rangePreset`-Signal, nicht aus `from`/`to` zurückgeraten. Die Komponente liegt als **erster Baustein unter `web/src/app/shared/ui/`** (dem künftigen Ort für generische Design-System-Primitives, Abgrenzung zu den funktionsgebundenen `shared/`-Bausteinen): generische `options`/`model()`-API, `radiogroup`-Semantik mit Roving-Tabindex und Pfeiltasten-Navigation. Als Komponente bewusst ohne isolierten Spec (Konvention aus Regel 12: Komponenten werden live verifiziert, Utilities getestet).
+
+Zweitens **S2-16** (Review-Rest aus 2026-07-29): `EmoteUsageFilter` rief bei jeder Filteränderung `selection.clear()` — die mühsam zusammengeklickte Emote-Auswahl war bei jedem Tippen im Namensfilter weg. Die seit Welle B keyed `ListSelection` macht die sichere Variante möglich: neues `retainVisible()` behält, was sichtbar bleibt, und wirft nur die weggefilterten Keys raus — denn `selectedKeys` ist die autoritative Menge für den Delete-Pfad, ein unsichtbar-ausgewähltes Emote dürfte dort nie landen (deshalb *kein* simples „Auswahl komplett behalten"). Der Anker der Shift-Klick-Range wird mit zurückgesetzt, wenn die verankerte Zeile wegfällt. Gilt auf beiden Grid-Seiten (Usage-Stats + Voting-Detail); das `clear()` bei Reload/Zeitraumwechsel in `loadTotals` bleibt bewusst bestehen (dort ändern sich die Zahlen unter der Auswahl, s. Kommentar dort). Zwei neue Unit-Tests in `list-selection.spec.ts`.
+
 ### 2026-07-30 — Frontend-Konvention: globaler `:focus-visible`-Ring, kein `focus:outline-none` ohne Ersatz, Touch-Targets ≥ 24 px
 
 **Betrifft:** `web/src/styles.css` · `web/src/app/shared/emotes/emote-card-header.ts` · `web/src/app/shared/seven-tv/seven-tv-token-input.ts` · `web/src/app/features/landing/landing-page.html`

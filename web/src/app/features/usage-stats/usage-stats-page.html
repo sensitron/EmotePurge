@@ -11,31 +11,30 @@
       >
         ⟳ {{ 'usageStats.refresh' | transloco }}
       </button>
-      <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(0)">
-        {{ 'usageStats.presetToday' | transloco }}
-      </button>
-      <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(7)">
-        {{ 'usageStats.preset7Days' | transloco }}
-      </button>
-      <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="setPreset(30)">
-        {{ 'usageStats.preset30Days' | transloco }}
-      </button>
-      <label for="usage-stats-from-date" class="text-slate-400">{{ 'usageStats.fromLabel' | transloco }}</label>
-      <input
-        id="usage-stats-from-date"
-        type="date"
-        [value]="from()"
-        (change)="from.set($any($event.target).value)"
-        class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+      <app-segmented-control
+        [options]="presetOptions"
+        [value]="rangePreset()"
+        (valueChange)="onPresetChange($event)"
+        [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
       />
-      <label for="usage-stats-to-date" class="text-slate-400">{{ 'usageStats.toLabel' | transloco }}</label>
-      <input
-        id="usage-stats-to-date"
-        type="date"
-        [value]="to()"
-        (change)="to.set($any($event.target).value)"
-        class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
-      />
+      @if (rangePreset() === 'custom') {
+        <label for="usage-stats-from-date" class="text-slate-400">{{ 'usageStats.fromLabel' | transloco }}</label>
+        <input
+          id="usage-stats-from-date"
+          type="date"
+          [value]="from()"
+          (change)="from.set($any($event.target).value)"
+          class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+        />
+        <label for="usage-stats-to-date" class="text-slate-400">{{ 'usageStats.toLabel' | transloco }}</label>
+        <input
+          id="usage-stats-to-date"
+          type="date"
+          [value]="to()"
+          (change)="to.set($any($event.target).value)"
+          class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+        />
+      }
       <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="toggleSort()">
         {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
       </button>
@@ -104,7 +103,10 @@
   } @else if (sortedEmotes().length === 0) {
     <p class="text-sm text-slate-400">{{ 'usageStats.noActiveEmotes' | transloco }}</p>
   } @else {
-    <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="h-128 rounded-md border border-slate-800">
+    <cdk-virtual-scroll-viewport
+      [itemSize]="rowHeight"
+      class="h-[clamp(16rem,calc(100dvh-22rem),32rem)] rounded-md border border-slate-800"
+    >
       <div
         *cdkVirtualFor="let row of rows()"
         class="grid gap-3 px-3 py-2"
@@ -112,11 +114,16 @@
       >
         @for (emote of row; track emote.emoteId) {
           <div
+            role="button"
+            tabindex="0"
+            [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
               'flex h-24 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
               (selection.isSelected(emote) ? 'ring-2 ring-purple-500 bg-purple-950/40' : 'bg-slate-900')
             "
             (click)="selection.onRowClick(emote, $event)"
+            (keydown.enter)="selection.onRowClick(emote, $any($event))"
+            (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" />
             <div class="flex h-10 shrink-0 items-center justify-center">

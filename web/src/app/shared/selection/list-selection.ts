@@ -78,4 +78,15 @@ export class ListSelection<T> {
     this.selectedKeySet.set(new Set());
     this.anchorKey = null;
   }
+
+  // Filter changes prune instead of clearing (S2-16): what stays visible stays selected, while a
+  // key that is filtered out of items() must not linger — selectedKeys is authoritative for the
+  // delete path, and an invisible-but-selected emote would be deleted without being on screen.
+  retainVisible(): void {
+    const visible = new Set(this.items().map((item) => this.keyFn(item)));
+    this.selectedKeySet.update((keys) => new Set([...keys].filter((key) => visible.has(key))));
+    if (this.anchorKey !== null && !visible.has(this.anchorKey)) {
+      this.anchorKey = null;
+    }
+  }
 }

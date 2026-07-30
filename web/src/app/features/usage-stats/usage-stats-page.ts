@@ -13,8 +13,10 @@ import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
+import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
 
 type SortDirection = 'asc' | 'desc';
+type RangePreset = '0' | '7' | '30' | 'custom';
 
 // Row height (px) fed to CdkVirtualScrollViewport — must match the fixed card height + row
 // wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same height.
@@ -40,7 +42,7 @@ function daysAgo(days: number): Date {
 
 @Component({
   selector: 'app-usage-stats-page',
-  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
+  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, SegmentedControl, TranslocoPipe],
   host: {
     '(window:resize)': 'updateColumns()',
   },
@@ -59,6 +61,16 @@ export class UsageStatsPage {
   protected readonly to = signal(toIsoDate(new Date()));
   protected readonly sortDirection = signal<SortDirection>('desc');
 
+  // Which segment is lit; 'custom' exposes the two date inputs instead of changing the dates.
+  // Must match the initial from()/to() pair above.
+  protected readonly rangePreset = signal<RangePreset>('7');
+  protected readonly presetOptions: SegmentedControlOption[] = [
+    { value: '0', labelKey: 'usageStats.presetToday' },
+    { value: '7', labelKey: 'usageStats.preset7Days' },
+    { value: '30', labelKey: 'usageStats.preset30Days' },
+    { value: 'custom', labelKey: 'usageStats.presetCustom' },
+  ];
+
   protected readonly emotes = signal<EmoteUsageTotal[]>([]);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly isLoading = signal(false);
@@ -68,7 +80,9 @@ export class UsageStatsPage {
   private readonly destroyRef = inject(DestroyRef);
   private syncPoll?: Subscription;
 
-  protected readonly usageFilter = new EmoteUsageFilter<EmoteUsageTotal>(() => this.selection.clear());
+  // Prune, don't clear (S2-16): narrowing a filter keeps the still-visible part of the selection,
+  // while anything filtered out is dropped so the delete path never holds an off-screen emote.
+  protected readonly usageFilter = new EmoteUsageFilter<EmoteUsageTotal>(() => this.selection.retainVisible());
 
   protected readonly filteredEmotes = computed(() => this.usageFilter.apply(this.emotes()));
 
@@ -111,9 +125,12 @@ export class UsageStatsPage {
     this.load(this.channelName(), this.from(), this.to());
   }
 
-  protected setPreset(days: number): void {
-    this.from.set(toIsoDate(daysAgo(days)));
-    this.to.set(toIsoDate(new Date()));
+  protected onPresetChange(value: string): void {
+    this.rangePreset.set(value as RangePreset);
+    if (value !== 'custom') {
+      this.from.set(toIsoDate(daysAgo(Number(value))));
+      this.to.set(toIsoDate(new Date()));
+    }
   }
 
   protected toggleSort(): void {
