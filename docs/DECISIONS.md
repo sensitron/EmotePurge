@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — Rate-Limit-Policy `ExternalApi` von 20/min auf 40/min pro Nutzer angehoben
+
+**Betrifft:** `src/EmotePurge.Api/Program.cs`
+
+**Live-Befund beim Durchklicken der neuen UI (2026-07-30):** Normale Navigation produzierte 429er auf `/api/channels/mine`. Ursache ist kein Bug, sondern Arithmetik: Die `ExternalApi`-Policy (20/min pro Nutzer, Fixed Window) deckt *mehrere* Endpunkte, und ein gewöhnlicher Seitenwechsel verbrennt gleich mehrere Permits — jede Rückkehr zur Übersicht 1× `/channels/mine`, jeder Workspace-Einstieg zusätzlich `/permissions` + Usage-Stats. Nach ~7 Seitenwechseln in einer Minute war das Budget leer. **Anhebung auf 40/min**, nicht mehr: Der Schutzzweck der Policy (ein loopender Account darf nicht die app-weite Helix-Quota von ~800 Punkten/min leeren, s. Ursprungs-Eintrag der Policy) bleibt gewahrt — selbst der Worst Case (40 × `/mine` mit bis zu 10 Helix-Calls) bleibt unterhalb der App-Quota, real liegen die Werte weit darunter. Fenster-Mechanik (Fixed Window, QueueLimit 0) unverändert: Queuing würde Requests bis zum Fensterende festhalten und die UI einfrieren lassen statt sauber zu fehlern. **Notiert als nachhaltigere Alternative, falls das Limit wieder drückt:** ein kurzer serverseitiger Cache (30–60 s) für `/channels/mine` — der eigentliche Kostentreiber sind dessen bis zu 10 ungecachte Helix-Calls pro Aufruf, nicht die Request-Zahl.
+
 ### 2026-07-30 — Listen-Karten vollflächig klickbar über das Stretched-Link-Pattern (`.app-card-link`)
 
 **Betrifft:** `web/src/styles.css` · `web/src/app/features/voting/vote-session-list-page.html` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/features/overview/overview-page.html` · `web/e2e/channel-workspace.e2e.spec.ts`

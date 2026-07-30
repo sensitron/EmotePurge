@@ -104,7 +104,11 @@ builder.Services.AddRateLimiter(options =>
     // exhaust the app-wide bucket, at which point Helix returns nothing for *everyone* and
     // ModeratorCheckService can no longer distinguish "not a mod" from "quota exhausted" — every
     // moderator of every channel silently loses their permissions.
-    options.AddPolicy("ExternalApi", httpContext => PartitionPerUser(httpContext, permitLimit: 20));
+    // 40, not 20: ordinary navigation burns several permits per page switch (/channels/mine on
+    // every overview visit, /permissions plus usage-stats on every workspace entry), so 20/min
+    // ran out after ~7 page switches of plain clicking. The worst case per account stays below
+    // the app-wide Helix bucket (~800/min) even at /mine's up-to-10 Helix calls per request.
+    options.AddPolicy("ExternalApi", httpContext => PartitionPerUser(httpContext, permitLimit: 40));
 
     // Generous: bookkeeping against our own database with no downstream cost. Deliberately split
     // out of the strict policy — sync-deleted is the one call that must never be dropped (a 429
