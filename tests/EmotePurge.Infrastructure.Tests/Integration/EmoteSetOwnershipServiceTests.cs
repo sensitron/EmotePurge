@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Services;
@@ -31,9 +32,10 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
             .Returns("7tv-user-a");
 
         var helix = Substitute.For<ITwitchHelixClient>();
-        var service = new EmoteSetOwnershipService(db, sevenTv, helix, NullLogger<EmoteSetOwnershipService>.Instance);
+        var userTokens = Substitute.For<ITwitchUserTokenService>();
+        var service = new EmoteSetOwnershipService(db, sevenTv, helix, userTokens, NullLogger<EmoteSetOwnershipService>.Instance);
 
-        var result = await service.CheckAsync("sharedsettest_a", callerTwitchUserId: null, callerAccessToken: null);
+        var result = await service.CheckAsync("sharedsettest_a", caller: null);
 
         Assert.True(result.Available);
         Assert.True(result.IsOwnSet);
@@ -51,9 +53,10 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
 
         var sevenTv = Substitute.For<ISevenTvApiClient>();
         var helix = Substitute.For<ITwitchHelixClient>();
-        var service = new EmoteSetOwnershipService(db, sevenTv, helix, NullLogger<EmoteSetOwnershipService>.Instance);
+        var userTokens = Substitute.For<ITwitchUserTokenService>();
+        var service = new EmoteSetOwnershipService(db, sevenTv, helix, userTokens, NullLogger<EmoteSetOwnershipService>.Instance);
 
-        var result = await service.CheckAsync("neversynctest", callerTwitchUserId: null, callerAccessToken: null);
+        var result = await service.CheckAsync("neversynctest", caller: null);
 
         Assert.False(result.Available);
         Assert.False(result.IsOwnSet);
@@ -85,9 +88,14 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
         helix.GetModeratedChannelsAsync("caller-token", "caller-id", Arg.Any<CancellationToken>())
             .Returns(new List<TwitchModeratedChannelInfo> { new("tier3test_untracked", "3002") });
 
-        var service = new EmoteSetOwnershipService(db, sevenTv, helix, NullLogger<EmoteSetOwnershipService>.Instance);
+        var caller = new TwitchPrincipalInfo("caller-id", "callerlogin", "caller-token");
+        var userTokens = Substitute.For<ITwitchUserTokenService>();
+        userTokens.GetValidAccessTokenAsync(caller, Arg.Any<CancellationToken>())
+            .Returns(new TwitchUserTokenResult("caller-token", ReauthRequired: false));
 
-        var result = await service.CheckAsync("tier3test_owner", callerTwitchUserId: "caller-id", callerAccessToken: "caller-token");
+        var service = new EmoteSetOwnershipService(db, sevenTv, helix, userTokens, NullLogger<EmoteSetOwnershipService>.Instance);
+
+        var result = await service.CheckAsync("tier3test_owner", caller);
 
         Assert.Contains("tier3test_untracked", result.OtherModeratedChannelsSharingSet);
         Assert.Empty(result.OtherTrackedChannelsSharingSet);

@@ -65,7 +65,9 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddSingleton<ITokenCipher, AesGcmTokenCipher>();
+        services.AddSingleton<TwitchTokenRefreshGate>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<ITwitchUserTokenService, TwitchUserTokenService>();
         services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
         services.AddScoped<ISevenTvEditorService, SevenTvEditorService>();
         services.AddScoped<IChannelAccessService, ChannelAccessService>();

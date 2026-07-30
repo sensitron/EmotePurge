@@ -15,8 +15,8 @@ internal static class ClaimsPrincipalExtensions
             return null;
         }
 
-        // Access token expires ~4h after login (no refresh flow in this pass — see plan/decision
-        // log); once it's expired we simply stop attempting live Helix role checks.
+        // The claim token expires ~4h after login. Past that, AccessToken is null and
+        // ITwitchUserTokenService transparently takes over via the stored refresh token.
         var accessToken = user.FindFirstValue(TwitchClaimTypes.AccessToken);
         var expiresAtRaw = user.FindFirstValue(TwitchClaimTypes.TokenExpiresAtUtc);
         var tokenStillValid = expiresAtRaw is not null

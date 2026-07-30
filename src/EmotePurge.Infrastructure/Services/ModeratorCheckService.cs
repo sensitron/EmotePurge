@@ -8,6 +8,7 @@ namespace EmotePurge.Infrastructure.Services;
 public class ModeratorCheckService(
     ITwitchHelixClient helixClient,
     IModRoleCache modRoleCache,
+    ITwitchUserTokenService userTokenService,
     ILogger<ModeratorCheckService> logger) : IModeratorCheckService
 {
     public async Task<bool> IsModeratorAsync(TwitchPrincipalInfo principal, string channelName, CancellationToken cancellationToken = default)
@@ -20,15 +21,17 @@ public class ModeratorCheckService(
             return cached.Value;
         }
 
-        if (principal.AccessToken is null)
+        // After the cache check on purpose — a cache hit must never cost a token refresh.
+        var token = await userTokenService.GetValidAccessTokenAsync(principal, cancellationToken);
+        if (token.AccessToken is null)
         {
-            // Access token expired and no refresh flow in this pass — the live Helix check
-            // simply cannot run; the caller must re-login to regain moderator-level access.
+            // No usable token even after the refresh attempt — the live Helix check simply
+            // cannot run; deny without caching so a later refresh/re-login retries live.
             logger.LogInformation("Mod-Check für {User}/{Channel} übersprungen: kein gültiger Access Token.", principal.TwitchUserId, normalizedChannel);
             return false;
         }
 
-        var moderatedChannels = await helixClient.GetModeratedChannelLoginsAsync(principal.AccessToken, principal.TwitchUserId, cancellationToken);
+        var moderatedChannels = await helixClient.GetModeratedChannelLoginsAsync(token.AccessToken, principal.TwitchUserId, cancellationToken);
         if (moderatedChannels is null)
         {
             // Transient Helix failure — deny, but don't cache it, so the next request retries live.

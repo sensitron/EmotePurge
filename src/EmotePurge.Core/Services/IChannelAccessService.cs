@@ -1,8 +1,8 @@
 namespace EmotePurge.Core.Services;
 
-// AccessToken is null when the caller's Twitch access token has already expired (no refresh
-// flow in this pass — see CLAUDE.md decision log) — the moderator check is then skipped and only
-// the admin-allowlist/broadcaster checks (which don't need a live Twitch token) can still succeed.
+// AccessToken is the cookie-claim token, null once its claimed expiry has passed. Consumers must
+// not use it directly for Helix calls — ITwitchUserTokenService takes the whole principal and
+// serves the claim token while valid, then falls back to the server-side refresh flow.
 public record TwitchPrincipalInfo(string TwitchUserId, string TwitchLogin, string? AccessToken);
 
 public interface IChannelAccessService

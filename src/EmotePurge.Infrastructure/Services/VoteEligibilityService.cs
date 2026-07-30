@@ -12,6 +12,7 @@ public class VoteEligibilityService(
     IChannelAccessService channelAccessService,
     IModRoleCache modRoleCache,
     ITwitchHelixClient helixClient,
+    ITwitchUserTokenService userTokenService,
     ILogger<VoteEligibilityService> logger) : IVoteEligibilityService
 {
     public async Task<VoteEligibilityResult> EvaluateAsync(
@@ -68,10 +69,10 @@ public class VoteEligibilityService(
 
         if (roles.HasFlag(AllowedRoles.Subs))
         {
-            if (channel.TwitchChannelId is null || principal.AccessToken is null)
+            if (channel.TwitchChannelId is null)
             {
                 logger.LogInformation(
-                    "Sub-Check für {User}/{Channel} übersprungen: TwitchChannelId oder Access Token fehlt.",
+                    "Sub-Check für {User}/{Channel} übersprungen: TwitchChannelId fehlt.",
                     principal.TwitchUserId, normalizedChannel);
             }
             else if (await IsSubscriberAsync(principal, channel.TwitchChannelId, cancellationToken))
@@ -93,8 +94,18 @@ public class VoteEligibilityService(
             return isSubscriberCached;
         }
 
+        // After the cache check on purpose — a cache hit must never cost a token refresh.
+        var token = await userTokenService.GetValidAccessTokenAsync(principal, cancellationToken);
+        if (token.AccessToken is null)
+        {
+            logger.LogInformation(
+                "Sub-Check für {User}/{Broadcaster} übersprungen: kein gültiger Access Token.",
+                principal.TwitchUserId, broadcasterTwitchId);
+            return false;
+        }
+
         var isSubscribed = await helixClient.GetUserSubscriptionStatusAsync(
-            principal.AccessToken!, broadcasterTwitchId, principal.TwitchUserId, cancellationToken);
+            token.AccessToken, broadcasterTwitchId, principal.TwitchUserId, cancellationToken);
 
         // null is "Helix could not tell us" (rate limit, outage, expired token) — deliberately not
         // cached, otherwise a transient 429 would silently drop a subscriber's sessions off their list

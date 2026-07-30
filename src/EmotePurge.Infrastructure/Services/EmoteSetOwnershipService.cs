@@ -12,6 +12,7 @@ public class EmoteSetOwnershipService(
     AppDbContext db,
     ISevenTvApiClient sevenTvApiClient,
     ITwitchHelixClient twitchHelixClient,
+    ITwitchUserTokenService userTokenService,
     ILogger<EmoteSetOwnershipService> logger) : IEmoteSetOwnershipService
 {
     // Bounds how many parallel 7TV lookups Tier 3 fires off for a single check — a prolific mod's
@@ -20,8 +21,7 @@ public class EmoteSetOwnershipService(
 
     public async Task<EmoteSetWarningDto> CheckAsync(
         string channelName,
-        string? callerTwitchUserId,
-        string? callerAccessToken,
+        TwitchPrincipalInfo? caller,
         CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
@@ -56,7 +56,7 @@ public class EmoteSetOwnershipService(
         // Tier 3: channels the acting user moderates on Twitch but that we've never tracked/synced —
         // Tier 2 can't see these at all, since they have no row (or a stale one) in our own DB.
         var otherModerated = await CheckModeratedChannelsAsync(
-            channel.ActiveEmoteSetId, normalized, otherTracked, callerTwitchUserId, callerAccessToken, cancellationToken);
+            channel.ActiveEmoteSetId, normalized, otherTracked, caller, cancellationToken);
 
         return new EmoteSetWarningDto(available, isOwnSet, otherTracked, otherModerated);
     }
@@ -65,16 +65,21 @@ public class EmoteSetOwnershipService(
         string activeEmoteSetId,
         string currentChannelName,
         IReadOnlyList<string> alreadyCoveredByTier2,
-        string? callerTwitchUserId,
-        string? callerAccessToken,
+        TwitchPrincipalInfo? caller,
         CancellationToken cancellationToken)
     {
-        if (callerTwitchUserId is null || callerAccessToken is null)
+        if (caller is null)
         {
             return [];
         }
 
-        var moderated = await twitchHelixClient.GetModeratedChannelsAsync(callerAccessToken, callerTwitchUserId, cancellationToken);
+        var token = await userTokenService.GetValidAccessTokenAsync(caller, cancellationToken);
+        if (token.AccessToken is null)
+        {
+            return [];
+        }
+
+        var moderated = await twitchHelixClient.GetModeratedChannelsAsync(token.AccessToken, caller.TwitchUserId, cancellationToken);
         if (moderated is null || moderated.Count == 0)
         {
             return [];

@@ -9,7 +9,8 @@ namespace EmotePurge.Infrastructure.Services;
 public class MyChannelsService(
     AppDbContext db,
     ITwitchHelixClient helixClient,
-    ISevenTvEditorService sevenTvEditorService) : IMyChannelsService
+    ISevenTvEditorService sevenTvEditorService,
+    ITwitchUserTokenService userTokenService) : IMyChannelsService
 {
     private sealed class ChannelFlags
     {
@@ -27,13 +28,14 @@ public class MyChannelsService(
         var flagsByChannel = new Dictionary<string, ChannelFlags> { [selfLogin] = new() { IsBroadcaster = true } };
         var helixUnavailable = false;
 
-        if (principal.AccessToken is null)
+        var token = await userTokenService.GetValidAccessTokenAsync(principal, cancellationToken);
+        if (token.AccessToken is null)
         {
             helixUnavailable = true;
         }
         else
         {
-            var moderatedChannels = await helixClient.GetModeratedChannelLoginsAsync(principal.AccessToken, principal.TwitchUserId, cancellationToken);
+            var moderatedChannels = await helixClient.GetModeratedChannelLoginsAsync(token.AccessToken, principal.TwitchUserId, cancellationToken);
             if (moderatedChannels is null)
             {
                 helixUnavailable = true;

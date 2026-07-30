@@ -8,9 +8,9 @@ public record EmoteSetWarningDto(
 
 public interface IEmoteSetOwnershipService
 {
+    // caller is null for anonymous requests — the moderated-channels tier is then skipped.
     Task<EmoteSetWarningDto> CheckAsync(
         string channelName,
-        string? callerTwitchUserId,
-        string? callerAccessToken,
+        TwitchPrincipalInfo? caller,
         CancellationToken cancellationToken = default);
 }

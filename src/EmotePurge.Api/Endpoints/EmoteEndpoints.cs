@@ -48,7 +48,7 @@ public static class EmoteEndpoints
             CancellationToken ct) =>
         {
             var principal = httpContext.User.TryBuildTwitchPrincipal();
-            var warning = await emoteSetOwnershipService.CheckAsync(channelName, principal?.TwitchUserId, principal?.AccessToken, ct);
+            var warning = await emoteSetOwnershipService.CheckAsync(channelName, principal, ct);
             return Results.Ok(warning);
         });
 
