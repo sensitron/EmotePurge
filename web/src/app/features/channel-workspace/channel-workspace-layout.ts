@@ -4,7 +4,6 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
-import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 
 @Component({
   selector: 'app-channel-workspace-layout',
@@ -92,52 +91,43 @@ export class ChannelWorkspaceLayout {
   readonly channelName = input.required<string>();
 
   private readonly channelService = inject(ChannelService);
-  private readonly usageStatService = inject(UsageStatService);
   private readonly router = inject(Router);
   private readonly translocoService = inject(TranslocoService);
 
-  // ChannelManagementAuthorizationFilter probe — hides "Channel verlassen" for anyone who isn't
-  // actually allowed to manage this channel (anonymous visitors and unrelated logged-in users
-  // alike), not just unauthenticated ones. This is the UI-visibility half, not the enforcement —
-  // a direct action still goes through the server-side filter regardless.
+  // Was two probes: GET /api/channels/{c} for "may manage" and a throwaway one-day
+  // GetUsageTotalsAsync call for "may see the usage tab" (weaker — it also admits the channel's 7TV
+  // editors, who may not manage the channel at all, so it cannot just reuse canManage). Both are now
+  // fields of one /permissions response. This is the UI-visibility half only: every action still goes
+  // through the server-side filter, and the usage route has its own guard.
   protected readonly canManage = signal(false);
-
-  // Weaker, separate probe for the "Nutzung" tab: UsageStatsAccessAuthorizationFilter additionally
-  // admits a channel's 7TV editors, who aren't allowed to manage the channel (join/leave, vote
-  // sessions) at all — so this can't just reuse `canManage`. The route itself is additionally
-  // guarded (usageStatsAccessGuard) — this is only the UI-visibility half.
   protected readonly canViewUsageStats = signal(false);
 
-  // Comes free with the canManage probe, which already fetches the channel status and used to
-  // discard everything but the success/failure. Without it a deactivated channel offered no way back
-  // in: leaving keeps the row (see ChannelService.LeaveAsync), so the overview lists it as tracked
-  // and never shows the "Hinzufügen" button again — a non-admin was stuck with a permanently silent
-  // bot and no control anywhere in the UI.
+  // Without this a deactivated channel offered no way back in: leaving keeps the row (see
+  // ChannelService.LeaveAsync), so the overview lists it as tracked and never shows the "Hinzufügen"
+  // button again — a non-admin was stuck with a permanently silent bot and no control anywhere in the
+  // UI. Starts true so the leave button does not flicker into a reactivate button on load.
   protected readonly isBotActive = signal(true);
   protected readonly rejoinInProgress = signal(false);
 
   protected readonly errorMessage = signal<string | null>(null);
 
   constructor() {
-    effect(() => this.probeCanManage());
-    effect(() => this.probeCanViewUsageStats());
+    effect(() => this.loadPermissions());
   }
 
-  private probeCanManage(): void {
-    this.channelService.getStatus(this.channelName()).subscribe({
-      next: (status) => {
-        this.canManage.set(true);
-        this.isBotActive.set(status.isBotActive);
+  private loadPermissions(): void {
+    this.channelService.getPermissions(this.channelName()).subscribe({
+      next: (permissions) => {
+        this.canManage.set(permissions.canManage);
+        this.canViewUsageStats.set(permissions.canViewUsageStats);
+        this.isBotActive.set(permissions.isBotActive);
       },
-      error: () => this.canManage.set(false),
-    });
-  }
-
-  private probeCanViewUsageStats(): void {
-    const today = new Date().toISOString().slice(0, 10);
-    this.usageStatService.getTotals(this.channelName(), today, today).subscribe({
-      next: () => this.canViewUsageStats.set(true),
-      error: () => this.canViewUsageStats.set(false),
+      // Only reachable for a logged-out user (the interceptor already redirects) or a server error —
+      // hide everything privileged rather than guess.
+      error: () => {
+        this.canManage.set(false);
+        this.canViewUsageStats.set(false);
+      },
     });
   }
 

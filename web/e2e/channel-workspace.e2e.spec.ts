@@ -5,6 +5,7 @@ import {
   mockActiveEmoteSet,
   mockAdminChannels,
   mockAuthMe,
+  mockChannelPermissions,
   mockChannelStatus,
   mockMyChannels,
   mockUsageTotals,
@@ -31,6 +32,7 @@ test.describe('authenticated broadcaster', () => {
 
   test('opens a tracked channel from the overview and sees its usage stats', async ({ page }) => {
     await mockMyChannels(page, [{ channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true }]);
+    await mockChannelPermissions(page, 'sensitron');
     await mockChannelStatus(page, 'sensitron');
     await mockActiveEmoteSet(page, 'sensitron');
     await mockUsageTotals(page, 'sensitron', [

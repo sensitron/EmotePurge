@@ -75,8 +75,7 @@ export async function mockAdminChannels(page: Page, channels: MockChannel[] | 'f
   });
 }
 
-/** GET /api/channels/{channelName} — the management-authorization probe (ChannelWorkspaceLayout,
- *  and the "join" response shape). */
+/** GET /api/channels/{channelName} — join status and the "join" response shape. */
 export async function mockChannelStatus(page: Page, channelName: string, isBotActive = true): Promise<void> {
   await page.route(`**/api/channels/${channelName}`, (route) => {
     if (route.request().method() !== 'GET') {
@@ -91,6 +90,34 @@ export async function mockChannelStatus(page: Page, channelName: string, isBotAc
   });
 }
 
+/**
+ * GET /api/channels/{channelName}/permissions — the single permission read behind
+ * usageStatsAccessGuard, ChannelWorkspaceLayout and the vote-session list's "may manage" section.
+ * Defaults to a full-access manager; pass overrides for the restricted cases.
+ */
+export async function mockChannelPermissions(
+  page: Page,
+  channelName: string,
+  overrides: Partial<{
+    canManage: boolean;
+    canViewUsageStats: boolean;
+    isGlobalAdmin: boolean;
+    isTracked: boolean;
+    isBotActive: boolean;
+  }> = {},
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/permissions`, (route) =>
+    fulfillJson(route, 200, {
+      canManage: true,
+      canViewUsageStats: true,
+      isGlobalAdmin: false,
+      isTracked: true,
+      isBotActive: true,
+      ...overrides,
+    }),
+  );
+}
+
 export interface MockEmoteUsage {
   emoteId: string;
   emoteName: string;
@@ -99,7 +126,7 @@ export interface MockEmoteUsage {
   totalUseCount: number;
 }
 
-/** GET /api/channels/{channelName}/usage-stats/totals — also the usageStatsAccessGuard probe. */
+/** GET /api/channels/{channelName}/usage-stats/totals — the usage-stats page's actual data. */
 export async function mockUsageTotals(page: Page, channelName: string, emotes: MockEmoteUsage[]): Promise<void> {
   await page.route(`**/api/channels/${channelName}/usage-stats/totals**`, (route) => fulfillJson(route, 200, emotes));
 }

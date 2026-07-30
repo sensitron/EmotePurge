@@ -5,6 +5,20 @@ export interface ChannelStatus {
   activeEmoteSetId: string;
 }
 
+/**
+ * One answer to "what may I do with this channel", from GET /api/channels/{c}/permissions.
+ * Replaces the four probe calls that used to read a real endpoint's success/failure as a permission
+ * bit. `canViewUsageStats` is a superset of `canManage` — it also admits the channel's 7TV editors,
+ * who may not manage the channel at all — so gating the usage tab on `canManage` would be wrong.
+ */
+export interface ChannelPermissions {
+  canManage: boolean;
+  canViewUsageStats: boolean;
+  isGlobalAdmin: boolean;
+  isTracked: boolean;
+  isBotActive: boolean;
+}
+
 export interface AdminChannelDto {
   channelId: string;
   channelName: string;

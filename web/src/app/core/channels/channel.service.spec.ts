@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AdminChannelDto, ChannelStatus, MyChannelsResult } from './channel.model';
+import { AdminChannelDto, ChannelPermissions, ChannelStatus, MyChannelsResult } from './channel.model';
 import { ChannelService } from './channel.service';
 
 describe('ChannelService', () => {
@@ -38,6 +38,25 @@ describe('ChannelService', () => {
     req.flush(status);
 
     expect(result).toEqual(status);
+  });
+
+  it('getPermissions GETs /api/channels/{channelName}/permissions', () => {
+    const permissions: ChannelPermissions = {
+      canManage: false,
+      canViewUsageStats: true,
+      isGlobalAdmin: false,
+      isTracked: true,
+      isBotActive: false,
+    };
+
+    let result: ChannelPermissions | undefined;
+    service.getPermissions('sensitron').subscribe((r) => (result = r));
+
+    const req = httpMock.expectOne('/api/channels/sensitron/permissions');
+    expect(req.request.method).toBe('GET');
+    req.flush(permissions);
+
+    expect(result).toEqual(permissions);
   });
 
   it('join POSTs to /api/channels/{channelName}/join with an empty body', () => {
