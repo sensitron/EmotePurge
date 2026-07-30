@@ -5,6 +5,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { AuthService } from '../../core/auth/auth.service';
 import { WorkerHealthService, WorkerHealthStatus } from '../../core/health/worker-health.service';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
+import { Button } from '../../shared/ui/button';
 
 const STATUS_DOT_CLASS: Record<WorkerHealthStatus, string> = {
   connected: 'bg-emerald-500',
@@ -20,7 +21,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterOutlet, TranslocoPipe, LanguageSwitcher],
+  imports: [Button, RouterLink, RouterOutlet, TranslocoPipe, LanguageSwitcher],
   host: {
     '(keydown.escape)': 'onEscape()',
     '(document:click)': 'onDocumentClick($event)',
@@ -53,18 +54,11 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
                 'shell.myVotings' | transloco
               }}</a>
               <span class="text-sm text-slate-400">{{ user.displayName }}</span>
-              <button
-                type="button"
-                class="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-slate-800"
-                (click)="logout()"
-              >
+              <button type="button" appButton="outline" (click)="logout()">
                 {{ 'shell.logout' | transloco }}
               </button>
             } @else {
-              <a
-                routerLink="/login"
-                class="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-500"
-              >
+              <a routerLink="/login" appButton="primary">
                 {{ 'shell.login' | transloco }}
               </a>
             }
@@ -110,22 +104,14 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
                   <span class="text-sm text-slate-400">{{ user.displayName }}</span>
                   <app-language-switcher />
                 </div>
-                <button
-                  type="button"
-                  class="rounded-md border border-slate-700 px-3 py-3 text-left text-sm text-slate-300 transition hover:bg-slate-800"
-                  (click)="closeMenu(); logout()"
-                >
+                <button type="button" appButton="outline" class="py-3 text-left" (click)="closeMenu(); logout()">
                   {{ 'shell.logout' | transloco }}
                 </button>
               } @else {
                 <div class="flex items-center justify-end rounded-md px-3 py-2">
                   <app-language-switcher />
                 </div>
-                <a
-                  routerLink="/login"
-                  class="rounded-md bg-purple-600 px-3 py-3 text-center text-sm font-medium text-white transition hover:bg-purple-500"
-                  (click)="closeMenu()"
-                >
+                <a routerLink="/login" appButton="primary" class="py-3 text-center" (click)="closeMenu()">
                   {{ 'shell.login' | transloco }}
                 </a>
               }

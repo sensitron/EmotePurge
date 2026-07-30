@@ -3,10 +3,11 @@ import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { Button } from '../ui/button';
 
 @Component({
   selector: 'app-seven-tv-token-input',
-  imports: [ReactiveFormsModule, TranslocoPipe],
+  imports: [Button, ReactiveFormsModule, TranslocoPipe],
   template: `
     @if (tokenService.hasToken()) {
       <div class="flex items-center justify-between rounded-md bg-slate-800 px-3 py-2 text-sm">
@@ -40,12 +41,9 @@ import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service'
             type="password"
             [formControl]="tokenControl"
             [placeholder]="'sevenTvToken.placeholder' | transloco"
-            class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500"
+            class="app-input flex-1"
           />
-          <button
-            type="submit"
-            class="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-500"
-          >
+          <button type="submit" appButton="primary" buttonSize="lg">
             {{ 'sevenTvToken.save' | transloco }}
           </button>
         </form>

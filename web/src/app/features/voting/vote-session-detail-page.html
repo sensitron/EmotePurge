@@ -12,11 +12,7 @@
           }
         </p>
       </div>
-      <button
-        type="button"
-        class="rounded-md bg-slate-800 px-3 py-1.5 text-sm hover:bg-slate-700"
-        (click)="refresh()"
-      >
+      <button type="button" appButton="neutral" (click)="refresh()">
         {{ 'usageStats.refresh' | transloco }}
       </button>
     </header>
@@ -30,7 +26,7 @@
       [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
       [value]="usageFilter.min() ?? ''"
       (change)="usageFilter.setMinCount($any($event.target).value)"
-      class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+      class="app-input-sm w-20"
     />
     <input
       type="number"
@@ -39,7 +35,7 @@
       [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
       [value]="usageFilter.max() ?? ''"
       (change)="usageFilter.setMaxCount($any($event.target).value)"
-      class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+      class="app-input-sm w-20"
     />
     <input
       type="text"
@@ -48,15 +44,21 @@
       [title]="'usageStats.filterNameTitle' | transloco"
       [value]="usageFilter.nameQuery()"
       (input)="usageFilter.setNameFilter($any($event.target).value)"
-      class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
+      class="app-input-sm w-40"
     />
+    <!-- Constant label + pressed state instead of swapping the text — see usage-stats toolbar. -->
     <button
       type="button"
-      class="rounded-md px-3 py-1.5"
-      [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
+      class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
+      [class]="
+        usageFilter.isUnusedActive()
+          ? 'bg-purple-600 font-medium text-white hover:bg-purple-500'
+          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+      "
+      [attr.aria-pressed]="usageFilter.isUnusedActive()"
       (click)="usageFilter.toggleUnused()"
     >
-      {{ (usageFilter.isUnusedActive() ? 'usageStats.showAll' : 'usageStats.showUnusedOnly') | transloco }}
+      {{ 'usageStats.showUnusedOnly' | transloco }}
     </button>
   </div>
   <p class="text-sm text-slate-400" role="status">
@@ -74,11 +76,20 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
+    <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 
   @if (emotes().length === 0) {
-    <p class="text-sm text-slate-400">{{ 'voting.detail.noActiveEmotes' | transloco }}</p>
+    @if (orderedEmotes().length === 0) {
+      <app-empty-state [title]="'voting.detail.noActiveEmotes' | transloco" />
+    } @else {
+      <!-- The session has emotes; the filters hide all of them — offer the way back. -->
+      <app-empty-state [title]="'usageStats.noMatches' | transloco">
+        <button type="button" appButton="neutral" (click)="usageFilter.reset()">
+          {{ 'usageStats.resetFilters' | transloco }}
+        </button>
+      </app-empty-state>
+    }
   } @else {
     <cdk-virtual-scroll-viewport
       [itemSize]="rowHeight"

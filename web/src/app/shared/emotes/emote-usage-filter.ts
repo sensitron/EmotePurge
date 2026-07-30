@@ -82,4 +82,16 @@ export class EmoteUsageFilter<T extends FilterableEmote> {
     }
     this.onChange();
   }
+
+  /** True whenever any filter would exclude items — the empty state uses this to offer a reset. */
+  isAnyActive(): boolean {
+    return this.minCount() !== null || this.maxCount() !== null || this.nameFilter().trim() !== '';
+  }
+
+  reset(): void {
+    this.minCount.set(null);
+    this.maxCount.set(null);
+    this.nameFilter.set('');
+    this.onChange();
+  }
 }

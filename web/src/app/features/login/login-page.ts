@@ -3,10 +3,11 @@ import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
+import { Button } from '../../shared/ui/button';
 
 @Component({
   selector: 'app-login-page',
-  imports: [TranslocoPipe, LanguageSwitcher],
+  imports: [Button, TranslocoPipe, LanguageSwitcher],
   template: `
     <div class="flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-950 px-4">
       <app-language-switcher />
@@ -15,11 +16,7 @@ import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
         <p class="mb-6 text-sm text-slate-400">
           {{ 'login.subtitle' | transloco }}
         </p>
-        <button
-          type="button"
-          class="w-full rounded-md bg-purple-600 px-4 py-2 font-medium text-white transition hover:bg-purple-500"
-          (click)="login()"
-        >
+        <button type="button" appButton="primary" buttonSize="lg" class="w-full" (click)="login()">
           {{ 'login.loginButton' | transloco }}
         </button>
       </div>

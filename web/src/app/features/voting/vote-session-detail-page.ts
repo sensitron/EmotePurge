@@ -14,6 +14,9 @@ import { pluralKey } from '../../core/i18n/plural';
 import { VoteSessionResult, VoteSessionResults, VoteType } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import { Button } from '../../shared/ui/button';
+import { EmptyState } from '../../shared/ui/empty-state';
+import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
@@ -26,7 +29,7 @@ const ROW_HEIGHT_PX = 192;
 
 @Component({
   selector: 'app-vote-session-detail-page',
-  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
+  imports: [Button, EmptyState, NoticeBanner, ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
   host: {
     '(window:resize)': 'updateColumns()',
   },

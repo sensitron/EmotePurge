@@ -13,6 +13,9 @@ import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
+import { Button } from '../../shared/ui/button';
+import { EmptyState } from '../../shared/ui/empty-state';
+import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
 
 type SortDirection = 'asc' | 'desc';
@@ -42,7 +45,17 @@ function daysAgo(days: number): Date {
 
 @Component({
   selector: 'app-usage-stats-page',
-  imports: [ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, SegmentedControl, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    ScrollingModule,
+    NgOptimizedImage,
+    MassDeletePanel,
+    EmoteCardHeader,
+    SegmentedControl,
+    TranslocoPipe,
+  ],
   host: {
     '(window:resize)': 'updateColumns()',
   },

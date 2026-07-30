@@ -109,6 +109,8 @@
     "reloginButton": "Neu einloggen",
     "sevenTvUnavailable": "7TV-Editor-Status konnte nicht vollständig geprüft werden — Channels, wo du nur 7TV-Editor (ohne Twitch-Mod-Status) bist, fehlen hier ggf.",
     "noChannels": "Keine Channels gefunden.",
+    "noChannelsHint": "Du bist in keinem getrackten Channel Broadcaster, Moderator oder 7TV-Editor. Sobald ein Channel dich betrifft, taucht er hier automatisch auf.",
+    "workerDisconnected": "Der Chat-Worker ist gerade nicht verbunden — Chat-Nachrichten werden aktuell nicht gezählt. Das erholt sich in der Regel von selbst.",
     "roleBadges": {
       "broadcaster": "Broadcaster",
       "moderator": "Moderator",
@@ -125,7 +127,8 @@
       "addChannel": "Channel hinzufügen",
       "channelNamePlaceholder": "twitch-channel-name",
       "invalidChannelName": "Ungültiger Channel-Name (4–25 Zeichen, Buchstaben/Ziffern/Unterstrich).",
-      "noChannelsTracked": "Keine Channels getrackt."
+      "noChannelsTracked": "Keine Channels getrackt.",
+      "noChannelsTrackedHint": "Füge oben einen Twitch-Channel hinzu, damit der Bot seinen Chat beobachtet."
     }
   },
   "channelWorkspace": {
@@ -165,11 +168,13 @@
     "filterMaxPlaceholder": "Max",
     "filterNamePlaceholder": "Name suchen…",
     "filterNameTitle": "Platzhalter möglich: * für beliebig viele Zeichen, ? für ein Zeichen",
-    "showAll": "Alle anzeigen",
     "showUnusedOnly": "Nur ungenutzte (0x)",
     "loading": "Lädt…",
     "awaitingSync": "Emote-Set wird geladen – der Bot gleicht die Emotes gerade mit 7TV ab. Das dauert einen Moment.",
     "noActiveEmotes": "Keine aktiven Emotes für diesen Zeitraum.",
+    "noActiveEmotesHint": "Entweder ist das 7TV-Emote-Set leer, oder der erste Sync läuft noch — die Liste füllt sich, sobald Daten da sind.",
+    "noMatches": "Keine Emotes passen zu den aktuellen Filtern.",
+    "resetFilters": "Filter zurücksetzen",
     "errors": {
       "loadFailed": "Nutzungsdaten konnten nicht geladen werden."
     }
@@ -185,6 +190,8 @@
       "startCountingLabel": "Zählung ab (optional, Standard: jetzt)",
       "create": "Erstellen",
       "noSessions": "Noch keine Abstimmungen für diesen Channel.",
+      "noSessionsManagerHint": "Erstelle oben die erste Abstimmung — die Community stimmt dann pro Emote über Behalten oder Löschen ab.",
+      "noSessionsVoterHint": "Sobald das Mod-Team eine Abstimmung startet, erscheint sie hier.",
       "statusActive": "Aktiv",
       "statusEnded": "Beendet",
       "copyLink": "Link kopieren",
@@ -209,7 +216,9 @@
     }
   },
   "myVotings": {
-    "noSessions": "Du hast noch in keiner Abstimmung mitgemacht."
+    "noSessions": "Du hast noch in keiner Abstimmung mitgemacht.",
+    "noSessionsHint": "Abstimmungen findest du in den Channels, in denen du Zuschauer, Mod oder Broadcaster bist.",
+    "goToOverview": "Zur Übersicht"
   },
   "common": {
     "cancel": "Abbrechen"

@@ -3,32 +3,34 @@
     <section>
       <h2 class="mb-3 text-lg font-medium">{{ 'overview.title' | transloco }}</h2>
 
+      @if (workerDisconnected()) {
+        <app-notice-banner variant="warning" class="mb-3 block">
+          {{ 'overview.workerDisconnected' | transloco }}
+        </app-notice-banner>
+      }
       @if (reauthRequired()) {
-        <div class="mb-3 flex items-center justify-between gap-4 rounded-md bg-amber-950 px-4 py-3">
-          <p class="text-sm text-amber-300">
-            {{ 'overview.reauthRequired' | transloco }}
-          </p>
-          <button
-            type="button"
-            class="shrink-0 rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-500"
-            (click)="relogin()"
-          >
+        <app-notice-banner variant="warning" class="mb-3 block">
+          {{ 'overview.reauthRequired' | transloco }}
+          <button notice-action type="button" appButton="primary" class="shrink-0" (click)="relogin()">
             {{ 'overview.reloginButton' | transloco }}
           </button>
-        </div>
+        </app-notice-banner>
       } @else if (helixUnavailable()) {
-        <p class="mb-3 text-sm text-amber-400">
+        <app-notice-banner variant="warning" class="mb-3 block">
           {{ 'overview.helixUnavailable' | transloco }}
-        </p>
+        </app-notice-banner>
       }
       @if (sevenTvUnavailable()) {
-        <p class="mb-3 text-sm text-amber-400">
+        <app-notice-banner variant="warning" class="mb-3 block">
           {{ 'overview.sevenTvUnavailable' | transloco }}
-        </p>
+        </app-notice-banner>
       }
 
       @if (channels.length === 0) {
-        <p class="text-sm text-slate-400">{{ 'overview.noChannels' | transloco }}</p>
+        <app-empty-state
+          [title]="'overview.noChannels' | transloco"
+          [description]="'overview.noChannelsHint' | transloco"
+        />
       } @else {
         <ul class="flex flex-col gap-2">
           @for (channel of channels; track channel.channelName) {
@@ -41,49 +43,37 @@
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
                 @if (channel.isBroadcaster) {
-                  <span class="rounded-full bg-purple-950 px-2 py-0.5 text-xs text-purple-300">{{
-                    'overview.roleBadges.broadcaster' | transloco
-                  }}</span>
+                  <app-status-badge tone="purple">{{ 'overview.roleBadges.broadcaster' | transloco }}</app-status-badge>
                 }
                 @if (channel.isModerator) {
-                  <span class="rounded-full bg-blue-950 px-2 py-0.5 text-xs text-blue-300">{{
-                    'overview.roleBadges.moderator' | transloco
-                  }}</span>
+                  <app-status-badge tone="blue">{{ 'overview.roleBadges.moderator' | transloco }}</app-status-badge>
                 }
                 @if (channel.isSevenTvEditor) {
-                  <span class="rounded-full bg-emerald-950 px-2 py-0.5 text-xs text-emerald-300">{{
-                    'overview.roleBadges.sevenTvEditor' | transloco
-                  }}</span>
+                  <app-status-badge tone="emerald">{{ 'overview.roleBadges.sevenTvEditor' | transloco }}</app-status-badge>
                 }
               </div>
               <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
                 @if (channel.isTracked) {
-                  <span [class]="channel.isBotActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-400'">
+                  <app-status-badge [tone]="channel.isBotActive ? 'emerald' : 'slate'">
                     {{ (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive') | transloco }}
-                  </span>
+                  </app-status-badge>
                   <!-- A left channel keeps its row, so it never falls back to the "Hinzufügen"
                        branch below — without this button there is no way back for a non-admin. -->
                   @if (!channel.isBotActive && (channel.isBroadcaster || channel.isModerator)) {
                     <button
                       type="button"
-                      class="relative z-10 rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white transition hover:bg-purple-500"
+                      appButton="primary"
+                      class="relative z-10"
                       (click)="reactivate(channel.channelName)"
                     >
                       {{ 'overview.reactivate' | transloco }}
                     </button>
                   }
-                  <a
-                    [routerLink]="['/channels', channel.channelName]"
-                    class="app-card-link rounded-md bg-slate-700 px-3 py-1.5 text-sm whitespace-nowrap transition hover:bg-slate-600"
-                  >
+                  <a [routerLink]="['/channels', channel.channelName]" appButton="neutral" class="app-card-link">
                     {{ 'overview.open' | transloco }}
                   </a>
                 } @else if (channel.isBroadcaster || channel.isModerator) {
-                  <button
-                    type="button"
-                    class="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white transition hover:bg-purple-500"
-                    (click)="join(channel.channelName)"
-                  >
+                  <button type="button" appButton="primary" (click)="join(channel.channelName)">
                     {{ 'overview.add' | transloco }}
                   </button>
                 } @else {
@@ -101,18 +91,15 @@
     <section>
       <h2 class="mb-3 text-lg font-medium">{{ 'overview.admin.title' | transloco }}</h2>
 
-      <form class="mb-4 flex gap-2" (submit)="onAddChannelSubmit($event)">
+      <form class="mb-4 flex flex-wrap gap-2" (submit)="onAddChannelSubmit($event)">
         <input
           type="text"
           [formControl]="channelNameControl"
           [placeholder]="'overview.admin.channelNamePlaceholder' | transloco"
           [attr.aria-label]="'overview.admin.channelNamePlaceholder' | transloco"
-          class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500"
+          class="app-input flex-1"
         />
-        <button
-          type="submit"
-          class="rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-500"
-        >
+        <button type="submit" appButton="primary" buttonSize="lg">
           {{ 'overview.admin.addChannel' | transloco }}
         </button>
       </form>
@@ -123,7 +110,10 @@
       }
 
       @if (channels.length === 0) {
-        <p class="text-sm text-slate-400">{{ 'overview.admin.noChannelsTracked' | transloco }}</p>
+        <app-empty-state
+          [title]="'overview.admin.noChannelsTracked' | transloco"
+          [description]="'overview.admin.noChannelsTrackedHint' | transloco"
+        />
       } @else {
         <ul class="flex flex-col gap-2">
           @for (channel of channels; track channel.channelId) {
@@ -132,22 +122,15 @@
             >
               <span class="max-w-full min-w-0 truncate font-medium">#{{ channel.channelName }}</span>
               <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-                <span [class]="channel.isBotActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-400'">
+                <app-status-badge [tone]="channel.isBotActive ? 'emerald' : 'slate'">
                   {{ (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive') | transloco }}
-                </span>
+                </app-status-badge>
                 @if (!channel.isBotActive) {
-                  <button
-                    type="button"
-                    class="relative z-10 rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white transition hover:bg-purple-500"
-                    (click)="reactivate(channel.channelName)"
-                  >
+                  <button type="button" appButton="primary" class="relative z-10" (click)="reactivate(channel.channelName)">
                     {{ 'overview.reactivate' | transloco }}
                   </button>
                 }
-                <a
-                  [routerLink]="['/channels', channel.channelName]"
-                  class="app-card-link rounded-md bg-slate-700 px-3 py-1.5 text-sm whitespace-nowrap transition hover:bg-slate-600"
-                >
+                <a [routerLink]="['/channels', channel.channelName]" appButton="neutral" class="app-card-link">
                   {{ 'overview.open' | transloco }}
                 </a>
               </div>
@@ -159,6 +142,6 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
+    <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 </div>

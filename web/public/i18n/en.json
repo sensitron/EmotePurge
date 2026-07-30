@@ -109,6 +109,8 @@
     "reloginButton": "Log in again",
     "sevenTvUnavailable": "Couldn't fully check 7TV editor status — channels where you're only a 7TV editor (without Twitch mod status) may be missing here.",
     "noChannels": "No channels found.",
+    "noChannelsHint": "You're not a broadcaster, moderator or 7TV editor in any tracked channel. As soon as a channel concerns you, it shows up here automatically.",
+    "workerDisconnected": "The chat worker is currently disconnected — chat messages are not being counted right now. This usually recovers on its own.",
     "roleBadges": {
       "broadcaster": "Broadcaster",
       "moderator": "Moderator",
@@ -125,7 +127,8 @@
       "addChannel": "Add channel",
       "channelNamePlaceholder": "twitch-channel-name",
       "invalidChannelName": "Invalid channel name (4–25 characters, letters/digits/underscore).",
-      "noChannelsTracked": "No channels tracked."
+      "noChannelsTracked": "No channels tracked.",
+      "noChannelsTrackedHint": "Add a Twitch channel above so the bot starts watching its chat."
     }
   },
   "channelWorkspace": {
@@ -165,11 +168,13 @@
     "filterMaxPlaceholder": "Max",
     "filterNamePlaceholder": "Search name…",
     "filterNameTitle": "Wildcards supported: * for any number of characters, ? for a single character",
-    "showAll": "Show all",
     "showUnusedOnly": "Unused only (0x)",
     "loading": "Loading…",
     "awaitingSync": "Loading the emote set – the bot is syncing this channel's emotes with 7TV. This takes a moment.",
     "noActiveEmotes": "No active emotes for this time range.",
+    "noActiveEmotesHint": "Either the 7TV emote set is empty, or the first sync is still running — the list fills up as soon as data arrives.",
+    "noMatches": "No emotes match the current filters.",
+    "resetFilters": "Reset filters",
     "errors": {
       "loadFailed": "Couldn't load usage data."
     }
@@ -185,6 +190,8 @@
       "startCountingLabel": "Count usage from (optional, default: now)",
       "create": "Create",
       "noSessions": "No voting sessions for this channel yet.",
+      "noSessionsManagerHint": "Create the first session above — the community then votes keep-or-delete per emote.",
+      "noSessionsVoterHint": "As soon as the mod team starts a session, it shows up here.",
       "statusActive": "Active",
       "statusEnded": "Ended",
       "copyLink": "Copy link",
@@ -209,7 +216,9 @@
     }
   },
   "myVotings": {
-    "noSessions": "You haven't voted in any session yet."
+    "noSessions": "You haven't voted in any session yet.",
+    "noSessionsHint": "You'll find voting sessions in the channels where you're a viewer, mod or broadcaster.",
+    "goToOverview": "Go to overview"
   },
   "common": {
     "cancel": "Cancel"

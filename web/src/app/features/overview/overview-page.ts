@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -8,6 +8,11 @@ import { AuthService } from '../../core/auth/auth.service';
 import { AdminChannelDto, MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
+import { WorkerHealthService } from '../../core/health/worker-health.service';
+import { Button } from '../../shared/ui/button';
+import { EmptyState } from '../../shared/ui/empty-state';
+import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { StatusBadge } from '../../shared/ui/status-badge';
 
 // Case-insensitive: the backend lowercases the value before matching its own (case-sensitive)
 // pattern, but Twitch channel names are commonly typed/displayed with capitals (e.g. "HandOfBlood").
@@ -15,13 +20,18 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
 
 @Component({
   selector: 'app-overview-page',
-  imports: [ReactiveFormsModule, RouterLink, TranslocoPipe],
+  imports: [Button, EmptyState, NoticeBanner, ReactiveFormsModule, RouterLink, StatusBadge, TranslocoPipe],
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
   private readonly authService = inject(AuthService);
   private readonly channelService = inject(ChannelService);
   private readonly router = inject(Router);
+  private readonly workerHealthService = inject(WorkerHealthService);
+
+  // The header dot alone is a 10px signal nobody notices — while the worker is down, nothing is
+  // being counted, which deserves a real page-level notice on the entry page.
+  protected readonly workerDisconnected = computed(() => this.workerHealthService.status() === 'stale');
 
   protected readonly myChannels = signal<MyChannelDto[] | null>(null);
   protected readonly helixUnavailable = signal(false);

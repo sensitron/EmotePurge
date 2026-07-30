@@ -1,80 +1,93 @@
 <div class="flex flex-col gap-6">
-  <header class="flex flex-wrap items-center justify-between gap-4">
+  <!-- Same header layout as the voting-detail page: title left, refresh top-right, filters below. -->
+  <header class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-lg font-medium">{{ 'usageStats.title' | transloco }}</h2>
-    <div class="flex flex-wrap items-center gap-2 text-sm">
-      <button
-        type="button"
-        class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700 disabled:opacity-40"
-        [disabled]="isLoading()"
-        (click)="refresh()"
-        [title]="'usageStats.reloadTitle' | transloco"
-      >
-        ⟳ {{ 'usageStats.refresh' | transloco }}
-      </button>
-      <app-segmented-control
-        [options]="presetOptions"
-        [value]="rangePreset()"
-        (valueChange)="onPresetChange($event)"
-        [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
-      />
-      @if (rangePreset() === 'custom') {
-        <label for="usage-stats-from-date" class="text-slate-400">{{ 'usageStats.fromLabel' | transloco }}</label>
-        <input
-          id="usage-stats-from-date"
-          type="date"
-          [value]="from()"
-          (change)="from.set($any($event.target).value)"
-          class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
-        />
-        <label for="usage-stats-to-date" class="text-slate-400">{{ 'usageStats.toLabel' | transloco }}</label>
-        <input
-          id="usage-stats-to-date"
-          type="date"
-          [value]="to()"
-          (change)="to.set($any($event.target).value)"
-          class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
-        />
-      }
-      <button type="button" class="rounded-md bg-slate-800 px-3 py-1.5 hover:bg-slate-700" (click)="toggleSort()">
-        {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
-      </button>
-      <input
-        type="number"
-        min="0"
-        [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
-        [value]="usageFilter.min() ?? ''"
-        (change)="usageFilter.setMinCount($any($event.target).value)"
-        class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
-      />
-      <input
-        type="number"
-        min="0"
-        [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
-        [value]="usageFilter.max() ?? ''"
-        (change)="usageFilter.setMaxCount($any($event.target).value)"
-        class="w-20 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
-      />
-      <input
-        type="text"
-        [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
-        [title]="'usageStats.filterNameTitle' | transloco"
-        [value]="usageFilter.nameQuery()"
-        (input)="usageFilter.setNameFilter($any($event.target).value)"
-        class="w-40 rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5"
-      />
-      <button
-        type="button"
-        class="rounded-md px-3 py-1.5"
-        [class]="usageFilter.isUnusedActive() ? 'bg-purple-600 hover:bg-purple-500' : 'bg-slate-800 hover:bg-slate-700'"
-        (click)="usageFilter.toggleUnused()"
-      >
-        {{ (usageFilter.isUnusedActive() ? 'usageStats.showAll' : 'usageStats.showUnusedOnly') | transloco }}
-      </button>
-    </div>
+    <button
+      type="button"
+      appButton="neutral"
+      [disabled]="isLoading()"
+      (click)="refresh()"
+      [title]="'usageStats.reloadTitle' | transloco"
+    >
+      {{ 'usageStats.refresh' | transloco }}
+    </button>
   </header>
+
+  <div class="flex flex-wrap items-center gap-2 text-sm">
+    <app-segmented-control
+      [options]="presetOptions"
+      [value]="rangePreset()"
+      (valueChange)="onPresetChange($event)"
+      [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
+    />
+    @if (rangePreset() === 'custom') {
+      <label for="usage-stats-from-date" class="text-slate-400">{{
+        'usageStats.fromLabel' | transloco
+      }}</label>
+      <input
+        id="usage-stats-from-date"
+        type="date"
+        [value]="from()"
+        (change)="from.set($any($event.target).value)"
+        class="app-input-sm"
+      />
+      <label for="usage-stats-to-date" class="text-slate-400">{{
+        'usageStats.toLabel' | transloco
+      }}</label>
+      <input
+        id="usage-stats-to-date"
+        type="date"
+        [value]="to()"
+        (change)="to.set($any($event.target).value)"
+        class="app-input-sm"
+      />
+    }
+    <button type="button" appButton="neutral" (click)="toggleSort()">
+      {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
+    </button>
+    <input
+      type="number"
+      min="0"
+      [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
+      [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
+      [value]="usageFilter.min() ?? ''"
+      (change)="usageFilter.setMinCount($any($event.target).value)"
+      class="app-input-sm w-20"
+    />
+    <input
+      type="number"
+      min="0"
+      [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
+      [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
+      [value]="usageFilter.max() ?? ''"
+      (change)="usageFilter.setMaxCount($any($event.target).value)"
+      class="app-input-sm w-20"
+    />
+    <input
+      type="text"
+      [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
+      [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
+      [title]="'usageStats.filterNameTitle' | transloco"
+      [value]="usageFilter.nameQuery()"
+      (input)="usageFilter.setNameFilter($any($event.target).value)"
+      class="app-input-sm w-40"
+    />
+    <!-- Constant label + pressed state instead of swapping the text ("Alle anzeigen"), which
+           changed the button's width on every toggle and made it jump between toolbar rows. -->
+    <button
+      type="button"
+      class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
+      [class]="
+        usageFilter.isUnusedActive()
+          ? 'bg-purple-600 font-medium text-white hover:bg-purple-500'
+          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+      "
+      [attr.aria-pressed]="usageFilter.isUnusedActive()"
+      (click)="usageFilter.toggleUnused()"
+    >
+      {{ 'usageStats.showUnusedOnly' | transloco }}
+    </button>
+  </div>
 
   <p class="text-sm text-slate-400" role="status">
     {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
@@ -91,17 +104,29 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
+    <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 
   @if (isLoading()) {
     <p class="text-sm text-slate-400">{{ 'usageStats.loading' | transloco }}</p>
   } @else if (isAwaitingSync()) {
-    <p class="rounded-md bg-slate-900 px-4 py-3 text-sm text-slate-300" role="status">
-      {{ 'usageStats.awaitingSync' | transloco }}
-    </p>
+    <app-notice-banner variant="info">{{
+      'usageStats.awaitingSync' | transloco
+    }}</app-notice-banner>
   } @else if (sortedEmotes().length === 0) {
-    <p class="text-sm text-slate-400">{{ 'usageStats.noActiveEmotes' | transloco }}</p>
+    @if (emotes().length === 0) {
+      <app-empty-state
+        [title]="'usageStats.noActiveEmotes' | transloco"
+        [description]="'usageStats.noActiveEmotesHint' | transloco"
+      />
+    } @else {
+      <!-- The set has emotes; the filters hide all of them — offer the way back. -->
+      <app-empty-state [title]="'usageStats.noMatches' | transloco">
+        <button type="button" appButton="neutral" (click)="usageFilter.reset()">
+          {{ 'usageStats.resetFilters' | transloco }}
+        </button>
+      </app-empty-state>
+    }
   } @else {
     <cdk-virtual-scroll-viewport
       [itemSize]="rowHeight"
@@ -119,15 +144,26 @@
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
               'flex h-24 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
-              (selection.isSelected(emote) ? 'ring-2 ring-purple-500 bg-purple-950/40' : 'bg-slate-900')
+              (selection.isSelected(emote)
+                ? 'ring-2 ring-purple-500 bg-purple-950/40'
+                : 'bg-slate-900')
             "
             (click)="selection.onRowClick(emote, $event)"
             (keydown.enter)="selection.onRowClick(emote, $any($event))"
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
-            <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" />
+            <app-emote-card-header
+              [name]="emote.emoteName"
+              [checked]="selection.isSelected(emote)"
+            />
             <div class="flex h-10 shrink-0 items-center justify-center">
-              <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
+              <img
+                [ngSrc]="emote.imageUrl"
+                width="40"
+                height="40"
+                alt=""
+                class="max-h-10 max-w-10 object-contain"
+              />
             </div>
             <span class="text-xs text-slate-400">{{ emote.totalUseCount }}x</span>
           </div>

@@ -1,26 +1,30 @@
 import { Component, input, output } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
+import { Button } from '../ui/button';
+
 @Component({
   selector: 'app-pager',
-  imports: [TranslocoPipe],
+  imports: [Button, TranslocoPipe],
   template: `
     @if (totalPages() > 1) {
       <div class="flex items-center justify-between text-sm text-slate-400">
         <button
           type="button"
+          appButton="outline"
+          class="disabled:hover:bg-transparent"
           [disabled]="page() <= 1"
           (click)="pageChange.emit(page() - 1)"
-          class="rounded-md border border-slate-700 px-3 py-1.5 transition hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {{ 'pager.previous' | transloco }}
         </button>
         <span>{{ 'pager.pageOf' | transloco: { page: page(), totalPages: totalPages() } }}</span>
         <button
           type="button"
+          appButton="outline"
+          class="disabled:hover:bg-transparent"
           [disabled]="page() >= totalPages()"
           (click)="pageChange.emit(page() + 1)"
-          class="rounded-md border border-slate-700 px-3 py-1.5 transition hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent"
         >
           {{ 'pager.next' | transloco }}
         </button>
