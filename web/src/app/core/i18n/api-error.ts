@@ -26,10 +26,44 @@ const KNOWN_API_ERROR_CODES = new Set([
   'unexpected_error',
 ]);
 
-/** Resolves an HTTP error from the EmotePurge API to a translation key — `errors.api.<code>` for a
- * recognized `errorCode` body, `errors.generic` otherwise (missing body, unrecognized code, or a
- * bare `Forbid()`/`Unauthorized()` with no body at all). */
+/**
+ * Resolves an HTTP error from the EmotePurge API to a translation key: `errors.api.<code>` for a
+ * recognized `errorCode` body, otherwise a message derived from the status code.
+ *
+ * The status fallback exists because a large share of real failures carry no body at all — the four
+ * authorization endpoint filters answer with a bare `Forbid()`, the rate limiter with a bare 429,
+ * a dropped connection with status 0. All of those used to collapse into "Etwas ist schiefgelaufen.
+ * Bitte versuch es erneut.", which told a freshly promoted moderator to retry an action that could
+ * not succeed until the mod-role cache expired.
+ */
 export function apiErrorTranslationKey(error: HttpErrorResponse): string {
   const code = (error.error as { errorCode?: string } | null)?.errorCode;
-  return code && KNOWN_API_ERROR_CODES.has(code) ? `errors.api.${code}` : 'errors.generic';
+  if (code && KNOWN_API_ERROR_CODES.has(code)) {
+    return `errors.api.${code}`;
+  }
+  return statusTranslationKey(error.status);
+}
+
+function statusTranslationKey(status: number): string {
+  // 0 is Angular's marker for "the request never reached a server" (offline, DNS, CORS, aborted).
+  if (status === 0) {
+    return 'errors.status.offline';
+  }
+  if (status >= 500) {
+    return 'errors.status.server';
+  }
+  switch (status) {
+    case 401:
+      return 'errors.status.unauthorized';
+    case 403:
+      return 'errors.status.forbidden';
+    case 404:
+      return 'errors.status.notFound';
+    case 409:
+      return 'errors.status.conflict';
+    case 429:
+      return 'errors.status.rateLimited';
+    default:
+      return 'errors.generic';
+  }
 }

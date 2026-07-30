@@ -197,11 +197,7 @@
       "retractVote": "Retract vote",
       "errors": {
         "loadFailed": "Couldn't load the voting.",
-        "forbidden": "You're not allowed to vote in this voting (wrong role for this session).",
-        "ended": "This voting has already ended.",
-        "notFound": "Voting or channel not found.",
-        "emoteNotVotable": "This emote can no longer be voted on (unknown or already archived).",
-        "voteFailed": "Couldn't save the vote."
+        "forbidden": "You're not allowed to vote in this voting (wrong role for this session)."
       }
     }
   },
@@ -263,6 +259,15 @@
   },
   "errors": {
     "generic": "Something went wrong. Please try again.",
+    "status": {
+      "offline": "Can't reach the server. Check your internet connection and try again.",
+      "unauthorized": "Your session has expired. Please sign in again.",
+      "forbidden": "You don't have permission for this action. If you were just made a moderator, try again in about 10 minutes.",
+      "notFound": "Not found.",
+      "conflict": "That's no longer possible in this state — reload the page.",
+      "rateLimited": "Too many requests in a short time. Wait a moment and try again.",
+      "server": "The server ran into an error. Please try again later."
+    },
     "api": {
       "invalid_channel_name": "Invalid channel name.",
       "invalid_channel_or_session_id": "Invalid channel or voting identifier.",

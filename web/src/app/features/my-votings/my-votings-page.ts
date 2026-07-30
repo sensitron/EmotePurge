@@ -3,7 +3,6 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
-import { AuthService } from '../../core/auth/auth.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { MyVoteSession } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
@@ -48,7 +47,6 @@ import { Pager } from '../../shared/pagination/pager';
 })
 export class MyVotingsPage {
   private readonly voteSessionService = inject(VoteSessionService);
-  private readonly authService = inject(AuthService);
 
   protected readonly sessions = signal<MyVoteSession[]>([]);
   protected readonly page = signal(1);
@@ -76,11 +74,9 @@ export class MyVotingsPage {
     this.load();
   }
 
+  // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
+  // /api/ call in the app.
   private handleError(error: HttpErrorResponse): void {
-    if (error.status === 401) {
-      this.authService.handleSessionExpired();
-      return;
-    }
     this.errorMessage.set(apiErrorTranslationKey(error));
   }
 }

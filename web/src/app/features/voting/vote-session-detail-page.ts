@@ -7,6 +7,7 @@ import { Observable } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
+import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
@@ -194,31 +195,16 @@ export class VoteSessionDetailPage {
     });
   }
 
-  // Status codes are unambiguous for this one endpoint (VoteEligibilityFilter/CastVoteAsync each
-  // return a distinct code per reason — see src/EmotePurge.Api/Endpoints/VoteSessionEndpoints.cs),
-  // so a plain status switch is enough without needing to parse the response body.
+  // Was a second, competing status→message mapping alongside apiErrorTranslationKey; the codes it
+  // re-derived by status (vote_session_ended, vote_session_not_found, emote_not_eligible) all exist
+  // in the response bodies, so it can share the one mapping now. 401 is gone entirely —
+  // apiAuthInterceptor handles it app-wide.
+  //
+  // 403 stays a special case on purpose: it comes from VoteEligibilityFilter and means one specific
+  // thing here — the wrong role for *this session's* audience. The generic 403 message points at the
+  // mod-role cache instead, which would be actively misleading in, say, a subs-only session.
   private handleVoteError(error: HttpErrorResponse): void {
-    if (error.status === 401) {
-      this.authService.handleSessionExpired();
-      return;
-    }
-
-    switch (error.status) {
-      case 403:
-        this.errorMessage.set('voting.detail.errors.forbidden');
-        break;
-      case 409:
-        this.errorMessage.set('voting.detail.errors.ended');
-        break;
-      case 404:
-        this.errorMessage.set('voting.detail.errors.notFound');
-        break;
-      case 400:
-        this.errorMessage.set('voting.detail.errors.emoteNotVotable');
-        break;
-      default:
-        this.errorMessage.set('voting.detail.errors.voteFailed');
-    }
+    this.errorMessage.set(error.status === 403 ? 'voting.detail.errors.forbidden' : apiErrorTranslationKey(error));
   }
 
   protected onDeleted(deletedIds: string[]): void {

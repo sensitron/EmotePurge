@@ -197,11 +197,7 @@
       "retractVote": "Vote zurücknehmen",
       "errors": {
         "loadFailed": "Abstimmung konnte nicht geladen werden.",
-        "forbidden": "Du darfst in dieser Abstimmung nicht mitvoten (falsche Rolle für diese Session).",
-        "ended": "Diese Abstimmung ist bereits beendet.",
-        "notFound": "Abstimmung oder Channel nicht gefunden.",
-        "emoteNotVotable": "Dieses Emote ist nicht mehr abstimmbar (unbekannt oder bereits archiviert).",
-        "voteFailed": "Vote konnte nicht gespeichert werden."
+        "forbidden": "Du darfst in dieser Abstimmung nicht mitvoten (falsche Rolle für diese Session)."
       }
     }
   },
@@ -263,6 +259,15 @@
   },
   "errors": {
     "generic": "Etwas ist schiefgelaufen. Bitte versuch es erneut.",
+    "status": {
+      "offline": "Keine Verbindung zum Server. Prüf deine Internetverbindung und versuch es erneut.",
+      "unauthorized": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
+      "forbidden": "Dir fehlen die Rechte für diese Aktion. Falls du gerade erst Mod geworden bist: in etwa 10 Minuten erneut versuchen.",
+      "notFound": "Nicht gefunden.",
+      "conflict": "Das geht in diesem Zustand nicht mehr — lade die Seite neu.",
+      "rateLimited": "Zu viele Anfragen in kurzer Zeit. Warte einen Moment und versuch es erneut.",
+      "server": "Auf dem Server ist ein Fehler aufgetreten. Bitte versuch es später erneut."
+    },
     "api": {
       "invalid_channel_name": "Ungültiger Channel-Name.",
       "invalid_channel_or_session_id": "Ungültiger Channel- oder Abstimmungs-Identifier.",

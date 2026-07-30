@@ -1,11 +1,9 @@
 import { NgOptimizedImage } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { Subscription, catchError, first, map, of, switchMap, take, timer } from 'rxjs';
 
-import { AuthService } from '../../core/auth/auth.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { pluralKey } from '../../core/i18n/plural';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
@@ -53,7 +51,6 @@ export class UsageStatsPage {
 
   private readonly usageStatService = inject(UsageStatService);
   private readonly emoteAdminService = inject(EmoteAdminService);
-  private readonly authService = inject(AuthService);
 
   protected readonly rowHeight = ROW_HEIGHT_PX;
   protected readonly columns = signal(computeGridColumns(window.innerWidth));
@@ -195,11 +192,9 @@ export class UsageStatsPage {
         this.selection.clear();
         this.isLoading.set(false);
       },
-      error: (error: HttpErrorResponse) => {
-        if (error.status === 401) {
-          this.authService.handleSessionExpired();
-          return;
-        }
+      // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
+      // /api/ call in the app.
+      error: () => {
         this.errorMessage.set('usageStats.errors.loadFailed');
         this.isLoading.set(false);
       },

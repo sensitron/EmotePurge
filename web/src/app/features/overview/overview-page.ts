@@ -4,7 +4,6 @@ import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
-import { AuthService } from '../../core/auth/auth.service';
 import { AdminChannelDto, MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
@@ -20,7 +19,6 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
 })
 export class OverviewPage {
   private readonly channelService = inject(ChannelService);
-  private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
 
   protected readonly myChannels = signal<MyChannelDto[] | null>(null);
@@ -90,11 +88,9 @@ export class OverviewPage {
     this.router.navigate(['/channels', channelName]);
   }
 
+  // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
+  // /api/ call in the app.
   private handleError(error: HttpErrorResponse): void {
-    if (error.status === 401) {
-      this.authService.handleSessionExpired();
-      return;
-    }
     this.errorMessage.set(apiErrorTranslationKey(error));
   }
 }

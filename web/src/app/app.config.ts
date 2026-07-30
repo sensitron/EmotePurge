@@ -1,9 +1,10 @@
 import { ApplicationConfig, inject, isDevMode, provideAppInitializer, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
-import { provideHttpClient, withFetch } from '@angular/common/http';
+import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideTransloco } from '@jsverse/transloco';
 
 import { routes } from './app.routes';
+import { apiAuthInterceptor } from './core/http/api-auth.interceptor';
 import { LanguageService, resolveInitialLang, SUPPORTED_LANGS } from './core/i18n/language.service';
 import { TranslocoHttpLoader } from './transloco-loader';
 
@@ -17,7 +18,7 @@ export const appConfig: ApplicationConfig = {
       // segment) from reaching non-empty-path children like 'usage-stats' via input binding.
       withRouterConfig({ paramsInheritanceStrategy: 'always' }),
     ),
-    provideHttpClient(withFetch()),
+    provideHttpClient(withFetch(), withInterceptors([apiAuthInterceptor])),
     provideTransloco({
       config: {
         availableLangs: [...SUPPORTED_LANGS],
