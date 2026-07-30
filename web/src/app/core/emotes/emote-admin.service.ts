@@ -21,7 +21,9 @@ export class EmoteAdminService {
   /** Reports already-deleted (7TV-side) internal emote ids so Postgres reflects it immediately —
    *  the 1-minute SevenTvPeriodicResyncWorker is the actual safety net regardless. */
   syncDeleted(channelName: string, emoteIds: string[]): Observable<SyncDeletedResult> {
-    return this.http.post<SyncDeletedResult>(`/api/channels/${channelName}/emotes/sync-deleted`, { emoteIds });
+    return this.http.post<SyncDeletedResult>(`/api/channels/${channelName}/emotes/sync-deleted`, {
+      emoteIds,
+    });
   }
 
   /** Best-effort check whether this channel's active 7TV set is shared with/owned by someone else —
@@ -34,6 +36,8 @@ export class EmoteAdminService {
   /** Deliberately separate from ChannelService.getStatus (management-only): a 7TV editor without
    *  Twitch-mod status must still see this to render the mass-delete panel's "Löschen" button. */
   getActiveEmoteSetId(channelName: string): Observable<{ activeEmoteSetId: string }> {
-    return this.http.get<{ activeEmoteSetId: string }>(`/api/channels/${channelName}/emotes/active-set`);
+    return this.http.get<{ activeEmoteSetId: string }>(
+      `/api/channels/${channelName}/emotes/active-set`,
+    );
   }
 }

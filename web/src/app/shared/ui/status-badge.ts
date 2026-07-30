@@ -23,6 +23,7 @@ export class StatusBadge {
   readonly tone = input.required<StatusBadgeTone>();
 
   protected readonly classes = computed(
-    () => `inline-flex items-center rounded-full px-2 py-0.5 text-xs whitespace-nowrap ${TONE_CLASSES[this.tone()]}`,
+    () =>
+      `inline-flex items-center rounded-full px-2 py-0.5 text-xs whitespace-nowrap ${TONE_CLASSES[this.tone()]}`,
   );
 }

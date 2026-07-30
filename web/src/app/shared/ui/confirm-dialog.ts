@@ -23,7 +23,12 @@ export interface ConfirmDialogData {
         <button type="button" appButton="outline" buttonSize="lg" (click)="dialogRef.close(false)">
           {{ 'common.cancel' | transloco }}
         </button>
-        <button type="button" appButton="danger-solid" buttonSize="lg" (click)="dialogRef.close(true)">
+        <button
+          type="button"
+          appButton="danger-solid"
+          buttonSize="lg"
+          (click)="dialogRef.close(true)"
+        >
           {{ data.confirmLabel }}
         </button>
       </div>

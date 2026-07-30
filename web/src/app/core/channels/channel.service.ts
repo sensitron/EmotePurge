@@ -2,7 +2,12 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { AdminChannelDto, ChannelPermissions, ChannelStatus, MyChannelsResult } from './channel.model';
+import {
+  AdminChannelDto,
+  ChannelPermissions,
+  ChannelStatus,
+  MyChannelsResult,
+} from './channel.model';
 
 @Injectable({ providedIn: 'root' })
 export class ChannelService {

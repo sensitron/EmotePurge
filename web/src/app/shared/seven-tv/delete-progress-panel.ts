@@ -9,7 +9,9 @@ import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-d
   template: `
     <div class="rounded-md bg-slate-800 px-4 py-3" role="status">
       <div class="mb-2 flex items-center justify-between text-sm">
-        <span>{{ 'massDelete.progress' | transloco: { finished: finished(), total: total() } }}</span>
+        <span>{{
+          'massDelete.progress' | transloco: { finished: finished(), total: total() }
+        }}</span>
         @if (isRunning()) {
           <button type="button" class="text-red-400 hover:underline" (click)="cancelled.emit()">
             {{ 'common.cancel' | transloco }}
@@ -29,10 +31,17 @@ import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-d
       }
 
       @if (syncReportFailed()) {
-        <div class="mt-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm" role="alert">
+        <div
+          class="mt-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm"
+          role="alert"
+        >
           <p class="font-medium text-amber-300">{{ 'massDelete.syncFailedTitle' | transloco }}</p>
           <p class="mt-1 text-amber-200">{{ 'massDelete.syncFailed' | transloco }}</p>
-          <button type="button" class="mt-2 text-amber-300 hover:underline" (click)="syncRetryRequested.emit()">
+          <button
+            type="button"
+            class="mt-2 text-amber-300 hover:underline"
+            (click)="syncRetryRequested.emit()"
+          >
             {{ 'massDelete.syncRetry' | transloco }}
           </button>
         </div>
@@ -55,8 +64,12 @@ export class DeleteProgressPanel {
   protected readonly finished = computed(
     () => this.items().filter((item) => item.status === 'done' || item.status === 'failed').length,
   );
-  protected readonly progressPercent = computed(() => (this.total() === 0 ? 0 : (this.finished() / this.total()) * 100));
-  protected readonly failedItems = computed(() => this.items().filter((item) => item.status === 'failed'));
+  protected readonly progressPercent = computed(() =>
+    this.total() === 0 ? 0 : (this.finished() / this.total()) * 100,
+  );
+  protected readonly failedItems = computed(() =>
+    this.items().filter((item) => item.status === 'failed'),
+  );
 
   // 'partial' shares the notice with 'failed': in both cases the backend's view of the set differs
   // from what was actually deleted, and the remedy (retry, or wait for the periodic resync) is the same.

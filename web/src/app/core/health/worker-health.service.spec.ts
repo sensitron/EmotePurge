@@ -44,7 +44,9 @@ describe('WorkerHealthService', () => {
   it('falls back to "unknown" when the request errors', () => {
     const service = TestBed.inject(WorkerHealthService);
 
-    httpMock.expectOne('/api/worker/health').flush(null, { status: 500, statusText: 'Server Error' });
+    httpMock
+      .expectOne('/api/worker/health')
+      .flush(null, { status: 500, statusText: 'Server Error' });
 
     expect(service.status()).toBe('unknown');
   });

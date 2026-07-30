@@ -15,7 +15,9 @@ describe('apiErrorTranslationKey', () => {
   });
 
   it('falls back to the status for an unrecognized errorCode', () => {
-    expect(apiErrorTranslationKey(errorWith(404, { errorCode: 'something_new' }))).toBe('errors.status.notFound');
+    expect(apiErrorTranslationKey(errorWith(404, { errorCode: 'something_new' }))).toBe(
+      'errors.status.notFound',
+    );
   });
 
   // The bodyless responses: all four authorization endpoint filters answer with a bare Forbid(),

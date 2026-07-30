@@ -19,9 +19,9 @@ export class WorkerHealthService {
       .pipe(
         startWith(0),
         switchMap(() =>
-          this.http.get<WorkerHealthResponse>('/api/worker/health').pipe(
-            catchError(() => of<WorkerHealthResponse>({ status: 'unknown' })),
-          ),
+          this.http
+            .get<WorkerHealthResponse>('/api/worker/health')
+            .pipe(catchError(() => of<WorkerHealthResponse>({ status: 'unknown' }))),
         ),
       )
       .subscribe((response) => {
@@ -29,7 +29,11 @@ export class WorkerHealthService {
         // 'disconnected' and 'stale' (connected, but no chat data arriving) collapse into the same
         // warning dot — for a viewer the distinction changes nothing actionable.
         this.status.set(
-          response.status === 'connected' ? 'connected' : response.status === 'unknown' ? 'unknown' : 'stale',
+          response.status === 'connected'
+            ? 'connected'
+            : response.status === 'unknown'
+              ? 'unknown'
+              : 'stale',
         );
       });
   }

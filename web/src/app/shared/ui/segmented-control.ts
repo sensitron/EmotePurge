@@ -15,7 +15,11 @@ export interface SegmentedControlOption {
   selector: 'app-segmented-control',
   imports: [TranslocoPipe],
   template: `
-    <div role="radiogroup" [attr.aria-label]="ariaLabel()" class="inline-flex overflow-hidden rounded-md border border-slate-700">
+    <div
+      role="radiogroup"
+      [attr.aria-label]="ariaLabel()"
+      class="inline-flex overflow-hidden rounded-md border border-slate-700"
+    >
       @for (option of options(); track option.value; let index = $index; let first = $first) {
         <button
           type="button"
@@ -24,7 +28,9 @@ export interface SegmentedControlOption {
           [tabindex]="tabIndexFor(option)"
           [class]="
             'px-3 py-1.5 text-sm whitespace-nowrap transition ' +
-            (value() === option.value ? 'bg-purple-600 font-medium text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700') +
+            (value() === option.value
+              ? 'bg-purple-600 font-medium text-white'
+              : 'bg-slate-800 text-slate-300 hover:bg-slate-700') +
             (first ? '' : ' border-l border-slate-700')
           "
           (click)="value.set(option.value)"

@@ -19,20 +19,24 @@ export const routes: Routes = [
     children: [
       {
         path: '',
-        loadComponent: () => import('./features/overview/overview-page').then((m) => m.OverviewPage),
+        loadComponent: () =>
+          import('./features/overview/overview-page').then((m) => m.OverviewPage),
         canActivate: [homeGuard],
       },
       {
         // Cross-channel — a user's voting history isn't scoped to a single channelName route value,
         // so this is a sibling of the overview route, not nested under channels/:channelName.
         path: 'my-votings',
-        loadComponent: () => import('./features/my-votings/my-votings-page').then((m) => m.MyVotingsPage),
+        loadComponent: () =>
+          import('./features/my-votings/my-votings-page').then((m) => m.MyVotingsPage),
         canActivate: [authGuard],
       },
       {
         path: 'channels/:channelName',
         loadComponent: () =>
-          import('./features/channel-workspace/channel-workspace-layout').then((m) => m.ChannelWorkspaceLayout),
+          import('./features/channel-workspace/channel-workspace-layout').then(
+            (m) => m.ChannelWorkspaceLayout,
+          ),
         children: [
           { path: '', redirectTo: 'usage-stats', pathMatch: 'full' },
           {
@@ -40,7 +44,8 @@ export const routes: Routes = [
             // admin OR 7TV editor — usageStatsAccessGuard), not just be logged in, unlike the
             // vote-session pages below.
             path: 'usage-stats',
-            loadComponent: () => import('./features/usage-stats/usage-stats-page').then((m) => m.UsageStatsPage),
+            loadComponent: () =>
+              import('./features/usage-stats/usage-stats-page').then((m) => m.UsageStatsPage),
             canActivate: [usageStatsAccessGuard],
           },
           {
@@ -55,7 +60,9 @@ export const routes: Routes = [
             // (voteSessionAccessGuard — anonymous share-link viewing was removed, see decision log).
             path: 'vote-sessions/:sessionId',
             loadComponent: () =>
-              import('./features/voting/vote-session-detail-page').then((m) => m.VoteSessionDetailPage),
+              import('./features/voting/vote-session-detail-page').then(
+                (m) => m.VoteSessionDetailPage,
+              ),
             canActivate: [voteSessionAccessGuard],
           },
         ],

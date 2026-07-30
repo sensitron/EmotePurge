@@ -210,7 +210,9 @@ describe('SevenTvDeleteService', () => {
     vi.advanceTimersByTime(DELETE_DELAY_MS);
     httpMock.expectOne(GQL_ENDPOINT).flush({});
     vi.advanceTimersByTime(DELETE_DELAY_MS);
-    httpMock.expectOne('/api/channels/sensitron/emotes/sync-deleted').flush({ archivedCount: 1, notFoundIds: [] });
+    httpMock
+      .expectOne('/api/channels/sensitron/emotes/sync-deleted')
+      .flush({ archivedCount: 1, notFoundIds: [] });
   });
 
   it('cancel() marks pending/in-progress items as cancelled and stops the run', () => {
@@ -237,7 +239,9 @@ describe('SevenTvDeleteService', () => {
     service.startDelete('set-1', 'sensitron', EMOTES);
     httpMock.expectOne(GQL_ENDPOINT).flush({});
     service.cancel();
-    httpMock.expectOne('/api/channels/sensitron/emotes/sync-deleted').flush({ archivedCount: 1, notFoundIds: [] });
+    httpMock
+      .expectOne('/api/channels/sensitron/emotes/sync-deleted')
+      .flush({ archivedCount: 1, notFoundIds: [] });
 
     service.reset();
 
@@ -256,6 +260,8 @@ describe('SevenTvDeleteService', () => {
     vi.advanceTimersByTime(DELETE_DELAY_MS);
     httpMock.expectOne(GQL_ENDPOINT).flush({});
     vi.advanceTimersByTime(DELETE_DELAY_MS);
-    httpMock.expectOne('/api/channels/sensitron/emotes/sync-deleted').flush({ archivedCount: 2, notFoundIds: [] });
+    httpMock
+      .expectOne('/api/channels/sensitron/emotes/sync-deleted')
+      .flush({ archivedCount: 2, notFoundIds: [] });
   });
 });

@@ -3,7 +3,12 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AdminChannelDto, ChannelPermissions, ChannelStatus, MyChannelsResult } from './channel.model';
+import {
+  AdminChannelDto,
+  ChannelPermissions,
+  ChannelStatus,
+  MyChannelsResult,
+} from './channel.model';
 import { ChannelService } from './channel.service';
 
 describe('ChannelService', () => {
@@ -86,7 +91,12 @@ describe('ChannelService', () => {
   });
 
   it('listMine GETs /api/channels/mine', () => {
-    const result: MyChannelsResult = { helixUnavailable: false, reauthRequired: false, sevenTvUnavailable: false, channels: [] };
+    const result: MyChannelsResult = {
+      helixUnavailable: false,
+      reauthRequired: false,
+      sevenTvUnavailable: false,
+      channels: [],
+    };
     service.listMine().subscribe();
 
     const req = httpMock.expectOne('/api/channels/mine');

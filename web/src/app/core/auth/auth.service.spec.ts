@@ -88,7 +88,10 @@ describe('AuthService', () => {
 
     it('stashes the return URL before redirecting when one is given', () => {
       const original = window.location;
-      Object.defineProperty(window, 'location', { value: { ...original, href: '' }, writable: true });
+      Object.defineProperty(window, 'location', {
+        value: { ...original, href: '' },
+        writable: true,
+      });
 
       service.login('/channels/sensitron/vote-sessions/5');
 

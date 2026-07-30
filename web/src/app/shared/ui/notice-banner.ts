@@ -27,6 +27,7 @@ export class NoticeBanner {
   readonly variant = input.required<NoticeVariant>();
 
   protected readonly classes = computed(
-    () => `flex flex-wrap items-center justify-between gap-3 rounded-md px-4 py-3 text-sm ${VARIANT_CLASSES[this.variant()]}`,
+    () =>
+      `flex flex-wrap items-center justify-between gap-3 rounded-md px-4 py-3 text-sm ${VARIANT_CLASSES[this.variant()]}`,
   );
 }

@@ -35,7 +35,12 @@ describe('EmoteAdminService', () => {
 
     const req = httpMock.expectOne('/api/channels/sensitron/emotes/set-warning');
     expect(req.request.method).toBe('GET');
-    req.flush({ available: true, isOwnSet: true, otherTrackedChannelsSharingSet: [], otherModeratedChannelsSharingSet: [] });
+    req.flush({
+      available: true,
+      isOwnSet: true,
+      otherTrackedChannelsSharingSet: [],
+      otherModeratedChannelsSharingSet: [],
+    });
   });
 
   it('getActiveEmoteSetId GETs the active-set endpoint', () => {

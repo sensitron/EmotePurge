@@ -14,7 +14,11 @@ import { SevenTvTokenInput } from './seven-tv-token-input';
   template: `
     <div class="rounded-lg bg-slate-900 p-6 shadow-xl">
       <app-seven-tv-token-input />
-      <button type="button" class="mt-4 text-sm text-slate-400 hover:underline" (click)="dialogRef.close(false)">
+      <button
+        type="button"
+        class="mt-4 text-sm text-slate-400 hover:underline"
+        (click)="dialogRef.close(false)"
+      >
         {{ 'common.cancel' | transloco }}
       </button>
     </div>

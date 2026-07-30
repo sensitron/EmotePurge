@@ -15,7 +15,9 @@ import { Component, input, output } from '@angular/core';
           (click)="checkboxClick.emit($event)"
         />
       }
-      <span class="min-w-0 flex-1 truncate text-left text-xs" [attr.title]="name()">{{ name() }}</span>
+      <span class="min-w-0 flex-1 truncate text-left text-xs" [attr.title]="name()">{{
+        name()
+      }}</span>
     </div>
   `,
 })

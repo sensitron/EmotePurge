@@ -12,7 +12,11 @@ import { Button } from '../ui/button';
     @if (tokenService.hasToken()) {
       <div class="flex items-center justify-between rounded-md bg-slate-800 px-3 py-2 text-sm">
         <span class="text-emerald-400">{{ 'sevenTvToken.tokenSet' | transloco }}</span>
-        <button type="button" class="text-slate-400 hover:underline" (click)="tokenService.clearToken()">
+        <button
+          type="button"
+          class="text-slate-400 hover:underline"
+          (click)="tokenService.clearToken()"
+        >
           {{ 'sevenTvToken.remove' | transloco }}
         </button>
       </div>
@@ -31,11 +35,15 @@ import { Button } from '../ui/button';
           </li>
           <li>{{ 'sevenTvToken.step4' | transloco }}</li>
         </ol>
-        <p class="mb-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-300">
+        <p
+          class="mb-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-300"
+        >
           {{ 'sevenTvToken.securityWarning' | transloco }}
         </p>
         <form class="flex gap-2" (submit)="onSubmit($event)">
-          <label class="sr-only" for="seven-tv-token-input-field">{{ 'sevenTvToken.placeholder' | transloco }}</label>
+          <label class="sr-only" for="seven-tv-token-input-field">{{
+            'sevenTvToken.placeholder' | transloco
+          }}</label>
           <input
             id="seven-tv-token-input-field"
             type="password"
@@ -53,7 +61,10 @@ import { Button } from '../ui/button';
 })
 export class SevenTvTokenInput {
   protected readonly tokenService = inject(SevenTvTokenService);
-  protected readonly tokenControl = new FormControl('', { nonNullable: true, validators: [Validators.required] });
+  protected readonly tokenControl = new FormControl('', {
+    nonNullable: true,
+    validators: [Validators.required],
+  });
 
   protected onSubmit(event: Event): void {
     event.preventDefault();

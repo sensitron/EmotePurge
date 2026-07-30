@@ -52,7 +52,8 @@ export class ListSelection<T> {
     const key = this.keyFn(item);
     const clickedIndex = items.findIndex((candidate) => this.keyFn(candidate) === key);
     const anchorKey = this.anchorKey;
-    const anchorIndex = anchorKey === null ? -1 : items.findIndex((candidate) => this.keyFn(candidate) === anchorKey);
+    const anchorIndex =
+      anchorKey === null ? -1 : items.findIndex((candidate) => this.keyFn(candidate) === anchorKey);
 
     const next = new Set(this.selectedKeySet());
 
@@ -60,7 +61,8 @@ export class ListSelection<T> {
     // data) has no meaningful range to the clicked row — degrade to a single toggle instead of
     // guessing, since the wrong guess ends in irreversibly deleted emotes.
     if (event.shiftKey && anchorIndex !== -1 && clickedIndex !== -1) {
-      const [start, end] = anchorIndex < clickedIndex ? [anchorIndex, clickedIndex] : [clickedIndex, anchorIndex];
+      const [start, end] =
+        anchorIndex < clickedIndex ? [anchorIndex, clickedIndex] : [clickedIndex, anchorIndex];
       for (const ranged of items.slice(start, end + 1)) {
         next.add(this.keyFn(ranged));
       }

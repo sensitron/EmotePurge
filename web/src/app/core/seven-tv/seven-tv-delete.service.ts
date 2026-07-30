@@ -75,7 +75,9 @@ export class SevenTvDeleteService {
   readonly isRunning = signal(false);
   readonly progress = computed(() => {
     const items = this.queue();
-    const finished = items.filter((item) => item.status === 'done' || item.status === 'failed').length;
+    const finished = items.filter(
+      (item) => item.status === 'done' || item.status === 'failed',
+    ).length;
     return { finished, total: items.length };
   });
 
@@ -104,7 +106,13 @@ export class SevenTvDeleteService {
         concatMap((emote) => {
           this.setStatus(emote.emoteId, 'in-progress');
           return this.deleteOne(setId, emote.sevenTvEmoteId, token).pipe(
-            tap((result) => this.setStatus(emote.emoteId, result.success ? 'done' : 'failed', result.errorMessage)),
+            tap((result) =>
+              this.setStatus(
+                emote.emoteId,
+                result.success ? 'done' : 'failed',
+                result.errorMessage,
+              ),
+            ),
             delay(DELETE_DELAY_MS),
           );
         }),
@@ -121,7 +129,11 @@ export class SevenTvDeleteService {
     this.runSubscription?.unsubscribe();
     this.runSubscription = null;
     this.queue.update((items) =>
-      items.map((item) => (item.status === 'pending' || item.status === 'in-progress' ? { ...item, status: 'cancelled' } : item)),
+      items.map((item) =>
+        item.status === 'pending' || item.status === 'in-progress'
+          ? { ...item, status: 'cancelled' }
+          : item,
+      ),
     );
     this.finish();
   }
@@ -136,14 +148,22 @@ export class SevenTvDeleteService {
    *  only re-sends the bookkeeping call — safe to repeat, ids already archived come back in
    *  notFoundIds. */
   retrySyncReport(): void {
-    if (this.syncReport() === 'pending' || this.lastReportedIds.length === 0 || this.currentChannelName === null) {
+    if (
+      this.syncReport() === 'pending' ||
+      this.lastReportedIds.length === 0 ||
+      this.currentChannelName === null
+    ) {
       return;
     }
 
     this.reportDeleted(this.currentChannelName, this.lastReportedIds);
   }
 
-  private deleteOne(setId: string, sevenTvEmoteId: string, token: string): Observable<DeleteOneResult> {
+  private deleteOne(
+    setId: string,
+    sevenTvEmoteId: string,
+    token: string,
+  ): Observable<DeleteOneResult> {
     return this.http
       .post<{ errors?: { message?: string }[] }>(
         SEVEN_TV_GQL_ENDPOINT,
@@ -153,9 +173,13 @@ export class SevenTvDeleteService {
       .pipe(
         map((response) => {
           const gqlErrorMessage = response?.errors?.[0]?.message;
-          return gqlErrorMessage ? { success: false, errorMessage: gqlErrorMessage } : { success: true };
+          return gqlErrorMessage
+            ? { success: false, errorMessage: gqlErrorMessage }
+            : { success: true };
         }),
-        catchError((error: HttpErrorResponse) => of({ success: false, errorMessage: this.describeHttpError(error) })),
+        catchError((error: HttpErrorResponse) =>
+          of({ success: false, errorMessage: this.describeHttpError(error) }),
+        ),
       );
   }
 
@@ -172,7 +196,9 @@ export class SevenTvDeleteService {
     if (error.status === 0) {
       return this.translocoService.translate('massDelete.errors.networkError');
     }
-    return this.translocoService.translate('massDelete.errors.genericStatus', { status: error.status });
+    return this.translocoService.translate('massDelete.errors.genericStatus', {
+      status: error.status,
+    });
   }
 
   private setStatus(emoteId: string, status: DeleteItemStatus, errorMessage?: string): void {
