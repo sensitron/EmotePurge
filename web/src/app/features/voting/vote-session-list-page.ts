@@ -1,12 +1,13 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormControl, ReactiveFormsModule, ValidationErrors } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
+import { PagedResult } from '../../core/models/paged-result.model';
 import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
@@ -21,6 +22,8 @@ function toLocalDateTimeInputValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+const EMPTY_PAGE: PagedResult<VoteSessionSummary> = { items: [], page: 1, pageSize: 20, totalCount: 0, totalPages: 0 };
+
 @Component({
   selector: 'app-vote-session-list-page',
   imports: [ReactiveFormsModule, RouterLink, DateTimePicker, Pager, TranslocoPipe],
@@ -31,16 +34,49 @@ export class VoteSessionListPage {
 
   private readonly voteSessionService = inject(VoteSessionService);
   private readonly channelService = inject(ChannelService);
-  private readonly authService = inject(AuthService);
   private readonly translocoService = inject(TranslocoService);
 
-  protected readonly sessions = signal<VoteSessionSummary[]>([]);
   protected readonly page = signal(1);
-  protected readonly totalPages = signal(0);
-  // Reuses the ChannelManagementAuthorizationFilter semantics as a de-facto permission probe
-  // (200 = can manage, 403 = plain voter/anonymous) instead of adding a new public "canManage" field.
-  protected readonly canManage = signal(false);
-  protected readonly errorMessage = signal<string | null>(null);
+
+  /**
+   * Pilot for the rxResource pattern (the other four loader `effect()`s follow once this holds up).
+   * `params` reads `channelName()` and `page()`, so a change to either reloads — which is exactly what
+   * the hand-written `effect(() => this.load())` did, minus its trap: `load()` reading a *new* signal
+   * silently turned that signal into a reload trigger, and `onPageChange` calling `load()` on top of
+   * the dirty effect fired every request twice.
+   *
+   * `params` also solves the reason the effect existed in the first place: it runs after Angular has
+   * applied route inputs, so reading the required `channelName()` input cannot throw NG0950.
+   */
+  private readonly sessionsResource = rxResource({
+    params: () => ({ channel: this.channelName(), page: this.page() }),
+    stream: ({ params }) => this.voteSessionService.list(params.channel, params.page),
+    defaultValue: EMPTY_PAGE,
+  });
+
+  // Was a probe: GET /api/channels/{c} read as 200 = can manage, 403 = plain voter. Now a field of the
+  // dedicated /permissions response, which says so instead of implying it via a status code.
+  private readonly permissionsResource = rxResource({
+    params: () => this.channelName(),
+    stream: ({ params }) => this.channelService.getPermissions(params),
+  });
+
+  protected readonly sessions = computed(() => this.sessionsResource.value().items);
+  protected readonly totalPages = computed(() => this.sessionsResource.value().totalPages);
+  protected readonly canManage = computed(() => this.permissionsResource.value()?.canManage ?? false);
+
+  // Kept separate from the resource's own error so a failed create/end/delete does not get wiped out
+  // by the next successful list reload, and vice versa. The action the user just took wins.
+  private readonly actionError = signal<string | null>(null);
+
+  protected readonly errorMessage = computed(() => {
+    const actionError = this.actionError();
+    if (actionError) {
+      return actionError;
+    }
+    const loadError = this.sessionsResource.error();
+    return loadError instanceof HttpErrorResponse ? apiErrorTranslationKey(loadError) : null;
+  });
 
   protected readonly titleControl = new FormControl('', { nonNullable: true, validators: [requiredTrimmed] });
   protected readonly selectedAudience = signal<'everyone' | 'subs' | 'mods'>('everyone');
@@ -50,37 +86,8 @@ export class VoteSessionListPage {
   protected readonly copyFeedback = signal<{ sessionId: number; status: 'copied' | 'error' } | null>(null);
   private copyFeedbackTimeout?: ReturnType<typeof setTimeout>;
 
-  constructor() {
-    // Deferred, not called directly — `channelName()` is a required route-bound input and isn't
-    // set yet while the constructor body runs; reading it here throws NG0950. effect() defers to
-    // after Angular has applied inputs, same fix already used in UsageStatsPage.
-    effect(() => this.load());
-  }
-
-  private load(): void {
-    const channelName = this.channelName();
-
-    this.voteSessionService.list(channelName, this.page()).subscribe({
-      next: (result) => {
-        this.sessions.set(result.items);
-        this.totalPages.set(result.totalPages);
-      },
-      error: (error: HttpErrorResponse) => this.handleError(error),
-    });
-
-    this.channelService.getStatus(channelName).subscribe({
-      next: () => this.canManage.set(true),
-      error: () => this.canManage.set(false),
-    });
-  }
-
   protected onPageChange(newPage: number): void {
-    // `load()` reads `page()` (and `channelName()`) inside the reactive `effect()` above — setting
-    // the signal alone already marks that effect dirty and triggers a reload. Calling `load()`
-    // again here was firing a second, redundant `GET .../vote-sessions` + `GET /api/channels/{c}`
-    // per page change. Contrast with MyVotingsPage.onPageChange(), which calls `load()` directly and
-    // correctly so — its `load()` runs from the constructor, not an effect, so there's no dirty-effect
-    // path to double up with.
+    // Setting the signal is the whole trigger — `sessionsResource` reads `page()` in its `params`.
     this.page.set(newPage);
   }
 
@@ -100,9 +107,13 @@ export class VoteSessionListPage {
     const startedAtLocal = this.customStartedAt();
     const startedAt = startedAtLocal ? new Date(startedAtLocal).toISOString() : undefined;
 
+    this.actionError.set(null);
     this.voteSessionService.create(this.channelName(), this.titleControl.value.trim(), roles, startedAt).subscribe({
-      next: (session) => {
-        this.sessions.update((sessions) => [session, ...sessions]);
+      next: () => {
+        // Reloads instead of prepending locally: a new session shifts the paging, and the old
+        // optimistic prepend could push the visible page to pageSize + 1 rows or show the new session
+        // on page 3 where it does not belong.
+        this.sessionsResource.reload();
         this.titleControl.reset('');
         this.customStartedAt.set('');
       },
@@ -111,10 +122,15 @@ export class VoteSessionListPage {
   }
 
   protected endSession(sessionId: number): void {
+    this.actionError.set(null);
     this.voteSessionService.end(this.channelName(), sessionId).subscribe({
-      next: (updated) => {
-        this.sessions.update((sessions) => sessions.map((session) => (session.id === updated.id ? updated : session)));
-      },
+      // In-place field change on a row that is already visible — no paging effect, so patching the
+      // loaded page locally is both correct and cheaper than a reload.
+      next: (updated) =>
+        this.sessionsResource.update((current) => ({
+          ...current,
+          items: current.items.map((session) => (session.id === updated.id ? updated : session)),
+        })),
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
   }
@@ -126,8 +142,10 @@ export class VoteSessionListPage {
       return;
     }
 
+    this.actionError.set(null);
     this.voteSessionService.delete(this.channelName(), session.id).subscribe({
-      next: () => this.sessions.update((sessions) => sessions.filter((s) => s.id !== session.id)),
+      // Reload rather than filter locally, for the same paging reason as createSession.
+      next: () => this.sessionsResource.reload(),
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
   }
@@ -150,11 +168,9 @@ export class VoteSessionListPage {
     );
   }
 
+  // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
+  // /api/ call in the app.
   private handleError(error: HttpErrorResponse): void {
-    if (error.status === 401) {
-      this.authService.handleSessionExpired();
-      return;
-    }
-    this.errorMessage.set(apiErrorTranslationKey(error));
+    this.actionError.set(apiErrorTranslationKey(error));
   }
 }
