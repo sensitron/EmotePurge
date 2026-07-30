@@ -15,7 +15,7 @@ public class SevenTvSyncService(
     ILogger<SevenTvSyncService> logger)
     : ISevenTvSyncService
 {
-    public async Task<string?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default)
+    public async Task<SevenTvSyncResult?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -37,11 +37,13 @@ public class SevenTvSyncService(
             return null;
         }
 
-        var emoteSet = await sevenTvApiClient.GetEmoteSetForTwitchUserAsync(twitchUserId, cancellationToken);
-        if (emoteSet is null)
+        var channelState = await sevenTvApiClient.GetChannelStateForTwitchUserAsync(twitchUserId, cancellationToken);
+        if (channelState is null)
         {
             return null;
         }
+
+        var emoteSet = channelState.EmoteSet;
 
         // A successful response with an empty emote list is indistinguishable from a real set wipe,
         // but the consequences are wildly asymmetric: ReconcileAsync would archive every emote of
@@ -59,7 +61,7 @@ public class SevenTvSyncService(
                 logger.LogWarning(
                     "7TV meldet 0 aktive Emotes für {Channel}, obwohl bisher {Count} bekannt waren — Sync übersprungen.",
                     normalized, knownActiveEmotes);
-                return emoteSet.Id;
+                return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId);
             }
         }
 
@@ -70,7 +72,7 @@ public class SevenTvSyncService(
         await db.SaveChangesAsync(cancellationToken);
         await RefreshMatchCacheAsync(channel, cancellationToken);
 
-        return emoteSet.Id;
+        return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId);
     }
 
     private async Task RefreshMatchCacheAsync(Channel channel, CancellationToken cancellationToken)

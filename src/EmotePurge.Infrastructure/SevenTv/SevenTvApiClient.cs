@@ -56,7 +56,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         }
     }
 
-    public async Task<SevenTvEmoteSet?> GetEmoteSetForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    public async Task<SevenTvChannelState?> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -78,7 +78,12 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             }
 
             var emotes = dto.EmoteSet.Emotes.Select(SevenTvEmoteJsonMapper.MapDto).ToList();
-            return new SevenTvEmoteSet(dto.EmoteSet.Id, emotes);
+
+            // The response's top-level id is the Twitch connection id, not the 7TV account —
+            // the account lives under user.id (verified live 2026-07-30).
+            var sevenTvUserId = string.IsNullOrEmpty(dto.User?.Id) ? null : dto.User.Id;
+
+            return new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

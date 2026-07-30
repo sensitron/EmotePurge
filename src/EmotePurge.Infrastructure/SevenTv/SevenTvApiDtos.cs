@@ -91,11 +91,17 @@ internal sealed class SevenTvGqlEditorOfOwnerDto
     public List<SevenTvGqlConnectionDto> Connections { get; set; } = [];
 }
 
-// REST: GET users/twitch/{id}
+// REST: GET users/twitch/{id}. The response models the Twitch *connection*: its top-level id is
+// the Twitch user id, while the 7TV account is the nested user object.
 internal sealed class SevenTvUserRestDto
 {
-    public string Id { get; set; } = string.Empty;
     public SevenTvEmoteSetJsonDto? EmoteSet { get; set; }
+    public SevenTvUserRestUserDto? User { get; set; }
+}
+
+internal sealed class SevenTvUserRestUserDto
+{
+    public string Id { get; set; } = string.Empty;
 }
 
 internal sealed class SevenTvEmoteSetJsonDto

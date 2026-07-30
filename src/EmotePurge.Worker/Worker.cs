@@ -98,10 +98,10 @@ public class Worker(
     {
         using var scope = scopeFactory.CreateScope();
         var syncService = scope.ServiceProvider.GetRequiredService<ISevenTvSyncService>();
-        var emoteSetId = await syncService.SyncChannelAsync(channelName, ct);
-        if (emoteSetId is not null)
+        var result = await syncService.SyncChannelAsync(channelName, ct);
+        if (result is not null)
         {
-            logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert.", emoteSetId, channelName);
+            logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert.", result.EmoteSetId, channelName);
         }
     }
 }

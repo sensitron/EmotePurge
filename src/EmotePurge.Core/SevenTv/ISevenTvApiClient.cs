@@ -4,7 +4,9 @@ public interface ISevenTvApiClient
 {
     Task<string?> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default);
 
-    Task<SevenTvEmoteSet?> GetEmoteSetForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default);
+    // The channel's active emote set plus the 7TV account id behind the Twitch connection — both
+    // come from the same users/twitch/{id} response, so resolving them together costs no extra call.
+    Task<SevenTvChannelState?> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default);
 
     // Resolves a Twitch user's own 7TV account identity plus their currently active Twitch-linked
     // emote set, via 7TV's userByConnection GQL query.
