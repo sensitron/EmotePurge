@@ -53,6 +53,7 @@ services:
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
       - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
       - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
+      - Auth__Twitch__TokenEncryptionKey=${AUTH_TWITCH_TOKEN_ENCRYPTION_KEY}
       - Auth__Twitch__RedirectUri=http://localhost:8080/api/auth/twitch/callback
       - Auth__Twitch__PostLoginRedirectUrl=/
       # Parität zu docker-compose.prod.yml, damit dieser Pfad lokal überhaupt getestet wird.

@@ -12,4 +12,14 @@ public class User
     // cryptographically valid — with Data Protection keys persisted across redeploys there would be
     // nothing left that can invalidate a stolen cookie for its entire lifetime.
     public DateTime? SessionsValidFromUtc { get; set; }
+
+    // Server-side Twitch token store for the on-demand refresh flow. Both token columns hold
+    // ITokenCipher-encrypted values, never plaintext — a DB dump alone must not leak usable
+    // credentials. All four are cleared together on logout and when a refresh reports the token
+    // as invalid. TwitchTokenScopes is the space-joined scope list the tokens were granted with;
+    // a mismatch against the currently requested scopes means only a fresh login can help.
+    public string? TwitchRefreshToken { get; set; }
+    public string? TwitchAccessToken { get; set; }
+    public DateTime? TwitchAccessTokenExpiresAtUtc { get; set; }
+    public string? TwitchTokenScopes { get; set; }
 }

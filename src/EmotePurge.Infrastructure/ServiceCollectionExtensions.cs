@@ -64,6 +64,7 @@ public static class ServiceCollectionExtensions
             }
         });
 
+        services.AddSingleton<ITokenCipher, AesGcmTokenCipher>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
         services.AddScoped<ISevenTvEditorService, SevenTvEditorService>();

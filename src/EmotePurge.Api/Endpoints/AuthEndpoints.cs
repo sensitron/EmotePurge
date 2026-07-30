@@ -13,7 +13,6 @@ namespace EmotePurge.Api.Endpoints;
 public static class AuthEndpoints
 {
     private const string OAuthStateCookieName = "ep_oauth_state";
-    private const string TwitchOAuthScope = "user:read:email user:read:moderated_channels user:read:subscriptions";
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
@@ -39,7 +38,7 @@ public static class AuthEndpoints
                 $"?client_id={Uri.EscapeDataString(clientId)}" +
                 $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
                 "&response_type=code" +
-                $"&scope={Uri.EscapeDataString(TwitchOAuthScope)}" +
+                $"&scope={Uri.EscapeDataString(TwitchOAuthDefaults.RequestedScopes)}" +
                 $"&state={state}";
 
             return Results.Redirect(authorizeUrl);
@@ -79,6 +78,15 @@ public static class AuthEndpoints
             }
 
             await userService.UpsertLoginAsync(userInfo.Id, userInfo.Login, userInfo.DisplayName, ct);
+
+            // Stored server-side (encrypted) so the on-demand refresh flow can outlive the ~4h
+            // access-token claim below. If Twitch ever omits the refresh token, any previously
+            // stored one is kept — it may still be valid.
+            if (token.RefreshToken is not null)
+            {
+                await userService.StoreTwitchTokensAsync(
+                    userInfo.Id, token.AccessToken, token.ExpiresAtUtc, token.RefreshToken, token.Scopes, ct);
+            }
 
             var claims = new List<Claim>
             {
@@ -121,6 +129,9 @@ public static class AuthEndpoints
             if (twitchUserId is not null)
             {
                 await userService.RevokeSessionsAsync(twitchUserId, ct);
+                // Logout is already global per user (the revocation above kills every session), so
+                // the server also gives up its ability to refresh Twitch tokens on this user's behalf.
+                await userService.ClearTwitchTokensAsync(twitchUserId, ct);
             }
 
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
