@@ -8,18 +8,19 @@ public static class ChannelEndpoints
 {
     public static void MapChannelEndpoints(this WebApplication app)
     {
-        var group = app.MapGroup("/api/channels").RequireAuthorization();
+        // The validation filter comes first so a malformed name is a 400 with invalid_channel_name
+        // before any authorization filter runs — that filter order *is* the error contract (see Z4).
+        // Two endpoints in this group have no channelName at all ("" and "/mine"); the filter lets
+        // those through untouched.
+        var group = app.MapGroup("/api/channels")
+            .RequireAuthorization()
+            .AddEndpointFilter<ChannelNameValidationFilter>();
 
         group.MapGet("/{channelName}", async (
             string channelName,
             IChannelService channelService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var channel = await channelService.GetByNameAsync(channelName, ct);
             return channel is null
                 ? Results.NotFound()
@@ -40,11 +41,6 @@ public static class ChannelEndpoints
             IChannelService channelService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var principal = httpContext.User.TryBuildTwitchPrincipal();
             if (principal is null)
             {
@@ -110,11 +106,6 @@ public static class ChannelEndpoints
             IChannelService channelService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var channel = await channelService.JoinAsync(channelName, ct);
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
@@ -126,11 +117,6 @@ public static class ChannelEndpoints
             IChannelService channelService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             // Deactivates the bot and keeps all history — see ChannelService.LeaveAsync for why this
             // must not be a delete. The destructive variant lives behind /purge below.
             var deactivated = await channelService.LeaveAsync(channelName, ct);
@@ -149,11 +135,6 @@ public static class ChannelEndpoints
             ILogger<Program> logger,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var purged = await channelService.PurgeAsync(channelName, ct);
             if (purged)
             {

@@ -14,6 +14,8 @@ public static class UsageStatsEndpoints
         // so even a plain read here can be turned into pressure on someone else's API quota.
         var group = app.MapGroup("/api/channels/{channelName}/usage-stats")
             .RequireAuthorization()
+            // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
+            .AddEndpointFilter<ChannelNameValidationFilter>()
             .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
             .RequireRateLimiting("ExternalApi");
 
@@ -22,11 +24,6 @@ public static class UsageStatsEndpoints
             IUsageStatQueryService usageStatQueryService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var stats = await usageStatQueryService.GetUsageStatsAsync(channelName, ct);
             return Results.Ok(stats);
         });
@@ -38,11 +35,6 @@ public static class UsageStatsEndpoints
             IUsageStatQueryService usageStatQueryService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             if (!DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var fromDate) ||
                 !DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var toDate))
             {

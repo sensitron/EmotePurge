@@ -16,6 +16,8 @@ public static class EmoteEndpoints
         // that look cheap. sync-deleted overrides it below.
         var group = app.MapGroup("/api/channels/{channelName}/emotes")
             .RequireAuthorization()
+            // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
+            .AddEndpointFilter<ChannelNameValidationFilter>()
             .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
             .RequireRateLimiting("ExternalApi");
 
@@ -25,11 +27,6 @@ public static class EmoteEndpoints
             IEmoteService emoteService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             if (request.EmoteIds is null || request.EmoteIds.Count == 0)
             {
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty });
@@ -50,11 +47,6 @@ public static class EmoteEndpoints
             IEmoteSetOwnershipService emoteSetOwnershipService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var principal = httpContext.User.TryBuildTwitchPrincipal();
             var warning = await emoteSetOwnershipService.CheckAsync(channelName, principal?.TwitchUserId, principal?.AccessToken, ct);
             return Results.Ok(warning);
@@ -70,11 +62,6 @@ public static class EmoteEndpoints
             IChannelService channelService,
             CancellationToken ct) =>
         {
-            if (!ChannelNameValidation.IsValid(channelName))
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
-            }
-
             var channel = await channelService.GetByNameAsync(channelName, ct);
             return channel is null
                 ? Results.NotFound()
