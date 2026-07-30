@@ -80,7 +80,10 @@
   @if (emotes().length === 0) {
     <p class="text-sm text-slate-400">{{ 'voting.detail.noActiveEmotes' | transloco }}</p>
   } @else {
-    <cdk-virtual-scroll-viewport [itemSize]="rowHeight" class="h-128 rounded-md border border-slate-800">
+    <cdk-virtual-scroll-viewport
+      [itemSize]="rowHeight"
+      class="h-[clamp(16rem,calc(100dvh-22rem),32rem)] rounded-md border border-slate-800"
+    >
       <div
         *cdkVirtualFor="let row of rows()"
         class="grid gap-3 px-3 py-2"
@@ -88,47 +91,72 @@
       >
         @for (emote of row; track emote.emoteId) {
           <div
+            role="button"
+            tabindex="0"
+            [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
-              'flex h-40 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              'flex h-44 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
               (selection.isSelected(emote) ? 'ring-2 ring-purple-500 bg-purple-950/40' : 'bg-slate-900')
             "
             (click)="selection.onRowClick(emote, $event)"
+            (keydown.enter)="selection.onRowClick(emote, $any($event))"
+            (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" [showCheckbox]="canManage()" />
             <div class="flex h-10 shrink-0 items-center justify-center">
               <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
             </div>
             <span class="text-xs text-slate-400">{{ emote.totalUseCount }}x · {{ formatScore(emote.score) }}</span>
-            <div class="mt-auto flex items-center justify-center gap-1" (click)="$event.stopPropagation()">
+            <div class="mt-auto grid gap-1" (click)="$event.stopPropagation()">
               <button
                 type="button"
-                class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
-                [class]="emote.myVote === voteType.Keep ? 'text-emerald-400' : 'text-slate-500'"
+                class="flex min-h-6 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition"
+                [class]="
+                  emote.myVote === voteType.Keep
+                    ? 'bg-emerald-700 text-white hover:bg-emerald-600'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                "
+                [attr.aria-pressed]="emote.myVote === voteType.Keep"
                 (click)="vote(emote, voteType.Keep)"
                 [attr.aria-label]="'voting.detail.keepAriaLabel' | transloco"
                 [attr.title]="keepButtonTitle(emote)"
               >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" class="shrink-0">
                   <path
                     d="M2 21h2a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H2v11ZM22 11.5a2 2 0 0 0-2-2h-5.6l.8-4a2 2 0 0 0-2-2.4h-.2L8 9v12h11a2 2 0 0 0 1.9-1.4l1.9-6.6a2 2 0 0 0 .1-.5v-1Z"
                   />
                 </svg>
-                <span class="text-xs">{{ emote.keepVotes }}</span>
+                <span class="truncate">{{ 'voting.detail.keepLabel' | transloco }}</span>
+                <span class="ml-auto font-medium">{{ emote.keepVotes }}</span>
               </button>
               <button
                 type="button"
-                class="flex items-center gap-1 rounded-md p-1 transition hover:bg-slate-800"
-                [class]="emote.myVote === voteType.Delete ? 'text-red-400' : 'text-slate-500'"
+                class="flex min-h-6 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition"
+                [class]="
+                  emote.myVote === voteType.Delete
+                    ? 'bg-red-700 text-white hover:bg-red-600'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                "
+                [attr.aria-pressed]="emote.myVote === voteType.Delete"
                 (click)="vote(emote, voteType.Delete)"
                 [attr.aria-label]="'voting.detail.deleteAriaLabel' | transloco"
                 [attr.title]="deleteButtonTitle(emote)"
               >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="transform: rotate(180deg)">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  class="shrink-0"
+                  style="transform: rotate(180deg)"
+                >
                   <path
                     d="M2 21h2a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H2v11ZM22 11.5a2 2 0 0 0-2-2h-5.6l.8-4a2 2 0 0 0-2-2.4h-.2L8 9v12h11a2 2 0 0 0 1.9-1.4l1.9-6.6a2 2 0 0 0 .1-.5v-1Z"
                   />
                 </svg>
-                <span class="text-xs">{{ emote.deleteVotes }}</span>
+                <span class="truncate">{{ 'voting.detail.deleteLabel' | transloco }}</span>
+                <span class="ml-auto font-medium">{{ emote.deleteVotes }}</span>
               </button>
             </div>
           </div>

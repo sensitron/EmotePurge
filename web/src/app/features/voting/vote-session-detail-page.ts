@@ -20,8 +20,9 @@ import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-dele
 import { ListSelection } from '../../shared/selection/list-selection';
 
 // Row height (px) fed to CdkVirtualScrollViewport — see the identical comment in UsageStatsPage.
-// Taller than the usage-stats grid: each card also carries a score line and two vote buttons.
-const ROW_HEIGHT_PX = 176;
+// Taller than the usage-stats grid: each card also carries a score line and two stacked,
+// full-width vote buttons (icon + visible label + count).
+const ROW_HEIGHT_PX = 192;
 
 @Component({
   selector: 'app-vote-session-detail-page',
@@ -86,7 +87,9 @@ export class VoteSessionDetailPage {
     return ordered;
   });
 
-  protected readonly usageFilter = new EmoteUsageFilter<VoteSessionResult>(() => this.selection.clear());
+  // Prune, don't clear (S2-16): narrowing a filter keeps the still-visible part of the selection,
+  // while anything filtered out is dropped so the delete path never holds an off-screen emote.
+  protected readonly usageFilter = new EmoteUsageFilter<VoteSessionResult>(() => this.selection.retainVisible());
 
   protected readonly emotes = computed(() => this.usageFilter.apply(this.orderedEmotes()));
 
