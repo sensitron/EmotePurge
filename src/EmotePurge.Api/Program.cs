@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Security.Claims;
+using System.Text.RegularExpressions;
 using EmotePurge.Api.Auth;
 using EmotePurge.Api.Endpoints;
 using EmotePurge.Api.Validation;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.StaticFiles;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -190,7 +192,31 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseStaticFiles();
+// Angular fingerprints its bundles — eight hash characters before the extension, in two different
+// alphabets depending on whether esbuild emitted an entry point (main-4HRH6XFH.js) or a lazy chunk
+// (chunk-8nP_m4am.js). A pattern covering only one of the two would leave the other uncached.
+// Deliberately restricted to .js/.css: favicon.ico, robots.txt and the i18n JSONs sit right next to
+// them in wwwroot with stable, unhashed names and must never be frozen for a year.
+var fingerprintedAsset = new Regex(@"-[A-Za-z0-9_-]{8}\.(js|css)$", RegexOptions.Compiled);
+
+// Without an explicit Cache-Control, ASP.NET Core sends only ETag/Last-Modified, and browsers then
+// apply heuristic freshness — reusing a file for a fraction of its age without revalidating at all.
+// That shipped stale translations to production on 2026-07-30 (/i18n/de.json has a stable URL, so a
+// cached copy simply lacked the newly added keys and Transloco rendered the raw key names). A stale
+// index.html is the more serious case: it references hashed bundles that no longer exist after a
+// redeploy, and since we send X-Content-Type-Options: nosniff, the SPA fallback's text/html response
+// for those bundles is refused outright rather than misparsed — a blank page instead of a stale one.
+// "no-cache" does not forbid caching; it requires revalidation, which the existing ETag answers with
+// an empty 304.
+void ApplyStaticCacheHeaders(StaticFileResponseContext context)
+{
+    var path = context.Context.Request.Path.Value ?? string.Empty;
+    context.Context.Response.Headers.CacheControl = fingerprintedAsset.IsMatch(path)
+        ? "public, max-age=31536000, immutable"
+        : "no-cache";
+}
+
+app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = ApplyStaticCacheHeaders });
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -203,6 +229,9 @@ app.MapAuthEndpoints();
 app.MapWorkerHealthEndpoints();
 
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
-app.MapFallbackToFile("index.html");
+// Needs the options passed separately: the SPA fallback serves index.html through its own endpoint,
+// not through the static-file middleware configured above, so it would otherwise stay uncontrolled —
+// which is exactly the file that must not go stale.
+app.MapFallbackToFile("index.html", new StaticFileOptions { OnPrepareResponse = ApplyStaticCacheHeaders });
 
 app.Run();
