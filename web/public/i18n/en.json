@@ -221,7 +221,8 @@
     "goToOverview": "Go to overview"
   },
   "common": {
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "loading": "Loading …"
   },
   "pager": {
     "previous": "Back",
@@ -230,6 +231,7 @@
   },
   "massDelete": {
     "deleteButton": "Delete ({{ count }})",
+    "clearSelection": "Clear selection",
     "progress": "{{ finished }} / {{ total }} processed",
     "deleteFailedFallback": "Delete failed",
     "confirmTitle": {

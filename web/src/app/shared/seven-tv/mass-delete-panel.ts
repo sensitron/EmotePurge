@@ -3,7 +3,10 @@ import { Component, computed, effect, inject, input, output, signal } from '@ang
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
-import { DeleteQueueEmote, SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
+import {
+  DeleteQueueEmote,
+  SevenTvDeleteService,
+} from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { Button } from '../ui/button';
 import { DeleteConfirmDialog, DeleteConfirmDialogData } from './delete-confirm-dialog';
@@ -26,16 +29,31 @@ export interface DeletableEmote {
   imports: [Button, DeleteProgressPanel, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-3">
-      <button
-        type="button"
-        appButton="danger-solid"
-        buttonSize="lg"
-        class="self-start disabled:cursor-not-allowed"
-        [disabled]="selectedEmotes().length === 0 || deleteService.isRunning()"
-        (click)="openConfirm()"
-      >
-        {{ 'massDelete.deleteButton' | transloco: { count: selectedEmotes().length } }}
-      </button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          appButton="danger-solid"
+          buttonSize="lg"
+          class="disabled:cursor-not-allowed"
+          [disabled]="selectedEmotes().length === 0 || deleteService.isRunning()"
+          (click)="openConfirm()"
+        >
+          {{ 'massDelete.deleteButton' | transloco: { count: selectedEmotes().length } }}
+        </button>
+        <!-- Without this, the only way out of a large selection was deselecting card by card
+             (user finding, 2026-07-30) — the panel owns the "n selected" wording, so the way to
+             zero belongs next to it; the actual clear stays with the host page's selection. -->
+        @if (selectedEmotes().length > 0 && !deleteService.isRunning()) {
+          <button
+            type="button"
+            appButton="neutral"
+            buttonSize="lg"
+            (click)="selectionCleared.emit()"
+          >
+            {{ 'massDelete.clearSelection' | transloco }}
+          </button>
+        }
+      </div>
 
       @if (deleteService.isRunning() || deleteService.queue().length > 0) {
         <app-delete-progress-panel
@@ -62,6 +80,10 @@ export class MassDeletePanel {
    *  reload rather than filter locally, so it never shows a state the server does not share. */
   readonly reloadRequested = output<void>();
 
+  /** The user wants the whole selection gone — the host page owns the ListSelection, so clearing
+   *  is its job, not this panel's. */
+  readonly selectionCleared = output<void>();
+
   protected readonly tokenService = inject(SevenTvTokenService);
   protected readonly deleteService = inject(SevenTvDeleteService);
   private readonly emoteAdminService = inject(EmoteAdminService);
@@ -69,7 +91,9 @@ export class MassDeletePanel {
 
   private readonly setWarning = signal<EmoteSetWarning | null>(null);
   private readonly warningLoading = signal(false);
-  private readonly selectedEmoteNames = computed(() => this.selectedEmotes().map((emote) => emote.name));
+  private readonly selectedEmoteNames = computed(() =>
+    this.selectedEmotes().map((emote) => emote.name),
+  );
 
   constructor() {
     // The queue settling is not on its own a reason to tell the host page anything: the backend only

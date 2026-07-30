@@ -221,7 +221,8 @@
     "goToOverview": "Zur Übersicht"
   },
   "common": {
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "loading": "Lädt …"
   },
   "pager": {
     "previous": "Zurück",
@@ -230,6 +231,7 @@
   },
   "massDelete": {
     "deleteButton": "Löschen ({{ count }})",
+    "clearSelection": "Auswahl aufheben",
     "progress": "{{ finished }} / {{ total }} verarbeitet",
     "deleteFailedFallback": "Löschen fehlgeschlagen",
     "confirmTitle": {
