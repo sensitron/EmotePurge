@@ -1,5 +1,5 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
-using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +9,7 @@ namespace EmotePurge.Infrastructure.Services;
 public class MyChannelsService(
     AppDbContext db,
     ITwitchHelixClient helixClient,
-    ISevenTvApiClient sevenTvApiClient) : IMyChannelsService
+    ISevenTvEditorService sevenTvEditorService) : IMyChannelsService
 {
     private sealed class ChannelFlags
     {
@@ -20,7 +20,7 @@ public class MyChannelsService(
 
     public async Task<MyChannelsResultDto> GetMyChannelsAsync(TwitchPrincipalInfo principal, CancellationToken cancellationToken = default)
     {
-        var selfLogin = principal.TwitchLogin.Trim().ToLowerInvariant();
+        var selfLogin = ChannelName.Normalize(principal.TwitchLogin);
 
         // Helix's moderated-channels list only ever contains channels the user moderates for
         // someone else — it never includes the channel the user broadcasts themselves.
@@ -42,7 +42,7 @@ public class MyChannelsService(
             {
                 foreach (var login in moderatedChannels)
                 {
-                    var normalized = login.Trim().ToLowerInvariant();
+                    var normalized = ChannelName.Normalize(login);
                     GetOrAdd(flagsByChannel, normalized).IsModerator = true;
                 }
             }
@@ -50,27 +50,13 @@ public class MyChannelsService(
 
         // Independent of the Twitch-role axis above — a 7TV editor grant doesn't require any Twitch
         // relationship at all, so this can add brand-new channel keys, not just annotate existing ones.
-        var sevenTvUnavailable = false;
-        var identity = await sevenTvApiClient.ResolveSevenTvIdentityAsync(principal.TwitchUserId, cancellationToken);
-        if (identity is null)
+        // Shares ISevenTvEditorService (and therefore its cache) with the authorization path; this used
+        // to run the same two-call chain here, uncached, on every single overview load.
+        var grants = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
+        var sevenTvUnavailable = grants is null;
+        foreach (var login in grants?.ChannelLogins ?? Enumerable.Empty<string>())
         {
-            sevenTvUnavailable = true;
-        }
-        else
-        {
-            var editorOf = await sevenTvApiClient.GetEditorOfChannelsAsync(identity.SevenTvUserId, cancellationToken);
-            if (editorOf is null)
-            {
-                sevenTvUnavailable = true;
-            }
-            else
-            {
-                foreach (var grant in editorOf)
-                {
-                    var normalized = grant.TwitchChannelLogin.Trim().ToLowerInvariant();
-                    GetOrAdd(flagsByChannel, normalized).IsSevenTvEditor = true;
-                }
-            }
+            GetOrAdd(flagsByChannel, login).IsSevenTvEditor = true;
         }
 
         var trackedChannels = await db.Channels

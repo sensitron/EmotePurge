@@ -1,3 +1,4 @@
+using System.Text.Json;
 using EmotePurge.Core.Services;
 using Microsoft.Extensions.Configuration;
 using StackExchange.Redis;
@@ -12,11 +13,27 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
     public Task SetIsModeratorAsync(string twitchUserId, string channelName, bool isModerator, CancellationToken cancellationToken = default) =>
         SetAsync(BuildKey("modcheck", twitchUserId, channelName), isModerator);
 
-    public Task<bool?> TryGetIsSevenTvEditorAsync(string twitchUserId, string channelName, CancellationToken cancellationToken = default) =>
-        TryGetAsync(BuildKey("7tveditor", twitchUserId, channelName));
+    public async Task<SevenTvEditorGrants?> TryGetSevenTvEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    {
+        var value = await connectionMultiplexer.GetDatabase().StringGetAsync($"7tveditor:{twitchUserId}");
+        if (value.IsNullOrEmpty)
+        {
+            return null;
+        }
 
-    public Task SetIsSevenTvEditorAsync(string twitchUserId, string channelName, bool isEditor, CancellationToken cancellationToken = default) =>
-        SetAsync(BuildKey("7tveditor", twitchUserId, channelName), isEditor);
+        // A payload we cannot read is treated as a miss rather than as "no grants" — the caller then
+        // resolves live, which is the safe direction for an authorization input.
+        var stored = JsonSerializer.Deserialize<StoredEditorGrants>((string)value!, JsonSerializerOptions.Web);
+        return stored is null ? null : new SevenTvEditorGrants(ToSet(stored.ChannelLogins), ToSet(stored.TwitchChannelIds));
+    }
+
+    public async Task SetSevenTvEditorGrantsAsync(string twitchUserId, SevenTvEditorGrants grants, CancellationToken cancellationToken = default)
+    {
+        var payload = JsonSerializer.Serialize(
+            new StoredEditorGrants([.. grants.ChannelLogins], [.. grants.TwitchChannelIds]),
+            JsonSerializerOptions.Web);
+        await connectionMultiplexer.GetDatabase().StringSetAsync($"7tveditor:{twitchUserId}", payload, CacheTtl());
+    }
 
     public Task<bool?> TryGetIsSubscriberAsync(string twitchUserId, string broadcasterTwitchId, CancellationToken cancellationToken = default) =>
         TryGetAsync(BuildKey("subcheck", twitchUserId, broadcasterTwitchId));
@@ -32,11 +49,19 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
 
     private async Task SetAsync(string key, bool value)
     {
-        var ttlMinutes = configuration.GetValue<int?>("Auth:ModCheckCacheTtlMinutes") ?? 10;
-        await connectionMultiplexer.GetDatabase().StringSetAsync(key, value ? "1" : "0", TimeSpan.FromMinutes(ttlMinutes));
+        await connectionMultiplexer.GetDatabase().StringSetAsync(key, value ? "1" : "0", CacheTtl());
     }
+
+    private TimeSpan CacheTtl() => TimeSpan.FromMinutes(configuration.GetValue<int?>("Auth:ModCheckCacheTtlMinutes") ?? 10);
+
+    // Normalized on write, but compared case-insensitively anyway: a caller that forgets to normalize
+    // should get a wrong-cased hit rather than a silent miss that reads as "not an editor".
+    private static IReadOnlySet<string> ToSet(IReadOnlyList<string> values) =>
+        new HashSet<string>(values, StringComparer.OrdinalIgnoreCase);
 
     // The first segment after the prefix is always the numeric Twitch user id, so one user's entries
     // can never collide with another's regardless of what the second segment contains.
     private static string BuildKey(string prefix, string twitchUserId, string scope) => $"{prefix}:{twitchUserId}:{scope}";
+
+    private sealed record StoredEditorGrants(IReadOnlyList<string> ChannelLogins, IReadOnlyList<string> TwitchChannelIds);
 }

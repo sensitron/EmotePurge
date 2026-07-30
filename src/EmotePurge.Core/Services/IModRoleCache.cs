@@ -12,10 +12,13 @@ public interface IModRoleCache
     Task SetIsModeratorAsync(string twitchUserId, string channelName, bool isModerator, CancellationToken cancellationToken = default);
 
     // 7TV editor grants. The uncached path costs two sequential 7TV GraphQL calls (identity resolve,
-    // then editor-of lookup) purely to answer an authorization question.
-    Task<bool?> TryGetIsSevenTvEditorAsync(string twitchUserId, string channelName, CancellationToken cancellationToken = default);
+    // then editor-of lookup) purely to answer an authorization question. Cached as the whole grant set
+    // per user rather than one bool per user+channel: the underlying 7TV call returns all of them
+    // anyway, so a per-channel cache paid the same two calls again for the user's second channel, and
+    // the overview (which needs the full list) could not use it at all.
+    Task<SevenTvEditorGrants?> TryGetSevenTvEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default);
 
-    Task SetIsSevenTvEditorAsync(string twitchUserId, string channelName, bool isEditor, CancellationToken cancellationToken = default);
+    Task SetSevenTvEditorGrantsAsync(string twitchUserId, SevenTvEditorGrants grants, CancellationToken cancellationToken = default);
 
     // Twitch subscription status, keyed by broadcaster id rather than channel name. Callers must not
     // cache an unknown (null) result: Helix returning nothing means "we could not tell", and storing

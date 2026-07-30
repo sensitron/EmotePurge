@@ -66,6 +66,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
+        services.AddScoped<ISevenTvEditorService, SevenTvEditorService>();
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
         services.AddScoped<IMyChannelsService, MyChannelsService>();
         services.AddSingleton<IModRoleCache, ModRoleCache>();

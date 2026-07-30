@@ -1,5 +1,5 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
-using EmotePurge.Core.SevenTv;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -7,15 +7,14 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class ChannelAccessService(
     IModeratorCheckService moderatorCheckService,
-    ISevenTvApiClient sevenTvApiClient,
+    ISevenTvEditorService sevenTvEditorService,
     IChannelService channelService,
-    IModRoleCache modRoleCache,
     IConfiguration configuration,
     ILogger<ChannelAccessService> logger) : IChannelAccessService
 {
     public async Task<bool> CanManageChannelAsync(TwitchPrincipalInfo principal, string channelName, CancellationToken cancellationToken = default)
     {
-        var normalizedChannel = channelName.Trim().ToLowerInvariant();
+        var normalizedChannel = ChannelName.Normalize(channelName);
 
         if (IsGlobalAdmin(principal))
         {
@@ -38,39 +37,22 @@ public class ChannelAccessService(
             return true;
         }
 
-        var normalizedChannel = channelName.Trim().ToLowerInvariant();
+        var normalizedChannel = ChannelName.Normalize(channelName);
 
-        // This was the most expensive authorization path in the app — two sequential, uncached 7TV
-        // calls per request, on endpoints a viewer can poll freely. Cached like the moderator check,
-        // same TTL and same staleness trade-off.
-        var cached = await modRoleCache.TryGetIsSevenTvEditorAsync(principal.TwitchUserId, normalizedChannel, cancellationToken);
-        if (cached is { } isEditorCached)
-        {
-            return isEditorCached;
-        }
-
-        var identity = await sevenTvApiClient.ResolveSevenTvIdentityAsync(principal.TwitchUserId, cancellationToken);
-        if (identity is null)
-        {
-            // Not cached: a 7TV outage means "unknown", and storing it as "no" would lock genuine
-            // editors out for the whole TTL.
-            return false;
-        }
-
-        var editorOf = await sevenTvApiClient.GetEditorOfChannelsAsync(identity.SevenTvUserId, cancellationToken);
-        if (editorOf is null)
+        // Resolution and caching of the grants live in ISevenTvEditorService — this used to be the
+        // most expensive authorization path in the app (two sequential 7TV calls per request, on
+        // endpoints a viewer can poll freely) and one of two independent copies of the same chain.
+        var grants = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
+        if (grants is null)
         {
             return false;
         }
 
         // Matched on the immutable Twitch id where we have one, for the same reason as IsBroadcaster.
         var channel = await channelService.GetByNameAsync(normalizedChannel, cancellationToken);
-        var isEditor = channel?.TwitchChannelId is { } channelTwitchId
-            ? editorOf.Any(grant => string.Equals(grant.TwitchChannelId, channelTwitchId, StringComparison.Ordinal))
-            : editorOf.Any(grant => string.Equals(grant.TwitchChannelLogin, normalizedChannel, StringComparison.OrdinalIgnoreCase));
-
-        await modRoleCache.SetIsSevenTvEditorAsync(principal.TwitchUserId, normalizedChannel, isEditor, cancellationToken);
-        return isEditor;
+        return channel?.TwitchChannelId is { } channelTwitchId
+            ? grants.TwitchChannelIds.Contains(channelTwitchId)
+            : grants.ChannelLogins.Contains(normalizedChannel);
     }
 
     public bool IsGlobalAdmin(TwitchPrincipalInfo principal)
