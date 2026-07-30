@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, model, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, input, model, signal } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { LanguageService } from '../../core/i18n/language.service';
@@ -31,7 +31,11 @@ function parseDateTimeLocal(value: string): Date | null {
 }
 
 function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
 function startOfMonth(date: Date): Date {
@@ -60,12 +64,16 @@ const WEEKDAY_LABEL_KEYS = [
 /**
  * Self-built calendar-grid + time popup, used in place of a bare native `<input type="datetime-local">`.
  * Value is kept in the same "datetime-local" string format (`YYYY-MM-DDTHH:mm`, local time, empty
- * string = unset) so existing callers barely change. No click-outside-to-close handling (kept simple
- * on purpose) — the panel closes via the explicit "Fertig"/"Done" button.
+ * string = unset) so existing callers barely change. The panel closes via the explicit
+ * "Fertig"/"Done" button, a click anywhere outside the component, or Escape.
  */
 @Component({
   selector: 'app-datetime-picker',
   imports: [TranslocoPipe],
+  host: {
+    '(document:click)': 'onDocumentClick($event)',
+    '(keydown.escape)': 'onEscape()',
+  },
   template: `
     <div class="relative inline-block">
       <button
@@ -77,13 +85,25 @@ const WEEKDAY_LABEL_KEYS = [
       </button>
 
       @if (isOpen()) {
-        <div class="absolute z-10 mt-1 w-64 rounded-md border border-slate-700 bg-slate-900 p-3 shadow-xl">
+        <!-- z-30: must clear the session cards' secondary actions, which sit at relative z-10
+             per the stretched-link contract (see .app-card-link) and come later in the DOM. -->
+        <div
+          class="absolute z-30 mt-1 w-64 rounded-md border border-slate-700 bg-slate-900 p-3 shadow-xl"
+        >
           <div class="mb-2 flex items-center justify-between">
-            <button type="button" class="rounded px-2 py-1 text-slate-400 hover:bg-slate-800" (click)="previousMonth()">
+            <button
+              type="button"
+              class="rounded px-2 py-1 text-slate-400 hover:bg-slate-800"
+              (click)="previousMonth()"
+            >
               ‹
             </button>
             <span class="text-sm font-medium">{{ monthLabel() }}</span>
-            <button type="button" class="rounded px-2 py-1 text-slate-400 hover:bg-slate-800" (click)="nextMonth()">
+            <button
+              type="button"
+              class="rounded px-2 py-1 text-slate-400 hover:bg-slate-800"
+              (click)="nextMonth()"
+            >
               ›
             </button>
           </div>
@@ -134,6 +154,7 @@ const WEEKDAY_LABEL_KEYS = [
 export class DateTimePicker {
   private readonly languageService = inject(LanguageService);
   private readonly translocoService = inject(TranslocoService);
+  private readonly elementRef = inject(ElementRef<HTMLElement>);
 
   readonly value = model('');
   readonly max = input<string>();
@@ -149,7 +170,9 @@ export class DateTimePicker {
       return `${toDateOnlyString(parsed)} ${toTimeOnlyString(parsed)}`;
     }
     const lang = this.languageService.lang();
-    return this.placeholder() ?? this.translocoService.translate('datetimePicker.placeholder', {}, lang);
+    return (
+      this.placeholder() ?? this.translocoService.translate('datetimePicker.placeholder', {}, lang)
+    );
   });
 
   protected readonly timeValue = computed(() => {
@@ -158,7 +181,10 @@ export class DateTimePicker {
   });
 
   protected readonly monthLabel = computed(() =>
-    this.viewMonth().toLocaleDateString(toLocale(this.languageService.lang()), { month: 'long', year: 'numeric' }),
+    this.viewMonth().toLocaleDateString(toLocale(this.languageService.lang()), {
+      month: 'long',
+      year: 'numeric',
+    }),
   );
 
   protected readonly calendarDays = computed<CalendarDay[]>(() => {
@@ -166,7 +192,9 @@ export class DateTimePicker {
     const selected = parseDateTimeLocal(this.value());
     const maxRaw = this.max();
     const maxDay = maxRaw ? parseDateTimeLocal(maxRaw) : null;
-    const maxDayOnly = maxDay ? new Date(maxDay.getFullYear(), maxDay.getMonth(), maxDay.getDate()) : null;
+    const maxDayOnly = maxDay
+      ? new Date(maxDay.getFullYear(), maxDay.getMonth(), maxDay.getDate())
+      : null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -200,6 +228,18 @@ export class DateTimePicker {
 
   protected close(): void {
     this.isOpen.set(false);
+  }
+
+  protected onDocumentClick(event: Event): void {
+    // Clicks inside the component (trigger button, calendar, time input) are handled by their own
+    // handlers; anything outside dismisses the panel — same pattern as the shell's disclosure menu.
+    if (this.isOpen() && !this.elementRef.nativeElement.contains(event.target as Node)) {
+      this.close();
+    }
+  }
+
+  protected onEscape(): void {
+    this.close();
   }
 
   protected previousMonth(): void {
