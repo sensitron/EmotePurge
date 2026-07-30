@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — UI-Audit-Screenshot-Harness als dauerhaftes Repo-Werkzeug (getrennt von der e2e-Suite)
+
+**Betrifft:** `web/playwright.audit.config.ts` · `web/e2e/audit/ui-audit.audit.ts` · `web/.gitignore`
+
+**Entstanden im UI/UX-Audit vom 2026-07-30, bewusst behalten statt weggeworfen.** Das Harness rendert 20 UI-Zustände (alle Routen inkl. Leer-, Fehler-, Reauth-, Admin-, Shared-Set-Varianten und absichtlich langer Namen) in 3 Viewports (360/768/1280) und beiden Sprachen gegen die vorhandenen `page.route`-Mocks — 100 Screenshots plus JSON-Metriken pro Zustand (horizontaler Overflow in px, interaktive Elemente < 24 px [WCAG 2.5.8] bzw. < 44 px, Elemente jenseits der rechten Viewport-Kante). Zweck: reproduzierbare Vorher/Nachher-Belege je Umbau-Welle und harte Regressions-Gates (Overflow = 0, keine neuen Sub-24-px-Targets). **Getrennt von der regulären e2e-Suite:** eigene Config mit `testMatch: '**/*.audit.ts'` — die Haupt-Config matcht nur `*.spec.ts`, CI und `npm run e2e` fahren das Audit also nie mit; Aufruf manuell per `npx playwright test --config=playwright.audit.config.ts`. Output liegt unter `web/.audit-out/` (gitignored). Die 7TV-CDN-Bilder werden mit einem 1×1-PNG gestubbt, damit der Lauf offline-deterministisch bleibt.
+
 ### 2026-07-30 — CI: Doku-only-Pushes überspringen die Pipeline, PRs bekommen Test-Jobs (kein Publish)
 
 **Betrifft:** `.github/workflows/publish.yml`

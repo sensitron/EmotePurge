@@ -43,6 +43,7 @@ __screenshots__/
 /playwright-report
 /test-results
 /blob-report
+/.audit-out
 
 # System files
 .DS_Store
