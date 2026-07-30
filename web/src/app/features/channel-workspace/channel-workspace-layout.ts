@@ -10,21 +10,23 @@ import { ChannelService } from '../../core/channels/channel.service';
   imports: [RouterLink, RouterLinkActive, RouterOutlet, TranslocoPipe],
   template: `
     <div>
-      <div class="mb-4 flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <a
-            routerLink="/"
-            class="rounded-md border border-purple-700 px-3 py-1.5 text-sm text-purple-400 transition hover:bg-purple-950"
-          >
-            ← {{ 'channelWorkspace.backToOverview' | transloco }}
-          </a>
-          <h1 class="text-xl font-semibold">#{{ channelName() }}</h1>
-        </div>
+      <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <a
+          routerLink="/"
+          class="rounded-md border border-purple-700 px-3 py-1.5 text-sm whitespace-nowrap text-purple-400 transition hover:bg-purple-950"
+        >
+          ← {{ 'channelWorkspace.backToOverview' | transloco }}
+        </a>
+        <!-- On narrow viewports the title takes its own full-width line below the buttons instead
+             of being squeezed to an ellipsis between them; from md: it sits inline as before. -->
+        <h1 class="order-last w-full truncate text-xl font-semibold md:order-0 md:w-auto md:min-w-0 md:flex-1">
+          #{{ channelName() }}
+        </h1>
         @if (canManage()) {
           @if (isBotActive()) {
             <button
               type="button"
-              class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 transition hover:bg-red-950"
+              class="ml-auto rounded-md border border-red-900 px-3 py-1.5 text-sm whitespace-nowrap text-red-400/90 transition hover:bg-red-950"
               (click)="leave()"
             >
               {{ 'channelWorkspace.leaveChannel' | transloco }}
@@ -32,7 +34,7 @@ import { ChannelService } from '../../core/channels/channel.service';
           } @else {
             <button
               type="button"
-              class="rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-purple-500 disabled:opacity-50"
+              class="ml-auto rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white transition hover:bg-purple-500 disabled:opacity-50"
               [disabled]="rejoinInProgress()"
               (click)="rejoin()"
             >
