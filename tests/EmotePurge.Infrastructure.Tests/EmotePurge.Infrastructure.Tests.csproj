@@ -27,4 +27,10 @@
     <ProjectReference Include="..\..\src\EmotePurge.Core\EmotePurge.Core.csproj" />
   </ItemGroup>
 
+  <!-- Real 7TV EventAPI frames, captured live on 2026-07-30 (channel sensitron) — the parser is
+       tested against the actual wire format, never against hand-written approximations of it. -->
+  <ItemGroup>
+    <Content Include="Unit\TestData\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

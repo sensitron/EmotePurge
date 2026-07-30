@@ -1,0 +1,204 @@
+{
+  "d": {
+    "type": "emote_set.update",
+    "body": {
+      "id": "01KH8GBXCN401GKGN7T1XQKZCP",
+      "kind": 3,
+      "actor": {
+        "id": "01KFX4RSNM0TP5N32CXBBPH4SH",
+        "username": "sensitron",
+        "display_name": "sensitron",
+        "avatar_url": "https://static-cdn.jtvnw.net/jtv_user_pictures/83cdae78-42cd-4abb-9a25-140a065c6f5e-profile_image-300x300.jpeg",
+        "style": {
+          "color": -5635841,
+          "paint_id": "01KSR9GH10DBNAWF2BRKGQQJPV",
+          "badge_id": "01GAF95ZTG000E8VNG1S1RMTBB"
+        },
+        "role_ids": [
+          "01F37R3RFR0000K96678WEQT01",
+          "01G68MMQFR0007J6GNM9E2M0TM"
+        ],
+        "connections": [
+          {
+            "id": "62843286",
+            "platform": "TWITCH",
+            "username": "sensitron",
+            "display_name": "sensitron",
+            "linked_at": 1769430869684,
+            "emote_capacity": 1000,
+            "emote_set_id": "01KH8GBXCN401GKGN7T1XQKZCP"
+          }
+        ]
+      },
+      "pushed": [
+        {
+          "key": "emotes",
+          "index": 13,
+          "type": "object",
+          "value": {
+            "id": "01FFWH9WV80000JT8GHDKHJNZC",
+            "name": "Aware",
+            "flags": 0,
+            "timestamp": 1631971505000,
+            "actor_id": "01KFX4RSNM0TP5N32CXBBPH4SH",
+            "data": {
+              "id": "01FFWH9WV80000JT8GHDKHJNZC",
+              "name": "Aware",
+              "flags": 0,
+              "tags": [
+                "clueless"
+              ],
+              "lifecycle": 3,
+              "state": [
+                "PERSONAL",
+                "LISTED"
+              ],
+              "listed": true,
+              "animated": true,
+              "owner": {
+                "id": "01EZMM2X480009D0SFZ9WEFCKV",
+                "username": "megakill3",
+                "display_name": "MegaKill3",
+                "avatar_url": "https://static-cdn.jtvnw.net/jtv_user_pictures/b9844c5e-582e-4b9d-9099-b0bdc74ee5ae-profile_image-300x300.png",
+                "style": {
+                  "paint_id": "01GPF2WSER00027RY0HK5QCJAC"
+                },
+                "role_ids": [
+                  "01G68MMQFR0007J6GNM9E2M0TM"
+                ],
+                "connections": [
+                  {
+                    "id": "547929527",
+                    "platform": "TWITCH",
+                    "username": "megakill3",
+                    "display_name": "MegaKill3",
+                    "linked_at": 1614526117000,
+                    "emote_capacity": 1000,
+                    "emote_set_id": "01EZMM2X480009D0SFZ9WEFCKV"
+                  }
+                ]
+              },
+              "host": {
+                "url": "//cdn.7tv.app/emote/01FFWH9WV80000JT8GHDKHJNZC",
+                "files": [
+                  {
+                    "name": "1x.webp",
+                    "static_name": "1x_static.webp",
+                    "width": 35,
+                    "height": 32,
+                    "frame_count": 61,
+                    "size": 71976,
+                    "format": "WEBP"
+                  },
+                  {
+                    "name": "2x.webp",
+                    "static_name": "2x_static.webp",
+                    "width": 70,
+                    "height": 64,
+                    "frame_count": 61,
+                    "size": 164190,
+                    "format": "WEBP"
+                  },
+                  {
+                    "name": "3x.webp",
+                    "static_name": "3x_static.webp",
+                    "width": 105,
+                    "height": 96,
+                    "frame_count": 61,
+                    "size": 268170,
+                    "format": "WEBP"
+                  },
+                  {
+                    "name": "4x.webp",
+                    "static_name": "4x_static.webp",
+                    "width": 140,
+                    "height": 128,
+                    "frame_count": 61,
+                    "size": 355046,
+                    "format": "WEBP"
+                  },
+                  {
+                    "name": "1x.avif",
+                    "static_name": "1x_static.avif",
+                    "width": 35,
+                    "height": 32,
+                    "frame_count": 61,
+                    "size": 13635,
+                    "format": "AVIF"
+                  },
+                  {
+                    "name": "2x.avif",
+                    "static_name": "2x_static.avif",
+                    "width": 70,
+                    "height": 64,
+                    "frame_count": 61,
+                    "size": 29174,
+                    "format": "AVIF"
+                  },
+                  {
+                    "name": "3x.avif",
+                    "static_name": "3x_static.avif",
+                    "width": 105,
+                    "height": 96,
+                    "frame_count": 61,
+                    "size": 44686,
+                    "format": "AVIF"
+                  },
+                  {
+                    "name": "4x.avif",
+                    "static_name": "4x_static.avif",
+                    "width": 140,
+                    "height": 128,
+                    "frame_count": 61,
+                    "size": 66758,
+                    "format": "AVIF"
+                  },
+                  {
+                    "name": "1x.gif",
+                    "static_name": "1x_static.gif",
+                    "width": 35,
+                    "height": 32,
+                    "frame_count": 33,
+                    "size": 12766,
+                    "format": "GIF"
+                  },
+                  {
+                    "name": "2x.gif",
+                    "static_name": "2x_static.gif",
+                    "width": 70,
+                    "height": 64,
+                    "frame_count": 49,
+                    "size": 42012,
+                    "format": "GIF"
+                  },
+                  {
+                    "name": "3x.gif",
+                    "static_name": "3x_static.gif",
+                    "width": 105,
+                    "height": 96,
+                    "frame_count": 59,
+                    "size": 122494,
+                    "format": "GIF"
+                  },
+                  {
+                    "name": "4x.gif",
+                    "static_name": "4x_static.gif",
+                    "width": 140,
+                    "height": 128,
+                    "frame_count": 61,
+                    "size": 182759,
+                    "format": "GIF"
+                  }
+                ]
+              }
+            },
+            "origin_id": null
+          }
+        }
+      ]
+    }
+  },
+  "op": 0,
+  "t": 1785420911705,
+  "s": 42
+}
