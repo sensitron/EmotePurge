@@ -12,23 +12,33 @@ import { Pager } from '../../shared/pagination/pager';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge } from '../../shared/ui/status-badge';
 
-const EMPTY_PAGE: PagedResult<MyVoteSession> = { items: [], page: 1, pageSize: 20, totalCount: 0, totalPages: 0 };
+const EMPTY_PAGE: PagedResult<MyVoteSession> = {
+  items: [],
+  page: 1,
+  pageSize: 20,
+  totalCount: 0,
+  totalPages: 0,
+};
 
 @Component({
   selector: 'app-my-votings-page',
-  imports: [Button, EmptyState, NoticeBanner, RouterLink, Pager, StatusBadge, TranslocoPipe],
+  imports: [Button, EmptyState, NoticeBanner, RouterLink, Pager, SkeletonRows, StatusBadge, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-6">
-      <h2 class="text-lg font-medium">{{ 'shell.myVotings' | transloco }}</h2>
+      <h2 class="text-2xl font-bold tracking-tight">{{ 'shell.myVotings' | transloco }}</h2>
 
       @if (errorMessage(); as message) {
         <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
       }
 
-      @if (sessions().length === 0 && !errorMessage()) {
+      @if (isLoading()) {
+        <app-skeleton-rows [count]="4" />
+      } @else if (sessions().length === 0 && !errorMessage()) {
         <app-empty-state
+          icon="🗳️"
           [title]="'myVotings.noSessions' | transloco"
           [description]="'myVotings.noSessionsHint' | transloco"
         >
@@ -37,23 +47,35 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = { items: [], page: 1, pageSize: 2
       } @else {
         <ul class="flex flex-col gap-2">
           @for (session of sessions(); track session.sessionId) {
-            <li class="relative rounded-md bg-slate-900 px-4 py-3 transition hover:bg-slate-800/70">
+            <li class="app-card app-card-interactive relative px-4 py-3">
               <div class="flex items-start justify-between gap-3">
                 <a
-                  [routerLink]="['/channels', session.channelName, 'vote-sessions', session.sessionId]"
+                  [routerLink]="[
+                    '/channels',
+                    session.channelName,
+                    'vote-sessions',
+                    session.sessionId,
+                  ]"
                   class="app-card-link min-w-0 font-medium hover:underline"
                 >
                   {{ session.title }}
                 </a>
                 <app-status-badge class="shrink-0" [tone]="session.isActive ? 'emerald' : 'slate'">
-                  {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
+                  {{
+                    (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
+                      | transloco
+                  }}
                 </app-status-badge>
               </div>
               <div class="mt-1 text-sm text-slate-400">#{{ session.channelName }}</div>
             </li>
           }
         </ul>
-        <app-pager [page]="page()" [totalPages]="totalPages()" (pageChange)="onPageChange($event)" />
+        <app-pager
+          [page]="page()"
+          [totalPages]="totalPages()"
+          (pageChange)="onPageChange($event)"
+        />
       }
     </div>
   `,
@@ -73,6 +95,7 @@ export class MyVotingsPage {
 
   protected readonly sessions = computed(() => this.sessionsResource.value().items);
   protected readonly totalPages = computed(() => this.sessionsResource.value().totalPages);
+  protected readonly isLoading = computed(() => this.sessionsResource.isLoading());
 
   // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
   // /api/ call in the app.

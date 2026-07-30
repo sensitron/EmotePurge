@@ -27,13 +27,32 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
     '(document:click)': 'onDocumentClick($event)',
   },
   template: `
-    <div class="min-h-screen bg-slate-950 text-slate-100">
-      <header class="sticky top-0 z-10 border-b border-slate-800 bg-slate-950 px-4 py-3">
+    <div class="isolate min-h-screen bg-slate-950 text-slate-100">
+      <!-- Subtle top glow, same radial-gradient technique as the landing hero but far dimmer —
+           decorative only, sits behind everything via -z-10 (root is isolate). The mask fades the
+           whole layer to zero towards its bottom edge; without it the radial circles are still
+           visibly colored where the container ends, which reads as a hard horizontal cut. -->
+      <div
+        class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(circle_at_25%_0%,rgba(147,51,234,0.14),transparent_55%),radial-gradient(circle_at_80%_0%,rgba(236,72,153,0.1),transparent_50%)] mask-[linear-gradient(to_bottom,black_30%,transparent)]"
+        aria-hidden="true"
+      ></div>
+      <header
+        class="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/80 px-4 py-3 backdrop-blur"
+      >
         <div class="relative mx-auto flex max-w-5xl items-center justify-between gap-3">
           <!-- Logo and worker-health dot form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
           <div class="flex min-w-0 items-center gap-3">
-            <a routerLink="/" class="text-lg font-semibold whitespace-nowrap">Emote Purge</a>
+            <a
+              routerLink="/"
+              class="flex items-center gap-2 text-lg font-semibold whitespace-nowrap"
+            >
+              <span
+                class="inline-block h-3 w-3 rounded bg-linear-to-br from-purple-500 to-pink-500"
+                aria-hidden="true"
+              ></span>
+              Emote Purge
+            </a>
             <!-- Dot always visible, text label only when there's room. -->
             <span
               class="inline-flex min-w-0 items-center gap-2 text-xs text-slate-400"
@@ -50,9 +69,11 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
             <app-language-switcher />
 
             @if (currentUser(); as user) {
-              <a routerLink="/my-votings" class="px-1 py-2 text-sm text-slate-400 hover:underline">{{
-                'shell.myVotings' | transloco
-              }}</a>
+              <a
+                routerLink="/my-votings"
+                class="px-1 py-2 text-sm text-slate-400 hover:underline"
+                >{{ 'shell.myVotings' | transloco }}</a
+              >
               <span class="text-sm text-slate-400">{{ user.displayName }}</span>
               <button type="button" appButton="outline" (click)="logout()">
                 {{ 'shell.logout' | transloco }}
@@ -76,11 +97,25 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
             (click)="toggleMenu()"
           >
             @if (menuOpen()) {
-              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <svg
+                class="h-5 w-5"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
                 <path d="M5 5l10 10M15 5L5 15" stroke-linecap="round" />
               </svg>
             } @else {
-              <svg class="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <svg
+                class="h-5 w-5"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
                 <path d="M3 6h14M3 10h14M3 14h14" stroke-linecap="round" />
               </svg>
             }
@@ -104,14 +139,24 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
                   <span class="text-sm text-slate-400">{{ user.displayName }}</span>
                   <app-language-switcher />
                 </div>
-                <button type="button" appButton="outline" class="py-3 text-left" (click)="closeMenu(); logout()">
+                <button
+                  type="button"
+                  appButton="outline"
+                  class="py-3 text-left"
+                  (click)="closeMenu(); logout()"
+                >
                   {{ 'shell.logout' | transloco }}
                 </button>
               } @else {
                 <div class="flex items-center justify-end rounded-md px-3 py-2">
                   <app-language-switcher />
                 </div>
-                <a routerLink="/login" appButton="primary" class="py-3 text-center" (click)="closeMenu()">
+                <a
+                  routerLink="/login"
+                  appButton="primary"
+                  class="py-3 text-center"
+                  (click)="closeMenu()"
+                >
                   {{ 'shell.login' | transloco }}
                 </a>
               }

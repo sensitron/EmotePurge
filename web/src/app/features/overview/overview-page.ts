@@ -12,6 +12,7 @@ import { WorkerHealthService } from '../../core/health/worker-health.service';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge } from '../../shared/ui/status-badge';
 
 // Case-insensitive: the backend lowercases the value before matching its own (case-sensitive)
@@ -20,7 +21,16 @@ const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
 
 @Component({
   selector: 'app-overview-page',
-  imports: [Button, EmptyState, NoticeBanner, ReactiveFormsModule, RouterLink, StatusBadge, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    ReactiveFormsModule,
+    RouterLink,
+    SkeletonRows,
+    StatusBadge,
+    TranslocoPipe,
+  ],
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
@@ -31,7 +41,9 @@ export class OverviewPage {
 
   // The header dot alone is a 10px signal nobody notices — while the worker is down, nothing is
   // being counted, which deserves a real page-level notice on the entry page.
-  protected readonly workerDisconnected = computed(() => this.workerHealthService.status() === 'stale');
+  protected readonly workerDisconnected = computed(
+    () => this.workerHealthService.status() === 'stale',
+  );
 
   protected readonly myChannels = signal<MyChannelDto[] | null>(null);
   protected readonly helixUnavailable = signal(false);
@@ -74,11 +86,17 @@ export class OverviewPage {
   protected reactivate(channelName: string): void {
     this.channelService.join(channelName).subscribe({
       next: () => {
-        this.myChannels.update((channels) =>
-          channels?.map((c) => (c.channelName === channelName ? { ...c, isTracked: true, isBotActive: true } : c)) ?? null,
+        this.myChannels.update(
+          (channels) =>
+            channels?.map((c) =>
+              c.channelName === channelName ? { ...c, isTracked: true, isBotActive: true } : c,
+            ) ?? null,
         );
-        this.adminChannels.update((channels) =>
-          channels?.map((c) => (c.channelName === channelName ? { ...c, isBotActive: true } : c)) ?? null,
+        this.adminChannels.update(
+          (channels) =>
+            channels?.map((c) =>
+              c.channelName === channelName ? { ...c, isBotActive: true } : c,
+            ) ?? null,
         );
       },
       error: (error: HttpErrorResponse) => this.handleError(error),

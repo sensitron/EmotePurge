@@ -1,7 +1,7 @@
 <div class="flex flex-col gap-6">
   <!-- Same header layout as the voting-detail page: title left, refresh top-right, filters below. -->
   <header class="flex flex-wrap items-center justify-between gap-3">
-    <h2 class="text-lg font-medium">{{ 'usageStats.title' | transloco }}</h2>
+    <h2 class="text-lg font-semibold">{{ 'usageStats.title' | transloco }}</h2>
     <button
       type="button"
       appButton="neutral"
@@ -100,6 +100,7 @@
       [selectedEmotes]="selectedForDelete()"
       (deleted)="onDeleted($event)"
       (reloadRequested)="onReloadRequested()"
+      (selectionCleared)="selection.clear()"
     />
   }
 
@@ -108,7 +109,15 @@
   }
 
   @if (isLoading()) {
-    <p class="text-sm text-slate-400">{{ 'usageStats.loading' | transloco }}</p>
+    <!-- Emote-card-shaped skeleton grid (NN/g: skeleton for page loads); one status element
+         carries the accessible loading text, the shimmer blocks are decorative. -->
+    <div role="status" [attr.aria-label]="'usageStats.loading' | transloco">
+      <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6" aria-hidden="true">
+        @for (cell of skeletonCells; track cell) {
+          <div class="app-skeleton h-24"></div>
+        }
+      </div>
+    </div>
   } @else if (isAwaitingSync()) {
     <app-notice-banner variant="info">{{
       'usageStats.awaitingSync' | transloco
@@ -116,12 +125,13 @@
   } @else if (sortedEmotes().length === 0) {
     @if (emotes().length === 0) {
       <app-empty-state
+        icon="😀"
         [title]="'usageStats.noActiveEmotes' | transloco"
         [description]="'usageStats.noActiveEmotesHint' | transloco"
       />
     } @else {
       <!-- The set has emotes; the filters hide all of them — offer the way back. -->
-      <app-empty-state [title]="'usageStats.noMatches' | transloco">
+      <app-empty-state icon="🔍" [title]="'usageStats.noMatches' | transloco">
         <button type="button" appButton="neutral" (click)="usageFilter.reset()">
           {{ 'usageStats.resetFilters' | transloco }}
         </button>

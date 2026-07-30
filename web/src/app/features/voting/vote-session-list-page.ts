@@ -2,7 +2,12 @@ import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
-import { AbstractControl, FormControl, ReactiveFormsModule, ValidationErrors } from '@angular/forms';
+import {
+  AbstractControl,
+  FormControl,
+  ReactiveFormsModule,
+  ValidationErrors,
+} from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
@@ -17,6 +22,7 @@ import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge } from '../../shared/ui/status-badge';
 
 function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
@@ -28,11 +34,28 @@ function toLocalDateTimeInputValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const EMPTY_PAGE: PagedResult<VoteSessionSummary> = { items: [], page: 1, pageSize: 20, totalCount: 0, totalPages: 0 };
+const EMPTY_PAGE: PagedResult<VoteSessionSummary> = {
+  items: [],
+  page: 1,
+  pageSize: 20,
+  totalCount: 0,
+  totalPages: 0,
+};
 
 @Component({
   selector: 'app-vote-session-list-page',
-  imports: [Button, EmptyState, NoticeBanner, ReactiveFormsModule, RouterLink, DateTimePicker, Pager, StatusBadge, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    ReactiveFormsModule,
+    RouterLink,
+    DateTimePicker,
+    Pager,
+    SkeletonRows,
+    StatusBadge,
+    TranslocoPipe,
+  ],
   templateUrl: './vote-session-list-page.html',
 })
 export class VoteSessionListPage {
@@ -70,7 +93,10 @@ export class VoteSessionListPage {
 
   protected readonly sessions = computed(() => this.sessionsResource.value().items);
   protected readonly totalPages = computed(() => this.sessionsResource.value().totalPages);
-  protected readonly canManage = computed(() => this.permissionsResource.value()?.canManage ?? false);
+  protected readonly isLoading = computed(() => this.sessionsResource.isLoading());
+  protected readonly canManage = computed(
+    () => this.permissionsResource.value()?.canManage ?? false,
+  );
 
   // Kept separate from the resource's own error so a failed create/end/delete does not get wiped out
   // by the next successful list reload, and vice versa. The action the user just took wins.
@@ -85,12 +111,18 @@ export class VoteSessionListPage {
     return loadError instanceof HttpErrorResponse ? apiErrorTranslationKey(loadError) : null;
   });
 
-  protected readonly titleControl = new FormControl('', { nonNullable: true, validators: [requiredTrimmed] });
+  protected readonly titleControl = new FormControl('', {
+    nonNullable: true,
+    validators: [requiredTrimmed],
+  });
   protected readonly selectedAudience = signal<'everyone' | 'subs' | 'mods'>('everyone');
   protected readonly customStartedAt = signal('');
   protected readonly maxStartedAt = toLocalDateTimeInputValue(new Date());
 
-  protected readonly copyFeedback = signal<{ sessionId: number; status: 'copied' | 'error' } | null>(null);
+  protected readonly copyFeedback = signal<{
+    sessionId: number;
+    status: 'copied' | 'error';
+  } | null>(null);
   private copyFeedbackTimeout?: ReturnType<typeof setTimeout>;
 
   protected onPageChange(newPage: number): void {
@@ -115,17 +147,19 @@ export class VoteSessionListPage {
     const startedAt = startedAtLocal ? new Date(startedAtLocal).toISOString() : undefined;
 
     this.actionError.set(null);
-    this.voteSessionService.create(this.channelName(), this.titleControl.value.trim(), roles, startedAt).subscribe({
-      next: () => {
-        // Reloads instead of prepending locally: a new session shifts the paging, and the old
-        // optimistic prepend could push the visible page to pageSize + 1 rows or show the new session
-        // on page 3 where it does not belong.
-        this.sessionsResource.reload();
-        this.titleControl.reset('');
-        this.customStartedAt.set('');
-      },
-      error: (error: HttpErrorResponse) => this.handleError(error),
-    });
+    this.voteSessionService
+      .create(this.channelName(), this.titleControl.value.trim(), roles, startedAt)
+      .subscribe({
+        next: () => {
+          // Reloads instead of prepending locally: a new session shifts the paging, and the old
+          // optimistic prepend could push the visible page to pageSize + 1 rows or show the new session
+          // on page 3 where it does not belong.
+          this.sessionsResource.reload();
+          this.titleControl.reset('');
+          this.customStartedAt.set('');
+        },
+        error: (error: HttpErrorResponse) => this.handleError(error),
+      });
   }
 
   protected endSession(sessionId: number): void {
@@ -146,11 +180,17 @@ export class VoteSessionListPage {
     // Names the session in the confirmation dialog — with 20 sessions in the list, a mis-click one
     // row off had no way to notice before committing to an irreversible delete (all votes included).
     const data: ConfirmDialogData = {
-      message: this.translocoService.translate('voting.list.deleteConfirm', { title: session.title }),
+      message: this.translocoService.translate('voting.list.deleteConfirm', {
+        title: session.title,
+      }),
       confirmLabel: this.translocoService.translate('voting.list.delete'),
     };
     this.dialog
-      .open<boolean>(ConfirmDialog, { data, backdropClass: 'app-dialog-backdrop', panelClass: 'app-dialog-panel' })
+      .open<boolean>(ConfirmDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+      })
       .closed.subscribe((confirmed) => {
         if (!confirmed) {
           return;

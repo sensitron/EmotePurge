@@ -1,7 +1,13 @@
 <div class="flex flex-col gap-8">
+  @if (!myChannels() && !errorMessage()) {
+    <section>
+      <h2 class="mb-4 text-2xl font-bold tracking-tight">{{ 'overview.title' | transloco }}</h2>
+      <app-skeleton-rows [count]="3" />
+    </section>
+  }
   @if (myChannels(); as channels) {
     <section>
-      <h2 class="mb-3 text-lg font-medium">{{ 'overview.title' | transloco }}</h2>
+      <h2 class="mb-4 text-2xl font-bold tracking-tight">{{ 'overview.title' | transloco }}</h2>
 
       @if (workerDisconnected()) {
         <app-notice-banner variant="warning" class="mb-3 block">
@@ -11,7 +17,13 @@
       @if (reauthRequired()) {
         <app-notice-banner variant="warning" class="mb-3 block">
           {{ 'overview.reauthRequired' | transloco }}
-          <button notice-action type="button" appButton="primary" class="shrink-0" (click)="relogin()">
+          <button
+            notice-action
+            type="button"
+            appButton="primary"
+            class="shrink-0"
+            (click)="relogin()"
+          >
             {{ 'overview.reloginButton' | transloco }}
           </button>
         </app-notice-banner>
@@ -28,6 +40,7 @@
 
       @if (channels.length === 0) {
         <app-empty-state
+          icon="📺"
           [title]="'overview.noChannels' | transloco"
           [description]="'overview.noChannelsHint' | transloco"
         />
@@ -36,26 +49,35 @@
           @for (channel of channels; track channel.channelName) {
             <li
               [class]="
-                'flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-slate-900 px-4 py-3' +
-                (channel.isTracked ? ' relative transition hover:bg-slate-800/70' : '')
+                'app-card flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3' +
+                (channel.isTracked ? ' app-card-interactive relative' : '')
               "
             >
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
                 @if (channel.isBroadcaster) {
-                  <app-status-badge tone="purple">{{ 'overview.roleBadges.broadcaster' | transloco }}</app-status-badge>
+                  <app-status-badge tone="purple">{{
+                    'overview.roleBadges.broadcaster' | transloco
+                  }}</app-status-badge>
                 }
                 @if (channel.isModerator) {
-                  <app-status-badge tone="blue">{{ 'overview.roleBadges.moderator' | transloco }}</app-status-badge>
+                  <app-status-badge tone="blue">{{
+                    'overview.roleBadges.moderator' | transloco
+                  }}</app-status-badge>
                 }
                 @if (channel.isSevenTvEditor) {
-                  <app-status-badge tone="emerald">{{ 'overview.roleBadges.sevenTvEditor' | transloco }}</app-status-badge>
+                  <app-status-badge tone="emerald">{{
+                    'overview.roleBadges.sevenTvEditor' | transloco
+                  }}</app-status-badge>
                 }
               </div>
               <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
                 @if (channel.isTracked) {
                   <app-status-badge [tone]="channel.isBotActive ? 'emerald' : 'slate'">
-                    {{ (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive') | transloco }}
+                    {{
+                      (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive')
+                        | transloco
+                    }}
                   </app-status-badge>
                   <!-- A left channel keeps its row, so it never falls back to the "Hinzufügen"
                        branch below — without this button there is no way back for a non-admin. -->
@@ -69,7 +91,11 @@
                       {{ 'overview.reactivate' | transloco }}
                     </button>
                   }
-                  <a [routerLink]="['/channels', channel.channelName]" appButton="neutral" class="app-card-link">
+                  <a
+                    [routerLink]="['/channels', channel.channelName]"
+                    appButton="neutral"
+                    class="app-card-link"
+                  >
                     {{ 'overview.open' | transloco }}
                   </a>
                 } @else if (channel.isBroadcaster || channel.isModerator) {
@@ -77,7 +103,9 @@
                     {{ 'overview.add' | transloco }}
                   </button>
                 } @else {
-                  <span class="text-xs text-slate-400">{{ 'overview.notTrackedYet' | transloco }}</span>
+                  <span class="text-xs text-slate-400">{{
+                    'overview.notTrackedYet' | transloco
+                  }}</span>
                 }
               </div>
             </li>
@@ -89,7 +117,7 @@
 
   @if (adminChannels(); as channels) {
     <section>
-      <h2 class="mb-3 text-lg font-medium">{{ 'overview.admin.title' | transloco }}</h2>
+      <h2 class="mb-3 text-lg font-semibold">{{ 'overview.admin.title' | transloco }}</h2>
 
       <form class="mb-4 flex flex-wrap gap-2" (submit)="onAddChannelSubmit($event)">
         <input
@@ -111,6 +139,7 @@
 
       @if (channels.length === 0) {
         <app-empty-state
+          icon="📺"
           [title]="'overview.admin.noChannelsTracked' | transloco"
           [description]="'overview.admin.noChannelsTrackedHint' | transloco"
         />
@@ -118,19 +147,33 @@
         <ul class="flex flex-col gap-2">
           @for (channel of channels; track channel.channelId) {
             <li
-              class="relative flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-slate-900 px-4 py-3 transition hover:bg-slate-800/70"
+              class="app-card app-card-interactive relative flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
             >
-              <span class="max-w-full min-w-0 truncate font-medium">#{{ channel.channelName }}</span>
+              <span class="max-w-full min-w-0 truncate font-medium"
+                >#{{ channel.channelName }}</span
+              >
               <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
                 <app-status-badge [tone]="channel.isBotActive ? 'emerald' : 'slate'">
-                  {{ (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive') | transloco }}
+                  {{
+                    (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive')
+                      | transloco
+                  }}
                 </app-status-badge>
                 @if (!channel.isBotActive) {
-                  <button type="button" appButton="primary" class="relative z-10" (click)="reactivate(channel.channelName)">
+                  <button
+                    type="button"
+                    appButton="primary"
+                    class="relative z-10"
+                    (click)="reactivate(channel.channelName)"
+                  >
                     {{ 'overview.reactivate' | transloco }}
                   </button>
                 }
-                <a [routerLink]="['/channels', channel.channelName]" appButton="neutral" class="app-card-link">
+                <a
+                  [routerLink]="['/channels', channel.channelName]"
+                  appButton="neutral"
+                  class="app-card-link"
+                >
                   {{ 'overview.open' | transloco }}
                 </a>
               </div>

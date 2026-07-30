@@ -2,9 +2,12 @@
   @if (results(); as session) {
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 class="text-lg font-medium">{{ session.title }}</h2>
+        <h2 class="text-lg font-semibold">{{ session.title }}</h2>
         <p class="text-sm text-slate-500">
-          {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }} ·
+          {{
+            (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco
+          }}
+          ·
           {{ 'voting.detail.usageSince' | transloco }}
           {{ formatDateTime(session.startedAt) }}
           @if (session.endedAt) {
@@ -72,6 +75,7 @@
       [selectedEmotes]="selectedForDelete()"
       (deleted)="onDeleted($event)"
       (reloadRequested)="onReloadRequested()"
+      (selectionCleared)="selection.clear()"
     />
   }
 
@@ -79,12 +83,21 @@
     <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 
-  @if (emotes().length === 0) {
+  @if (!results() && !errorMessage()) {
+    <!-- First load: emote-card-shaped skeleton grid, matching the h-44 vote cards below. -->
+    <div role="status" [attr.aria-label]="'common.loading' | transloco">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5" aria-hidden="true">
+        @for (cell of skeletonCells; track cell) {
+          <div class="app-skeleton h-44"></div>
+        }
+      </div>
+    </div>
+  } @else if (emotes().length === 0) {
     @if (orderedEmotes().length === 0) {
-      <app-empty-state [title]="'voting.detail.noActiveEmotes' | transloco" />
+      <app-empty-state icon="😀" [title]="'voting.detail.noActiveEmotes' | transloco" />
     } @else {
       <!-- The session has emotes; the filters hide all of them — offer the way back. -->
-      <app-empty-state [title]="'usageStats.noMatches' | transloco">
+      <app-empty-state icon="🔍" [title]="'usageStats.noMatches' | transloco">
         <button type="button" appButton="neutral" (click)="usageFilter.reset()">
           {{ 'usageStats.resetFilters' | transloco }}
         </button>
@@ -107,17 +120,31 @@
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
               'flex h-44 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
-              (selection.isSelected(emote) ? 'ring-2 ring-purple-500 bg-purple-950/40' : 'bg-slate-900')
+              (selection.isSelected(emote)
+                ? 'ring-2 ring-purple-500 bg-purple-950/40'
+                : 'bg-slate-900')
             "
             (click)="selection.onRowClick(emote, $event)"
             (keydown.enter)="selection.onRowClick(emote, $any($event))"
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
-            <app-emote-card-header [name]="emote.emoteName" [checked]="selection.isSelected(emote)" [showCheckbox]="canManage()" />
+            <app-emote-card-header
+              [name]="emote.emoteName"
+              [checked]="selection.isSelected(emote)"
+              [showCheckbox]="canManage()"
+            />
             <div class="flex h-10 shrink-0 items-center justify-center">
-              <img [ngSrc]="emote.imageUrl" width="40" height="40" alt="" class="max-h-10 max-w-10 object-contain" />
+              <img
+                [ngSrc]="emote.imageUrl"
+                width="40"
+                height="40"
+                alt=""
+                class="max-h-10 max-w-10 object-contain"
+              />
             </div>
-            <span class="text-xs text-slate-400">{{ emote.totalUseCount }}x · {{ formatScore(emote.score) }}</span>
+            <span class="text-xs text-slate-400"
+              >{{ emote.totalUseCount }}x · {{ formatScore(emote.score) }}</span
+            >
             <div class="mt-auto grid gap-1" (click)="$event.stopPropagation()">
               <button
                 type="button"
@@ -132,7 +159,14 @@
                 [attr.aria-label]="'voting.detail.keepAriaLabel' | transloco"
                 [attr.title]="keepButtonTitle(emote)"
               >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true" class="shrink-0">
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  class="shrink-0"
+                >
                   <path
                     d="M2 21h2a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H2v11ZM22 11.5a2 2 0 0 0-2-2h-5.6l.8-4a2 2 0 0 0-2-2.4h-.2L8 9v12h11a2 2 0 0 0 1.9-1.4l1.9-6.6a2 2 0 0 0 .1-.5v-1Z"
                   />

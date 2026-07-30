@@ -1,7 +1,7 @@
 <div class="flex flex-col gap-6">
   @if (canManage()) {
-    <section class="rounded-lg bg-slate-900 p-5">
-      <h2 class="mb-3 text-lg font-medium">{{ 'voting.list.createTitle' | transloco }}</h2>
+    <section class="app-card p-5">
+      <h2 class="mb-3 text-lg font-semibold">{{ 'voting.list.createTitle' | transloco }}</h2>
       <div class="flex flex-col gap-3">
         <input
           type="text"
@@ -49,7 +49,13 @@
           {{ 'voting.list.startCountingLabel' | transloco }}
           <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
         </label>
-        <button type="button" appButton="primary" buttonSize="lg" class="self-start" (click)="createSession()">
+        <button
+          type="button"
+          appButton="primary"
+          buttonSize="lg"
+          class="self-start"
+          (click)="createSession()"
+        >
           {{ 'voting.list.create' | transloco }}
         </button>
       </div>
@@ -60,17 +66,23 @@
     <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 
-  @if (sessions().length === 0 && !errorMessage()) {
+  @if (isLoading()) {
+    <app-skeleton-rows [count]="4" />
+  } @else if (sessions().length === 0 && !errorMessage()) {
     <app-empty-state
+      icon="🗳️"
       [title]="'voting.list.noSessions' | transloco"
-      [description]="(canManage() ? 'voting.list.noSessionsManagerHint' : 'voting.list.noSessionsVoterHint') | transloco"
+      [description]="
+        (canManage() ? 'voting.list.noSessionsManagerHint' : 'voting.list.noSessionsVoterHint')
+          | transloco
+      "
     />
   } @else {
     <!-- Plain gap list, no inner scroll box: the pager already bounds the length, and a nested
          scroll area inside the page scroll was its own usability problem on mobile. -->
     <ul class="flex flex-col gap-2">
       @for (session of sessions(); track session.id) {
-        <li class="relative rounded-md bg-slate-900 px-4 py-3 transition hover:bg-slate-800/70">
+        <li class="app-card app-card-interactive relative px-4 py-3">
           <div class="flex items-start justify-between gap-3">
             <a
               [routerLink]="['/channels', channelName(), 'vote-sessions', session.id]"
@@ -79,30 +91,55 @@
               {{ session.title }}
             </a>
             <app-status-badge class="shrink-0" [tone]="session.isActive ? 'emerald' : 'slate'">
-              {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
+              {{
+                (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
+                  | transloco
+              }}
             </app-status-badge>
           </div>
           <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
-            <button type="button" appButton="neutral" class="relative z-10" (click)="copyShareLink(session.id)">
+            <button
+              type="button"
+              appButton="neutral"
+              class="relative z-10"
+              (click)="copyShareLink(session.id)"
+            >
               {{ 'voting.list.copyLink' | transloco }}
             </button>
             @if (copyFeedback(); as feedback) {
               @if (feedback.sessionId === session.id) {
                 <span
                   role="status"
-                  [class]="feedback.status === 'copied' ? 'text-xs text-emerald-400' : 'text-xs text-red-400'"
+                  [class]="
+                    feedback.status === 'copied'
+                      ? 'text-xs text-emerald-400'
+                      : 'text-xs text-red-400'
+                  "
                 >
-                  {{ (feedback.status === 'copied' ? 'voting.list.copied' : 'voting.list.copyFailed') | transloco }}
+                  {{
+                    (feedback.status === 'copied' ? 'voting.list.copied' : 'voting.list.copyFailed')
+                      | transloco
+                  }}
                 </span>
               }
             }
             @if (canManage() && session.isActive) {
-              <button type="button" appButton="neutral" class="relative z-10" (click)="endSession(session.id)">
+              <button
+                type="button"
+                appButton="neutral"
+                class="relative z-10"
+                (click)="endSession(session.id)"
+              >
                 {{ 'voting.list.end' | transloco }}
               </button>
             }
             @if (canManage()) {
-              <button type="button" appButton="danger" class="relative z-10 ml-auto" (click)="deleteSession(session)">
+              <button
+                type="button"
+                appButton="danger"
+                class="relative z-10 ml-auto"
+                (click)="deleteSession(session)"
+              >
                 {{ 'voting.list.delete' | transloco }}
               </button>
             }

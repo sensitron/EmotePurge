@@ -21,7 +21,7 @@ export interface DeleteConfirmDialogData {
   imports: [Button, TranslocoPipe],
   template: `
     <div class="rounded-lg bg-slate-900 p-6 shadow-xl">
-      <h2 id="delete-confirm-dialog-title" class="mb-3 text-lg font-medium">
+      <h2 id="delete-confirm-dialog-title" class="mb-3 text-lg font-semibold">
         {{ confirmTitleKey() | transloco: { count: data.emotes().length } }}
       </h2>
       <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-slate-300">
@@ -36,26 +36,40 @@ export interface DeleteConfirmDialogData {
       </ul>
 
       @if (data.warningLoading()) {
-        <p class="mb-4 text-sm text-slate-400" role="status">{{ 'massDelete.checkingSharedSets' | transloco }}</p>
+        <p class="mb-4 text-sm text-slate-400" role="status">
+          {{ 'massDelete.checkingSharedSets' | transloco }}
+        </p>
       } @else if (hasSharedSetWarning(); as warning) {
-        <div class="mb-4 rounded-md border border-red-800 bg-red-950/50 px-3 py-2 text-sm text-red-300" role="alert">
+        <div
+          class="mb-4 rounded-md border border-red-800 bg-red-950/50 px-3 py-2 text-sm text-red-300"
+          role="alert"
+        >
           <p class="font-medium">{{ 'massDelete.sharedSetWarningTitle' | transloco }}</p>
           @if (!warning.isOwnSet) {
             <p class="mt-1">{{ 'massDelete.notOwnSet' | transloco }}</p>
           }
           @if (warning.otherTrackedChannelsSharingSet.length > 0) {
             <p class="mt-1">
-              {{ 'massDelete.knownAffected' | transloco: { list: warning.otherTrackedChannelsSharingSet.join(', ') } }}
+              {{
+                'massDelete.knownAffected'
+                  | transloco: { list: warning.otherTrackedChannelsSharingSet.join(', ') }
+              }}
             </p>
           }
           @if (warning.otherModeratedChannelsSharingSet.length > 0) {
             <p class="mt-1">
-              {{ 'massDelete.moderatedAffected' | transloco: { list: warning.otherModeratedChannelsSharingSet.join(', ') } }}
+              {{
+                'massDelete.moderatedAffected'
+                  | transloco: { list: warning.otherModeratedChannelsSharingSet.join(', ') }
+              }}
             </p>
           }
         </div>
       } @else if (ownershipCheckUnavailable()) {
-        <div class="mb-4 rounded-md border border-amber-700 bg-amber-950/40 px-3 py-2 text-sm text-amber-200" role="alert">
+        <div
+          class="mb-4 rounded-md border border-amber-700 bg-amber-950/40 px-3 py-2 text-sm text-amber-200"
+          role="alert"
+        >
           <p>{{ 'massDelete.ownershipCheckUnavailable' | transloco }}</p>
         </div>
       }
@@ -89,7 +103,9 @@ export class DeleteConfirmDialog {
   protected readonly dialogRef = inject<DialogRef<boolean>>(DialogRef);
 
   protected readonly previewEmotes = computed(() => this.data.emotes().slice(0, 50));
-  protected readonly confirmTitleKey = computed(() => pluralKey(this.data.emotes().length, 'massDelete.confirmTitle'));
+  protected readonly confirmTitleKey = computed(() =>
+    pluralKey(this.data.emotes().length, 'massDelete.confirmTitle'),
+  );
   protected readonly andMoreKey = computed(() =>
     pluralKey(this.data.emotes().length - this.previewEmotes().length, 'massDelete.andMore'),
   );
@@ -102,7 +118,10 @@ export class DeleteConfirmDialog {
     if (!w || !w.available) {
       return null;
     }
-    const flagged = !w.isOwnSet || w.otherTrackedChannelsSharingSet.length > 0 || w.otherModeratedChannelsSharingSet.length > 0;
+    const flagged =
+      !w.isOwnSet ||
+      w.otherTrackedChannelsSharingSet.length > 0 ||
+      w.otherModeratedChannelsSharingSet.length > 0;
     return flagged ? w : null;
   });
 

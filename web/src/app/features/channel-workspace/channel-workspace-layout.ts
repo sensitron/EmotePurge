@@ -23,7 +23,9 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
         </a>
         <!-- On narrow viewports the title takes its own full-width line below the buttons instead
              of being squeezed to an ellipsis between them; from md: it sits inline as before. -->
-        <h1 class="order-last w-full truncate text-xl font-semibold md:order-0 md:w-auto md:min-w-0 md:flex-1">
+        <h1
+          class="order-last w-full truncate text-2xl font-bold tracking-tight md:order-0 md:w-auto md:min-w-0 md:flex-1"
+        >
           #{{ channelName() }}
         </h1>
         @if (canManage()) {
@@ -32,7 +34,13 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
               {{ 'channelWorkspace.leaveChannel' | transloco }}
             </button>
           } @else {
-            <button type="button" appButton="primary" class="ml-auto" [disabled]="rejoinInProgress()" (click)="rejoin()">
+            <button
+              type="button"
+              appButton="primary"
+              class="ml-auto"
+              [disabled]="rejoinInProgress()"
+              (click)="rejoin()"
+            >
               {{ 'channelWorkspace.rejoinChannel' | transloco }}
             </button>
           }
@@ -48,7 +56,9 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
       }
 
       @if (errorMessage(); as message) {
-        <app-notice-banner variant="error" class="mb-4 block">{{ message | transloco }}</app-notice-banner>
+        <app-notice-banner variant="error" class="mb-4 block">{{
+          message | transloco
+        }}</app-notice-banner>
       }
 
       <nav class="mb-6 flex gap-2 border-b border-slate-800">
@@ -133,11 +143,17 @@ export class ChannelWorkspaceLayout {
     // A leave now only deactivates the bot and keeps all history (see ChannelService.LeaveAsync) —
     // reversible by rejoining. Still confirmed, because it stops data collection for the channel.
     const data: ConfirmDialogData = {
-      message: this.translocoService.translate('channelWorkspace.leaveConfirm', { channelName: this.channelName() }),
+      message: this.translocoService.translate('channelWorkspace.leaveConfirm', {
+        channelName: this.channelName(),
+      }),
       confirmLabel: this.translocoService.translate('channelWorkspace.leaveChannel'),
     };
     this.dialog
-      .open<boolean>(ConfirmDialog, { data, backdropClass: 'app-dialog-backdrop', panelClass: 'app-dialog-panel' })
+      .open<boolean>(ConfirmDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+      })
       .closed.subscribe((confirmed) => {
         if (!confirmed) {
           return;
@@ -146,7 +162,9 @@ export class ChannelWorkspaceLayout {
           next: () => this.router.navigateByUrl('/'),
           error: (error: HttpErrorResponse) => {
             this.errorMessage.set(
-              error.status === 403 ? 'channelWorkspace.errors.leaveForbidden' : 'channelWorkspace.errors.leaveFailed',
+              error.status === 403
+                ? 'channelWorkspace.errors.leaveForbidden'
+                : 'channelWorkspace.errors.leaveFailed',
             );
           },
         });
@@ -167,7 +185,9 @@ export class ChannelWorkspaceLayout {
       error: (error: HttpErrorResponse) => {
         this.rejoinInProgress.set(false);
         this.errorMessage.set(
-          error.status === 403 ? 'channelWorkspace.errors.leaveForbidden' : 'channelWorkspace.errors.rejoinFailed',
+          error.status === 403
+            ? 'channelWorkspace.errors.leaveForbidden'
+            : 'channelWorkspace.errors.rejoinFailed',
         );
       },
     });

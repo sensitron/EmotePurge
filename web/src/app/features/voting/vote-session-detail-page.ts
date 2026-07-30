@@ -11,7 +11,11 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
-import { VoteSessionResult, VoteSessionResults, VoteType } from '../../core/voting/vote-session.model';
+import {
+  VoteSessionResult,
+  VoteSessionResults,
+  VoteType,
+} from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import { Button } from '../../shared/ui/button';
@@ -29,7 +33,16 @@ const ROW_HEIGHT_PX = 192;
 
 @Component({
   selector: 'app-vote-session-detail-page',
-  imports: [Button, EmptyState, NoticeBanner, ScrollingModule, NgOptimizedImage, MassDeletePanel, EmoteCardHeader, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    ScrollingModule,
+    NgOptimizedImage,
+    MassDeletePanel,
+    EmoteCardHeader,
+    TranslocoPipe,
+  ],
   host: {
     '(window:resize)': 'updateColumns()',
   },
@@ -52,6 +65,7 @@ export class VoteSessionDetailPage {
   protected readonly columns = signal(computeGridColumns(window.innerWidth));
 
   protected readonly results = signal<VoteSessionResults | null>(null);
+  protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
   protected readonly canManage = signal(false);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
@@ -92,14 +106,18 @@ export class VoteSessionDetailPage {
 
   // Prune, don't clear (S2-16): narrowing a filter keeps the still-visible part of the selection,
   // while anything filtered out is dropped so the delete path never holds an off-screen emote.
-  protected readonly usageFilter = new EmoteUsageFilter<VoteSessionResult>(() => this.selection.retainVisible());
+  protected readonly usageFilter = new EmoteUsageFilter<VoteSessionResult>(() =>
+    this.selection.retainVisible(),
+  );
 
   protected readonly emotes = computed(() => this.usageFilter.apply(this.orderedEmotes()));
 
   protected readonly rows = computed(() => chunkIntoRows(this.emotes(), this.columns()));
   protected readonly selection = new ListSelection(this.emotes, (emote) => emote.emoteId);
 
-  protected readonly emoteCountKey = computed(() => pluralKey(this.orderedEmotes().length, 'emoteCount'));
+  protected readonly emoteCountKey = computed(() =>
+    pluralKey(this.orderedEmotes().length, 'emoteCount'),
+  );
 
   // Resolved items rather than selection.selectedKeys(): the delete engine needs sevenTvEmoteId and
   // the display name, which only the loaded row carries. Should a selected emote vanish from the
@@ -133,16 +151,22 @@ export class VoteSessionDetailPage {
   // switch), so DecimalPipe always formatted with 'en-US' regardless of the active UI language —
   // same reasoning as formatDateTime()/toLocale() above, just for numbers instead of dates.
   protected formatScore(value: number): string {
-    return new Intl.NumberFormat(toLocale(this.languageService.lang()), { maximumFractionDigits: 1 }).format(value);
+    return new Intl.NumberFormat(toLocale(this.languageService.lang()), {
+      maximumFractionDigits: 1,
+    }).format(value);
   }
 
   protected keepButtonTitle(emote: VoteSessionResult): string {
-    const labelKey = emote.myVote === VoteType.Keep ? 'voting.detail.retractVote' : 'voting.detail.keepAriaLabel';
+    const labelKey =
+      emote.myVote === VoteType.Keep ? 'voting.detail.retractVote' : 'voting.detail.keepAriaLabel';
     return `${this.translocoService.translate(labelKey)} (${emote.keepVotes})`;
   }
 
   protected deleteButtonTitle(emote: VoteSessionResult): string {
-    const labelKey = emote.myVote === VoteType.Delete ? 'voting.detail.retractVote' : 'voting.detail.deleteAriaLabel';
+    const labelKey =
+      emote.myVote === VoteType.Delete
+        ? 'voting.detail.retractVote'
+        : 'voting.detail.deleteAriaLabel';
     return `${this.translocoService.translate(labelKey)} (${emote.deleteVotes})`;
   }
 
@@ -192,8 +216,17 @@ export class VoteSessionDetailPage {
     // otherwise a Keep vote could only ever be overwritten by a Delete vote, never undone.
     const request$: Observable<unknown> =
       emote.myVote === type
-        ? this.voteSessionService.retractVote(this.channelName(), Number(this.sessionId()), emote.emoteId)
-        : this.voteSessionService.castVote(this.channelName(), Number(this.sessionId()), emote.emoteId, type);
+        ? this.voteSessionService.retractVote(
+            this.channelName(),
+            Number(this.sessionId()),
+            emote.emoteId,
+          )
+        : this.voteSessionService.castVote(
+            this.channelName(),
+            Number(this.sessionId()),
+            emote.emoteId,
+            type,
+          );
 
     request$.subscribe({
       next: () => this.load({ freeze: false }),
@@ -210,12 +243,19 @@ export class VoteSessionDetailPage {
   // thing here — the wrong role for *this session's* audience. The generic 403 message points at the
   // mod-role cache instead, which would be actively misleading in, say, a subs-only session.
   private handleVoteError(error: HttpErrorResponse): void {
-    this.errorMessage.set(error.status === 403 ? 'voting.detail.errors.forbidden' : apiErrorTranslationKey(error));
+    this.errorMessage.set(
+      error.status === 403 ? 'voting.detail.errors.forbidden' : apiErrorTranslationKey(error),
+    );
   }
 
   protected onDeleted(deletedIds: string[]): void {
     this.results.update((results) =>
-      results ? { ...results, emotes: results.emotes.filter((emote) => !deletedIds.includes(emote.emoteId)) } : results,
+      results
+        ? {
+            ...results,
+            emotes: results.emotes.filter((emote) => !deletedIds.includes(emote.emoteId)),
+          }
+        : results,
     );
     this.selection.clear();
   }

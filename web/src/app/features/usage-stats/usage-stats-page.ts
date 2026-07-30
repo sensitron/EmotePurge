@@ -87,6 +87,7 @@ export class UsageStatsPage {
   protected readonly emotes = signal<EmoteUsageTotal[]>([]);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly isLoading = signal(false);
+  protected readonly skeletonCells = Array.from({ length: 12 }, (_, i) => i);
   protected readonly isAwaitingSync = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
@@ -95,13 +96,19 @@ export class UsageStatsPage {
 
   // Prune, don't clear (S2-16): narrowing a filter keeps the still-visible part of the selection,
   // while anything filtered out is dropped so the delete path never holds an off-screen emote.
-  protected readonly usageFilter = new EmoteUsageFilter<EmoteUsageTotal>(() => this.selection.retainVisible());
+  protected readonly usageFilter = new EmoteUsageFilter<EmoteUsageTotal>(() =>
+    this.selection.retainVisible(),
+  );
 
   protected readonly filteredEmotes = computed(() => this.usageFilter.apply(this.emotes()));
 
   protected readonly sortedEmotes = computed(() => {
     const items = [...this.filteredEmotes()];
-    items.sort((a, b) => (this.sortDirection() === 'desc' ? b.totalUseCount - a.totalUseCount : a.totalUseCount - b.totalUseCount));
+    items.sort((a, b) =>
+      this.sortDirection() === 'desc'
+        ? b.totalUseCount - a.totalUseCount
+        : a.totalUseCount - b.totalUseCount,
+    );
     return items;
   });
 
@@ -195,7 +202,11 @@ export class UsageStatsPage {
         // catchError sits on the inner request, not on the outer pipe: out here it would replace the
         // whole polling stream on the first hiccup and end the wait. Inside, one failed tick just
         // counts as "still empty" and the next tick tries again.
-        switchMap(() => this.emoteAdminService.getActiveEmoteSetId(channelName).pipe(catchError(() => of({ activeEmoteSetId: '' })))),
+        switchMap(() =>
+          this.emoteAdminService
+            .getActiveEmoteSetId(channelName)
+            .pipe(catchError(() => of({ activeEmoteSetId: '' }))),
+        ),
         map((result) => result.activeEmoteSetId),
         take(SYNC_POLL_MAX_ATTEMPTS),
         // Completes on the first non-empty id; if the attempts run out first, the default '' arrives
