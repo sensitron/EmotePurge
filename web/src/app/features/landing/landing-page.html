@@ -6,10 +6,10 @@
         Emote Purge
       </a>
       <div class="flex items-center gap-6">
-        <a href="#features" class="hidden text-sm text-slate-400 transition hover:text-slate-100 sm:inline">{{
+        <a href="#features" class="hidden px-1 py-2 text-sm text-slate-400 transition hover:text-slate-100 sm:inline-block">{{
           'landing.nav.features' | transloco
         }}</a>
-        <a href="#how" class="hidden text-sm text-slate-400 transition hover:text-slate-100 sm:inline">{{
+        <a href="#how" class="hidden px-1 py-2 text-sm text-slate-400 transition hover:text-slate-100 sm:inline-block">{{
           'landing.nav.how' | transloco
         }}</a>
         <app-language-switcher />
@@ -154,8 +154,10 @@
     <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
       <span>{{ 'landing.footer.copyright' | transloco }}</span>
       <div class="flex gap-5">
-        <a href="#features" class="transition hover:text-slate-300">{{ 'landing.nav.features' | transloco }}</a>
-        <a href="#how" class="transition hover:text-slate-300">{{ 'landing.nav.how' | transloco }}</a>
+        <a href="#features" class="inline-block px-1 py-2 transition hover:text-slate-300">{{
+          'landing.nav.features' | transloco
+        }}</a>
+        <a href="#how" class="inline-block px-1 py-2 transition hover:text-slate-300">{{ 'landing.nav.how' | transloco }}</a>
       </div>
     </div>
   </footer>

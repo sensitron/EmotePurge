@@ -1,3 +1,12 @@
 /* You can add global styles to this file, and also import other style files */
 
 @import 'tailwindcss';
+
+@layer base {
+  /* Single global keyboard-focus indicator (WCAG 2.4.7 / 1.4.11): every interactive element
+     gets the same visible ring; individual components must not remove it without replacement. */
+  :focus-visible {
+    outline: 2px solid var(--color-purple-500);
+    outline-offset: 2px;
+  }
+}

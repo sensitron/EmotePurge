@@ -40,7 +40,7 @@ import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service'
             type="password"
             [formControl]="tokenControl"
             [placeholder]="'sevenTvToken.placeholder' | transloco"
-            class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500 focus:outline-none"
+            class="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500"
           />
           <button
             type="submit"

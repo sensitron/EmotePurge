@@ -3,11 +3,13 @@ import { Component, input, output } from '@angular/core';
 @Component({
   selector: 'app-emote-card-header',
   template: `
-    <div class="flex h-4 w-full items-center gap-1">
+    <div class="flex h-5 w-full items-center gap-1">
       @if (showCheckbox()) {
+        <!-- Small by design: the whole card is the >=24px selection target (WCAG 2.5.8's
+             equivalent-target exception); the checkbox only mirrors the state visually. -->
         <input
           type="checkbox"
-          class="h-3.5 w-3.5 shrink-0"
+          class="h-4 w-4 shrink-0 accent-purple-600"
           tabindex="-1"
           [checked]="checked()"
           (click)="checkboxClick.emit($event)"

@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — Frontend-Konvention: globaler `:focus-visible`-Ring, kein `focus:outline-none` ohne Ersatz, Touch-Targets ≥ 24 px
+
+**Betrifft:** `web/src/styles.css` · `web/src/app/shared/emotes/emote-card-header.ts` · `web/src/app/shared/seven-tv/seven-tv-token-input.ts` · `web/src/app/features/landing/landing-page.html`
+
+**Befund des UI/UX-Audits vom 2026-07-30:** Im gesamten Frontend existierte kein einziger eigener Fokus-Stil, und drei Inputs entfernten den nativen Fokusring per `focus:outline-none` ersatzlos — Tastaturnutzer hatten dort gar keinen Fokusindikator (WCAG 2.4.7). Jetzt gilt: **ein** globaler `:focus-visible`-Stil in `styles.css` (lila 2-px-Ring mit Offset, erfüllt 1.4.11) für alle interaktiven Elemente; Komponenten dürfen ihn nicht ohne gleichwertigen Ersatz unterdrücken — die drei `focus:outline-none` sind entfernt, der `focus:border-purple-500`-Akzent der Inputs bleibt zusätzlich. Zweitens **Touch-Target-Untergrenze 24 × 24 px** (WCAG 2.2 SC 2.5.8, AA) für alles Interaktive; 44 px bleiben der Komfort-Zielwert für primäre Aktionen. Die Emote-Checkbox in `EmoteCardHeader` bleibt bewusst 16 px: die vollflächig klickbare Karte ist das eigentliche ≥ 24-px-Ziel, womit die „equivalent target"-Ausnahme von 2.5.8 greift — als solche im Template dokumentiert. Messbar gehalten wird beides über die Metriken des UI-Audit-Harness (s. eigenen Eintrag).
+
 ### 2026-07-30 — UI-Audit-Screenshot-Harness als dauerhaftes Repo-Werkzeug (getrennt von der e2e-Suite)
 
 **Betrifft:** `web/playwright.audit.config.ts` · `web/e2e/audit/ui-audit.audit.ts` · `web/.gitignore`
