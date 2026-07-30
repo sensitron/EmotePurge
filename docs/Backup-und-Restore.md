@@ -89,10 +89,35 @@ sudo tee /etc/cron.d/emotepurge-backup >/dev/null <<'EOF'
 # EmotePurge: naechtliches Postgres-Backup, taeglich 03:00 Uhr Server-Zeit.
 # Log-Ausgabe landet zusaetzlich zur Stdout/Stderr-Ausgabe von cron selbst
 # (die je nach System-Konfiguration per Mail an root geht) in dieser Datei.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 0 3 * * * root /usr/local/bin/backup-postgres.sh >> /var/log/emotepurge-backup.log 2>&1
 EOF
 sudo chmod 644 /etc/cron.d/emotepurge-backup
+sudo chown root:root /etc/cron.d/emotepurge-backup
 ```
+
+Zwei Details in diesem Block sind keine Kosmetik:
+
+- **Die `PATH`-Zeile.** Dateien in `/etc/cron.d` erben den PATH aus `/etc/crontab`
+  **nicht**; cron setzt für sie intern nur `/usr/bin:/bin`. Liegt `docker` auf
+  diesem System woanders (z. B. `/usr/local/bin` oder als Snap), bricht das
+  Skript nachts an seiner eigenen `command -v docker`-Prüfung ab, obwohl der
+  manuelle Lauf aus 1.3 einwandfrei war. Mit `command -v docker` vorab prüfen.
+- **Die Dateirechte.** cron **ignoriert** Dateien in `/etc/cron.d` stillschweigend,
+  wenn sie gruppen- oder weltschreibbar sind oder nicht root gehören — ohne
+  Fehlermeldung und ohne Logeintrag. Es passiert dann schlicht nie etwas.
+
+Nicht bis 03:00 Uhr warten, um zu sehen ob es klappt: einmal `date` ausführen,
+die Zeitangabe in der Datei auf zwei Minuten in der Zukunft setzen,
+`tail -f /var/log/emotepurge-backup.log` mitlaufen lassen und danach auf
+`0 3 * * *` zurückstellen. Erscheint gar nichts im Log, liegt es fast immer an
+einem der beiden Punkte oben oder daran, dass der Dienst selbst nicht läuft
+(`systemctl status cron`). Die dabei entstandene Testdatei kann liegen bleiben,
+die Rotation räumt sie nach `RETENTION_DAYS` selbst weg.
+
+Ebenfalls kurz prüfen: `timedatectl | grep -i 'time zone'`. „03:00 Uhr" ist
+Server-Zeit — auf einem UTC-Server ist das je nach eigener Zeitzone mitten am
+Tag, was für ein Backup unkritisch ist, aber man sollte wissen wann es läuft.
 
 Falls vom Default abweichende Werte nötig sind (z. B. anderes `BACKUP_DIR`), die
 Env-Variablen direkt in der Zeile setzen:
@@ -106,10 +131,68 @@ Ein einzelner Cronjob genügt — Backup und Rotation laufen im selben Skriptdur
 
 ## 2. Restore
 
-**Vor jedem Restore: `emotepurge-api` und `emotepurge-worker` stoppen.** Beide
-schreiben aktiv in die Datenbank (Chat-Matching-Flush, 7TV-Resync, Join/Leave) —
-läuft einer der beiden während des Restores weiter, sind Race Conditions mit
-teils widersprüchlichem Endzustand möglich.
+### 2.0 Risikofreie Restore-Probe
+
+Der Weg, um regelmäßig zu prüfen, dass die Dumps überhaupt etwas taugen — ohne
+die Live-Datenbank anzufassen und ohne Api/Worker zu stoppen. Der Dump wird in
+eine Wegwerf-Datenbank auf demselben Container eingespielt und danach wieder
+verworfen. Erstmals durchgeführt am 2026-07-30, erfolgreich.
+
+```sh
+# 1. Wegwerf-Datenbank anlegen:
+docker exec emotepurge-postgres psql -U emotepurge -d postgres \
+  -c 'CREATE DATABASE emotepurge_restoretest OWNER emotepurge;'
+
+# 2. Dump einspielen -- ON_ERROR_STOP=1 ist der eigentliche Wert dieses Tests:
+gunzip -c /var/backups/emotepurge/emotepurge-<DATUM>_<UHRZEIT>.sql.gz \
+  | docker exec -i emotepurge-postgres psql -U emotepurge -d emotepurge_restoretest -v ON_ERROR_STOP=1 -q
+echo "Exit-Code: $?"
+
+# 3. Zeilenzahlen gegen die Live-Datenbank halten:
+for db in emotepurge emotepurge_restoretest; do
+  echo "== $db"
+  docker exec -i emotepurge-postgres psql -U emotepurge -d "$db" -t <<'SQL'
+SELECT 'Channels', count(*) FROM "Channels"
+UNION ALL SELECT 'Emotes', count(*) FROM "Emotes"
+UNION ALL SELECT 'UsageStats', count(*) FROM "UsageStats"
+UNION ALL SELECT 'Users', count(*) FROM "Users"
+UNION ALL SELECT 'VoteSessions', count(*) FROM "VoteSessions"
+UNION ALL SELECT 'Votes', count(*) FROM "Votes"
+UNION ALL SELECT 'Migrationen', count(*) FROM "__EFMigrationsHistory";
+SQL
+done
+
+# 4. Aufraeumen:
+docker exec emotepurge-postgres psql -U emotepurge -d postgres \
+  -c 'DROP DATABASE emotepurge_restoretest;'
+```
+
+**Ohne `ON_ERROR_STOP=1` ist dieser Test wertlos:** `psql` rauscht sonst über
+Fehler hinweg und beendet sich trotzdem mit Exit-Code 0 — der Restore *sähe*
+erfolgreich aus, obwohl Tabellen fehlen. Erwartet wird Exit-Code 0 ohne Ausgabe.
+
+Beim Zeilenvergleich sind Abweichungen normal und kein Fehlersignal:
+`UsageStats`/`Votes` liegen in der Live-Datenbank höher (der Flush läuft alle 30
+Sekunden weiter, seit der Dump gezogen wurde), und `Migrationen` liegt niedriger,
+wenn seit dem Backup eine Migration hinzugekommen ist — genau der in 2.2 unten
+beschriebene Fall, in dem nach einem echten Restore einmal
+`dotnet ef database update` nachzuziehen ist. `Channels` und `Users` sollten
+übereinstimmen.
+
+Was diese Probe **nicht** abdeckt: den vollständigen Katastrophenablauf aus 2.1
+bzw. 2.2 (Api/Worker stoppen, Live-Datenbank ersetzen). Dessen Mechanik ist im
+Vergleich trivial; der Teil, der im Ernstfall still versagt — ein abgeschnittener
+oder unlesbarer Dump — ist genau der hier geprüfte. Wer auch den kompletten
+Ablauf üben will, tut das sinnvollerweise gegen den lokalen Docker-Stack, nicht
+gegen Prod.
+
+---
+
+**Für die beiden folgenden, echten Restore-Wege gilt: `emotepurge-api` und
+`emotepurge-worker` vorher stoppen.** Beide schreiben aktiv in die Datenbank
+(Chat-Matching-Flush, 7TV-Resync, Join/Leave) — läuft einer der beiden während
+des Restores weiter, sind Race Conditions mit teils widersprüchlichem Endzustand
+möglich.
 
 ```sh
 docker stop emotepurge-api emotepurge-worker
