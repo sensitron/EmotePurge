@@ -1,8 +1,21 @@
 name: Publish Docker images
 
+# Docs-only pushes (Markdown, docs/) skip the whole pipeline — nothing in the images can have
+# changed, and republishing would only move the :latest tag to a bit-identical image with a new
+# digest (a blind Portainer re-pull would then restart containers for nothing).
+# pull_request runs the two test jobs only (see the publish job's if:) — optional branches for
+# risky work get CI without changing the day-to-day trunk-based flow (Review 2026-07-29, S3-37).
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
 
 env:
@@ -69,6 +82,8 @@ jobs:
           retention-days: 7
 
   publish:
+    # Tests gate every event; images are only ever published from main (push/manual), never from PRs.
+    if: github.event_name != 'pull_request'
     needs: [test, test-web]
     runs-on: ubuntu-latest
     permissions:

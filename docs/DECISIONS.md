@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — CI: Doku-only-Pushes überspringen die Pipeline, PRs bekommen Test-Jobs (kein Publish)
+
+**Betrifft:** `.github/workflows/publish.yml`
+
+**Trigger-Umbau des einzigen Workflows — 2026-07-30.** Vorher lief bei **jedem** Push auf `main` die volle Pipeline (Backend-Tests mit Testcontainers, Vitest + Playwright, Build + Push beider GHCR-Images) — auch für reine `docs:`-Commits. Das kostete ~2–2,5 min pro Push und verschob den `latest`-Tag auf ein bit-identisches Image mit neuem Digest, sodass ein blinder Portainer-Re-Pull die Container grundlos neu gestartet hätte. Jetzt: `paths-ignore` (`**.md`, `docs/**`) am `push`- **und** `pull_request`-Trigger — Doku-only-Pushes lösen nichts mehr aus; gemischte Pushes (Code + Doku) laufen unverändert voll. Zusätzlich, als Umsetzung von Review-Befund S3-37: `pull_request`-Trigger für die beiden Test-Jobs, damit optionale Branches für riskante Umbauten CI bekommen — der `publish`-Job ist per `if: github.event_name != 'pull_request'` ausgenommen, Images entstehen weiterhin ausschließlich aus `main` (Push/manuell). **Bewusst kein Wechsel auf einen PR-Pflicht-Workflow:** Trunk-based bleibt für Team-Größe 1 die richtige Wahl; die zentrale Schutzeigenschaft — kaputter Code kann keine Images publizieren, weil `publish` per `needs` an beiden Test-Jobs hängt — bestand schon vorher und bleibt unverändert.
+
 ### 2026-07-30 — Twitch-Refresh-Token eingeführt: DB-Speicherung (AES-GCM) + On-Demand-Refresh mit Single-Flight und Validate-on-Use
 
 **Betrifft:** `src/EmotePurge.Core/Entities/User.cs` · `src/EmotePurge.Core/Services/ITokenCipher.cs` · `src/EmotePurge.Core/Services/IUserService.cs` · `src/EmotePurge.Core/Services/ITwitchUserTokenService.cs` · `src/EmotePurge.Core/Twitch/ITwitchAuthClient.cs` · `src/EmotePurge.Core/Twitch/TwitchModels.cs` · `src/EmotePurge.Infrastructure/Services/AesGcmTokenCipher.cs` · `src/EmotePurge.Infrastructure/Services/TwitchUserTokenService.cs` · `src/EmotePurge.Infrastructure/Services/TwitchTokenRefreshGate.cs` · `src/EmotePurge.Infrastructure/Services/UserService.cs` · `src/EmotePurge.Infrastructure/Twitch/TwitchAuthClient.cs` · `src/EmotePurge.Api/Endpoints/AuthEndpoints.cs` · `docker-compose.yml` · `docker-compose.prod.yml` · `.env.example`
