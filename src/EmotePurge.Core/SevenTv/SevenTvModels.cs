@@ -30,6 +30,18 @@ public record SevenTvEmoteSetDelta(
 // null when the wire omits it; new id is null when the connection ends up with no active set.
 public record SevenTvUserSetChange(string SevenTvUserId, string? OldEmoteSetId, string? NewEmoteSetId);
 
+// Result of applying one EventAPI delta to one channel. SetNotActive and ImplausibleSkipped tell
+// the caller to fall back to a full resync — which it must run outside the delta call, because
+// SyncChannelAsync takes the same non-reentrant per-channel gate.
+public enum SevenTvDeltaOutcome
+{
+    Applied,
+    NoChange,
+    ChannelUnknown,
+    SetNotActive,
+    ImplausibleSkipped
+}
+
 // A 7TV account's own identity plus its currently active Twitch-linked emote set, resolved together
 // in one GQL call (userByConnection) — reused both to find "is this my own set" (owner comparison)
 // and, per moderated channel, "what's currently active there" (shared-set detection).

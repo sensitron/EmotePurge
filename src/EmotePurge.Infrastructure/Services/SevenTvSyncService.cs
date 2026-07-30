@@ -75,6 +75,99 @@ public class SevenTvSyncService(
         return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId);
     }
 
+    public async Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
+        string channelName,
+        string emoteSetId,
+        SevenTvEmoteSetDelta delta,
+        CancellationToken cancellationToken = default)
+    {
+        if (delta.IsEmpty)
+        {
+            return SevenTvDeltaOutcome.NoChange;
+        }
+
+        var normalized = ChannelName.Normalize(channelName);
+        using var gate = await channelSyncGate.AcquireAsync(normalized, cancellationToken);
+
+        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        if (channel is null)
+        {
+            logger.LogWarning("ApplyEmoteSetUpdateAsync: {Channel} nicht in Postgres gefunden.", normalized);
+            return SevenTvDeltaOutcome.ChannelUnknown;
+        }
+
+        if (channel.ActiveEmoteSetId != emoteSetId)
+        {
+            logger.LogInformation(
+                "7TV-Dispatch für Set {SetId} ignoriert — {Channel} hat inzwischen Set {ActiveSetId} aktiv.",
+                emoteSetId, normalized, channel.ActiveEmoteSetId);
+            return SevenTvDeltaOutcome.SetNotActive;
+        }
+
+        var existing = await db.Emotes
+            .Where(e => e.ChannelId == channel.Id)
+            .ToDictionaryAsync(e => e.SevenTvEmoteId, cancellationToken);
+
+        // Same asymmetry as the empty-set guard in SyncChannelAsync: one malformed or malicious
+        // delta that would archive the channel's entire active set kills chat matching until the
+        // next resync. Simulated first, and skipped when the result would be a wipe — the caller
+        // reacts with a full resync, which re-checks against 7TV's authoritative state.
+        var activeBefore = existing.Values.Count(e => !e.IsArchived);
+        var activeAfter = existing.Values
+            .Where(e => !e.IsArchived)
+            .Select(e => e.SevenTvEmoteId)
+            .ToHashSet();
+        foreach (var emote in delta.Pushed)
+        {
+            activeAfter.Add(emote.Id);
+        }
+        foreach (var emote in delta.Updated)
+        {
+            activeAfter.Add(emote.Id);
+        }
+        activeAfter.ExceptWith(delta.PulledIds);
+
+        if (activeBefore > 0 && activeAfter.Count == 0)
+        {
+            logger.LogWarning(
+                "7TV-Dispatch würde alle {Count} aktiven Emotes von {Channel} entfernen — als unplausibel übersprungen.",
+                activeBefore, normalized);
+            return SevenTvDeltaOutcome.ImplausibleSkipped;
+        }
+
+        foreach (var emote in delta.Pushed)
+        {
+            UpsertEmote(channel.Id, existing, emote, preserveImageUrlWhenLiveEmpty: true);
+        }
+
+        foreach (var emote in delta.Updated)
+        {
+            UpsertEmote(channel.Id, existing, emote, preserveImageUrlWhenLiveEmpty: true);
+        }
+
+        foreach (var pulledId in delta.PulledIds)
+        {
+            if (existing.TryGetValue(pulledId, out var emote) && !emote.IsArchived)
+            {
+                emote.IsArchived = true;
+                emote.LastSyncedAt = DateTime.UtcNow;
+            }
+        }
+
+        if (!db.ChangeTracker.HasChanges())
+        {
+            return SevenTvDeltaOutcome.NoChange;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await RefreshMatchCacheAsync(channel, cancellationToken);
+
+        logger.LogInformation(
+            "7TV-Dispatch auf {Channel} angewendet: {Pushed} hinzugefügt, {Updated} aktualisiert, {Pulled} entfernt.",
+            normalized, delta.Pushed.Count, delta.Updated.Count, delta.PulledIds.Count);
+        return SevenTvDeltaOutcome.Applied;
+    }
+
     private async Task RefreshMatchCacheAsync(Channel channel, CancellationToken cancellationToken)
     {
         var activeEmotes = await db.Emotes
@@ -116,19 +209,38 @@ public class SevenTvSyncService(
         {
             if (!liveIds.Contains(sevenTvEmoteId) && !emote.IsArchived)
             {
+                // Measurement only (no protection): 7TV's REST cache can lag 10-30 min behind
+                // (SevenTV/SevenTV#81), so a resync may archive an emote a live dispatch added
+                // moments ago — and dispatches never repeat. Logged to quantify how often that
+                // actually happens before deciding whether a guard is worth weakening the
+                // reconciliation for.
+                if (emote.LastSyncedAt > DateTime.UtcNow.AddMinutes(-15))
+                {
+                    logger.LogInformation(
+                        "REST-Resync archiviert Emote {Name} ({SevenTvEmoteId}), das vor weniger als 15 Minuten synchronisiert wurde — möglicher 7TV-REST-Cache-Lag.",
+                        emote.Name, sevenTvEmoteId);
+                }
+
                 emote.IsArchived = true;
             }
         }
     }
 
-    private void UpsertEmote(string channelId, Dictionary<string, Emote> existing, SevenTvEmote live)
+    private void UpsertEmote(string channelId, Dictionary<string, Emote> existing, SevenTvEmote live, bool preserveImageUrlWhenLiveEmpty = false)
     {
         if (existing.TryGetValue(live.Id, out var emote))
         {
-            if (emote.Name != live.Name || emote.ImageUrl != live.ImageUrl || emote.IsArchived)
+            // Dispatch payloads have not been proven to always carry the image-host block, so the
+            // delta path never overwrites a known image URL with an empty one (the REST path keeps
+            // its verbatim behaviour — there an empty URL is 7TV's authoritative answer).
+            var imageUrl = preserveImageUrlWhenLiveEmpty && live.ImageUrl.Length == 0 && emote.ImageUrl.Length > 0
+                ? emote.ImageUrl
+                : live.ImageUrl;
+
+            if (emote.Name != live.Name || emote.ImageUrl != imageUrl || emote.IsArchived)
             {
                 emote.Name = live.Name;
-                emote.ImageUrl = live.ImageUrl;
+                emote.ImageUrl = imageUrl;
                 emote.IsArchived = false;
                 emote.LastSyncedAt = DateTime.UtcNow;
             }
