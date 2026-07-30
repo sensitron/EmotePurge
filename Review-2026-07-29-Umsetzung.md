@@ -328,7 +328,7 @@ Zusätzlich zwei neue Log-Einträge in `docs/DECISIONS.md` (Regel: ein Commit, d
 Diese Punkte sind Teil eines Befunds, dessen Rest bewusst einer späteren Welle zugeordnet ist:
 
 - **S2-16 (Auswahl über Filterwechsel erhalten)** ist durch die keyed `ListSelection` jetzt sicher baubar — aber nicht automatisch fertig: beide Host-Seiten leiten ihre Löschliste über `selectedItems()` ab, sodass eine über einen Filterwechsel erhaltene Auswahl beim Löschen still auf die sichtbaren Zeilen zusammenschrumpfen würde. Die Richtung ist ungefährlich (es würde weniger gelöscht, nie das Falsche), widerspräche aber der vom Befund geforderten Anzeige „50 ausgewählt (12 ausgeblendet)". Wer S2-16 baut, muss die Zählung auf `selectedKeys()` umstellen und eine Key→Zeile-Zuordnung für ausgeblendete Einträge mitführen.
-- ~~**`ReconnectPolicy` extrahieren (S3-6)**~~ — in Welle C erledigt. Die Unit-Tests dafür bleiben Welle D.
+- ~~**`ReconnectPolicy` extrahieren (S3-6)**~~ — in Welle C erledigt. ~~Die Unit-Tests dafür bleiben Welle D.~~ Am 2026-07-30 mit der 7TV-WebSocket-Wiedereinführung erledigt: neues container-freies Testprojekt `tests/EmotePurge.Worker.Tests` mit `ReconnectPolicyTests` (die fünf dokumentierten Entscheidungsfälle), s. docs/DECISIONS.md „Worker-Testprojekt eingeführt".
 - **Redis-Cache für `OnValidatePrincipal`** — der Widerruf kostet einen Primärschlüssel-Lookup pro authentifiziertem Request. Sauber, aber cachebar, falls es je auffällt.
 - **S3-30 restliche vier Loader-`effect()`s** — der Pilot auf `VoteSessionListPage` steht (Welle C); `channel-workspace-layout.ts`, `usage-stats-page.ts`, `vote-session-detail-page.ts` und `my-votings-page.ts` laden weiter über `effect()` bzw. den Konstruktor. Erst nachziehen, wenn der Pilot sich im Live-Betrieb getragen hat. Bei der Usage-Stats-Seite ist zusätzlich der 7TV-Sync-Poll in dieselbe Ressource einzuweben — der aufwändigste der vier.
 - **S3-16 `@angular/cdk/dialog`** (mittelfristig) — Fokusfalle/Escape sind nachgerüstet, aber weiter handgebaut.
@@ -354,7 +354,7 @@ Billigster Vorabtest: lokal ~25 Channels tracken und prüfen, ob `Twitch hat den
 
 ### Offene Wellen
 
-**Welle D — Tests.** In dieser Reihenfolge, die ersten beiden ohne Container: `ChannelAccessServiceTests` → `VoteEligibilityServiceTests` → `VoteSessionService.CastVoteAsync` → `SevenTvSyncService` → `UsageStatFlushService` → `ReconnectPolicy`/`EmoteUsageCounter` → zwei Struktur-Tests (Core-Assembly-Referenzen, Fehlercode-Key-Parität beider Locale-Dateien).
+**Welle D — Tests.** In dieser Reihenfolge, die ersten beiden ohne Container: `ChannelAccessServiceTests` → `VoteEligibilityServiceTests` → `VoteSessionService.CastVoteAsync` → ~~`SevenTvSyncService`~~ (am 2026-07-30 mit der WS-Wiedereinführung angelegt: `SevenTvSyncServiceTests`, 11 Fälle inkl. Delta-Pfad — Achtung, `SyncChannelAsync` hat seitdem eine andere Signatur als im Report beschrieben) → `UsageStatFlushService` → ~~`ReconnectPolicy`~~ (2026-07-30 erledigt, s. o.)/`EmoteUsageCounter` → zwei Struktur-Tests (Core-Assembly-Referenzen, Fehlercode-Key-Parität beider Locale-Dateien).
 
 **Welle E — Infra & Launch.** S2-21 (Ressourcenlimits, vor dem Stresstest) → Z1-Aufteilung der Health-Endpoints + S3-35 → S3-36 → S3-34 → S3-38 → S3-37 (`pull_request`-Trigger) → S4-15/S4-16 → S4-17/S4-18 → S2-20 (Rechtstexte) → `robots.txt` öffnen.
 

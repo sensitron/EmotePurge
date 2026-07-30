@@ -1,5 +1,9 @@
 # Untersuchung: 7TV-Emote-Set-Sync via EventAPI-WebSocket — Re-Evaluation (2026-07-30)
 
+> **Status-Nachtrag:** Option C (WS zusätzlich zum REST-Resync) wurde noch am 2026-07-30 umgesetzt —
+> s. [DECISIONS.md](DECISIONS.md), Eintrag „7TV-EventAPI-WebSocket wieder eingeführt". Der
+> Untersuchungstext darunter bleibt unverändert als Beleg-Dokument stehen.
+
 Auftrag: Rekonstruktion und Bewertung der Entscheidung vom 2026-07-25, den 7TV-EventAPI-WebSocket
 zu entfernen und durch periodisches REST-Polling zu ersetzen ([docs/DECISIONS.md](DECISIONS.md),
 Eintrag „2026-07-25 — 7TV-EventAPI-WebSocket (Live-Dispatch) komplett entfernt").
