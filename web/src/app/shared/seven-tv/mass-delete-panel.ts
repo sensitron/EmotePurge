@@ -1,13 +1,14 @@
+import { Dialog } from '@angular/cdk/dialog';
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
-import { A11yModule } from '@angular/cdk/a11y';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
 import { DeleteQueueEmote, SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
-import { DeleteConfirmDialog } from './delete-confirm-dialog';
+import { Button } from '../ui/button';
+import { DeleteConfirmDialog, DeleteConfirmDialogData } from './delete-confirm-dialog';
 import { DeleteProgressPanel } from './delete-progress-panel';
-import { SevenTvTokenInput } from './seven-tv-token-input';
+import { SevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
 export interface DeletableEmote {
   emoteId: string;
@@ -22,12 +23,14 @@ export interface DeletableEmote {
  */
 @Component({
   selector: 'app-mass-delete-panel',
-  imports: [A11yModule, DeleteConfirmDialog, DeleteProgressPanel, SevenTvTokenInput, TranslocoPipe],
+  imports: [Button, DeleteProgressPanel, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-3">
       <button
         type="button"
-        class="self-start rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+        appButton="danger-solid"
+        buttonSize="lg"
+        class="self-start disabled:cursor-not-allowed"
         [disabled]="selectedEmotes().length === 0 || deleteService.isRunning()"
         (click)="openConfirm()"
       >
@@ -42,41 +45,6 @@ export interface DeletableEmote {
           (cancelled)="deleteService.cancel()"
           (syncRetryRequested)="deleteService.retrySyncReport()"
         />
-      }
-
-      @if (showConfirm()) {
-        @if (tokenService.hasToken()) {
-          <app-delete-confirm-dialog
-            [emotes]="selectedEmoteNames()"
-            [warning]="setWarning()"
-            [warningLoading]="warningLoading()"
-            (confirmed)="startDelete()"
-            (cancelled)="showConfirm.set(false)"
-          />
-        } @else {
-          <div
-            class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-            role="dialog"
-            aria-modal="true"
-            [attr.aria-label]="'sevenTvToken.intro' | transloco"
-            tabindex="-1"
-            cdkTrapFocus
-            cdkTrapFocusAutoCapture
-            (keydown.escape)="showConfirm.set(false)"
-          >
-            <div class="w-full max-w-md rounded-lg bg-slate-900 p-6 shadow-xl">
-              <app-seven-tv-token-input />
-              <button
-                type="button"
-                class="mt-4 text-sm text-slate-400 hover:underline"
-                cdkFocusInitial
-                (click)="showConfirm.set(false)"
-              >
-                {{ 'common.cancel' | transloco }}
-              </button>
-            </div>
-          </div>
-        }
       }
     </div>
   `,
@@ -97,11 +65,11 @@ export class MassDeletePanel {
   protected readonly tokenService = inject(SevenTvTokenService);
   protected readonly deleteService = inject(SevenTvDeleteService);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  private readonly dialog = inject(Dialog);
 
-  protected readonly showConfirm = signal(false);
-  protected readonly setWarning = signal<EmoteSetWarning | null>(null);
-  protected readonly warningLoading = signal(false);
-  protected readonly selectedEmoteNames = computed(() => this.selectedEmotes().map((emote) => emote.name));
+  private readonly setWarning = signal<EmoteSetWarning | null>(null);
+  private readonly warningLoading = signal(false);
+  private readonly selectedEmoteNames = computed(() => this.selectedEmotes().map((emote) => emote.name));
 
   constructor() {
     // The queue settling is not on its own a reason to tell the host page anything: the backend only
@@ -141,10 +109,52 @@ export class MassDeletePanel {
   }
 
   protected openConfirm(): void {
-    this.showConfirm.set(true);
+    // No stored 7TV token yet: ask for it first. The prompt closes itself with `true` the moment
+    // the token is saved, which chains straight into the confirm dialog — the flow the old
+    // hand-built overlay produced via its reactive template switch.
+    if (!this.tokenService.hasToken()) {
+      const promptRef = this.dialog.open<boolean>(SevenTvTokenPromptDialog, {
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+      });
+      promptRef.closed.subscribe((saved) => {
+        if (saved) {
+          this.openConfirmDialog();
+        }
+      });
+      return;
+    }
+
+    this.openConfirmDialog();
+  }
+
+  private openConfirmDialog(): void {
     this.setWarning.set(null);
     this.warningLoading.set(true);
 
+    // The dialog is already open while this runs — it reads the panel's signals live (see
+    // DeleteConfirmDialogData), so the shared-set warning pops in as soon as the check answers.
+    this.loadSetWarning();
+
+    const data: DeleteConfirmDialogData = {
+      emotes: this.selectedEmoteNames,
+      warning: this.setWarning.asReadonly(),
+      warningLoading: this.warningLoading.asReadonly(),
+    };
+    const confirmRef = this.dialog.open<boolean>(DeleteConfirmDialog, {
+      data,
+      backdropClass: 'app-dialog-backdrop',
+      panelClass: 'app-dialog-panel',
+      ariaLabelledBy: 'delete-confirm-dialog-title',
+    });
+    confirmRef.closed.subscribe((confirmed) => {
+      if (confirmed) {
+        this.startDelete();
+      }
+    });
+  }
+
+  private loadSetWarning(): void {
     this.emoteAdminService.getSetWarning(this.channelName()).subscribe({
       next: (warning) => {
         this.setWarning.set(warning);
@@ -167,8 +177,7 @@ export class MassDeletePanel {
     });
   }
 
-  protected startDelete(): void {
-    this.showConfirm.set(false);
+  private startDelete(): void {
     const emotes: DeleteQueueEmote[] = this.selectedEmotes().map((emote) => ({
       emoteId: emote.emoteId,
       sevenTvEmoteId: emote.sevenTvEmoteId,

@@ -1,13 +1,17 @@
+import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { Button } from '../../shared/ui/button';
+import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { NoticeBanner } from '../../shared/ui/notice-banner';
 
 @Component({
   selector: 'app-channel-workspace-layout',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, TranslocoPipe],
+  imports: [Button, NoticeBanner, RouterLink, RouterLinkActive, RouterOutlet, TranslocoPipe],
   template: `
     <div>
       <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -24,20 +28,11 @@ import { ChannelService } from '../../core/channels/channel.service';
         </h1>
         @if (canManage()) {
           @if (isBotActive()) {
-            <button
-              type="button"
-              class="ml-auto rounded-md border border-red-900 px-3 py-1.5 text-sm whitespace-nowrap text-red-400/90 transition hover:bg-red-950"
-              (click)="leave()"
-            >
+            <button type="button" appButton="danger" class="ml-auto" (click)="leave()">
               {{ 'channelWorkspace.leaveChannel' | transloco }}
             </button>
           } @else {
-            <button
-              type="button"
-              class="ml-auto rounded-md bg-purple-600 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-white transition hover:bg-purple-500 disabled:opacity-50"
-              [disabled]="rejoinInProgress()"
-              (click)="rejoin()"
-            >
+            <button type="button" appButton="primary" class="ml-auto" [disabled]="rejoinInProgress()" (click)="rejoin()">
               {{ 'channelWorkspace.rejoinChannel' | transloco }}
             </button>
           }
@@ -47,13 +42,13 @@ import { ChannelService } from '../../core/channels/channel.service';
       <!-- An inactive bot collects nothing, but every page below still renders its historical data
            as usual — without this the channel looks healthy while silently recording nothing. -->
       @if (canManage() && !isBotActive()) {
-        <p class="mb-4 rounded-md bg-amber-950/40 px-4 py-3 text-sm text-amber-300" role="status">
+        <app-notice-banner variant="warning" class="mb-4 block">
           {{ 'channelWorkspace.botInactiveNotice' | transloco }}
-        </p>
+        </app-notice-banner>
       }
 
       @if (errorMessage(); as message) {
-        <p class="mb-4 rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
+        <app-notice-banner variant="error" class="mb-4 block">{{ message | transloco }}</app-notice-banner>
       }
 
       <nav class="mb-6 flex gap-2 border-b border-slate-800">
@@ -95,6 +90,7 @@ export class ChannelWorkspaceLayout {
   private readonly channelService = inject(ChannelService);
   private readonly router = inject(Router);
   private readonly translocoService = inject(TranslocoService);
+  private readonly dialog = inject(Dialog);
 
   // Was two probes: GET /api/channels/{c} for "may manage" and a throwaway one-day
   // GetUsageTotalsAsync call for "may see the usage tab" (weaker — it also admits the channel's 7TV
@@ -136,21 +132,25 @@ export class ChannelWorkspaceLayout {
   protected leave(): void {
     // A leave now only deactivates the bot and keeps all history (see ChannelService.LeaveAsync) —
     // reversible by rejoining. Still confirmed, because it stops data collection for the channel.
-    const confirmed = window.confirm(
-      this.translocoService.translate('channelWorkspace.leaveConfirm', { channelName: this.channelName() }),
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    this.channelService.leave(this.channelName()).subscribe({
-      next: () => this.router.navigateByUrl('/'),
-      error: (error: HttpErrorResponse) => {
-        this.errorMessage.set(
-          error.status === 403 ? 'channelWorkspace.errors.leaveForbidden' : 'channelWorkspace.errors.leaveFailed',
-        );
-      },
-    });
+    const data: ConfirmDialogData = {
+      message: this.translocoService.translate('channelWorkspace.leaveConfirm', { channelName: this.channelName() }),
+      confirmLabel: this.translocoService.translate('channelWorkspace.leaveChannel'),
+    };
+    this.dialog
+      .open<boolean>(ConfirmDialog, { data, backdropClass: 'app-dialog-backdrop', panelClass: 'app-dialog-panel' })
+      .closed.subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.channelService.leave(this.channelName()).subscribe({
+          next: () => this.router.navigateByUrl('/'),
+          error: (error: HttpErrorResponse) => {
+            this.errorMessage.set(
+              error.status === 403 ? 'channelWorkspace.errors.leaveForbidden' : 'channelWorkspace.errors.leaveFailed',
+            );
+          },
+        });
+      });
   }
 
   // Deliberately no confirmation and no navigation: reactivating is non-destructive and the admin is

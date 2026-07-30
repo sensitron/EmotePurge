@@ -1,3 +1,4 @@
+import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, input, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
@@ -12,6 +13,11 @@ import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
 import { Pager } from '../../shared/pagination/pager';
+import { Button } from '../../shared/ui/button';
+import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { EmptyState } from '../../shared/ui/empty-state';
+import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { StatusBadge } from '../../shared/ui/status-badge';
 
 function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
   return control.value?.trim().length > 0 ? null : { required: true };
@@ -26,7 +32,7 @@ const EMPTY_PAGE: PagedResult<VoteSessionSummary> = { items: [], page: 1, pageSi
 
 @Component({
   selector: 'app-vote-session-list-page',
-  imports: [ReactiveFormsModule, RouterLink, DateTimePicker, Pager, TranslocoPipe],
+  imports: [Button, EmptyState, NoticeBanner, ReactiveFormsModule, RouterLink, DateTimePicker, Pager, StatusBadge, TranslocoPipe],
   templateUrl: './vote-session-list-page.html',
 })
 export class VoteSessionListPage {
@@ -35,6 +41,7 @@ export class VoteSessionListPage {
   private readonly voteSessionService = inject(VoteSessionService);
   private readonly channelService = inject(ChannelService);
   private readonly translocoService = inject(TranslocoService);
+  private readonly dialog = inject(Dialog);
 
   protected readonly page = signal(1);
 
@@ -138,16 +145,23 @@ export class VoteSessionListPage {
   protected deleteSession(session: VoteSessionSummary): void {
     // Names the session in the confirmation dialog — with 20 sessions in the list, a mis-click one
     // row off had no way to notice before committing to an irreversible delete (all votes included).
-    if (!window.confirm(this.translocoService.translate('voting.list.deleteConfirm', { title: session.title }))) {
-      return;
-    }
-
-    this.actionError.set(null);
-    this.voteSessionService.delete(this.channelName(), session.id).subscribe({
-      // Reload rather than filter locally, for the same paging reason as createSession.
-      next: () => this.sessionsResource.reload(),
-      error: (error: HttpErrorResponse) => this.handleError(error),
-    });
+    const data: ConfirmDialogData = {
+      message: this.translocoService.translate('voting.list.deleteConfirm', { title: session.title }),
+      confirmLabel: this.translocoService.translate('voting.list.delete'),
+    };
+    this.dialog
+      .open<boolean>(ConfirmDialog, { data, backdropClass: 'app-dialog-backdrop', panelClass: 'app-dialog-panel' })
+      .closed.subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.actionError.set(null);
+        this.voteSessionService.delete(this.channelName(), session.id).subscribe({
+          // Reload rather than filter locally, for the same paging reason as createSession.
+          next: () => this.sessionsResource.reload(),
+          error: (error: HttpErrorResponse) => this.handleError(error),
+        });
+      });
   }
 
   protected copyShareLink(sessionId: number): void {

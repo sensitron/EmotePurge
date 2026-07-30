@@ -8,7 +8,7 @@
           [formControl]="titleControl"
           [placeholder]="'voting.list.titlePlaceholder' | transloco"
           [attr.aria-label]="'voting.list.titlePlaceholder' | transloco"
-          class="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm placeholder:text-slate-400 focus:border-purple-500"
+          class="app-input"
         />
         @if (titleControl.invalid && titleControl.touched) {
           <p class="text-xs text-red-400">{{ 'voting.list.titleRequired' | transloco }}</p>
@@ -49,11 +49,7 @@
           {{ 'voting.list.startCountingLabel' | transloco }}
           <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
         </label>
-        <button
-          type="button"
-          class="self-start rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-purple-500"
-          (click)="createSession()"
-        >
+        <button type="button" appButton="primary" buttonSize="lg" class="self-start" (click)="createSession()">
           {{ 'voting.list.create' | transloco }}
         </button>
       </div>
@@ -61,13 +57,18 @@
   }
 
   @if (errorMessage(); as message) {
-    <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
+    <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 
-  @if (sessions().length === 0) {
-    <p class="text-sm text-slate-400">{{ 'voting.list.noSessions' | transloco }}</p>
+  @if (sessions().length === 0 && !errorMessage()) {
+    <app-empty-state
+      [title]="'voting.list.noSessions' | transloco"
+      [description]="(canManage() ? 'voting.list.noSessionsManagerHint' : 'voting.list.noSessionsVoterHint') | transloco"
+    />
   } @else {
-    <ul class="flex max-h-128 flex-col gap-2 overflow-y-auto rounded-md border border-slate-800 p-2">
+    <!-- Plain gap list, no inner scroll box: the pager already bounds the length, and a nested
+         scroll area inside the page scroll was its own usability problem on mobile. -->
+    <ul class="flex flex-col gap-2">
       @for (session of sessions(); track session.id) {
         <li class="relative rounded-md bg-slate-900 px-4 py-3 transition hover:bg-slate-800/70">
           <div class="flex items-start justify-between gap-3">
@@ -77,16 +78,12 @@
             >
               {{ session.title }}
             </a>
-            <span [class]="session.isActive ? 'shrink-0 text-sm text-emerald-400' : 'shrink-0 text-sm text-slate-400'">
+            <app-status-badge class="shrink-0" [tone]="session.isActive ? 'emerald' : 'slate'">
               {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
-            </span>
+            </app-status-badge>
           </div>
           <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
-            <button
-              type="button"
-              class="relative z-10 rounded-md bg-slate-800 px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-700"
-              (click)="copyShareLink(session.id)"
-            >
+            <button type="button" appButton="neutral" class="relative z-10" (click)="copyShareLink(session.id)">
               {{ 'voting.list.copyLink' | transloco }}
             </button>
             @if (copyFeedback(); as feedback) {
@@ -100,20 +97,12 @@
               }
             }
             @if (canManage() && session.isActive) {
-              <button
-                type="button"
-                class="relative z-10 rounded-md bg-slate-800 px-2.5 py-1.5 text-slate-300 transition hover:bg-slate-700"
-                (click)="endSession(session.id)"
-              >
+              <button type="button" appButton="neutral" class="relative z-10" (click)="endSession(session.id)">
                 {{ 'voting.list.end' | transloco }}
               </button>
             }
             @if (canManage()) {
-              <button
-                type="button"
-                class="relative z-10 ml-auto rounded-md border border-red-800 px-2.5 py-1.5 text-red-500 transition hover:bg-red-950"
-                (click)="deleteSession(session)"
-              >
+              <button type="button" appButton="danger" class="relative z-10 ml-auto" (click)="deleteSession(session)">
                 {{ 'voting.list.delete' | transloco }}
               </button>
             }

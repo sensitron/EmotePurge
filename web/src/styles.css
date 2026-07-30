@@ -1,6 +1,8 @@
 /* You can add global styles to this file, and also import other style files */
 
 @import 'tailwindcss';
+/* Positioning/backdrop base styles for @angular/cdk/dialog (S3-16). */
+@import '@angular/cdk/overlay-prebuilt.css';
 
 @layer base {
   /* Single global keyboard-focus indicator (WCAG 2.4.7 / 1.4.11): every interactive element
@@ -54,4 +56,19 @@
   .app-input-sm:focus {
     border-color: var(--color-purple-500);
   }
+}
+
+/* CDK-dialog chrome (S3-16) — deliberately UNlayered and with the pane class doubled up:
+   the CDK injects its structural overlay styles as a runtime <style> tag AFTER this stylesheet,
+   so its `.cdk-overlay-pane { max-width: 100% }` beats any equal-specificity rule regardless of
+   source order. `.cdk-overlay-pane.app-dialog-panel` (0,2,0) outranks it. The overlay container
+   also lives outside the app shell's DOM, hence the explicit text color. */
+.app-dialog-backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.cdk-overlay-pane.app-dialog-panel {
+  width: 100%;
+  max-width: min(28rem, calc(100vw - 2rem));
+  color: var(--color-slate-100);
 }
