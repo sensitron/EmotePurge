@@ -16,7 +16,7 @@ import { Pager } from '../../shared/pagination/pager';
       <h2 class="text-lg font-medium">{{ 'shell.myVotings' | transloco }}</h2>
 
       @if (errorMessage(); as message) {
-        <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300">{{ message | transloco }}</p>
+        <p class="rounded-md bg-red-950 px-4 py-3 text-sm text-red-300" role="alert">{{ message | transloco }}</p>
       }
 
       @if (sessions().length === 0) {
@@ -24,15 +24,15 @@ import { Pager } from '../../shared/pagination/pager';
       } @else {
         <ul class="flex max-h-128 flex-col gap-2 overflow-y-auto rounded-md border border-slate-800 p-2">
           @for (session of sessions(); track session.sessionId) {
-            <li class="rounded-md bg-slate-900 px-4 py-3">
-              <div class="flex items-center justify-between">
+            <li class="relative rounded-md bg-slate-900 px-4 py-3 transition hover:bg-slate-800/70">
+              <div class="flex items-start justify-between gap-3">
                 <a
                   [routerLink]="['/channels', session.channelName, 'vote-sessions', session.sessionId]"
-                  class="font-medium hover:underline"
+                  class="app-card-link min-w-0 font-medium hover:underline"
                 >
                   {{ session.title }}
                 </a>
-                <span [class]="session.isActive ? 'text-sm text-emerald-400' : 'text-sm text-slate-500'">
+                <span [class]="session.isActive ? 'shrink-0 text-sm text-emerald-400' : 'shrink-0 text-sm text-slate-500'">
                   {{ (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco }}
                 </span>
               </div>

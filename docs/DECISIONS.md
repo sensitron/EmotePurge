@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-30 — Listen-Karten vollflächig klickbar über das Stretched-Link-Pattern (`.app-card-link`)
+
+**Betrifft:** `web/src/styles.css` · `web/src/app/features/voting/vote-session-list-page.html` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/features/overview/overview-page.html` · `web/e2e/channel-workspace.e2e.spec.ts`
+
+**Befund des UI/UX-Audits vom 2026-07-30:** Vote-Session-, My-Votings- und Channel-Karten sahen wie klickbare Karten aus, reagierten aber nur auf einen ~24 px hohen Titel-Link bzw. einen kleinen „Öffnen"-Button — inkonsistent zu den vollflächig klickbaren Emote-Karten. Jetzt gilt für alle Listen-Karten das **Stretched-Link-Pattern** (Heydon Pickerings „Inclusive Components: Cards", auch Bootstrap `.stretched-link`): Der Titel- bzw. „Öffnen"-Link bleibt der einzige echte Link (Screenreader hören weiter nur den kurzen Namen), ein `::after`-Pseudoelement der neuen globalen Utility-Klasse `.app-card-link` dehnt seine Klickfläche über die ganze Karte. **Vertrag der Klasse:** Kartencontainer ist `relative`, jede Sekundäraktion in der Karte (Link kopieren, Beenden, Löschen, Bot reaktivieren) liegt per `relative z-10` über dem Overlay und bleibt separat klick- und fokussierbar. Bewusst **nicht** gewählt: die ganze Karte in ein `<a>` wrappen (ungültig bei verschachtelten Buttons, unbrauchbar langer Accessible Name) oder ein JS-Klick-Handler auf der Karte (müsste Textauswahl erkennen, hilft Tastaturnutzern nicht). Karten zeigen Hover-Feedback (`hover:bg-slate-800/70`), damit die Klickbarkeit sichtbar ist; auf der Overview ist „Öffnen" dafür vom `<button (click)>` zum `<a routerLink>` geworden (e2e-Selektor entsprechend `getByRole('link')`). Die Sekundäraktionen der Vote-Session-Karten sind zugleich von 20-px-Textlinks auf echte Buttons ≥ 32 px angehoben, „Löschen" rechts abgesetzt.
+
 ### 2026-07-30 — `SegmentedControl` als erster `shared/ui/`-Baustein; Filterwechsel beschneiden die Auswahl statt sie zu löschen (S2-16)
 
 **Betrifft:** `web/src/app/shared/ui/segmented-control.ts` · `web/src/app/shared/selection/list-selection.ts` · `web/src/app/features/usage-stats/usage-stats-page.ts` · `web/src/app/features/usage-stats/usage-stats-page.html` · `web/src/app/features/voting/vote-session-detail-page.ts`

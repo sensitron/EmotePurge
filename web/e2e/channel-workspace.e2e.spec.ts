@@ -40,7 +40,8 @@ test.describe('authenticated broadcaster', () => {
     ]);
 
     await page.goto('/');
-    await page.getByRole('button', { name: 'Öffnen' }).click();
+    // "Öffnen" is a stretched-link anchor since the clickable-cards rework, not a button.
+    await page.getByRole('link', { name: 'Öffnen' }).click();
 
     await expect(page).toHaveURL(/\/channels\/sensitron\/usage-stats$/);
     await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();

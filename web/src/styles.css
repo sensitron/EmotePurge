@@ -10,3 +10,16 @@
     outline-offset: 2px;
   }
 }
+
+@layer components {
+  /* Stretched-link card pattern (Inclusive Components "Cards"): the card's primary link keeps its
+     short accessible name, while this pseudo-element stretches its click target across the whole
+     card. Requirements: the card container is `relative`, and every secondary interactive element
+     inside the card sits above the overlay via `relative z-10`. */
+  .app-card-link::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+}
