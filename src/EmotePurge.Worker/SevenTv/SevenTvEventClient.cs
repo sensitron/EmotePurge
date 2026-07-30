@@ -492,10 +492,15 @@ public class SevenTvEventClient(
                 }
                 else
                 {
-                    foreach (var channelName in registry.DesiredChannels)
+                    var channels = registry.DesiredChannels;
+                    foreach (var channelName in channels)
                     {
                         await ResyncChannelAsync(channelName, adoptResult: true, ct);
                     }
+
+                    // Visible on purpose: during the first live TTL reconnect this ran silently
+                    // and was indistinguishable from not having run at all.
+                    logger.LogInformation("Gap-Filling nach Reconnect abgeschlossen: {Count} Channels voll resynct.", channels.Count);
                 }
             }
         }
