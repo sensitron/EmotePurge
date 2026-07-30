@@ -10,7 +10,8 @@
     },
     "myVotings": "Meine Abstimmungen",
     "logout": "Logout",
-    "login": "Login"
+    "login": "Login",
+    "menu": "Menü"
   },
   "login": {
     "title": "Emote Purge",
@@ -154,6 +155,8 @@
     "presetToday": "Heute",
     "preset7Days": "7 Tage",
     "preset30Days": "30 Tage",
+    "presetCustom": "Eigener",
+    "presetGroupLabel": "Zeitraum",
     "fromLabel": "von",
     "toLabel": "bis",
     "dateRangeTo": "bis",
@@ -196,6 +199,8 @@
       "noActiveEmotes": "Keine aktiven Emotes.",
       "keepAriaLabel": "Behalten",
       "deleteAriaLabel": "Löschen vorschlagen",
+      "keepLabel": "Behalten",
+      "deleteLabel": "Löschen",
       "retractVote": "Vote zurücknehmen",
       "errors": {
         "loadFailed": "Abstimmung konnte nicht geladen werden.",

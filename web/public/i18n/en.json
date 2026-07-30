@@ -8,9 +8,10 @@
       "stale": "Worker disconnected",
       "unknown": "Worker status unknown"
     },
-    "myVotings": "My votings",
+    "myVotings": "My votes",
     "logout": "Logout",
-    "login": "Login"
+    "login": "Login",
+    "menu": "Menu"
   },
   "login": {
     "title": "Emote Purge",
@@ -132,10 +133,10 @@
     "leaveChannel": "Leave channel",
     "rejoinChannel": "Reactivate bot",
     "botInactiveNotice": "The bot is currently inactive for this channel and is not collecting new chat data. Everything collected so far is kept.",
-    "leaveConfirm": "Really leave channel #{{ channelName }}? The bot leaves the chat and stops collecting new data. Emotes, usage stats, and votings collected so far are kept and will be there again if you rejoin.",
+    "leaveConfirm": "Really leave channel #{{ channelName }}? The bot leaves the chat and stops collecting new data. Emotes, usage stats, and votes collected so far are kept and will be there again if you rejoin.",
     "tabs": {
       "usage": "Usage",
-      "voting": "Votings"
+      "voting": "Voting"
     },
     "errors": {
       "leaveForbidden": "Not allowed to leave this channel.",
@@ -154,6 +155,8 @@
     "presetToday": "Today",
     "preset7Days": "7 days",
     "preset30Days": "30 days",
+    "presetCustom": "Custom",
+    "presetGroupLabel": "Time range",
     "fromLabel": "from",
     "toLabel": "to",
     "dateRangeTo": "to",
@@ -173,7 +176,7 @@
   },
   "voting": {
     "list": {
-      "createTitle": "Create new voting",
+      "createTitle": "Create a new voting session",
       "titlePlaceholder": "Title, e.g. July cleanup round",
       "titleRequired": "Title must not be empty.",
       "audienceEveryone": "Everyone",
@@ -181,7 +184,7 @@
       "audienceMods": "Mods/Broadcaster",
       "startCountingLabel": "Count usage from (optional, default: now)",
       "create": "Create",
-      "noSessions": "No votings for this channel yet.",
+      "noSessions": "No voting sessions for this channel yet.",
       "statusActive": "Active",
       "statusEnded": "Ended",
       "copyLink": "Copy link",
@@ -189,22 +192,24 @@
       "copyFailed": "Copy failed",
       "end": "End",
       "delete": "Delete",
-      "deleteConfirm": "Permanently delete voting \"{{ title }}\"? All votes cast will be lost."
+      "deleteConfirm": "Permanently delete the voting session \"{{ title }}\"? All votes cast will be lost."
     },
     "detail": {
       "usageSince": "Usage data since",
       "noActiveEmotes": "No active emotes.",
       "keepAriaLabel": "Keep",
       "deleteAriaLabel": "Suggest delete",
+      "keepLabel": "Keep",
+      "deleteLabel": "Delete",
       "retractVote": "Retract vote",
       "errors": {
-        "loadFailed": "Couldn't load the voting.",
-        "forbidden": "You're not allowed to vote in this voting (wrong role for this session)."
+        "loadFailed": "Couldn't load the voting session.",
+        "forbidden": "You're not allowed to vote in this session (wrong role)."
       }
     }
   },
   "myVotings": {
-    "noSessions": "You haven't taken part in any voting yet."
+    "noSessions": "You haven't voted in any session yet."
   },
   "common": {
     "cancel": "Cancel"
@@ -272,7 +277,7 @@
     },
     "api": {
       "invalid_channel_name": "Invalid channel name.",
-      "invalid_channel_or_session_id": "Invalid channel or voting identifier.",
+      "invalid_channel_or_session_id": "Invalid channel or voting session identifier.",
       "emote_ids_empty": "No emotes selected.",
       "invalid_date_format": "Invalid date format.",
       "from_after_to": "The start date must be before the end date.",
@@ -288,8 +293,8 @@
       "emote_id_empty": "No emote selected.",
       "invalid_vote_type": "Invalid vote type.",
       "channel_not_found": "Channel not found.",
-      "vote_session_not_found": "Voting not found.",
-      "vote_session_ended": "This voting has already ended.",
+      "vote_session_not_found": "Voting session not found.",
+      "vote_session_ended": "This voting session has already ended.",
       "emote_not_eligible": "This emote can no longer be voted on.",
       "unexpected_error": "An unexpected error occurred on the server. Please try again."
     }
