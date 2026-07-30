@@ -1,5 +1,16 @@
-import { ApplicationConfig, inject, isDevMode, provideAppInitializer, provideBrowserGlobalErrorListeners } from '@angular/core';
-import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
+import {
+  ApplicationConfig,
+  inject,
+  isDevMode,
+  provideAppInitializer,
+  provideBrowserGlobalErrorListeners,
+} from '@angular/core';
+import {
+  provideRouter,
+  withComponentInputBinding,
+  withInMemoryScrolling,
+  withRouterConfig,
+} from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideTransloco } from '@jsverse/transloco';
 
@@ -16,7 +27,14 @@ export const appConfig: ApplicationConfig = {
       withComponentInputBinding(),
       // Default 'emptyOnly' strategy would stop `channelName` (owned by the ':channelName'
       // segment) from reaching non-empty-path children like 'usage-stats' via input binding.
-      withRouterConfig({ paramsInheritanceStrategy: 'always' }),
+      // onSameUrlNavigation 'reload': clicking an anchor link for the fragment the URL already
+      // carries must still scroll (anchorScrolling only acts on completed navigations).
+      withRouterConfig({ paramsInheritanceStrategy: 'always', onSameUrlNavigation: 'reload' }),
+      // The router intercepts even plain `href="#features"` clicks as fragment navigations and,
+      // without this, neither scrolls itself nor lets the browser's native jump through — the
+      // landing page's anchor nav did nothing. scrollPositionRestoration also puts route changes
+      // back at the top instead of keeping the previous page's scroll offset.
+      withInMemoryScrolling({ anchorScrolling: 'enabled', scrollPositionRestoration: 'enabled' }),
     ),
     provideHttpClient(withFetch(), withInterceptors([apiAuthInterceptor])),
     provideTransloco({
@@ -36,5 +54,5 @@ export const appConfig: ApplicationConfig = {
     provideAppInitializer(() => {
       inject(LanguageService);
     }),
-  ]
+  ],
 };

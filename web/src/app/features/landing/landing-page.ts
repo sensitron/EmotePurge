@@ -1,4 +1,5 @@
 import { Component, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
@@ -49,7 +50,7 @@ const STEPS: Step[] = [
 
 @Component({
   selector: 'app-landing-page',
-  imports: [TranslocoPipe, LanguageSwitcher],
+  imports: [RouterLink, TranslocoPipe, LanguageSwitcher],
   templateUrl: './landing-page.html',
 })
 export class LandingPage {
