@@ -1,6 +1,7 @@
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
+using EmotePurge.Worker.SevenTv;
 using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Worker;
@@ -11,6 +12,7 @@ public class Worker(
     IRedisSubscriber redisSubscriber,
     IEmoteMatchCache emoteMatchCache,
     BootRecoveryGate bootRecoveryGate,
+    ISevenTvEventClient sevenTvEventClient,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
     private const string CommandsChannel = "channel:bot:commands";
@@ -41,6 +43,7 @@ public class Worker(
                 var channelName = message["LEAVE:".Length..];
                 logger.LogInformation("Redis-Kommando: verlasse {Channel}.", channelName);
                 emoteMatchCache.RemoveChannel(channelName);
+                sevenTvEventClient.Unsubscribe(channelName);
                 await twitchChatManager.LeaveChannelAsync(channelName);
             }
         }, stoppingToken);
@@ -102,6 +105,10 @@ public class Worker(
         if (result is not null)
         {
             logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert.", result.EmoteSetId, channelName);
+
+            // Desired-state first: safe even before the EventAPI session exists; the client
+            // converges the socket towards the registry after every Hello.
+            sevenTvEventClient.EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
         }
     }
 }

@@ -1,24 +1,30 @@
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
+using EmotePurge.Worker.SevenTv;
 using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Worker;
 
-// Alleiniger 7TV-Sync-Mechanismus (2026-07-25): Live-Updates über die 7TV-EventAPI-WebSocket
-// wurden entfernt, nachdem sich über mehrere Live-Tests hinweg zeigte, dass Dispatches (auch
-// nach Umstellung auf Wildcard-Subscription-Typ + channel-scoped Subscription, passend zum
-// offiziellen 7TV-Browser-Extension-Referenzclient) nicht zuverlässig ankommen — teils
-// mehrminütige Verzögerung, teils gar nicht, ohne erkennbaren Grund auf unserer Seite. Der
-// REST-Vollsync war in jedem Test zuverlässig; ein 1-Minuten-Takt macht die Verzögerung in der
-// Praxis irrelevant, bei vernachlässigbaren Kosten (ein 7TV-Request pro aktivem Channel und
-// Minute). S. CLAUDE.md-Entscheidungslog für Details.
+// Reconciliation half of the hybrid 7TV sync (since 2026-07-30, docs/DECISIONS.md): the EventAPI
+// WebSocket (SevenTvEventWorker) delivers live deltas, this worker periodically re-resolves the
+// full truth per channel. The full resync stays mandatory regardless of the WebSocket: 7TV's
+// EventAPI has no resume/replay (dispatches missed during its hourly TTL reconnects are gone for
+// good), has documented publish gaps, and the REST answer is what catches active-set switches the
+// event path missed. History of the 2026-07-25 removal and its 2026-07-30 re-evaluation:
+// docs/Untersuchung-7TV-WebSocket-2026-07-30.md.
 public class SevenTvPeriodicResyncWorker(
     ILogger<SevenTvPeriodicResyncWorker> logger,
     ITwitchChatManager twitchChatManager,
     BootRecoveryGate bootRecoveryGate,
+    ISevenTvEventClient sevenTvEventClient,
+    IConfiguration configuration,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
-    private static readonly TimeSpan ResyncInterval = TimeSpan.FromMinutes(1);
+    // 60s is the pre-WebSocket default; once the event path has proven itself in production the
+    // interval is meant to be stretched via configuration (e.g. 300s) — deliberately a manual,
+    // observable step instead of an automatic coupling to the feature flag.
+    private readonly TimeSpan _resyncInterval =
+        TimeSpan.FromSeconds(configuration.GetValue("SevenTv:ResyncIntervalSeconds", 60));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -26,7 +32,7 @@ public class SevenTvPeriodicResyncWorker(
         // (ChannelId, SevenTvEmoteId) unique index. See BootRecoveryGate.
         await bootRecoveryGate.Completed.WaitAsync(stoppingToken);
 
-        using var timer = new PeriodicTimer(ResyncInterval);
+        using var timer = new PeriodicTimer(_resyncInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             await ResyncOnceAsync(stoppingToken);
@@ -60,7 +66,14 @@ public class SevenTvPeriodicResyncWorker(
                     // don't get a JOIN every minute.
                     await twitchChatManager.EnsureJoinedAsync(channelName);
 
-                    await syncService.SyncChannelAsync(channelName, ct);
+                    var result = await syncService.SyncChannelAsync(channelName, ct);
+                    if (result is not null)
+                    {
+                        // Convergence net for the EventAPI subscriptions, analogous to
+                        // EnsureJoinedAsync above: idempotent, and the only path that picks up
+                        // set/account switches the event stream missed.
+                        sevenTvEventClient.EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
+                    }
                 }
                 catch (Exception ex)
                 {
