@@ -84,7 +84,55 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
     {
         await using var db = fixture.CreateDbContext();
 
-        await CreateService(db).FlushAsync(new Dictionary<string, int>());
+        Assert.Empty(await CreateService(db).FlushAsync(new Dictionary<string, int>()));
+    }
+
+    [Fact]
+    public async Task FlushAsync_ReturnsEachAffectedChannelOnce()
+    {
+        await using var db = fixture.CreateDbContext();
+        var (first, second) = await SeedTwoEmotesInOneChannelAsync(db, "flushchannels1");
+        var elsewhere = await SeedEmoteAsync(db, "flushchannels2");
+
+        // The caller announces one live event per channel — two emotes of the same channel must not
+        // produce two announcements.
+        var affected = await CreateService(db).FlushAsync(new Dictionary<string, int>
+        {
+            [first.Id] = 1,
+            [second.Id] = 2,
+            [elsewhere.Id] = 3,
+        });
+
+        Assert.Equal(["flushchannels1", "flushchannels2"], affected.OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task FlushAsync_ExcludesChannelsOfSkippedEmotes()
+    {
+        await using var db = fixture.CreateDbContext();
+        var emote = await SeedEmoteAsync(db, "flushchannels3");
+
+        // An id with no row has no channel to announce, and must not smuggle a null into the result.
+        var affected = await CreateService(db).FlushAsync(new Dictionary<string, int>
+        {
+            [emote.Id] = 5,
+            [Guid.NewGuid().ToString()] = 9,
+        });
+
+        Assert.Equal("flushchannels3", Assert.Single(affected));
+    }
+
+    [Fact]
+    public async Task FlushAsync_ReturnsEmpty_WhenEveryEmoteIsGone()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        var affected = await CreateService(db).FlushAsync(new Dictionary<string, int>
+        {
+            [Guid.NewGuid().ToString()] = 4,
+        });
+
+        Assert.Empty(affected);
     }
 
     private static UsageStatFlushService CreateService(AppDbContext db) =>
@@ -113,4 +161,23 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
         await db.SaveChangesAsync();
         return emote;
     }
+
+    private static async Task<(Emote First, Emote Second)> SeedTwoEmotesInOneChannelAsync(AppDbContext db, string channelName)
+    {
+        var channel = new Channel { ChannelName = channelName, IsBotActive = true };
+        db.Channels.Add(channel);
+        var first = NewEmote(channel.Id, "PogChamp");
+        var second = NewEmote(channel.Id, "Kappa");
+        db.Emotes.AddRange(first, second);
+        await db.SaveChangesAsync();
+        return (first, second);
+    }
+
+    private static Emote NewEmote(string channelId, string name) => new()
+    {
+        ChannelId = channelId,
+        Name = name,
+        SevenTvEmoteId = Guid.NewGuid().ToString("N")[..24],
+        ImageUrl = "https://cdn.7tv.app/emote/example/2x.webp",
+    };
 }

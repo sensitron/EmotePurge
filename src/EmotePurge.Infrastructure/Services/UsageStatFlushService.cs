@@ -9,11 +9,11 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushService> logger) : IUsageStatFlushService
 {
-    public async Task FlushAsync(IReadOnlyDictionary<string, int> usageCounts, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyCollection<string>> FlushAsync(IReadOnlyDictionary<string, int> usageCounts, CancellationToken cancellationToken = default)
     {
         if (usageCounts.Count == 0)
         {
-            return;
+            return [];
         }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -22,10 +22,16 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
         // A channel leave deactivates instead of deleting nowadays, but archived emotes can still
         // be hard-deleted by an admin purge — and a count buffered before that would otherwise
         // violate the UsageStat.EmoteId FK and take the whole batch down with it.
-        var validIds = await db.Emotes
+        //
+        // The owning channel name rides along on the same projection (a navigation join, no GroupBy —
+        // rule 10 stays untouched) so the caller can announce exactly the channels that were written
+        // without a second query.
+        var validEmotes = await db.Emotes
             .Where(e => emoteIds.Contains(e.Id))
-            .Select(e => e.Id)
+            .Select(e => new { e.Id, e.Channel.ChannelName })
             .ToListAsync(cancellationToken);
+
+        var validIds = validEmotes.Select(e => e.Id).ToList();
 
         if (validIds.Count < emoteIds.Count)
         {
@@ -36,7 +42,7 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
 
         if (validIds.Count == 0)
         {
-            return;
+            return [];
         }
 
         var useCounts = validIds.Select(id => usageCounts[id]).ToArray();
@@ -63,5 +69,12 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
                 new NpgsqlParameter("useCounts", NpgsqlDbType.Array | NpgsqlDbType.Integer) { Value = useCounts },
             ],
             cancellationToken);
+
+        // Stored channel names are already normalized (rule 9), so the stored values are the
+        // normalized ones — no second normalization pass.
+        return validEmotes
+            .Select(e => e.ChannelName)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
 }

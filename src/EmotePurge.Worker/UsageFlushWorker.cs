@@ -1,3 +1,4 @@
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Worker;
@@ -6,6 +7,7 @@ public class UsageFlushWorker(
     ILogger<UsageFlushWorker> logger,
     IEmoteUsageCounter usageCounter,
     WorkerStats stats,
+    IRedisPublisher redisPublisher,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
     private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(30);
@@ -44,11 +46,12 @@ public class UsageFlushWorker(
             return;
         }
 
+        IReadOnlyCollection<string> affectedChannels;
         try
         {
             using var scope = scopeFactory.CreateScope();
             var flushService = scope.ServiceProvider.GetRequiredService<IUsageStatFlushService>();
-            await flushService.FlushAsync(counts, ct);
+            affectedChannels = await flushService.FlushAsync(counts, ct);
             // Bookkeeping moved to the shared WorkerStats so GET /api/admin/health can report it;
             // the requeue/drop behaviour below is unchanged.
             stats.RecordFlushSuccess(counts.Count, DateTime.UtcNow);
@@ -73,6 +76,29 @@ public class UsageFlushWorker(
                     "Usage-Stat-Flush seit {Attempt} Durchläufen fehlgeschlagen, {Count} Counts verworfen.",
                     consecutiveFailures, counts.Count);
             }
+
+            return;
+        }
+
+        // Deliberately its own try/catch, and deliberately *after* RecordFlushSuccess: at this point
+        // the flush is committed. If a Redis outage were allowed to fall into the catch above, a
+        // successful flush would be booked as a failure and its counts requeued — the next flush
+        // would then add them a second time onto the same (EmoteId, Date) row (ON CONFLICT DO UPDATE
+        // ... + EXCLUDED), i.e. silently double-count chat usage. A missed notification only costs
+        // the browser its automatic refresh; every page still has its refresh button.
+        try
+        {
+            foreach (var channelName in affectedChannels)
+            {
+                await redisPublisher.PublishAsync(
+                    LiveEvents.Channel,
+                    new LiveEvent(LiveEvents.UsageFlushed, channelName).Serialize(),
+                    ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Live-Event '{Type}' konnte nicht veröffentlicht werden.", LiveEvents.UsageFlushed);
         }
     }
 }

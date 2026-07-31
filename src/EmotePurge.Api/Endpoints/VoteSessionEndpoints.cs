@@ -2,6 +2,7 @@ using System.Security.Claims;
 using EmotePurge.Api.Auth;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Api.Endpoints;
@@ -177,6 +178,8 @@ public static class VoteSessionEndpoints
             long sessionId,
             CastVoteRequest request,
             IVoteSessionService voteSessionService,
+            IRedisPublisher redisPublisher,
+            ILogger<Program> logger,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
@@ -193,6 +196,11 @@ public static class VoteSessionEndpoints
             // VoteEligibilityFilter already required an authenticated principal to reach this handler.
             var twitchUserId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
             var (result, vote) = await voteSessionService.CastVoteAsync(channelName, sessionId, request.EmoteId, twitchUserId, request.Type, ct);
+
+            if (result == VoteCastResult.Success)
+            {
+                await PublishVoteChangedAsync(redisPublisher, logger, channelName, sessionId);
+            }
 
             return result switch
             {
@@ -212,12 +220,19 @@ public static class VoteSessionEndpoints
             long sessionId,
             string emoteId,
             IVoteSessionService voteSessionService,
+            IRedisPublisher redisPublisher,
+            ILogger<Program> logger,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
             // VoteEligibilityFilter already required an authenticated principal to reach this handler.
             var twitchUserId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
             var result = await voteSessionService.RetractVoteAsync(channelName, sessionId, emoteId, twitchUserId, ct);
+
+            if (result == VoteCastResult.Success)
+            {
+                await PublishVoteChangedAsync(redisPublisher, logger, channelName, sessionId);
+            }
 
             return result switch
             {
@@ -253,6 +268,37 @@ public static class VoteSessionEndpoints
             return Results.Ok(result);
         })
         .RequireAuthorization();
+    }
+
+    /// <summary>
+    /// Announces "the tally of this session changed" to everyone watching it. Deliberately without
+    /// any voter identity and without the new tally: who voted how is exactly what the vote UI must
+    /// not leak, and the results read model is viewer- and role-specific (MyVote, includeRawUsage),
+    /// so every subscriber refetches it through the existing endpoint under their own rights.
+    /// <para>
+    /// Published here in the endpoint rather than in VoteSessionService: the service is also the
+    /// non-HTTP path, and the notification belongs to the request that produced it. Failure is
+    /// logged and swallowed — the vote is already committed and the response must not change.
+    /// </para>
+    /// </summary>
+    private static async Task PublishVoteChangedAsync(
+        IRedisPublisher redisPublisher,
+        ILogger logger,
+        string channelName,
+        long sessionId)
+    {
+        try
+        {
+            // No request token on purpose: the vote is committed, so a client that hung up right
+            // after voting must not cost every *other* viewer their update.
+            await redisPublisher.PublishAsync(
+                LiveEvents.Channel,
+                new LiveEvent(LiveEvents.VoteChanged, ChannelName.Normalize(channelName), sessionId).Serialize());
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Live-Event '{Type}' für Session {SessionId} konnte nicht veröffentlicht werden.", LiveEvents.VoteChanged, sessionId);
+        }
     }
 }
 

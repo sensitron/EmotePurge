@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Worker.SevenTv;
@@ -21,6 +22,7 @@ public class WorkerHealthPublisher(
     SevenTvSubscriptionRegistry subscriptionRegistry,
     WorkerStats stats,
     IEmoteUsageCounter usageCounter,
+    IRedisPublisher redisPublisher,
     IConnectionMultiplexer redis) : BackgroundService
 {
     private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(20);
@@ -62,6 +64,12 @@ public class WorkerHealthPublisher(
                 JsonSerializerOptions.Web);
 
             await redis.GetDatabase().StringSetAsync(WorkerHealthKeys.TwitchConnection, payload, WorkerHealthKeys.Ttl);
+
+            // Nur die Benachrichtigung, nicht der Zustand: der Snapshot bleibt der TTL-Key oben,
+            // das Event sagt bloß "es gibt einen neuen" — offene Admin-Seiten holen ihn sich dann
+            // über GET /api/admin/health statt weiter im 20-Sekunden-Takt zu pollen. Bewusst im
+            // bestehenden try: schlägt es fehl, gilt dieselbe Regel wie für das Health-Update.
+            await redisPublisher.PublishAsync(LiveEvents.Channel, new LiveEvent(LiveEvents.WorkerHealth).Serialize());
         }
         catch (Exception ex)
         {
