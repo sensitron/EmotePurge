@@ -274,6 +274,56 @@ export async function mockAuditLog(
   });
 }
 
+export interface MockAdminUser {
+  twitchUserId: string;
+  twitchUsername?: string;
+  displayName?: string;
+  lastLogin?: string;
+  sessionsValidFromUtc?: string | null;
+  hasRefreshToken?: boolean;
+  twitchAccessTokenExpiresAtUtc?: string | null;
+  twitchTokenScopes?: string | null;
+}
+
+/**
+ * GET /api/admin/users — the paged user overview. The URL pattern also matches the POST
+ * revoke-sessions sub-route, so non-GET requests fall through to a separately registered
+ * mockRevokeSessions handler.
+ */
+export async function mockAdminUsers(page: Page, users: MockAdminUser[]): Promise<void> {
+  const pageSize = 25;
+  await page.route('**/api/admin/users**', (route) => {
+    if (route.request().method() !== 'GET') {
+      return route.fallback();
+    }
+    const requestedPage = Number(new URL(route.request().url()).searchParams.get('page') ?? '1');
+    const items = users.slice((requestedPage - 1) * pageSize, requestedPage * pageSize);
+    return fulfillJson(route, 200, {
+      items: items.map((user) => ({
+        twitchUserId: user.twitchUserId,
+        twitchUsername: user.twitchUsername ?? 'sensitron',
+        displayName: user.displayName ?? 'Sensitron',
+        lastLogin: user.lastLogin ?? '2026-07-31T12:00:00Z',
+        sessionsValidFromUtc: user.sessionsValidFromUtc ?? null,
+        hasRefreshToken: user.hasRefreshToken ?? true,
+        twitchAccessTokenExpiresAtUtc: user.twitchAccessTokenExpiresAtUtc ?? null,
+        twitchTokenScopes: user.twitchTokenScopes ?? null,
+      })),
+      page: requestedPage,
+      pageSize,
+      totalCount: users.length,
+      totalPages: users.length === 0 ? 0 : Math.ceil(users.length / pageSize),
+    });
+  });
+}
+
+/** POST /api/admin/users/{twitchUserId}/revoke-sessions — answers 204 like the real endpoint. */
+export async function mockRevokeSessions(page: Page, twitchUserId: string): Promise<void> {
+  await page.route(`**/api/admin/users/${twitchUserId}/revoke-sessions`, (route) =>
+    route.fulfill({ status: 204 }),
+  );
+}
+
 /** DELETE /api/channels/{channelName}/purge — answers 204 like the real endpoint. Registered
  *  before mockChannelStatus-style routes would matter; the path suffix keeps it unambiguous. */
 export async function mockPurge(page: Page, channelName: string): Promise<void> {

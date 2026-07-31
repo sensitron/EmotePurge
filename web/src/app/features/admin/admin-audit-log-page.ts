@@ -47,6 +47,7 @@ const ACTION_KEYS: Record<string, string> = {
   'voteSession.end': 'admin.audit.actions.voteSessionEnd',
   'voteSession.delete': 'admin.audit.actions.voteSessionDelete',
   'emotes.syncDeleted': 'admin.audit.actions.emotesSyncDeleted',
+  'user.revokeSessions': 'admin.audit.actions.userRevokeSessions',
 };
 
 interface AuditDetail {

@@ -42,6 +42,19 @@ import { TranslocoPipe } from '@jsverse/transloco';
           {{ 'admin.tabs.channels' | transloco }}
         </a>
         <a
+          routerLink="users"
+          routerLinkActive
+          ariaCurrentWhenActive="page"
+          #usersTab="routerLinkActive"
+          [class]="
+            usersTab.isActive
+              ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
+              : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+          "
+        >
+          {{ 'admin.tabs.users' | transloco }}
+        </a>
+        <a
           routerLink="audit-log"
           routerLinkActive
           ariaCurrentWhenActive="page"

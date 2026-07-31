@@ -143,7 +143,8 @@ public static class AuthEndpoints
             var twitchUserId = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (twitchUserId is not null)
             {
-                await userService.RevokeSessionsAsync(twitchUserId, ct);
+                // actor: null — self-logout is deliberately not audited (no login/logout events).
+                await userService.RevokeSessionsAsync(twitchUserId, actor: null, ct);
                 // Logout is already global per user (the revocation above kills every session), so
                 // the server also gives up its ability to refresh Twitch tokens on this user's behalf.
                 await userService.ClearTwitchTokensAsync(twitchUserId, ct);

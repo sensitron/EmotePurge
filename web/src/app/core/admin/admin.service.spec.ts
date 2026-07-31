@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AdminChannel, AdminHealth, AuditLogEntry } from './admin.model';
+import { AdminChannel, AdminHealth, AdminUser, AuditLogEntry } from './admin.model';
 import { AdminService } from './admin.service';
 import { PagedResult } from '../models/paged-result.model';
 
@@ -148,6 +148,52 @@ describe('AdminService', () => {
 
     expect(result?.[0].lastSyncedAtUtc).toBeNull();
     expect(result?.[0].twitchChannelId).toBeNull();
+  });
+
+  it('listUsers GETs /api/admin/users with paging params', () => {
+    const users: AdminUser[] = [
+      {
+        twitchUserId: '4711',
+        twitchUsername: 'handofblood',
+        displayName: 'HandOfBlood',
+        lastLogin: '2026-07-31T12:00:00Z',
+        sessionsValidFromUtc: null,
+        hasRefreshToken: true,
+        twitchAccessTokenExpiresAtUtc: '2026-07-31T16:00:00Z',
+        twitchTokenScopes: 'user:read:email',
+      },
+    ];
+    const page: PagedResult<AdminUser> = {
+      items: users,
+      page: 2,
+      pageSize: 25,
+      totalCount: 30,
+      totalPages: 2,
+    };
+
+    let result: PagedResult<AdminUser> | undefined;
+    service.listUsers(2, 25).subscribe((r) => (result = r));
+
+    const req = httpMock.expectOne('/api/admin/users?page=2&pageSize=25');
+    expect(req.request.method).toBe('GET');
+    req.flush(page);
+
+    expect(result).toEqual(page);
+    // Derived status only — pinning that no token-looking field sneaks into the contract.
+    expect(result?.items[0].hasRefreshToken).toBe(true);
+    expect('twitchRefreshToken' in result!.items[0]).toBe(false);
+  });
+
+  it('revokeSessions POSTs to the user-scoped revoke endpoint with an empty body', () => {
+    let completed = false;
+    service.revokeSessions('4711').subscribe(() => (completed = true));
+
+    const req = httpMock.expectOne('/api/admin/users/4711/revoke-sessions');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    req.flush(null);
+
+    expect(completed).toBe(true);
   });
 
   it('listAuditLog GETs /api/admin/audit-log with paging params', () => {

@@ -3,7 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { PagedResult } from '../models/paged-result.model';
-import { AdminChannel, AdminHealth, AuditLogEntry, AuditLogFilter } from './admin.model';
+import { AdminChannel, AdminHealth, AdminUser, AuditLogEntry, AuditLogFilter } from './admin.model';
 
 /**
  * The /api/admin/* client. Every endpoint here is global-admin-only server-side
@@ -21,6 +21,23 @@ export class AdminService {
    *  since the overview's admin section (GET /api/channels) was removed. */
   listChannels(): Observable<AdminChannel[]> {
     return this.http.get<AdminChannel[]>('/api/admin/channels');
+  }
+
+  /** Every user who ever logged in, most recently seen first. Paged: unlike channels, this list
+   *  is not capped by anything. */
+  listUsers(page = 1, pageSize = 25): Observable<PagedResult<AdminUser>> {
+    return this.http.get<PagedResult<AdminUser>>('/api/admin/users', {
+      params: { page, pageSize },
+    });
+  }
+
+  /** Forced logout for one user: server-side session revocation plus dropping their stored Twitch
+   *  tokens — mirrors what POST /api/auth/logout does for oneself, and is audited server-side. */
+  revokeSessions(twitchUserId: string): Observable<void> {
+    return this.http.post<void>(
+      `/api/admin/users/${encodeURIComponent(twitchUserId)}/revoke-sessions`,
+      null,
+    );
   }
 
   /** Every audited action, newest first. Paged rather than capped: retention is unbounded by

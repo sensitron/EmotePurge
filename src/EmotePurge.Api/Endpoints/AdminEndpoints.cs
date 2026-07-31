@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using EmotePurge.Api.Auth;
 using EmotePurge.Core.Services;
 
@@ -100,6 +101,47 @@ public static class AdminEndpoints
             // GET /api/channels of the overview's admin section, which was removed with that section.
             var channels = await channelQueryService.ListAsync(ct);
             return Results.Ok(channels);
+        });
+
+        group.MapGet("/users", async (
+            int page,
+            int pageSize,
+            IAdminUserQueryService userQueryService,
+            CancellationToken ct) =>
+        {
+            // Same silent clamping as the audit log below.
+            var effectivePage = page <= 0 ? 1 : page;
+            var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+
+            var result = await userQueryService.ListAsync(effectivePage, effectivePageSize, ct);
+            return Results.Ok(result);
+        });
+
+        group.MapPost("/users/{twitchUserId}/revoke-sessions", async (
+            string twitchUserId,
+            ClaimsPrincipal principal,
+            IUserService userService,
+            CancellationToken ct) =>
+        {
+            var actor = principal.TryBuildAuditActor();
+            if (actor is null)
+            {
+                // Unreachable behind RequireAuthorization + the admin filter; guard, not a case.
+                return Results.Unauthorized();
+            }
+
+            // Semantically a forced logout, mirroring POST /api/auth/logout for the target user:
+            // revocation and token clearing always travel together (the documented invariant that
+            // all Twitch token columns are dropped whenever sessions end). Only the revocation is
+            // audited — the token clearing is its consequence, not a second action.
+            var revoked = await userService.RevokeSessionsAsync(twitchUserId, actor, ct);
+            if (!revoked)
+            {
+                return Results.NotFound();
+            }
+
+            await userService.ClearTwitchTokensAsync(twitchUserId, ct);
+            return Results.NoContent();
         });
 
         group.MapGet("/audit-log", async (

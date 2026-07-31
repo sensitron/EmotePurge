@@ -134,6 +134,38 @@ test.describe('global admin on /admin/audit-log', () => {
     await expect(channelInput).toHaveValue('');
   });
 
+  test('selecting the channel-less revoke action disables and clears the channel filter', async ({
+    page,
+  }) => {
+    await mockAuditLog(page, {
+      1: [
+        { id: 2, action: 'channel.join', channelName: 'handofblood' },
+        { id: 1, action: 'user.revokeSessions', targetType: 'user', targetId: '4712' },
+      ],
+    });
+
+    await page.goto('/admin/audit-log');
+    const channelInput = page.getByRole('textbox', { name: 'Nach Channel filtern' });
+    await channelInput.fill('handofblood');
+
+    // A revoke entry has no channel — combining it with a channel filter could only match nothing,
+    // so picking that action clears the typed value and disables the input.
+    const filteredRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes('action=user.revokeSessions') && !request.url().includes('channel='),
+    );
+    await page.getByRole('radio', { name: 'User-Sessions widerrufen' }).click();
+    await filteredRequest;
+
+    await expect(channelInput).toBeDisabled();
+    await expect(channelInput).toHaveValue('');
+    await expect(page.getByRole('listitem').getByText('User-Sessions widerrufen')).toBeVisible();
+
+    // Switching back re-enables the input.
+    await page.getByRole('radio', { name: 'Alle' }).click();
+    await expect(channelInput).toBeEnabled();
+  });
+
   test('renders the empty state when nothing has been audited yet', async ({ page }) => {
     await mockAuditLog(page, { 1: [] });
 

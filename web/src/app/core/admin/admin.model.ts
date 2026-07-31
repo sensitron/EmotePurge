@@ -65,6 +65,23 @@ export interface AdminChannel {
 }
 
 /**
+ * One row of GET /api/admin/users (paged). Token state arrives as derived status only —
+ * `hasRefreshToken` is a boolean the server computes over the encrypted column; the ciphertexts
+ * themselves never appear in any API response. `sessionsValidFromUtc` is the server-side revocation
+ * cutoff (null = never revoked), shown so an admin can see a forced logout took effect.
+ */
+export interface AdminUser {
+  twitchUserId: string;
+  twitchUsername: string;
+  displayName: string;
+  lastLogin: string;
+  sessionsValidFromUtc: string | null;
+  hasRefreshToken: boolean;
+  twitchAccessTokenExpiresAtUtc: string | null;
+  twitchTokenScopes: string | null;
+}
+
+/**
  * The audited actions, mirroring `EmotePurge.Core.Entities.AuditActions`. Typed as a union of
  * the literal strings the server sends, but consumers must still handle an unknown value: an entry
  * written by a newer backend carries an action this build has no label for, and a log that hides
@@ -77,7 +94,8 @@ export type AuditAction =
   | 'voteSession.create'
   | 'voteSession.end'
   | 'voteSession.delete'
-  | 'emotes.syncDeleted';
+  | 'emotes.syncDeleted'
+  | 'user.revokeSessions';
 
 /**
  * Optional narrowing of GET /api/admin/audit-log; fields are AND-combined server-side.

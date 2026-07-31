@@ -51,6 +51,11 @@ export const routes: Routes = [
               import('./features/admin/admin-channels-page').then((m) => m.AdminChannelsPage),
           },
           {
+            path: 'users',
+            loadComponent: () =>
+              import('./features/admin/admin-users-page').then((m) => m.AdminUsersPage),
+          },
+          {
             path: 'audit-log',
             loadComponent: () =>
               import('./features/admin/admin-audit-log-page').then((m) => m.AdminAuditLogPage),

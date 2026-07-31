@@ -15,6 +15,7 @@ public static class AuditActions
     public const string VoteSessionEnd = "voteSession.end";
     public const string VoteSessionDelete = "voteSession.delete";
     public const string EmotesSyncDeleted = "emotes.syncDeleted";
+    public const string UserRevokeSessions = "user.revokeSessions";
 }
 
 /// <summary>

@@ -37,16 +37,30 @@ public class UserService(AppDbContext db, ITokenCipher tokenCipher) : IUserServi
             .SingleOrDefaultAsync(cancellationToken);
     }
 
-    public async Task RevokeSessionsAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    public async Task<bool> RevokeSessionsAsync(string twitchUserId, AuditActor? actor, CancellationToken cancellationToken = default)
     {
         var user = await db.Users.SingleOrDefaultAsync(u => u.Id == twitchUserId, cancellationToken);
         if (user is null)
         {
-            return;
+            return false;
         }
 
         user.SessionsValidFromUtc = DateTime.UtcNow;
+
+        if (actor is not null)
+        {
+            // Same-transaction audit (see AuditLogWrites). The revoked user's login goes into the
+            // details as a snapshot — TargetId alone is just a number to whoever reads the log later.
+            db.AddAuditEntry(
+                actor,
+                AuditActions.UserRevokeSessions,
+                targetType: "user",
+                targetId: twitchUserId,
+                details: new { login = user.TwitchUsername });
+        }
+
         await db.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task StoreTwitchTokensAsync(string twitchUserId, string accessToken, DateTime accessTokenExpiresAtUtc, string refreshToken, string? scopes, CancellationToken cancellationToken = default)

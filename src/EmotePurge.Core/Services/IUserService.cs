@@ -14,8 +14,12 @@ public interface IUserService
     // Cutoff for server-side session revocation; null means nothing was ever revoked.
     Task<DateTime?> GetSessionsValidFromUtcAsync(string twitchUserId, CancellationToken cancellationToken = default);
 
-    // Invalidates every session issued before now for this user.
-    Task RevokeSessionsAsync(string twitchUserId, CancellationToken cancellationToken = default);
+    // Invalidates every session issued before now for this user; false when the user is unknown.
+    // `actor` decides whether the revocation is audited: an admin forcing another user out passes
+    // themselves and a `user.revokeSessions` entry is written in the same transaction; self-logout
+    // passes null and stays unaudited (user decision: no login/logout events in the audit log).
+    // Deliberately not defaulted — every caller must make that choice visibly.
+    Task<bool> RevokeSessionsAsync(string twitchUserId, AuditActor? actor, CancellationToken cancellationToken = default);
 
     // Persists a fresh token pair (login callback or successful refresh). Tokens are encrypted
     // via ITokenCipher before they touch the database; callers always pass plaintext.

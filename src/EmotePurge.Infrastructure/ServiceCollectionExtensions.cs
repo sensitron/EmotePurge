@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IAdminChannelQueryService, AdminChannelQueryService>();
+        services.AddScoped<IAdminUserQueryService, AdminUserQueryService>();
         // Read side only — audit entries are written by the services that perform the actions, into
         // those actions' own transactions (see AuditLogWrites).
         services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();

@@ -145,6 +145,7 @@
     "tabs": {
       "monitoring": "Monitoring",
       "channels": "Channels",
+      "users": "Users",
       "auditLog": "Audit log"
     },
     "monitoring": {
@@ -210,6 +211,27 @@
         "confirm": "Delete permanently"
       }
     },
+    "users": {
+      "title": "Users",
+      "refresh": "Refresh",
+      "refreshTitle": "Reload user list",
+      "empty": "No users yet.",
+      "id": "Twitch ID {{id}}",
+      "lastLogin": "Last login {{date}}",
+      "tokenExpires": "Access token until {{date}}",
+      "sessionsRevokedAt": "Sessions revoked at {{date}}",
+      "scopes": "Scopes: {{scopes}}",
+      "token": {
+        "connected": "Twitch connected",
+        "none": "No tokens"
+      },
+      "revoke": {
+        "button": "Revoke sessions",
+        "message": "Revoke all sessions of {{name}}? The user is signed out everywhere and their stored Twitch tokens are dropped — they can simply log in again.",
+        "selfHint": "This is your own account: you will be signed out immediately.",
+        "confirm": "Revoke sessions"
+      }
+    },
     "audit": {
       "title": "Audit log",
       "refresh": "Refresh",
@@ -236,7 +258,8 @@
         "voteSessionCreate": "Voting created",
         "voteSessionEnd": "Voting ended",
         "voteSessionDelete": "Voting deleted",
-        "emotesSyncDeleted": "Emotes marked as deleted"
+        "emotesSyncDeleted": "Emotes marked as deleted",
+        "userRevokeSessions": "User sessions revoked"
       },
       "details": {
         "emoteCount": "{{count}} emotes",

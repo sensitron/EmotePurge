@@ -9,6 +9,7 @@ import {
   mockActiveEmoteSet,
   mockAdminChannelList,
   mockAdminHealth,
+  mockAdminUsers,
   mockAuditLog,
   mockAuthMe,
   mockChannelPermissions,
@@ -342,6 +343,25 @@ const SCENARIOS: Scenario[] = [
     setup: async (page) => {
       await adminShell(page);
       await mockAdminChannelList(page, []);
+    },
+  },
+  {
+    slug: 'admin-users',
+    path: '/admin/users',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAdminUsers(
+        page,
+        Array.from({ length: 25 }, (_, i) => ({
+          twitchUserId: String(1000 + i),
+          twitchUsername: i === 3 ? 'superlangertwitchusernamex' : `user${i + 1}`,
+          displayName: i === 3 ? 'SuperLangerTwitchUsernameX' : `User${i + 1}`,
+          hasRefreshToken: i % 3 !== 0,
+          sessionsValidFromUtc: i % 5 === 0 ? '2026-07-30T10:00:00Z' : null,
+          twitchAccessTokenExpiresAtUtc: i % 3 !== 0 ? '2026-07-31T16:00:00Z' : null,
+          twitchTokenScopes: i % 3 !== 0 ? 'user:read:email moderation:read' : null,
+        })),
+      );
     },
   },
   {

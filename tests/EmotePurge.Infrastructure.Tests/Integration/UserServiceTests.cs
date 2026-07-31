@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -106,5 +108,57 @@ public class UserServiceTests(PostgresFixture fixture)
         await service.StoreTwitchTokensAsync("user-tokens-ghost", "access", DateTime.UtcNow, "refresh", null);
 
         Assert.Null(await service.GetTwitchTokensAsync("user-tokens-ghost"));
+    }
+
+    [Fact]
+    public async Task RevokeSessions_WithActor_WritesTheAuditEntryInTheSameTransaction()
+    {
+        await using var db = fixture.CreateDbContext();
+        var service = new UserService(db, CreateCipher());
+        await service.UpsertLoginAsync("user-revoke-1", "userrevoke1", "UserRevoke1");
+
+        var revoked = await service.RevokeSessionsAsync("user-revoke-1", new AuditActor("admin-1", "sensitron"));
+
+        Assert.True(revoked);
+        await using var verifyDb = fixture.CreateDbContext();
+        var row = await verifyDb.Users.AsNoTracking().SingleAsync(u => u.Id == "user-revoke-1");
+        Assert.NotNull(row.SessionsValidFromUtc);
+
+        var entry = await verifyDb.AuditLogEntries.AsNoTracking()
+            .SingleAsync(e => e.TargetType == "user" && e.TargetId == "user-revoke-1");
+        Assert.Equal(AuditActions.UserRevokeSessions, entry.Action);
+        Assert.Equal("sensitron", entry.ActorLogin);
+        Assert.Equal("admin-1", entry.ActorTwitchUserId);
+        // The revoked user's login travels as a details snapshot — TargetId alone is just a number.
+        Assert.Contains("userrevoke1", entry.DetailsJson);
+    }
+
+    [Fact]
+    public async Task RevokeSessions_WithoutActor_RevokesButStaysUnaudited()
+    {
+        // The self-logout path: revocation happens, but no login/logout noise in the audit log.
+        await using var db = fixture.CreateDbContext();
+        var service = new UserService(db, CreateCipher());
+        await service.UpsertLoginAsync("user-revoke-2", "userrevoke2", "UserRevoke2");
+
+        var revoked = await service.RevokeSessionsAsync("user-revoke-2", actor: null);
+
+        Assert.True(revoked);
+        await using var verifyDb = fixture.CreateDbContext();
+        Assert.NotNull((await verifyDb.Users.AsNoTracking().SingleAsync(u => u.Id == "user-revoke-2")).SessionsValidFromUtc);
+        Assert.False(await verifyDb.AuditLogEntries.AsNoTracking().AnyAsync(e => e.TargetId == "user-revoke-2"));
+    }
+
+    [Fact]
+    public async Task RevokeSessions_ForUnknownUser_ReturnsFalse_AndWritesNothing()
+    {
+        await using var db = fixture.CreateDbContext();
+        var service = new UserService(db, CreateCipher());
+
+        var revoked = await service.RevokeSessionsAsync("user-revoke-nobody", new AuditActor("admin-1", "sensitron"));
+
+        Assert.False(revoked);
+        await using var verifyDb = fixture.CreateDbContext();
+        Assert.False(await verifyDb.AuditLogEntries.AsNoTracking().AnyAsync(e => e.TargetId == "user-revoke-nobody"));
     }
 }
