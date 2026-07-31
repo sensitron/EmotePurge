@@ -8,6 +8,7 @@
       "stale": "Worker disconnected",
       "unknown": "Worker status unknown"
     },
+    "admin": "Admin",
     "myVotings": "My votes",
     "logout": "Logout",
     "login": "Login",
@@ -147,6 +148,99 @@
       "rejoinFailed": "Could not reactivate the bot."
     }
   },
+  "admin": {
+    "title": "Admin area",
+    "placeholder": "This view is coming in one of the next slices.",
+    "tabs": {
+      "monitoring": "Monitoring",
+      "channels": "Channels",
+      "auditLog": "Audit log"
+    },
+    "monitoring": {
+      "title": "Monitoring",
+      "refresh": "Refresh",
+      "refreshTitle": "Reload worker status",
+      "noSnapshot": "The worker has not published a status. It is either not running, or its health publish is failing.",
+      "status": {
+        "connected": "Connected",
+        "stale": "Stale",
+        "disconnected": "Disconnected",
+        "unknown": "Unknown",
+        "disabled": "Disabled"
+      },
+      "twitch": {
+        "title": "Twitch IRC",
+        "lastMessage": "Last chat message",
+        "connectAttempt": "Last connect attempt"
+      },
+      "sevenTv": {
+        "title": "7TV EventAPI",
+        "subscriptions": "Subscriptions",
+        "utilization": "7TV subscription utilization",
+        "channels": "Subscribed channels",
+        "unacknowledged": "Unacknowledged",
+        "lastFrame": "Last frame",
+        "lastDispatch": "Last dispatch"
+      },
+      "flush": {
+        "title": "Batch flush",
+        "consecutiveFailures": "Consecutive failures",
+        "lastSuccess": "Last success",
+        "lastRowCount": "Rows written last",
+        "pending": "Buffered emotes"
+      }
+    },
+    "channels": {
+      "title": "Channel management",
+      "refresh": "Refresh",
+      "refreshTitle": "Reload channel list",
+      "joinPlaceholder": "twitch-channel-name",
+      "joinChannel": "Add channel",
+      "invalidChannelName": "Invalid channel name (4–25 characters, letters/digits/underscore).",
+      "empty": "No channels tracked.",
+      "emptyHint": "Add a Twitch channel above so the bot starts watching its chat.",
+      "active": "active",
+      "inactive": "inactive",
+      "stats": {
+        "emotes": "{{count}} emotes ({{archived}} archived)",
+        "voteSessions": "{{count}} votings ({{active}} active)",
+        "created": "Created: {{date}}",
+        "lastSync": "Last sync: {{date}}"
+      },
+      "actions": {
+        "join": "Join",
+        "leave": "Leave",
+        "purge": "Delete"
+      },
+      "purge": {
+        "title": "Delete channel irreversibly",
+        "message": "“{{channel}}” will be deleted together with its entire history: {{emotes}} emotes, all of their usage statistics, {{voteSessions}} vote sessions and every vote cast in them.\n\nThis cannot be undone. Use “Leave” instead if you only want the bot to stop counting.",
+        "inputLabel": "Channel name to confirm",
+        "confirm": "Delete permanently"
+      }
+    },
+    "audit": {
+      "title": "Audit log",
+      "refresh": "Refresh",
+      "refreshTitle": "Reload audit log",
+      "empty": "No entries yet.",
+      "emptyHint": "Every channel, voting and emote-deletion action shows up here once it has been performed.",
+      "actor": "by {{actor}}",
+      "actions": {
+        "channelJoin": "Channel joined",
+        "channelLeave": "Channel left",
+        "channelPurge": "Channel deleted",
+        "voteSessionCreate": "Voting created",
+        "voteSessionEnd": "Voting ended",
+        "voteSessionDelete": "Voting deleted",
+        "emotesSyncDeleted": "Emotes marked as deleted"
+      },
+      "details": {
+        "emoteCount": "{{count}} emotes",
+        "title": "“{{title}}”"
+      }
+    }
+  },
   "emoteCount": {
     "one": "{{ shown }} of {{ total }} emote",
     "other": "{{ shown }} of {{ total }} emotes"
@@ -222,7 +316,8 @@
   },
   "common": {
     "cancel": "Cancel",
-    "loading": "Loading …"
+    "loading": "Loading …",
+    "typedConfirmHint": "Type “{{text}}” exactly to continue."
   },
   "pager": {
     "previous": "Back",

@@ -8,6 +8,7 @@
       "stale": "Worker getrennt",
       "unknown": "Worker-Status unbekannt"
     },
+    "admin": "Admin",
     "myVotings": "Meine Abstimmungen",
     "logout": "Logout",
     "login": "Login",
@@ -147,6 +148,99 @@
       "rejoinFailed": "Bot konnte nicht reaktiviert werden."
     }
   },
+  "admin": {
+    "title": "Admin-Bereich",
+    "placeholder": "Diese Ansicht folgt in einem der nächsten Ausbauschritte.",
+    "tabs": {
+      "monitoring": "Monitoring",
+      "channels": "Channels",
+      "auditLog": "Audit-Log"
+    },
+    "monitoring": {
+      "title": "Monitoring",
+      "refresh": "Aktualisieren",
+      "refreshTitle": "Worker-Status neu laden",
+      "noSnapshot": "Der Worker hat aktuell keinen Status veröffentlicht. Entweder läuft er nicht, oder sein Health-Publish schlägt fehl.",
+      "status": {
+        "connected": "Verbunden",
+        "stale": "Veraltet",
+        "disconnected": "Getrennt",
+        "unknown": "Unbekannt",
+        "disabled": "Deaktiviert"
+      },
+      "twitch": {
+        "title": "Twitch-IRC",
+        "lastMessage": "Letzte Chat-Nachricht",
+        "connectAttempt": "Letzter Verbindungsversuch"
+      },
+      "sevenTv": {
+        "title": "7TV-EventAPI",
+        "subscriptions": "Subscriptions",
+        "utilization": "Auslastung der 7TV-Subscriptions",
+        "channels": "Abonnierte Channels",
+        "unacknowledged": "Unbestätigt",
+        "lastFrame": "Letztes Frame",
+        "lastDispatch": "Letzter Dispatch"
+      },
+      "flush": {
+        "title": "Batch-Flush",
+        "consecutiveFailures": "Fehler in Folge",
+        "lastSuccess": "Letzter Erfolg",
+        "lastRowCount": "Zuletzt geschriebene Zeilen",
+        "pending": "Gepufferte Emotes"
+      }
+    },
+    "channels": {
+      "title": "Channel-Verwaltung",
+      "refresh": "Aktualisieren",
+      "refreshTitle": "Channel-Liste neu laden",
+      "joinPlaceholder": "twitch-channel-name",
+      "joinChannel": "Channel hinzufügen",
+      "invalidChannelName": "Ungültiger Channel-Name (4–25 Zeichen, Buchstaben/Ziffern/Unterstrich).",
+      "empty": "Keine Channels getrackt.",
+      "emptyHint": "Füge oben einen Twitch-Channel hinzu, damit der Bot seinen Chat beobachtet.",
+      "active": "aktiv",
+      "inactive": "inaktiv",
+      "stats": {
+        "emotes": "{{count}} Emotes ({{archived}} archiviert)",
+        "voteSessions": "{{count}} Votings ({{active}} aktiv)",
+        "created": "Angelegt: {{date}}",
+        "lastSync": "Letzter Sync: {{date}}"
+      },
+      "actions": {
+        "join": "Beitreten",
+        "leave": "Verlassen",
+        "purge": "Löschen"
+      },
+      "purge": {
+        "title": "Channel unwiderruflich löschen",
+        "message": "„{{channel}}“ wird samt seiner gesamten Historie gelöscht: {{emotes}} Emotes, alle zugehörigen Nutzungsstatistiken, {{voteSessions}} Vote-Sessions und sämtliche darin abgegebenen Stimmen.\n\nDas lässt sich nicht rückgängig machen. „Verlassen“ genügt, wenn der Bot nur aufhören soll mitzuzählen.",
+        "inputLabel": "Channel-Name zur Bestätigung",
+        "confirm": "Endgültig löschen"
+      }
+    },
+    "audit": {
+      "title": "Audit-Log",
+      "refresh": "Aktualisieren",
+      "refreshTitle": "Audit-Log neu laden",
+      "empty": "Noch keine Einträge.",
+      "emptyHint": "Hier landet jede Channel-, Abstimmungs- und Emote-Löschaktion, sobald sie ausgeführt wurde.",
+      "actor": "von {{actor}}",
+      "actions": {
+        "channelJoin": "Channel beigetreten",
+        "channelLeave": "Channel verlassen",
+        "channelPurge": "Channel gelöscht",
+        "voteSessionCreate": "Abstimmung erstellt",
+        "voteSessionEnd": "Abstimmung beendet",
+        "voteSessionDelete": "Abstimmung gelöscht",
+        "emotesSyncDeleted": "Emotes als gelöscht markiert"
+      },
+      "details": {
+        "emoteCount": "{{count}} Emotes",
+        "title": "„{{title}}“"
+      }
+    }
+  },
   "emoteCount": {
     "one": "{{ shown }} von {{ total }} Emote",
     "other": "{{ shown }} von {{ total }} Emotes"
@@ -222,7 +316,8 @@
   },
   "common": {
     "cancel": "Abbrechen",
-    "loading": "Lädt …"
+    "loading": "Lädt …",
+    "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben."
   },
   "pager": {
     "previous": "Zurück",
