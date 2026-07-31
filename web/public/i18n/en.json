@@ -202,7 +202,11 @@
       "actions": {
         "join": "Join",
         "leave": "Leave",
+        "resync": "Resync",
         "purge": "Delete"
+      },
+      "resync": {
+        "queued": "Resync requested"
       },
       "purge": {
         "title": "Delete channel irreversibly",
@@ -224,6 +228,10 @@
       "token": {
         "connected": "Twitch connected",
         "none": "No tokens"
+      },
+      "roleCache": {
+        "button": "Clear role cache",
+        "cleared": "Role cache cleared ({{count}} entries)"
       },
       "revoke": {
         "button": "Revoke sessions",
@@ -255,14 +263,17 @@
         "channelJoin": "Channel joined",
         "channelLeave": "Channel left",
         "channelPurge": "Channel deleted",
+        "channelResync": "Resync requested",
         "voteSessionCreate": "Voting created",
         "voteSessionEnd": "Voting ended",
         "voteSessionDelete": "Voting deleted",
         "emotesSyncDeleted": "Emotes marked as deleted",
-        "userRevokeSessions": "User sessions revoked"
+        "userRevokeSessions": "User sessions revoked",
+        "userInvalidateRoleCache": "Role cache cleared"
       },
       "details": {
         "emoteCount": "{{count}} emotes",
+        "removedEntries": "{{count}} entries removed",
         "title": "“{{title}}”"
       }
     }

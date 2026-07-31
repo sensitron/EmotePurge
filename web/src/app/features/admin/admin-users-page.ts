@@ -21,6 +21,10 @@ import { StatusBadge } from '../../shared/ui/status-badge';
 
 const PAGE_SIZE = 25;
 
+/** How long the "role cache cleared" hint stays on the row (same window as the channel page's
+ *  resync hint — both confirm a request whose effect is invisible in the row itself). */
+const ROLE_CACHE_FEEDBACK_MS = 4000;
+
 const EMPTY_PAGE: PagedResult<AdminUser> = {
   items: [],
   page: 1,
@@ -79,7 +83,29 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
                   }}
                 </app-status-badge>
 
-                <div class="ml-auto flex items-center gap-2">
+                <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  @if (roleCacheFeedback(); as feedback) {
+                    @if (feedback.twitchUserId === row.twitchUserId) {
+                      <!-- Transient inline confirmation: dropping cache entries changes nothing this
+                           row displays, so the removed count is the only observable outcome. -->
+                      <span role="status" class="text-xs text-emerald-400">
+                        {{
+                          'admin.users.roleCache.cleared'
+                            | transloco: { count: feedback.removedEntries }
+                        }}
+                      </span>
+                    }
+                  }
+                  <!-- Outline, not danger: nothing is lost, the next role check just resolves live
+                       again — so no confirmation step either (design doc §4.2). -->
+                  <button
+                    type="button"
+                    appButton="outline"
+                    [disabled]="pendingUserId() === row.twitchUserId"
+                    (click)="invalidateRoleCache(row)"
+                  >
+                    {{ 'admin.users.roleCache.button' | transloco }}
+                  </button>
                   <button
                     type="button"
                     appButton="danger"
@@ -135,8 +161,16 @@ export class AdminUsersPage {
   protected readonly isLoading = computed(() => this.usersResource.isLoading());
   protected readonly totalPages = computed(() => this.usersResource.value().totalPages);
 
-  /** Blocks a second click on the row an action is already running against. */
+  /** Blocks a second click on the row an action is already running against — shared by both
+   *  actions, so revoking and clearing the cache can never run against the same user at once. */
   protected readonly pendingUserId = signal<string | null>(null);
+
+  /** The user whose role cache was just cleared plus how many entries went, or null. */
+  protected readonly roleCacheFeedback = signal<{
+    twitchUserId: string;
+    removedEntries: number;
+  } | null>(null);
+  private roleCacheFeedbackTimeout?: ReturnType<typeof setTimeout>;
 
   // Separate from the resource's error so a failed action survives the reload after it (same
   // reasoning as admin-channels-page.ts).
@@ -176,6 +210,29 @@ export class AdminUsersPage {
 
   protected onPageChange(newPage: number): void {
     this.page.set(newPage);
+  }
+
+  /** No confirmation dialog on purpose: the cache is derived state that rebuilds itself on the next
+   *  role check, so the worst outcome of a mis-click is one slower permission lookup. Also no list
+   *  reload — nothing in the user row is fed by the role cache. */
+  protected invalidateRoleCache(user: AdminUser): void {
+    this.actionError.set(null);
+    this.pendingUserId.set(user.twitchUserId);
+    this.adminService.invalidateRoleCache(user.twitchUserId).subscribe({
+      next: ({ removedEntries }) => {
+        this.pendingUserId.set(null);
+        clearTimeout(this.roleCacheFeedbackTimeout);
+        this.roleCacheFeedback.set({ twitchUserId: user.twitchUserId, removedEntries });
+        this.roleCacheFeedbackTimeout = setTimeout(
+          () => this.roleCacheFeedback.set(null),
+          ROLE_CACHE_FEEDBACK_MS,
+        );
+      },
+      error: (error: HttpErrorResponse) => {
+        this.pendingUserId.set(null);
+        this.actionError.set(apiErrorTranslationKey(error));
+      },
+    });
   }
 
   protected confirmRevoke(user: AdminUser): void {

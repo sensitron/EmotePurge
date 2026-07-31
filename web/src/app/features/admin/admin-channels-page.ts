@@ -26,6 +26,10 @@ const NO_CHANNELS: AdminChannel[] = [];
 /** Shown for a channel that has never been synced — distinct from a date, on purpose. */
 const NO_VALUE = '—';
 
+/** How long the "resync queued" hint stays on the row. Longer than the copy-link feedback (2 s)
+ *  because it confirms a request that left the browser, not a local clipboard write. */
+const RESYNC_FEEDBACK_MS = 4000;
+
 /**
  * Every tracked channel with its aggregates, plus the three write actions an admin has over one:
  * join, leave, and — new here — purge. The purge endpoint existed without any UI on purpose
@@ -122,6 +126,14 @@ const NO_VALUE = '—';
                 </app-status-badge>
 
                 <div class="relative z-10 ml-auto flex flex-wrap items-center justify-end gap-2">
+                  @if (resyncFeedback() === channel.channelName) {
+                    <!-- Transient inline confirmation, same pattern as the vote-session list's copy
+                         feedback: a 202 means "queued", and there is no row field that would change
+                         to show it happened. -->
+                    <span role="status" class="text-xs text-emerald-400">
+                      {{ 'admin.channels.resync.queued' | transloco }}
+                    </span>
+                  }
                   @if (!channel.isBotActive) {
                     <button
                       type="button"
@@ -132,6 +144,17 @@ const NO_VALUE = '—';
                       {{ 'admin.channels.actions.join' | transloco }}
                     </button>
                   } @else {
+                    <!-- Resync only while the bot is in the channel: the worker resolves the command
+                         against its joined channels, so offering it on an inactive row would only
+                         ever produce a 409. -->
+                    <button
+                      type="button"
+                      appButton="outline"
+                      [disabled]="pendingChannel() === channel.channelName"
+                      (click)="resync(channel.channelName)"
+                    >
+                      {{ 'admin.channels.actions.resync' | transloco }}
+                    </button>
                     <button
                       type="button"
                       appButton="outline"
@@ -215,6 +238,11 @@ export class AdminChannelsPage {
    *  would otherwise come back as a 404 and read as an error the admin did not cause. */
   protected readonly pendingChannel = signal<string | null>(null);
 
+  /** Name of the channel whose resync was just accepted, or null. A 202 changes nothing visible on
+   *  the row, so this transient hint is the only proof the click did anything. */
+  protected readonly resyncFeedback = signal<string | null>(null);
+  private resyncFeedbackTimeout?: ReturnType<typeof setTimeout>;
+
   // Kept separate from the resource's own error so a failed action is not wiped out by the reload
   // that follows it, and vice versa — same reasoning as vote-session-list-page.ts.
   private readonly actionError = signal<string | null>(null);
@@ -258,6 +286,29 @@ export class AdminChannelsPage {
 
   protected leave(channelName: string): void {
     this.runAction(channelName, () => this.channelService.leave(channelName));
+  }
+
+  /** Not routed through `runAction`: that one reloads the list afterwards, which would be wrong
+   *  here — the worker has only accepted the command, so every aggregate (`lastSyncedAtUtc` above
+   *  all) is still the pre-resync value at this point. */
+  protected resync(channelName: string): void {
+    this.actionError.set(null);
+    this.pendingChannel.set(channelName);
+    this.adminService.resyncChannel(channelName).subscribe({
+      next: () => {
+        this.pendingChannel.set(null);
+        clearTimeout(this.resyncFeedbackTimeout);
+        this.resyncFeedback.set(channelName);
+        this.resyncFeedbackTimeout = setTimeout(
+          () => this.resyncFeedback.set(null),
+          RESYNC_FEEDBACK_MS,
+        );
+      },
+      error: (error: HttpErrorResponse) => {
+        this.pendingChannel.set(null);
+        this.actionError.set(apiErrorTranslationKey(error));
+      },
+    });
   }
 
   protected confirmPurge(channel: AdminChannel): void {

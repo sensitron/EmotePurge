@@ -196,6 +196,52 @@ describe('AdminService', () => {
     expect(completed).toBe(true);
   });
 
+  it('resyncChannel POSTs to the channel-scoped resync endpoint with an empty body', () => {
+    let completed = false;
+    service.resyncChannel('handofblood').subscribe(() => (completed = true));
+
+    const req = httpMock.expectOne('/api/admin/channels/handofblood/resync');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    // 202 with no body: "accepted", not "synced" — the service must complete on that all the same.
+    req.flush(null, { status: 202, statusText: 'Accepted' });
+
+    expect(completed).toBe(true);
+  });
+
+  it('resyncChannel encodes the channel name into the path', () => {
+    // Channel names are normalized before they reach here, but the segment is still user-derived —
+    // encoding it is what keeps a stray character from re-shaping the URL.
+    service.resyncChannel('hand/of blood').subscribe();
+
+    httpMock
+      .expectOne('/api/admin/channels/hand%2Fof%20blood/resync')
+      .flush(null, { status: 202, statusText: 'Accepted' });
+  });
+
+  it('invalidateRoleCache POSTs and passes the removed-entry count through', () => {
+    let result: { removedEntries: number } | undefined;
+    service.invalidateRoleCache('4711').subscribe((r) => (result = r));
+
+    const req = httpMock.expectOne('/api/admin/users/4711/invalidate-role-cache');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    req.flush({ removedEntries: 3 });
+
+    // The count is the action's only visible outcome, so it must survive untouched — including 0,
+    // which means "nothing was cached", not "nothing happened".
+    expect(result).toEqual({ removedEntries: 3 });
+  });
+
+  it('invalidateRoleCache passes a zero count through unchanged', () => {
+    let result: { removedEntries: number } | undefined;
+    service.invalidateRoleCache('4711').subscribe((r) => (result = r));
+
+    httpMock.expectOne('/api/admin/users/4711/invalidate-role-cache').flush({ removedEntries: 0 });
+
+    expect(result?.removedEntries).toBe(0);
+  });
+
   it('listAuditLog GETs /api/admin/audit-log with paging params', () => {
     const entries: AuditLogEntry[] = [
       {

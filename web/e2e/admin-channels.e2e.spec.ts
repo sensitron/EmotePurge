@@ -4,6 +4,7 @@ import {
   AUTH_USER,
   mockAdminChannelList,
   mockAuthMe,
+  mockChannelResync,
   mockMyChannels,
   mockPurge,
   mockWorkerHealth,
@@ -40,6 +41,37 @@ test.describe('global admin on /admin/channels', () => {
     // The inactive channel offers "Beitreten", the active one "Verlassen".
     await expect(page.getByRole('button', { name: 'Beitreten' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Verlassen' })).toBeVisible();
+  });
+
+  test('resync is offered on the active channel only, and POSTs with a transient confirmation', async ({
+    page,
+  }) => {
+    await mockAdminChannelList(page, [
+      { channelName: 'handofblood', isBotActive: true },
+      { channelName: 'sensitron', isBotActive: false },
+    ]);
+    await mockChannelResync(page, 'handofblood');
+
+    await page.goto('/admin/channels');
+
+    const activeRow = page.getByRole('listitem').filter({ hasText: '#handofblood' });
+    const inactiveRow = page.getByRole('listitem').filter({ hasText: '#sensitron' });
+
+    // The worker resolves the command against its joined channels, so an inactive row must not even
+    // offer the button — a 409 is not a useful thing to hand an admin.
+    await expect(activeRow.getByRole('button', { name: 'Resync' })).toBeVisible();
+    await expect(inactiveRow.getByRole('button', { name: 'Resync' })).toHaveCount(0);
+
+    const resyncRequest = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' &&
+        request.url().includes('/api/admin/channels/handofblood/resync'),
+    );
+    await activeRow.getByRole('button', { name: 'Resync' }).click();
+    await resyncRequest;
+
+    // 202 means "queued": nothing on the row changes, so the inline hint is the only feedback.
+    await expect(activeRow.getByText('Resync angestoßen')).toBeVisible();
   });
 
   test('purge stays disabled until the channel name is typed verbatim, then deletes and reloads', async ({

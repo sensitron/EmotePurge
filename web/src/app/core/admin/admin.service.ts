@@ -23,6 +23,16 @@ export class AdminService {
     return this.http.get<AdminChannel[]>('/api/admin/channels');
   }
 
+  /** Asks the worker to re-read the channel's 7TV emote set right now instead of waiting for the
+   *  periodic resync. Answers 202: the command is published to Redis, so "accepted" is all the Api
+   *  can honestly promise — the caller must not present it as a finished sync. */
+  resyncChannel(channelName: string): Observable<void> {
+    return this.http.post<void>(
+      `/api/admin/channels/${encodeURIComponent(channelName)}/resync`,
+      null,
+    );
+  }
+
   /** Every user who ever logged in, most recently seen first. Paged: unlike channels, this list
    *  is not capped by anything. */
   listUsers(page = 1, pageSize = 25): Observable<PagedResult<AdminUser>> {
@@ -36,6 +46,16 @@ export class AdminService {
   revokeSessions(twitchUserId: string): Observable<void> {
     return this.http.post<void>(
       `/api/admin/users/${encodeURIComponent(twitchUserId)}/revoke-sessions`,
+      null,
+    );
+  }
+
+  /** Drops every cached role answer (mod/sub/7TV editor) of one user, so the next role check
+   *  resolves live against Twitch/7TV. Returns how many Redis entries were removed — the only
+   *  visible effect of an action that otherwise changes nothing an admin could see. */
+  invalidateRoleCache(twitchUserId: string): Observable<{ removedEntries: number }> {
+    return this.http.post<{ removedEntries: number }>(
+      `/api/admin/users/${encodeURIComponent(twitchUserId)}/invalidate-role-cache`,
       null,
     );
   }

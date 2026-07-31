@@ -24,7 +24,10 @@ const PAGE_SIZE = 25;
 const FILTER_DEBOUNCE_MS = 300;
 
 /** Actions without a channel dimension — the channel filter is meaningless while one is selected. */
-const CHANNELLESS_ACTIONS: ReadonlySet<string> = new Set(['user.revokeSessions']);
+const CHANNELLESS_ACTIONS: ReadonlySet<string> = new Set([
+  'user.revokeSessions',
+  'user.invalidateRoleCache',
+]);
 
 const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
   items: [],
@@ -43,11 +46,13 @@ const ACTION_KEYS: Record<string, string> = {
   'channel.join': 'admin.audit.actions.channelJoin',
   'channel.leave': 'admin.audit.actions.channelLeave',
   'channel.purge': 'admin.audit.actions.channelPurge',
+  'channel.resync': 'admin.audit.actions.channelResync',
   'voteSession.create': 'admin.audit.actions.voteSessionCreate',
   'voteSession.end': 'admin.audit.actions.voteSessionEnd',
   'voteSession.delete': 'admin.audit.actions.voteSessionDelete',
   'emotes.syncDeleted': 'admin.audit.actions.emotesSyncDeleted',
   'user.revokeSessions': 'admin.audit.actions.userRevokeSessions',
+  'user.invalidateRoleCache': 'admin.audit.actions.userInvalidateRoleCache',
 };
 
 interface AuditDetail {
@@ -95,9 +100,18 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
   if (typeof details['emoteCount'] === 'number') {
     return { key: 'admin.audit.details.emoteCount', params: { count: details['emoteCount'] } };
   }
+  if (typeof details['removedEntries'] === 'number') {
+    return {
+      key: 'admin.audit.details.removedEntries',
+      params: { count: details['removedEntries'] },
+    };
+  }
   if (typeof details['title'] === 'string') {
     return { key: 'admin.audit.details.title', params: { title: details['title'] } };
   }
+  // `login` is deliberately not rendered: user-scoped actions already carry the target's login in
+  // their details, but the row would then read "by sensitron · handofblood" with nothing saying
+  // which of the two names is the target. Unchanged from how user.revokeSessions is shown today.
   return null;
 }
 

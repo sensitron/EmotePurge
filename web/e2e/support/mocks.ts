@@ -185,6 +185,17 @@ export async function mockAdminChannelList(
   );
 }
 
+/**
+ * POST /api/admin/channels/{channelName}/resync — answers 202 like the real endpoint ("accepted",
+ * not "finished"). Registered after mockAdminChannelList so it wins for this longer path; the list
+ * route pattern (`**\/api/admin/channels`) does not match the sub-route anyway.
+ */
+export async function mockChannelResync(page: Page, channelName: string): Promise<void> {
+  await page.route(`**/api/admin/channels/${channelName}/resync`, (route) =>
+    route.fulfill({ status: 202 }),
+  );
+}
+
 export interface MockAuditLogEntry {
   id: number;
   occurredAtUtc?: string;
@@ -321,6 +332,18 @@ export async function mockAdminUsers(page: Page, users: MockAdminUser[]): Promis
 export async function mockRevokeSessions(page: Page, twitchUserId: string): Promise<void> {
   await page.route(`**/api/admin/users/${twitchUserId}/revoke-sessions`, (route) =>
     route.fulfill({ status: 204 }),
+  );
+}
+
+/** POST /api/admin/users/{twitchUserId}/invalidate-role-cache — answers 200 with the number of
+ *  Redis entries that were dropped, which is what the page renders back to the admin. */
+export async function mockInvalidateRoleCache(
+  page: Page,
+  twitchUserId: string,
+  removedEntries = 3,
+): Promise<void> {
+  await page.route(`**/api/admin/users/${twitchUserId}/invalidate-role-cache`, (route) =>
+    fulfillJson(route, 200, { removedEntries }),
   );
 }
 

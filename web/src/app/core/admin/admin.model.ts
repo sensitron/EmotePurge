@@ -91,11 +91,13 @@ export type AuditAction =
   | 'channel.join'
   | 'channel.leave'
   | 'channel.purge'
+  | 'channel.resync'
   | 'voteSession.create'
   | 'voteSession.end'
   | 'voteSession.delete'
   | 'emotes.syncDeleted'
-  | 'user.revokeSessions';
+  | 'user.revokeSessions'
+  | 'user.invalidateRoleCache';
 
 /**
  * Optional narrowing of GET /api/admin/audit-log; fields are AND-combined server-side.

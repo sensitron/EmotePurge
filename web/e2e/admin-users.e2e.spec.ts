@@ -4,6 +4,7 @@ import {
   AUTH_USER,
   mockAdminUsers,
   mockAuthMe,
+  mockInvalidateRoleCache,
   mockRevokeSessions,
   mockWorkerHealth,
 } from './support/mocks';
@@ -70,6 +71,29 @@ test.describe('global admin on /admin/users', () => {
     await reloadRequest;
 
     await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('clearing the role cache POSTs without a dialog and reports the removed count', async ({
+    page,
+  }) => {
+    await mockAdminUsers(page, [
+      { twitchUserId: '4712', twitchUsername: 'zweitaccount', displayName: 'Zweitaccount' },
+    ]);
+    await mockInvalidateRoleCache(page, '4712', 3);
+
+    await page.goto('/admin/users');
+
+    const cacheRequest = page.waitForRequest(
+      (request) =>
+        request.method() === 'POST' &&
+        request.url().includes('/api/admin/users/4712/invalidate-role-cache'),
+    );
+    await page.getByRole('button', { name: 'Rollen-Cache leeren' }).click();
+    await cacheRequest;
+
+    // Non-destructive, so no confirmation step — the removed count is the whole feedback.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByText('Rollen-Cache geleert (3 Einträge)')).toBeVisible();
   });
 
   test('cancelling the dialog sends nothing', async ({ page }) => {
