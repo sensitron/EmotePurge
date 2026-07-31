@@ -17,26 +17,31 @@ public class EmoteService(AppDbContext db) : IEmoteService
             return new SyncDeletedResultDto(0, emoteIds);
         }
 
+        // Already-archived rows are matched on purpose: with the EventAPI live sync enabled, the
+        // worker usually archives the emote off the 7TV dispatch before this bookkeeping call
+        // arrives. The goal state is reached either way, so both count as archived — reporting
+        // them as "not found" made every successful delete look like a failed sync in the UI.
         var emotes = await db.Emotes
-            .Where(e => e.ChannelId == channel.Id && emoteIds.Contains(e.Id) && !e.IsArchived)
+            .Where(e => e.ChannelId == channel.Id && emoteIds.Contains(e.Id))
             .ToListAsync(cancellationToken);
 
+        var newlyArchived = emotes.Where(e => !e.IsArchived).ToList();
         var now = DateTime.UtcNow;
-        foreach (var emote in emotes)
+        foreach (var emote in newlyArchived)
         {
             emote.IsArchived = true;
             emote.LastSyncedAt = now;
         }
 
-        // Nothing matched means nothing was archived — a re-sent batch after a retry, or ids from
-        // another channel. That is not an event worth a row; the caller still gets its NotFoundIds.
-        if (emotes.Count > 0)
+        // No state change (all already archived by the live sync, or ids from another channel) is
+        // not an event worth an audit row; the caller still gets its counts.
+        if (newlyArchived.Count > 0)
         {
             db.AddAuditEntry(
                 actor,
                 AuditActions.EmotesSyncDeleted,
                 channelName: normalized,
-                details: new { emoteCount = emotes.Count });
+                details: new { emoteCount = newlyArchived.Count });
         }
 
         await db.SaveChangesAsync(cancellationToken);

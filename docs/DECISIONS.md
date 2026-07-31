@@ -10,6 +10,14 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-31 — `sync-deleted` ist idempotent: bereits archivierte Emotes zählen als Erfolg, nicht als `notFoundIds`
+
+**Betrifft:** `src/EmotePurge.Core/Services/IEmoteService.cs` · `src/EmotePurge.Infrastructure/Services/EmoteService.cs` · `tests/EmotePurge.Infrastructure.Tests/Integration/EmoteServiceTests.cs` (neu)
+
+**Live-Test-Befund nach dem 7TV-WebSocket-Rollout: jeder erfolgreiche Mass-Delete zeigte die amber „Rückmeldung fehlgeschlagen"-Warnung.** Ursache ist eine Race, die seit dem EventAPI-Live-Sync der Normalfall ist, kein Randfall: das Frontend löscht auf 7TV, der Worker bekommt das `emote_set.update`-Dispatch und archiviert das Emote sofort (im Log ~1,3 s vor dem HTTP-Call) — dann trifft die `sync-deleted`-Buchhaltungs-Rückmeldung des Frontends ein, deren Query aber auf `NOT IsArchived` filterte, 0 Zeilen fand und `archivedCount: 0` + `notFoundIds` antwortete. Das Frontend wertet das korrekt als „partial" — nur war nichts partial, der Live-Sync war schlicht schneller als die Rückmeldung.
+
+**Fix: der Endpoint ist jetzt ausdrücklich idempotent.** „Bereits archiviert" ist Erreichung des Zielzustands und zählt in `ArchivedCount`; in `notFoundIds` landen nur noch Ids, die unbekannt sind oder einem anderen Channel gehören (die bleiben unangetastet — der konservative Pfad ist unverändert). Auditiert wird weiterhin nur, was **neu** archiviert wurde: ein Call, der nichts verändert hat, ist kein Event. Die Frontend-Seite (`SyncReportState` succeeded/partial/failed) bleibt unverändert — die Unterscheidung ist weiterhin richtig, sie bekommt jetzt nur korrekte Zahlen. Drei Integrationstests decken neu-archiviert, schon-archiviert und fremd/unbekannt ab.
+
 ### 2026-07-31 — UI-Feinschliff-Batch: Emote-Grids scrollen per `scrollWindow` mit dem Dokument, Karten-Checkboxen entfallen, Vote-Buttons mobil 44px, Custom-Range als Popover, Delete-Panel channel-gebunden und wegklickbar, Akzentfarben eine Stufe dunkler
 
 **Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.{html,ts}` · `web/src/app/features/voting/vote-session-detail-page.{html,ts}` · `web/src/app/features/channel-workspace/channel-workspace-layout.ts` · `web/src/app/shared/emotes/emote-card-header.ts` · `web/src/app/shared/grid/grid-columns.ts` · `web/src/app/shared/datetime/date-range-popover.ts` (neu) · `web/src/app/shared/seven-tv/{delete-progress-panel,mass-delete-panel}.ts` · `web/src/app/shared/ui/{button,segmented-control}.ts` · `web/src/app/core/seven-tv/seven-tv-delete.service.ts` · `web/src/styles.css` · `docs/UI-Designsprache.md` (§8.5, §10)
