@@ -33,8 +33,9 @@ const NO_VALUE = '—';
  * alternative was an admin hand-crafting a DELETE against production. It is guarded three ways: the
  * admin-only route, the server-side GlobalAdminAuthorizationFilter, and a typed name confirmation.
  *
- * Deliberately no `.app-card-link` stretched link on the rows: a row carries several actions, and a
- * stretched link would make the whole card one big click target competing with them.
+ * Rows follow the stretched-link contract like the overview's "my channels" cards: the whole card
+ * opens the channel, while the action buttons stay independently clickable via the elevated
+ * (`relative z-10`) actions container.
  */
 @Component({
   selector: 'app-admin-channels-page',
@@ -96,11 +97,11 @@ const NO_VALUE = '—';
       } @else {
         <ul class="flex flex-col gap-2">
           @for (channel of channels(); track channel.channelName) {
-            <li class="app-card flex flex-col gap-2 px-4 py-3">
+            <li class="app-card app-card-interactive relative flex flex-col gap-2 px-4 py-3">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <a
                   [routerLink]="['/channels', channel.channelName, 'usage-stats']"
-                  class="max-w-full truncate font-medium text-slate-100 underline-offset-2 hover:text-purple-300 hover:underline"
+                  class="app-card-link max-w-full truncate font-medium text-slate-100"
                 >
                   #{{ channel.channelName }}
                 </a>
@@ -111,7 +112,7 @@ const NO_VALUE = '—';
                   }}
                 </app-status-badge>
 
-                <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div class="relative z-10 ml-auto flex flex-wrap items-center justify-end gap-2">
                   @if (!channel.isBotActive) {
                     <button
                       type="button"
