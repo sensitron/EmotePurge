@@ -68,10 +68,17 @@ const NO_VALUE = '—';
            admin is on when they realize a channel is missing. -->
       <form class="flex flex-wrap gap-2" (submit)="onJoinSubmit($event)">
         <input
+          id="admin-join-channel-name"
           type="text"
           [formControl]="channelNameControl"
           [placeholder]="'admin.channels.joinPlaceholder' | transloco"
           [attr.aria-label]="'admin.channels.joinPlaceholder' | transloco"
+          [attr.aria-invalid]="channelNameControl.invalid && channelNameControl.touched ? 'true' : null"
+          [attr.aria-describedby]="
+            channelNameControl.invalid && channelNameControl.touched
+              ? 'admin-join-channel-name-error'
+              : null
+          "
           class="app-input flex-1"
         />
         <button type="submit" appButton="primary" buttonSize="lg">
@@ -79,7 +86,9 @@ const NO_VALUE = '—';
         </button>
       </form>
       @if (channelNameControl.invalid && channelNameControl.touched) {
-        <p class="text-sm text-red-400">{{ 'admin.channels.invalidChannelName' | transloco }}</p>
+        <p id="admin-join-channel-name-error" class="text-sm text-red-400">
+          {{ 'admin.channels.invalidChannelName' | transloco }}
+        </p>
       }
 
       @if (errorMessage(); as error) {

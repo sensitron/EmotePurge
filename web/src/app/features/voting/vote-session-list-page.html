@@ -4,14 +4,21 @@
       <h2 class="mb-3 text-lg font-semibold">{{ 'voting.list.createTitle' | transloco }}</h2>
       <div class="flex flex-col gap-3">
         <input
+          id="vote-session-title"
           type="text"
           [formControl]="titleControl"
           [placeholder]="'voting.list.titlePlaceholder' | transloco"
           [attr.aria-label]="'voting.list.titlePlaceholder' | transloco"
+          [attr.aria-invalid]="titleControl.invalid && titleControl.touched ? 'true' : null"
+          [attr.aria-describedby]="
+            titleControl.invalid && titleControl.touched ? 'vote-session-title-error' : null
+          "
           class="app-input"
         />
         @if (titleControl.invalid && titleControl.touched) {
-          <p class="text-xs text-red-400">{{ 'voting.list.titleRequired' | transloco }}</p>
+          <p id="vote-session-title-error" class="text-sm text-red-400">
+            {{ 'voting.list.titleRequired' | transloco }}
+          </p>
         }
         <div class="flex gap-4 text-sm text-slate-300">
           <label class="flex items-center gap-2 py-1">

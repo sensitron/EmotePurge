@@ -66,6 +66,7 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
           <a
             routerLink="usage-stats"
             routerLinkActive
+            ariaCurrentWhenActive="page"
             #usageStatsTab="routerLinkActive"
             [class]="
               usageStatsTab.isActive
@@ -79,6 +80,7 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
         <a
           routerLink="vote-sessions"
           routerLinkActive
+          ariaCurrentWhenActive="page"
           #voteSessionsTab="routerLinkActive"
           [class]="
             voteSessionsTab.isActive

@@ -7,9 +7,11 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary: 'bg-purple-600 font-medium text-white hover:bg-purple-500',
   neutral: 'bg-slate-800 text-slate-200 hover:bg-slate-700',
   outline: 'border border-slate-700 text-slate-300 hover:bg-slate-800',
-  // Two destructive intensities on purpose: outline for secondary destructive actions that sit
-  // next to other controls (leave channel, delete one session), solid for a page's primary
-  // destructive CTA (the mass-delete run).
+  // Two destructive intensities on purpose, keyed to flow position rather than severity:
+  // outline for the triggering button that sits in page context next to other controls
+  // (leave channel, delete one session, open the purge dialog), solid for the executing
+  // confirm button inside a dialog and for a page's primary destructive CTA (mass-delete).
+  // See docs/UI-Designsprache.md §4.2.
   danger: 'border border-red-800 text-red-400 hover:bg-red-950',
   'danger-solid': 'bg-red-700 font-medium text-white hover:bg-red-600',
 };
