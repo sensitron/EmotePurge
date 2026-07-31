@@ -7,7 +7,9 @@ import {
   AUTH_USER,
   MockChannel,
   mockActiveEmoteSet,
-  mockAdminChannels,
+  mockAdminChannelList,
+  mockAdminHealth,
+  mockAuditLog,
   mockAuthMe,
   mockChannelPermissions,
   mockChannelStatus,
@@ -48,7 +50,11 @@ interface MyChannelsFlags {
   sevenTvUnavailable?: boolean;
 }
 
-async function mockMyChannelsWithFlags(page: Page, channels: MockChannel[], flags: MyChannelsFlags = {}): Promise<void> {
+async function mockMyChannelsWithFlags(
+  page: Page,
+  channels: MockChannel[],
+  flags: MyChannelsFlags = {},
+): Promise<void> {
   await page.route('**/api/channels/mine', (route) =>
     route.fulfill({
       status: 200,
@@ -105,7 +111,8 @@ function voteSummaries(count: number) {
 function voteResults(sessionId: number, isActive: boolean) {
   return {
     sessionId,
-    title: 'Frühjahrsputz 2026 — welche Emotes fliegen endgültig raus? (Community-Abstimmung, Runde 2)',
+    title:
+      'Frühjahrsputz 2026 — welche Emotes fliegen endgültig raus? (Community-Abstimmung, Runde 2)',
     isActive,
     startedAt: '2026-07-01T12:00:00Z',
     endedAt: isActive ? null : '2026-07-10T12:00:00Z',
@@ -123,7 +130,10 @@ function voteResults(sessionId: number, isActive: boolean) {
 function myVoteSessions(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     sessionId: i + 1,
-    title: i === 0 ? 'Frühjahrsputz 2026 — welche Emotes fliegen endgültig raus? (Runde 2)' : `Voting Runde ${i + 1}`,
+    title:
+      i === 0
+        ? 'Frühjahrsputz 2026 — welche Emotes fliegen endgültig raus? (Runde 2)'
+        : `Voting Runde ${i + 1}`,
     channelName: i % 2 === 0 ? 'sensitron' : 'superlangertwitchchannelx',
     isActive: i < 2,
     startedAt: '2026-07-01T12:00:00Z',
@@ -137,17 +147,30 @@ function myVoteSessions(count: number) {
 async function authedShell(page: Page): Promise<void> {
   await mockAuthMe(page, AUTH_USER);
   await mockWorkerHealth(page, 'connected');
-  await mockAdminChannels(page, 'forbidden');
 }
 
-async function channelWorkspace(page: Page, overrides: Parameters<typeof mockChannelPermissions>[2] = {}): Promise<void> {
+/** Same shell, but the session is a global admin — unlocks the /admin area and its nav entry. */
+async function adminShell(page: Page): Promise<void> {
+  await mockAuthMe(page, { ...AUTH_USER, isGlobalAdmin: true });
+  await mockWorkerHealth(page, 'connected');
+}
+
+async function channelWorkspace(
+  page: Page,
+  overrides: Parameters<typeof mockChannelPermissions>[2] = {},
+): Promise<void> {
   await mockChannelPermissions(page, 'sensitron', overrides);
   await mockChannelStatus(page, 'sensitron');
   await mockActiveEmoteSet(page, 'sensitron');
   await page.route(
     (url) => url.pathname === '/api/channels/sensitron/emotes/set-warning',
     (route) =>
-      json(route, 200, { available: true, isOwnSet: true, otherTrackedChannelsSharingSet: [], otherModeratedChannelsSharingSet: [] }),
+      json(route, 200, {
+        available: true,
+        isOwnSet: true,
+        otherTrackedChannelsSharingSet: [],
+        otherModeratedChannelsSharingSet: [],
+      }),
   );
 }
 
@@ -199,7 +222,12 @@ function mockMyVotings(page: Page, sessions: ReturnType<typeof myVoteSessions>):
 const TYPICAL_CHANNELS: MockChannel[] = [
   { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
   { channelName: 'handofblood', isModerator: true, isTracked: true, isBotActive: true },
-  { channelName: 'superlangertwitchchannelx', isModerator: true, isTracked: true, isBotActive: false },
+  {
+    channelName: 'superlangertwitchchannelx',
+    isModerator: true,
+    isTracked: true,
+    isBotActive: false,
+  },
   { channelName: 'untrackedbuddy', isSevenTvEditor: true, isTracked: false, isBotActive: false },
 ];
 
@@ -262,24 +290,80 @@ const SCENARIOS: Scenario[] = [
     setup: async (page) => {
       await mockAuthMe(page, AUTH_USER);
       await mockWorkerHealth(page, 'disconnected');
-      await mockAdminChannels(page, 'forbidden');
       await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
     },
   },
+  // The global channel list moved out of the overview into /admin/channels — these three replace the
+  // former `overview-admin` scenario.
   {
-    slug: 'overview-admin',
-    path: '/',
+    slug: 'admin-monitoring',
+    path: '/admin/monitoring',
     setup: async (page) => {
-      await mockAuthMe(page, AUTH_USER);
-      await mockWorkerHealth(page, 'connected');
-      await mockAdminChannels(
+      await adminShell(page);
+      await mockAdminHealth(page);
+    },
+  },
+  {
+    slug: 'admin-monitoring-degraded',
+    path: '/admin/monitoring',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAdminHealth(page, {
+        status: 'stale',
+        isConnected: false,
+        secondsSinceLastMessage: 4212,
+        sevenTv: { status: 'disconnected', connected: false, unacknowledgedCount: 3 },
+        flush: { consecutiveFailures: 5, pendingEmoteCount: 1843 },
+      });
+    },
+  },
+  {
+    slug: 'admin-channels',
+    path: '/admin/channels',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAdminChannelList(
         page,
         Array.from({ length: 10 }, (_, i) => ({
           channelName: i === 3 ? 'superlangertwitchchannelx' : `channel${i + 1}`,
           isBotActive: i % 3 !== 0,
+          emoteCount: 87 * (i + 1),
+          archivedEmoteCount: 3 * i,
+          activeVoteSessionCount: i % 4 === 0 ? 1 : 0,
+          voteSessionCount: i % 2,
+          lastSyncedAtUtc: i === 5 ? null : '2026-07-31T11:45:00Z',
         })),
       );
-      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+    },
+  },
+  {
+    slug: 'admin-channels-empty',
+    path: '/admin/channels',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAdminChannelList(page, []);
+    },
+  },
+  {
+    slug: 'admin-audit-log',
+    path: '/admin/audit-log',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAuditLog(
+        page,
+        {
+          1: Array.from({ length: 25 }, (_, i) => ({
+            id: 100 - i,
+            action: ['channel.join', 'channel.leave', 'channel.purge', 'vote-session.create'][
+              i % 4
+            ],
+            channelName: i % 3 === 0 ? 'superlangertwitchchannelx' : 'sensitron',
+            targetType: i % 4 === 3 ? 'VoteSession' : 'Channel',
+            targetId: String(i + 1),
+          })),
+        },
+        63,
+      );
     },
   },
   {
@@ -412,7 +496,9 @@ async function collectMetrics(page: Page) {
     const vw = window.innerWidth;
     const doc = document.documentElement;
     const interactive = Array.from(
-      document.querySelectorAll<HTMLElement>('a,button,input,select,textarea,[role="button"],[role="link"]'),
+      document.querySelectorAll<HTMLElement>(
+        'a,button,input,select,textarea,[role="button"],[role="link"]',
+      ),
     )
       .map((el) => {
         const r = el.getBoundingClientRect();
@@ -458,7 +544,14 @@ for (const vp of VIEWPORTS) {
       const base = `${sc.slug}--${vp.name}--${locale}`;
       await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: true });
       const metrics = await collectMetrics(page);
-      fs.writeFileSync(path.join(OUT, 'metrics', `${base}.json`), JSON.stringify({ scenario: sc.slug, viewport: vp.name, locale, url: sc.path, ...metrics }, null, 2));
+      fs.writeFileSync(
+        path.join(OUT, 'metrics', `${base}.json`),
+        JSON.stringify(
+          { scenario: sc.slug, viewport: vp.name, locale, url: sc.path, ...metrics },
+          null,
+          2,
+        ),
+      );
     });
   }
 }

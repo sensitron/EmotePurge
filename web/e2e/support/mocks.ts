@@ -146,29 +146,6 @@ export async function mockMyChannels(page: Page, channels: MockChannel[]): Promi
   );
 }
 
-/** GET /api/channels — admin-only global channel list; 403 for everyone else. */
-export async function mockAdminChannels(
-  page: Page,
-  channels: MockChannel[] | 'forbidden',
-): Promise<void> {
-  await page.route('**/api/channels', (route) => {
-    if (channels === 'forbidden') {
-      return route.fulfill({ status: 403 });
-    }
-    return fulfillJson(
-      route,
-      200,
-      channels.map((c, i) => ({
-        channelId: String(i + 1),
-        channelName: c.channelName,
-        isBotActive: c.isBotActive ?? false,
-        twitchChannelId: null,
-        createdAt: '2026-01-01T00:00:00Z',
-      })),
-    );
-  });
-}
-
 export interface MockAdminChannel {
   channelName: string;
   twitchChannelId?: string | null;
@@ -182,9 +159,8 @@ export interface MockAdminChannel {
 }
 
 /**
- * GET /api/admin/channels — the admin channel page's aggregate list. Distinct from
- * `mockAdminChannels` above, which stubs the older, narrower GET /api/channels used by the overview
- * section; both exist at the same time and must not shadow each other.
+ * GET /api/admin/channels — the admin channel page's aggregate list, and since the overview's admin
+ * section was removed the only global channel list in the app.
  */
 export async function mockAdminChannelList(
   page: Page,

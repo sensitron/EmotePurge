@@ -3,7 +3,6 @@ import { expect, test } from '@playwright/test';
 import {
   AUTH_USER,
   mockActiveEmoteSet,
-  mockAdminChannels,
   mockAuthMe,
   mockChannelPermissions,
   mockChannelStatus,
@@ -16,11 +15,14 @@ test.describe('authenticated broadcaster', () => {
   test.beforeEach(async ({ page }) => {
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page, 'connected');
-    await mockAdminChannels(page, 'forbidden');
   });
 
-  test('sees their display name and logout button in the header on the overview', async ({ page }) => {
-    await mockMyChannels(page, [{ channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true }]);
+  test('sees their display name and logout button in the header on the overview', async ({
+    page,
+  }) => {
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
 
     await page.goto('/');
 
@@ -31,12 +33,20 @@ test.describe('authenticated broadcaster', () => {
   });
 
   test('opens a tracked channel from the overview and sees its usage stats', async ({ page }) => {
-    await mockMyChannels(page, [{ channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true }]);
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
     await mockChannelPermissions(page, 'sensitron');
     await mockChannelStatus(page, 'sensitron');
     await mockActiveEmoteSet(page, 'sensitron');
     await mockUsageTotals(page, 'sensitron', [
-      { emoteId: 'e1', emoteName: 'PogU', sevenTvEmoteId: '7tv-1', imageUrl: 'https://cdn.7tv.app/emote/1/1x.webp', totalUseCount: 42 },
+      {
+        emoteId: 'e1',
+        emoteName: 'PogU',
+        sevenTvEmoteId: '7tv-1',
+        imageUrl: 'https://cdn.7tv.app/emote/1/1x.webp',
+        totalUseCount: 42,
+      },
     ]);
 
     await page.goto('/');

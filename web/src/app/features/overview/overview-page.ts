@@ -1,11 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { AdminChannelDto, MyChannelDto } from '../../core/channels/channel.model';
+import { MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { WorkerHealthService } from '../../core/health/worker-health.service';
@@ -15,22 +14,9 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge } from '../../shared/ui/status-badge';
 
-// Case-insensitive: the backend lowercases the value before matching its own (case-sensitive)
-// pattern, but Twitch channel names are commonly typed/displayed with capitals (e.g. "HandOfBlood").
-const CHANNEL_NAME_PATTERN = /^[a-zA-Z0-9_]{4,25}$/;
-
 @Component({
   selector: 'app-overview-page',
-  imports: [
-    Button,
-    EmptyState,
-    NoticeBanner,
-    ReactiveFormsModule,
-    RouterLink,
-    SkeletonRows,
-    StatusBadge,
-    TranslocoPipe,
-  ],
+  imports: [Button, EmptyState, NoticeBanner, RouterLink, SkeletonRows, StatusBadge, TranslocoPipe],
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
@@ -49,12 +35,7 @@ export class OverviewPage {
   protected readonly helixUnavailable = signal(false);
   protected readonly reauthRequired = signal(false);
   protected readonly sevenTvUnavailable = signal(false);
-  protected readonly adminChannels = signal<AdminChannelDto[] | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
-  protected readonly channelNameControl = new FormControl('', {
-    nonNullable: true,
-    validators: [Validators.required, Validators.pattern(CHANNEL_NAME_PATTERN)],
-  });
 
   constructor() {
     this.channelService.listMine().subscribe({
@@ -66,12 +47,6 @@ export class OverviewPage {
       },
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
-
-    this.channelService.listAll().subscribe({
-      next: (channels) => this.adminChannels.set(channels),
-      // 403 = not a global admin — the expected case for most users, not an error to surface.
-      error: () => this.adminChannels.set(null),
-    });
   }
 
   protected join(channelName: string): void {
@@ -81,7 +56,7 @@ export class OverviewPage {
     });
   }
 
-  // Same call as join(), but stays on the overview and flips the row in place — the admin is likely
+  // Same call as join(), but stays on the overview and flips the row in place — someone is likely
   // reactivating one of several channels, and being navigated away after each one is in the way.
   protected reactivate(channelName: string): void {
     this.channelService.join(channelName).subscribe({
@@ -92,28 +67,9 @@ export class OverviewPage {
               c.channelName === channelName ? { ...c, isTracked: true, isBotActive: true } : c,
             ) ?? null,
         );
-        this.adminChannels.update(
-          (channels) =>
-            channels?.map((c) =>
-              c.channelName === channelName ? { ...c, isBotActive: true } : c,
-            ) ?? null,
-        );
       },
       error: (error: HttpErrorResponse) => this.handleError(error),
     });
-  }
-
-  protected onAddChannelSubmit(event: Event): void {
-    event.preventDefault();
-
-    if (this.channelNameControl.invalid) {
-      this.channelNameControl.markAsTouched();
-      return;
-    }
-
-    const channelName = this.channelNameControl.value.trim().toLowerCase();
-    this.channelNameControl.reset('');
-    this.join(channelName);
   }
 
   protected openChannel(channelName: string): void {

@@ -3,7 +3,6 @@ import { expect, test } from '@playwright/test';
 import {
   AUTH_USER,
   mockAdminChannelList,
-  mockAdminChannels,
   mockAuthMe,
   mockMyChannels,
   mockPurge,
@@ -105,7 +104,6 @@ test.describe('non-admin', () => {
     await mockAuthMe(page, AUTH_USER); // isGlobalAdmin: false
     await mockWorkerHealth(page, 'connected');
     await mockMyChannels(page, []);
-    await mockAdminChannels(page, 'forbidden');
 
     await page.goto('/admin/channels');
 

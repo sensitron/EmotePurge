@@ -13,9 +13,9 @@ namespace EmotePurge.Api.Validation;
 /// type. See conflict Z4 in the review.
 /// </para>
 /// <para>
-/// Groups may legitimately contain endpoints without that route value (e.g. <c>GET /api/channels</c>
-/// and <c>GET /api/channels/mine</c> under the <c>/api/channels</c> group). Those pass through
-/// untouched — this filter validates a value when there is one, it does not require one.
+/// Groups may legitimately contain endpoints without that route value (e.g. <c>GET
+/// /api/channels/mine</c> under the <c>/api/channels</c> group). Those pass through untouched —
+/// this filter validates a value when there is one, it does not require one.
 /// </para>
 /// </summary>
 public class ChannelNameValidationFilter : IEndpointFilter

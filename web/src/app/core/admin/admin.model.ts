@@ -49,9 +49,6 @@ export interface AdminHealth {
  * One row of GET /api/admin/channels. Counts come in total/subset pairs — `emoteCount` and
  * `voteSessionCount` are the full counts, `archivedEmoteCount`/`activeVoteSessionCount` the subsets
  * — so the page renders "12 (3 archiviert)" without doing arithmetic the server didn't sanction.
- *
- * Named `AdminChannel`, not `AdminChannelDto`: that name is already taken in
- * `core/channels/channel.model.ts` by the narrower GET /api/channels row.
  */
 export interface AdminChannel {
   channelName: string;

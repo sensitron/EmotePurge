@@ -17,8 +17,8 @@ export class AdminService {
     return this.http.get<AdminHealth>('/api/admin/health');
   }
 
-  /** Every tracked channel with its emote/vote-session aggregates. Superset of the older
-   *  ChannelService.listAll() (GET /api/channels), which the overview section still uses. */
+  /** Every tracked channel with its emote/vote-session aggregates. The single global channel list
+   *  since the overview's admin section (GET /api/channels) was removed. */
   listChannels(): Observable<AdminChannel[]> {
     return this.http.get<AdminChannel[]>('/api/admin/channels');
   }

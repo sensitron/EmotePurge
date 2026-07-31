@@ -2,12 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import {
-  AdminChannelDto,
-  ChannelPermissions,
-  ChannelStatus,
-  MyChannelsResult,
-} from './channel.model';
+import { ChannelPermissions, ChannelStatus, MyChannelsResult } from './channel.model';
 
 @Injectable({ providedIn: 'root' })
 export class ChannelService {
@@ -41,11 +36,6 @@ export class ChannelService {
    */
   purge(channelName: string): Observable<void> {
     return this.http.delete<void>(`/api/channels/${channelName}/purge`);
-  }
-
-  /** Admin-only — 403s for everyone else, which callers treat as "hide the admin section". */
-  listAll(): Observable<AdminChannelDto[]> {
-    return this.http.get<AdminChannelDto[]>('/api/channels');
   }
 
   listMine(): Observable<MyChannelsResult> {

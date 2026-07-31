@@ -3,12 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  AdminChannelDto,
-  ChannelPermissions,
-  ChannelStatus,
-  MyChannelsResult,
-} from './channel.model';
+import { ChannelPermissions, ChannelStatus, MyChannelsResult } from './channel.model';
 import { ChannelService } from './channel.service';
 
 describe('ChannelService', () => {
@@ -89,15 +84,6 @@ describe('ChannelService', () => {
     const req = httpMock.expectOne('/api/channels/sensitron/purge');
     expect(req.request.method).toBe('DELETE');
     req.flush(null);
-  });
-
-  it('listAll GETs /api/channels', () => {
-    const dtos: AdminChannelDto[] = [];
-    service.listAll().subscribe();
-
-    const req = httpMock.expectOne('/api/channels');
-    expect(req.request.method).toBe('GET');
-    req.flush(dtos);
   });
 
   it('listMine GETs /api/channels/mine', () => {

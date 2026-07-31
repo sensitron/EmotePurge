@@ -19,7 +19,4 @@ public interface IChannelService
     Task<bool> PurgeAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default);
 
     Task<Channel?> GetByNameAsync(string channelName, CancellationToken cancellationToken = default);
-
-    // Admin-only overview — no filtering/paging (channel count is expected to stay small).
-    Task<IReadOnlyList<Channel>> ListAllAsync(CancellationToken cancellationToken = default);
 }

@@ -122,15 +122,7 @@
     "open": "Öffnen",
     "add": "Hinzufügen",
     "reactivate": "Bot reaktivieren",
-    "notTrackedYet": "Noch nicht getrackt — ein Mod muss den Bot zuerst hinzufügen.",
-    "admin": {
-      "title": "Alle Channels (Admin)",
-      "addChannel": "Channel hinzufügen",
-      "channelNamePlaceholder": "twitch-channel-name",
-      "invalidChannelName": "Ungültiger Channel-Name (4–25 Zeichen, Buchstaben/Ziffern/Unterstrich).",
-      "noChannelsTracked": "Keine Channels getrackt.",
-      "noChannelsTrackedHint": "Füge oben einen Twitch-Channel hinzu, damit der Bot seinen Chat beobachtet."
-    }
+    "notTrackedYet": "Noch nicht getrackt — ein Mod muss den Bot zuerst hinzufügen."
   },
   "channelWorkspace": {
     "backToOverview": "Übersicht",

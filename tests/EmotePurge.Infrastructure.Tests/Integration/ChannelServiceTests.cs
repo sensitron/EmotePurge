@@ -42,8 +42,8 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var second = await service.JoinAsync("channelservicetest2", Actor);
 
         Assert.Equal(first.Id, second.Id);
-        var all = await service.ListAllAsync();
-        Assert.Single(all, c => c.ChannelName == "channelservicetest2");
+        var rows = await db.Channels.AsNoTracking().Where(c => c.ChannelName == "channelservicetest2").ToListAsync();
+        Assert.Single(rows);
     }
 
     [Fact]

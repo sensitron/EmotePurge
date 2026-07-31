@@ -10,8 +10,8 @@ public static class ChannelEndpoints
     {
         // The validation filter comes first so a malformed name is a 400 with invalid_channel_name
         // before any authorization filter runs — that filter order *is* the error contract (see Z4).
-        // Two endpoints in this group have no channelName at all ("" and "/mine"); the filter lets
-        // those through untouched.
+        // One endpoint in this group has no channelName at all ("/mine"); the filter lets it through
+        // untouched.
         var group = app.MapGroup("/api/channels")
             .RequireAuthorization()
             .AddEndpointFilter<ChannelNameValidationFilter>();
@@ -64,22 +64,6 @@ public static class ChannelEndpoints
         // Both access checks can reach Helix or 7TV on a cache miss, same reasoning as the
         // usage-stats group.
         .RequireRateLimiting("ExternalApi");
-
-        group.MapGet("", async (
-            IChannelService channelService,
-            CancellationToken ct) =>
-        {
-            var channels = await channelService.ListAllAsync(ct);
-            return Results.Ok(channels.Select(c => new
-            {
-                channelId = c.Id,
-                channelName = c.ChannelName,
-                c.IsBotActive,
-                c.TwitchChannelId,
-                c.CreatedAt
-            }));
-        })
-        .AddEndpointFilter<GlobalAdminAuthorizationFilter>();
 
         group.MapGet("/mine", async (
             HttpContext httpContext,

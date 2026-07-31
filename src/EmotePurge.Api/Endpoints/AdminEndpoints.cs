@@ -96,9 +96,8 @@ public static class AdminEndpoints
 
         group.MapGet("/channels", async (IAdminChannelQueryService channelQueryService, CancellationToken ct) =>
         {
-            // Superset of the pre-existing GET /api/channels (which the overview section still uses):
-            // same rows plus the emote/vote-session aggregates the admin channel page shows. The old
-            // endpoint stays as it is — it is a different, narrower contract with its own caller.
+            // The single global channel list since 2026-07-31: it replaced the narrower
+            // GET /api/channels of the overview's admin section, which was removed with that section.
             var channels = await channelQueryService.ListAsync(ct);
             return Results.Ok(channels);
         });
