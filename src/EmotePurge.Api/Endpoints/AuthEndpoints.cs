@@ -102,7 +102,13 @@ public static class AuthEndpoints
                     DateTime.UtcNow.AddSeconds(1).ToString("O", CultureInfo.InvariantCulture))
             };
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-            await httpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(identity));
+            // Without IsPersistent the cookie carries no Max-Age and dies with the browser session,
+            // silently capping every login at "until the browser closes" instead of the configured
+            // 14-day sliding expiration.
+            await httpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(identity),
+                new AuthenticationProperties { IsPersistent = true });
 
             var postLoginRedirectUrl = configuration["Auth:Twitch:PostLoginRedirectUrl"] ?? "/";
             return Results.Redirect(postLoginRedirectUrl);

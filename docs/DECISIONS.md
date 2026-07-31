@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-07-31 — Auth-Cookie persistent (`IsPersistent = true`): Sessions überleben den Browser-Neustart
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/AuthEndpoints.cs`
+
+**Live-Befund 2026-07-31: erzwungener Re-Login am Morgen, obwohl der Twitch-Refresh-Token-Flow seit dem 2026-07-30 läuft.** Untersuchung ergab: weder der Refresh-Flow (kein einziger seiner Fehlerpfade invalidiert die Cookie-Session — `invalid_grant` löscht nur die Token-Spalten und setzt `ReauthRequired`) noch der Data-Protection-Keyring (Volume `dataprotection-keys` + `DataProtection__KeyPath=/keys` in Prod verifiziert) waren die Ursache. Tatsächlich wurde `SignInAsync` ohne `AuthenticationProperties` aufgerufen — damit sendet ASP.NET Core das Auth-Cookie **ohne `Expires`/`Max-Age`** als reines Browser-Session-Cookie, und die konfigurierten 14 Tage `ExpireTimeSpan` + `SlidingExpiration` galten nur für das *Ticket im Cookie*, nie für dessen Ablage im Browser: Browser zu, Session weg. Jetzt wird mit `IsPersistent = true` angemeldet; das Cookie trägt die 14-Tage-Lebensdauer und überlebt den Browser-Neustart. Der Mechanismus zum serverseitigen Beenden von Sessions bleibt unverändert die `SessionsValidFromUtc`-Revocation aus dem Session-Hardening (Logout wirkt weiterhin global pro Nutzer). Live verifiziert: Login → Browser komplett schließen → wieder öffnen → Session besteht.
+
 ### 2026-07-31 — Visual Refresh „Landing-Qualität in die App": `.app-card`(-interactive), Marken-Glow, Typo-Hierarchie, Skeletons statt Lade-Texte
 
 **Betrifft:** `web/src/styles.css` · `web/src/app/shared/ui/skeleton-rows.ts` · `web/src/app/shared/ui/empty-state.ts` · `web/src/app/features/shell/app-shell.ts` · `web/src/app/features/login/login-page.ts` · alle Feature-Seiten
