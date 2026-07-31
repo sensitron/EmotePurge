@@ -7,11 +7,15 @@
           {{
             (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco
           }}
-          ·
-          {{ 'voting.detail.usageSince' | transloco }}
-          {{ formatDateTime(session.startedAt) }}
-          @if (session.endedAt) {
-            {{ 'usageStats.dateRangeTo' | transloco }} {{ formatDateTime(session.endedAt) }}
+          <!-- The usage window only means something to those who see usage figures at all —
+               gated like the card stats and the min/max/unused filters. -->
+          @if (canSeeUsage()) {
+            ·
+            {{ 'voting.detail.usageSince' | transloco }}
+            {{ formatDateTime(session.startedAt) }}
+            @if (session.endedAt) {
+              {{ 'usageStats.dateRangeTo' | transloco }} {{ formatDateTime(session.endedAt) }}
+            }
           }
         </p>
       </div>
@@ -23,24 +27,29 @@
 
   <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
   <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
-    <input
-      type="number"
-      min="0"
-      [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
-      [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
-      [value]="usageFilter.min() ?? ''"
-      (change)="usageFilter.setMinCount($any($event.target).value)"
-      class="app-input-sm w-20"
-    />
-    <input
-      type="number"
-      min="0"
-      [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
-      [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
-      [value]="usageFilter.max() ?? ''"
-      (change)="usageFilter.setMaxCount($any($event.target).value)"
-      class="app-input-sm w-20"
-    />
+    <!-- Min/Max/unused filter on usage counts, which the server zeroes for non-managers — for them
+         these three controls would filter on meaningless data ("unused" matches everything), so
+         they are gated like the usage figure on the cards. The name filter works for everyone. -->
+    @if (canSeeUsage()) {
+      <input
+        type="number"
+        min="0"
+        [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
+        [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
+        [value]="usageFilter.min() ?? ''"
+        (change)="usageFilter.setMinCount($any($event.target).value)"
+        class="app-input-sm w-20"
+      />
+      <input
+        type="number"
+        min="0"
+        [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
+        [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
+        [value]="usageFilter.max() ?? ''"
+        (change)="usageFilter.setMaxCount($any($event.target).value)"
+        class="app-input-sm w-20"
+      />
+    }
     <input
       type="text"
       [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
@@ -50,20 +59,22 @@
       (input)="usageFilter.setNameFilter($any($event.target).value)"
       class="app-input-sm w-40"
     />
-    <!-- Constant label + pressed state instead of swapping the text — see usage-stats toolbar. -->
-    <button
-      type="button"
-      class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-      [class]="
-        usageFilter.isUnusedActive()
-          ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
-          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-      "
-      [attr.aria-pressed]="usageFilter.isUnusedActive()"
-      (click)="usageFilter.toggleUnused()"
-    >
-      {{ 'usageStats.showUnusedOnly' | transloco }}
-    </button>
+    @if (canSeeUsage()) {
+      <!-- Constant label + pressed state instead of swapping the text — see usage-stats toolbar. -->
+      <button
+        type="button"
+        class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
+        [class]="
+          usageFilter.isUnusedActive()
+            ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
+            : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+        "
+        [attr.aria-pressed]="usageFilter.isUnusedActive()"
+        (click)="usageFilter.toggleUnused()"
+      >
+        {{ 'usageStats.showUnusedOnly' | transloco }}
+      </button>
+    }
   </div>
   <p class="text-sm text-slate-400" role="status">
     {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}
@@ -144,16 +155,22 @@
                 class="max-h-10 max-w-10 object-contain"
               />
             </div>
-            <span
-              class="truncate text-sm font-medium text-slate-200"
-              [attr.title]="statsTitle(emote)"
-              >{{ emote.totalUseCount }}x
-              <span class="text-xs font-normal text-slate-400"
-                >{{ 'usageStats.usageLabel' | transloco }} ·
-                {{ 'voting.detail.scoreLabel' | transloco }}
-                {{ formatScore(emote.score) }}</span
-              ></span
-            >
+            <!-- Two stacked lines rather than one: side by side, the score ellipsized away on a
+                 narrow card. Both are text-xs/leading-tight (15px each), which keeps the pair
+                 inside the h-44 card contract that ROW_HEIGHT_PX budgets for — see the arithmetic
+                 next to that constant. The usage line only renders for a viewer the API actually
+                 reports it to (canSeeUsage); everyone else gets a plain 0 from the server, which
+                 as a rendered "0x Nutzung" claimed every emote was unused. -->
+            <div class="flex flex-col leading-tight" [attr.title]="statsTitle(emote)">
+              @if (canSeeUsage()) {
+                <span class="truncate text-xs font-medium text-slate-200"
+                  >{{ emote.totalUseCount }}x {{ 'usageStats.usageLabel' | transloco }}</span
+                >
+              }
+              <span class="truncate text-xs text-slate-400"
+                >{{ 'voting.detail.scoreLabel' | transloco }} {{ formatScore(emote.score) }}</span
+              >
+            </div>
             <!-- Below sm the buttons sit side by side, icon-centred without label — two stacked
                  full-width rows made the mobile card taller than the desktop one. gap-4 keeps the
                  two 44px targets far enough apart that a thumb can't hit the wrong one. -->

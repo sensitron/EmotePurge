@@ -6,6 +6,7 @@ import { Page, test } from '@playwright/test';
 import {
   AUTH_USER,
   MockChannel,
+  installLiveStub,
   mockActiveEmoteSet,
   mockAdminChannelList,
   mockAdminHealth,
@@ -507,6 +508,18 @@ const SCENARIOS: Scenario[] = [
       await mockVoteResults(page, 5, false);
     },
   },
+  {
+    // The card without its usage line: the results endpoint only reports TotalUseCount to a
+    // manager and sends a plain 0 to everyone else, so a voter must see the score alone rather
+    // than a fabricated "0x Nutzung" on every emote.
+    slug: 'vote-detail-voter-only',
+    path: '/channels/sensitron/vote-sessions/5',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page, { canManage: false });
+      await mockVoteResults(page, 5, true);
+    },
+  },
 ];
 
 // --- metrics ---------------------------------------------------------------
@@ -556,6 +569,9 @@ for (const vp of VIEWPORTS) {
 
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await stubSevenTvCdn(page);
+      // Mandatory here, not just nice to have: a live EventSource keeps the network busy forever,
+      // so the waitForLoadState('networkidle') below would never resolve.
+      await installLiveStub(page);
       await sc.setup(page);
       await page.goto(sc.path);
       await page.waitForLoadState('networkidle');

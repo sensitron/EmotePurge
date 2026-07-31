@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import {
   AUTH_USER,
+  installLiveStub,
   mockActiveEmoteSet,
   mockAuthMe,
   mockChannelPermissions,
@@ -15,6 +16,9 @@ test.describe('authenticated broadcaster', () => {
   test.beforeEach(async ({ page }) => {
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page, 'connected');
+    // The usage-stats page opens /api/channels/{name}/live on mount; without the stub it would
+    // reconnect-loop against a route no mock serves.
+    await installLiveStub(page);
   });
 
   test('sees their display name and logout button in the header on the overview', async ({

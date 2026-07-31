@@ -1,11 +1,11 @@
 import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { Observable } from 'rxjs';
+import { Observable, filter } from 'rxjs';
 
 import { AdminChannel } from '../../core/admin/admin.model';
 import { AdminService } from '../../core/admin/admin.service';
@@ -14,6 +14,8 @@ import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
+import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
+import { LiveUpdateService } from '../../core/live/live-update.service';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
@@ -29,6 +31,9 @@ const NO_VALUE = '—';
 /** How long the "resync queued" hint stays on the row. Longer than the copy-link feedback (2 s)
  *  because it confirms a request that left the browser, not a local clipboard write. */
 const RESYNC_FEEDBACK_MS = 4000;
+
+const RESYNC_QUEUED_KEY = 'admin.channels.resync.queued';
+const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
 
 /**
  * Every tracked channel with its aggregates, plus the three write actions an admin has over one:
@@ -99,7 +104,7 @@ const RESYNC_FEEDBACK_MS = 4000;
         <app-notice-banner variant="error">{{ error | transloco }}</app-notice-banner>
       }
 
-      @if (isLoading()) {
+      @if (showSkeleton()) {
         <app-skeleton-rows [count]="3" />
       } @else if (channels().length === 0) {
         <app-empty-state
@@ -128,10 +133,10 @@ const RESYNC_FEEDBACK_MS = 4000;
                 <div class="relative z-10 ml-auto flex flex-wrap items-center justify-end gap-2">
                   @if (resyncFeedback() === channel.channelName) {
                     <!-- Transient inline confirmation, same pattern as the vote-session list's copy
-                         feedback: a 202 means "queued", and there is no row field that would change
-                         to show it happened. -->
+                         feedback: a 202 only means "queued". The live stream upgrades the wording to
+                         "completed" once the worker actually reports the sync back. -->
                     <span role="status" class="text-xs text-emerald-400">
-                      {{ 'admin.channels.resync.queued' | transloco }}
+                      {{ resyncFeedbackKey() | transloco }}
                     </span>
                   }
                   @if (!channel.isBotActive) {
@@ -225,14 +230,27 @@ export class AdminChannelsPage {
   private readonly dialog = inject(Dialog);
   private readonly languageService = inject(LanguageService);
   private readonly translocoService = inject(TranslocoService);
+  private readonly liveUpdateService = inject(LiveUpdateService);
 
   private readonly channelsResource = rxResource({
     stream: () => this.adminService.listChannels(),
     defaultValue: NO_CHANNELS,
   });
 
-  protected readonly channels = computed(() => this.channelsResource.value());
+  // value() throws once the resource is in its error state, so it is only ever read behind
+  // hasValue() — the error banner renders from error() instead.
+  protected readonly channels = computed(() =>
+    this.channelsResource.hasValue() ? this.channelsResource.value() : NO_CHANNELS,
+  );
+
+  /** Drives the refresh button's disabled state only — never a content swap. */
   protected readonly isLoading = computed(() => this.channelsResource.isLoading());
+
+  // Skeleton on the *first* load only — same reasoning as admin-monitoring-page.ts. Here the push
+  // is `channel.synced`, which arrives on every periodic 7TV resync, so the list would blank out
+  // under an admin's cursor without this. Note that hasValue() cannot carry this decision: the
+  // resource has a defaultValue, so it reports a value from the very first frame.
+  protected readonly showSkeleton = computed(() => this.channelsResource.status() === 'loading');
 
   /** Blocks a second click on the row an action is already running against — a double-fired purge
    *  would otherwise come back as a 404 and read as an error the admin did not cause. */
@@ -241,6 +259,10 @@ export class AdminChannelsPage {
   /** Name of the channel whose resync was just accepted, or null. A 202 changes nothing visible on
    *  the row, so this transient hint is the only proof the click did anything. */
   protected readonly resyncFeedback = signal<string | null>(null);
+
+  /** Which wording the hint currently shows: "queued" right after the 202, upgraded to "completed"
+   *  when the worker's `channel.synced` push for that very channel arrives. */
+  protected readonly resyncFeedbackKey = signal(RESYNC_QUEUED_KEY);
   private resyncFeedbackTimeout?: ReturnType<typeof setTimeout>;
 
   // Kept separate from the resource's own error so a failed action is not wiped out by the reload
@@ -262,6 +284,25 @@ export class AdminChannelsPage {
     nonNullable: true,
     validators: [channelNameValidator],
   });
+
+  constructor() {
+    // A sync finished somewhere: the aggregates on every row can have moved (emote/archived counts,
+    // lastSyncedAtUtc), so reload unconditionally. If it is the channel this admin just resynced,
+    // the hint stops guessing and states the fact — that is what replaces the setTimeout as the
+    // source of truth. The timeout stays as the cleanup fallback for when no push ever arrives.
+    this.liveUpdateService
+      .stream(ADMIN_LIVE_URL)
+      .pipe(
+        filter((event) => event.type === LIVE_EVENT_TYPES.channelSynced),
+        takeUntilDestroyed(),
+      )
+      .subscribe((event) => {
+        this.channelsResource.reload();
+        if (event.channel && event.channel === this.resyncFeedback()) {
+          this.showResyncFeedback(event.channel, RESYNC_COMPLETED_KEY);
+        }
+      });
+  }
 
   protected reload(): void {
     this.channelsResource.reload();
@@ -297,18 +338,25 @@ export class AdminChannelsPage {
     this.adminService.resyncChannel(channelName).subscribe({
       next: () => {
         this.pendingChannel.set(null);
-        clearTimeout(this.resyncFeedbackTimeout);
-        this.resyncFeedback.set(channelName);
-        this.resyncFeedbackTimeout = setTimeout(
-          () => this.resyncFeedback.set(null),
-          RESYNC_FEEDBACK_MS,
-        );
+        this.showResyncFeedback(channelName, RESYNC_QUEUED_KEY);
       },
       error: (error: HttpErrorResponse) => {
         this.pendingChannel.set(null);
         this.actionError.set(apiErrorTranslationKey(error));
       },
     });
+  }
+
+  /** Shows the transient hint on `channelName` and restarts its removal timer — so the upgrade to
+   *  "completed" gets its own full display window instead of inheriting the queued one's remainder. */
+  private showResyncFeedback(channelName: string, messageKey: string): void {
+    clearTimeout(this.resyncFeedbackTimeout);
+    this.resyncFeedback.set(channelName);
+    this.resyncFeedbackKey.set(messageKey);
+    this.resyncFeedbackTimeout = setTimeout(
+      () => this.resyncFeedback.set(null),
+      RESYNC_FEEDBACK_MS,
+    );
   }
 
   protected confirmPurge(channel: AdminChannel): void {

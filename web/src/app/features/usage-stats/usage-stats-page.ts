@@ -1,11 +1,25 @@
 import { NgOptimizedImage } from '@angular/common';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { Subscription, catchError, first, map, of, switchMap, take, timer } from 'rxjs';
+import {
+  Subscription,
+  catchError,
+  debounceTime,
+  filter,
+  first,
+  map,
+  of,
+  switchMap,
+  take,
+  timer,
+} from 'rxjs';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { pluralKey } from '../../core/i18n/plural';
+import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
+import { LiveUpdateService } from '../../core/live/live-update.service';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import { DateRangePopover } from '../../shared/datetime/date-range-popover';
@@ -34,6 +48,11 @@ const ROW_HEIGHT_PX = 128;
 // takes one or two, with headroom for a slow 7TV.
 const SYNC_POLL_INTERVAL_MS = 2000;
 const SYNC_POLL_MAX_ATTEMPTS = 15;
+
+// The worker flushes chat usage in 30-second batches, so pushes arrive in bursts rather than
+// continuously. One second of debounce merges a burst (several channels' flushes land in the same
+// tick) into a single refetch without making the update feel delayed.
+const LIVE_RELOAD_DEBOUNCE_MS = 1000;
 
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -69,6 +88,12 @@ export class UsageStatsPage {
 
   private readonly usageStatService = inject(UsageStatService);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  private readonly liveUpdateService = inject(LiveUpdateService);
+
+  // A computed, not a field read in the constructor: channelName is a required input and reading it
+  // during construction throws NG0950. computed() is lazy, so the first read happens inside the
+  // toObservable effect below, by which time the input is set.
+  private readonly liveUrl = computed(() => channelLiveUrl(this.channelName()));
 
   protected readonly rowHeight = ROW_HEIGHT_PX;
   protected readonly columns = signal(computeGridColumns(window.innerWidth));
@@ -139,6 +164,24 @@ export class UsageStatsPage {
       this.load(this.channelName(), this.from(), this.to());
     });
     this.destroyRef.onDestroy(() => this.syncPoll?.unsubscribe());
+
+    // Live refresh after the worker's usage flush. switchMap closes the previous channel's stream
+    // when the route parameter changes, so there is never more than one open connection per page.
+    // The reload is deliberately quiet: neither the selection nor the skeleton may move under a
+    // user who did not ask for anything — this update arrives unrequested.
+    toObservable(this.liveUrl)
+      .pipe(
+        switchMap((url) => this.liveUpdateService.stream(url)),
+        filter((event) => event.type === LIVE_EVENT_TYPES.usageFlushed),
+        debounceTime(LIVE_RELOAD_DEBOUNCE_MS),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() =>
+        this.loadTotals(this.channelName(), this.from(), this.to(), {
+          preserveSelection: true,
+          silent: true,
+        }),
+      );
   }
 
   protected updateColumns(): void {
@@ -234,7 +277,18 @@ export class UsageStatsPage {
       });
   }
 
-  private loadTotals(channelName: string, from: string, to: string): void {
+  /**
+   * `preserveSelection` and `silent` are what separates a user-triggered load from a pushed one:
+   * a live update must not throw away a half-built delete selection, and must not flash the
+   * skeleton over numbers the user is currently reading. Both default to the loud behaviour, so
+   * every existing caller (initial load, refresh button, sync poll) is unchanged.
+   */
+  private loadTotals(
+    channelName: string,
+    from: string,
+    to: string,
+    options: { preserveSelection?: boolean; silent?: boolean } = {},
+  ): void {
     this.usageStatService.getTotals(channelName, from, to).subscribe({
       next: (emotes) => {
         this.emotes.set(emotes);
@@ -242,14 +296,20 @@ export class UsageStatsPage {
         // channel or date-range change, where the existing selection was made against different
         // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
         // over would be its own deliberate feature, not a by-product of the keying.
-        this.selection.clear();
-        this.isLoading.set(false);
+        if (!options.preserveSelection) {
+          this.selection.clear();
+        }
+        if (!options.silent) {
+          this.isLoading.set(false);
+        }
       },
       // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
       // /api/ call in the app.
       error: () => {
         this.errorMessage.set('usageStats.errors.loadFailed');
-        this.isLoading.set(false);
+        if (!options.silent) {
+          this.isLoading.set(false);
+        }
       },
     });
   }

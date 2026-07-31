@@ -1,13 +1,16 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject } from '@angular/core';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { filter } from 'rxjs';
 
 import { AdminService } from '../../core/admin/admin.service';
 import { SevenTvConnectionStatus, WorkerConnectionStatus } from '../../core/admin/admin.model';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
+import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
+import { LiveUpdateService } from '../../core/live/live-update.service';
 import { Button } from '../../shared/ui/button';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
@@ -52,7 +55,7 @@ const NO_VALUE = '—';
         <app-notice-banner variant="error">{{ error | transloco }}</app-notice-banner>
       }
 
-      @if (isLoading()) {
+      @if (showSkeleton()) {
         <app-skeleton-rows [count]="3" />
       } @else if (health(); as data) {
         @if (!data.snapshotAvailable) {
@@ -192,6 +195,7 @@ const NO_VALUE = '—';
 export class AdminMonitoringPage {
   private readonly adminService = inject(AdminService);
   private readonly languageService = inject(LanguageService);
+  private readonly liveUpdateService = inject(LiveUpdateService);
 
   // No defaultValue: "no snapshot yet" and "an all-zero snapshot" must not look alike, so the
   // template branches on undefined instead of rendering a fabricated empty one.
@@ -199,8 +203,20 @@ export class AdminMonitoringPage {
     stream: () => this.adminService.getHealth(),
   });
 
-  protected readonly health = computed(() => this.healthResource.value());
+  // value() throws once the resource is in its error state, so it is only ever read behind
+  // hasValue() — the error banner below renders from error() instead.
+  protected readonly health = computed(() =>
+    this.healthResource.hasValue() ? this.healthResource.value() : undefined,
+  );
+
+  /** Drives the refresh button's disabled state only — never a content swap. */
   protected readonly isLoading = computed(() => this.healthResource.isLoading());
+
+  // Skeleton on the *first* load only. Every later load is a reload (status 'reloading', see
+  // Angular's ResourceStatus), and the worker pushes `worker.health` about every 20 s: swapping the
+  // rendered cards for a skeleton that often made the whole page twitch on its own. A reload keeps
+  // the previous snapshot on screen and replaces it in place when the new one arrives.
+  protected readonly showSkeleton = computed(() => this.healthResource.status() === 'loading');
 
   protected readonly errorMessage = computed(() => {
     const error = this.healthResource.error();
@@ -223,6 +239,18 @@ export class AdminMonitoringPage {
   protected readonly hasFlushFailures = computed(
     () => (this.health()?.flush.consecutiveFailures ?? 0) > 0,
   );
+
+  constructor() {
+    // No debounce: WorkerHealthPublisher writes its snapshot on a ~20 s cadence, so this can never
+    // fire faster than the refetch it triggers. The URL is constant, so no toObservable indirection.
+    this.liveUpdateService
+      .stream(ADMIN_LIVE_URL)
+      .pipe(
+        filter((event) => event.type === LIVE_EVENT_TYPES.workerHealth),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.healthResource.reload());
+  }
 
   protected reload(): void {
     this.healthResource.reload();

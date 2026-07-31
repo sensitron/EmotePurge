@@ -2,8 +2,9 @@ import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { Observable } from 'rxjs';
+import { Observable, debounceTime, filter, switchMap } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
@@ -11,6 +12,8 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
+import { LIVE_EVENT_TYPES, LiveEvent, channelLiveUrl } from '../../core/live/live-event.model';
+import { LiveUpdateService } from '../../core/live/live-update.service';
 import {
   VoteSessionResult,
   VoteSessionResults,
@@ -27,10 +30,22 @@ import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-dele
 import { ListSelection } from '../../shared/selection/list-selection';
 
 // Row height (px) fed to CdkVirtualScrollViewport — see the identical comment in UsageStatsPage.
-// Taller than the usage-stats grid: each card also carries a score line and the vote buttons.
+// Taller than the usage-stats grid: each card also carries the stats lines and the vote buttons.
 // Card h-44 (176) + row py-2 (16). One height for all breakpoints: below `sm` the buttons sit
 // side by side at 44px, which needs *less* height than the stacked desktop pair.
+//
+// What the 176 has to hold (desktop, the taller of the two): p-2 16 + name header h-5 20 + image
+// block h-10 40 + the two stacked stat lines 2x15 + vote buttons (2x min-h-6 + gap-1) 52 + three
+// gap-1 12 = 170. Stacking the score under the usage cost 10 of the 16 px that were spare, so it
+// still fits without touching this constant — but the remaining 6 px is the whole budget. Anything
+// further added to the card raises h-44 and this number together.
 const ROW_HEIGHT_PX = 192;
+
+// Votes from other people arrive one by one, and every single one shifts *all* scores (the score is
+// min-max normalized across the channel). Half a second is short enough to feel live and long
+// enough that a moderator clicking through ten emotes produces one refetch, not ten. The same
+// window also collapses a `usage.flushed` that lands next to a vote into a single refetch.
+const LIVE_RELOAD_DEBOUNCE_MS = 500;
 
 @Component({
   selector: 'app-vote-session-detail-page',
@@ -58,6 +73,11 @@ export class VoteSessionDetailPage {
   private readonly authService = inject(AuthService);
   private readonly translocoService = inject(TranslocoService);
   private readonly languageService = inject(LanguageService);
+  private readonly liveUpdateService = inject(LiveUpdateService);
+
+  // Lazy on purpose — reading the required channelName input during construction would throw
+  // NG0950; the computed is first evaluated inside the toObservable effect below.
+  private readonly liveUrl = computed(() => channelLiveUrl(this.channelName()));
 
   protected readonly voteType = VoteType;
   protected readonly currentUser = this.authService.currentUser;
@@ -70,6 +90,13 @@ export class VoteSessionDetailPage {
   protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
+
+  // Mirrors the server's own gate for the raw usage figure: GET .../results only fills
+  // TotalUseCount when CanManageChannelAsync passes — and for everyone else it reports 0, not null.
+  // Without this flag the card cannot tell "used 0 times" from "not allowed to know", so it showed
+  // a flat "0x Nutzung" on every emote to every voter. The same CanManageChannelAsync answers
+  // GET /permissions, so the two verdicts come from one source.
+  protected readonly canSeeUsage = signal(false);
 
   // Freezes the card order (by emote id) across post-vote reloads, since the backend sorts by
   // score descending — without this, voting an emote's score down to the bottom instantly yanks
@@ -135,6 +162,40 @@ export class VoteSessionDetailPage {
   constructor() {
     // Deferred, not called directly — see the identical comment in VoteSessionListPage.
     effect(() => this.load());
+
+    // Kept out of load(): the verdict depends on the channel alone, while load() runs again after
+    // every single vote — refetching permissions there would be one wasted request per click.
+    effect(() => this.loadPermissions(this.channelName()));
+
+    // Live tally *and* live usage, off the one channel stream this page already holds open.
+    // Results only: re-running the channel status side-load on every incoming event would triple
+    // the request volume for a value that changes on a 7TV sync, not on a vote or a flush.
+    // No echo suppression — one's own vote already reloads through vote(), and the debounce merges
+    // that with the push it caused; loadResults is idempotent either way.
+    toObservable(this.liveUrl)
+      .pipe(
+        switchMap((url) => this.liveUpdateService.stream(url)),
+        filter((event) => this.isRelevantLiveEvent(event)),
+        debounceTime(LIVE_RELOAD_DEBOUNCE_MS),
+        takeUntilDestroyed(),
+      )
+      .subscribe(() => this.loadResults({ freeze: false }));
+  }
+
+  /**
+   * `vote.changed` is per session and must match this one. `usage.flushed` is channel-scoped and
+   * carries no session id — the stream is already this channel's, so its arrival alone is the
+   * signal. Listening to it is not optional: chat usage only moves on the worker's 30 s batch
+   * flush, and the score is normalized usage plus the keep/delete delta, so a session nobody votes
+   * in kept showing the usage counts and scores it was first loaded with, indefinitely.
+   */
+  private isRelevantLiveEvent(event: LiveEvent): boolean {
+    if (event.type === LIVE_EVENT_TYPES.usageFlushed) {
+      return true;
+    }
+    return (
+      event.type === LIVE_EVENT_TYPES.voteChanged && event.sessionId === Number(this.sessionId())
+    );
   }
 
   protected onResize(): void {
@@ -157,11 +218,16 @@ export class VoteSessionDetailPage {
     }).format(value);
   }
 
-  // Full, untruncated stats wording as a tooltip — the visible line may ellipsize on narrow cards.
+  // Full, untruncated stats wording as a tooltip — the visible lines may still ellipsize on narrow
+  // cards. Omits the usage half for a viewer who is not shown it, so the tooltip never states a
+  // number the card deliberately withholds.
   protected statsTitle(emote: VoteSessionResult): string {
+    const score = `${this.translocoService.translate('voting.detail.scoreLabel')} ${this.formatScore(emote.score)}`;
+    if (!this.canSeeUsage()) {
+      return score;
+    }
     const usage = this.translocoService.translate('usageStats.usageLabel');
-    const score = this.translocoService.translate('voting.detail.scoreLabel');
-    return `${emote.totalUseCount}x ${usage} · ${score} ${this.formatScore(emote.score)}`;
+    return `${emote.totalUseCount}x ${usage} · ${score}`;
   }
 
   protected keepButtonTitle(emote: VoteSessionResult): string {
@@ -179,6 +245,11 @@ export class VoteSessionDetailPage {
   }
 
   private load(options: { freeze: boolean } = { freeze: true }): void {
+    this.loadResults(options);
+    this.loadActiveEmoteSetId();
+  }
+
+  private loadResults(options: { freeze: boolean }): void {
     const channelName = this.channelName();
     const sessionId = Number(this.sessionId());
 
@@ -196,8 +267,21 @@ export class VoteSessionDetailPage {
       },
       error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
     });
+  }
 
-    this.channelService.getStatus(channelName).subscribe({
+  /** UI visibility only — the server decides what it actually reports. A failure hides the usage
+   *  figures rather than guessing, which is the harmless direction: the score stays visible. */
+  private loadPermissions(channelName: string): void {
+    this.channelService.getPermissions(channelName).subscribe({
+      next: (permissions) => this.canSeeUsage.set(permissions.canManage),
+      error: () => this.canSeeUsage.set(false),
+    });
+  }
+
+  /** Split out of load() so the live-update path can refetch the tally alone — this value only
+   *  changes when the 7TV set is resynced, never as a result of a vote. */
+  private loadActiveEmoteSetId(): void {
+    this.channelService.getStatus(this.channelName()).subscribe({
       next: (status) => this.activeEmoteSetId.set(status.activeEmoteSetId),
       error: () => this.activeEmoteSetId.set(null),
     });

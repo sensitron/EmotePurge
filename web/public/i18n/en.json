@@ -211,7 +211,8 @@
         "purge": "Delete"
       },
       "resync": {
-        "queued": "Resync requested"
+        "queued": "Resync requested",
+        "completed": "Resync completed"
       },
       "purge": {
         "title": "Delete channel irreversibly",

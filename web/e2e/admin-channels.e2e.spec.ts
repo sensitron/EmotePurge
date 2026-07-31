@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 import {
   AUTH_USER,
+  emitLive,
+  installLiveStub,
   mockAdminChannelList,
   mockAuthMe,
   mockChannelResync,
@@ -16,6 +18,9 @@ test.describe('global admin on /admin/channels', () => {
   test.beforeEach(async ({ page }) => {
     await mockAuthMe(page, ADMIN_USER);
     await mockWorkerHealth(page, 'connected');
+    // The page opens /api/admin/live on mount; without the stub it would reconnect-loop against a
+    // route no mock serves.
+    await installLiveStub(page);
   });
 
   test('sees every tracked channel with its aggregates', async ({ page }) => {
@@ -72,6 +77,66 @@ test.describe('global admin on /admin/channels', () => {
 
     // 202 means "queued": nothing on the row changes, so the inline hint is the only feedback.
     await expect(activeRow.getByText('Resync angestoßen')).toBeVisible();
+
+    // The worker's channel.synced push turns the guess into a fact — this is what the live stream
+    // buys over the old setTimeout-and-hope.
+    await emitLive(page, { type: 'channel.synced', channel: 'handofblood' });
+    await expect(activeRow.getByText('Resync abgeschlossen')).toBeVisible();
+    await expect(activeRow.getByText('Resync angestoßen')).toHaveCount(0);
+  });
+
+  test('a pushed reload keeps the rows on screen instead of swapping in the skeleton', async ({
+    page,
+  }) => {
+    // Hand-rolled instead of mockAdminChannelList: the *second* response is held open on purpose,
+    // because the only moment a skeleton swap is observable is while the reload is genuinely in
+    // flight. `channel.synced` arrives on every periodic 7TV resync, so a swap there made the whole
+    // page twitch under the admin's cursor.
+    let release: (() => void) | undefined;
+    let requestCount = 0;
+    await page.route('**/api/admin/channels', async (route) => {
+      requestCount += 1;
+      if (requestCount > 1) {
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            channelName: 'handofblood',
+            twitchChannelId: null,
+            isBotActive: true,
+            createdAt: '2026-01-01T00:00:00Z',
+            emoteCount: 903,
+            archivedEmoteCount: 17,
+            activeVoteSessionCount: 1,
+            voteSessionCount: 4,
+            lastSyncedAtUtc: '2026-07-31T11:00:00Z',
+          },
+        ]),
+      });
+    });
+
+    await page.goto('/admin/channels');
+    const row = page.getByRole('listitem').filter({ hasText: '#handofblood' });
+    await expect(row).toBeVisible();
+
+    const reloadRequest = page.waitForRequest(
+      (request) => request.method() === 'GET' && request.url().endsWith('/api/admin/channels'),
+    );
+    await emitLive(page, { type: 'channel.synced', channel: 'handofblood' });
+    await reloadRequest;
+
+    // Reload in flight: the previous list is still rendered and no shimmer block exists anywhere.
+    await expect(row).toBeVisible();
+    await expect(page.locator('.app-skeleton')).toHaveCount(0);
+    // The refresh button is the one thing that may react — that is the documented action pattern.
+    await expect(page.getByRole('button', { name: 'Aktualisieren' })).toBeDisabled();
+
+    release?.();
+    await expect(page.getByRole('button', { name: 'Aktualisieren' })).toBeEnabled();
+    await expect(row).toBeVisible();
   });
 
   test('purge stays disabled until the channel name is typed verbatim, then deletes and reloads', async ({
@@ -136,6 +201,7 @@ test.describe('non-admin', () => {
     await mockAuthMe(page, AUTH_USER); // isGlobalAdmin: false
     await mockWorkerHealth(page, 'connected');
     await mockMyChannels(page, []);
+    await installLiveStub(page);
 
     await page.goto('/admin/channels');
 
