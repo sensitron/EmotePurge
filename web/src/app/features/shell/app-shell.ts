@@ -1,3 +1,4 @@
+import { NgOptimizedImage } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -21,7 +22,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
 
 @Component({
   selector: 'app-shell',
-  imports: [Button, RouterLink, RouterOutlet, TranslocoPipe, LanguageSwitcher],
+  imports: [Button, NgOptimizedImage, RouterLink, RouterOutlet, TranslocoPipe, LanguageSwitcher],
   host: {
     '(keydown.escape)': 'onEscape()',
     '(document:click)': 'onDocumentClick($event)',
@@ -47,10 +48,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
               routerLink="/"
               class="flex items-center gap-2 text-lg font-semibold whitespace-nowrap"
             >
-              <span
-                class="inline-block h-3 w-3 rounded bg-linear-to-br from-purple-500 to-pink-500"
-                aria-hidden="true"
-              ></span>
+              <img ngSrc="logo.png" width="24" height="24" alt="" class="h-6 w-6" />
               Emote Purge
             </a>
             <!-- Dot always visible, text label only when there's room. -->

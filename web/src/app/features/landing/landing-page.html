@@ -11,9 +11,7 @@
            against the base href ("/"), which is a full navigation away from /welcome — the router
            scrolls via anchorScrolling (app.config) instead. -->
       <a routerLink="/welcome" fragment="top" class="flex items-center gap-2 text-lg font-semibold">
-        <span
-          class="inline-block h-3 w-3 rounded bg-gradient-to-br from-purple-500 to-pink-500"
-        ></span>
+        <img ngSrc="logo.png" width="24" height="24" alt="" class="h-6 w-6" />
         Emote Purge
       </a>
       <div class="flex items-center gap-6">
@@ -46,6 +44,16 @@
          being clipped by this section's bounds. -->
     <section class="relative px-4 pb-20 pt-24 text-center">
       <div class="relative mx-auto max-w-2xl">
+        <!-- Hero mark: the full logo version incl. the flying pixel squares (logo-hero.png);
+             the nav/header use the simplified mark (logo.png) that stays legible when tiny. -->
+        <img
+          ngSrc="logo-hero.png"
+          width="112"
+          height="112"
+          priority
+          alt=""
+          class="mx-auto mb-6 h-28 w-28"
+        />
         <span
           class="mb-6 inline-block rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-medium text-slate-400"
         >

@@ -1,3 +1,4 @@
+import { NgOptimizedImage } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -50,7 +51,7 @@ const STEPS: Step[] = [
 
 @Component({
   selector: 'app-landing-page',
-  imports: [RouterLink, TranslocoPipe, LanguageSwitcher],
+  imports: [NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher],
   templateUrl: './landing-page.html',
 })
 export class LandingPage {

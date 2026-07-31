@@ -1,3 +1,4 @@
+import { NgOptimizedImage } from '@angular/common';
 import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -22,10 +23,7 @@ import { Button } from '../../shared/ui/button';
         <app-language-switcher />
       </div>
       <a routerLink="/welcome" class="flex items-center gap-2 text-xl font-semibold">
-        <span
-          class="inline-block h-3 w-3 rounded bg-linear-to-br from-purple-500 to-pink-500"
-          aria-hidden="true"
-        ></span>
+        <img ngSrc="logo.png" width="28" height="28" alt="" class="h-7 w-7" />
         Emote Purge
       </a>
       <div class="app-card w-full max-w-sm p-8 text-center shadow-xl">
@@ -39,7 +37,7 @@ import { Button } from '../../shared/ui/button';
       </div>
     </div>
   `,
-  imports: [Button, RouterLink, TranslocoPipe, LanguageSwitcher],
+  imports: [Button, NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher],
 })
 export class LoginPage {
   private readonly authService = inject(AuthService);
