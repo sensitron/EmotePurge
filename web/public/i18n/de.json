@@ -142,7 +142,6 @@
   },
   "admin": {
     "title": "Admin-Bereich",
-    "placeholder": "Diese Ansicht folgt in einem der nächsten Ausbauschritte.",
     "tabs": {
       "monitoring": "Monitoring",
       "channels": "Channels",

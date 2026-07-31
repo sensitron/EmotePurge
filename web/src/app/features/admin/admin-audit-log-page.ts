@@ -143,7 +143,7 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
                 @if (row.channelName; as channel) {
                   <a
                     [routerLink]="['/channels', channel, 'usage-stats']"
-                    class="max-w-full truncate text-sm text-slate-300 underline-offset-2 hover:text-purple-300 hover:underline"
+                    class="max-w-full truncate font-medium text-slate-300 underline-offset-2 hover:text-purple-300 hover:underline"
                   >
                     #{{ channel }}
                   </a>

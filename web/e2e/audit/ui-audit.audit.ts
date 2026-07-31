@@ -354,7 +354,7 @@ const SCENARIOS: Scenario[] = [
         {
           1: Array.from({ length: 25 }, (_, i) => ({
             id: 100 - i,
-            action: ['channel.join', 'channel.leave', 'channel.purge', 'vote-session.create'][
+            action: ['channel.join', 'channel.leave', 'channel.purge', 'voteSession.create'][
               i % 4
             ],
             channelName: i % 3 === 0 ? 'superlangertwitchchannelx' : 'sensitron',

@@ -142,7 +142,6 @@
   },
   "admin": {
     "title": "Admin area",
-    "placeholder": "This view is coming in one of the next slices.",
     "tabs": {
       "monitoring": "Monitoring",
       "channels": "Channels",
