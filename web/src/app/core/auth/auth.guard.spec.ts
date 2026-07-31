@@ -46,6 +46,7 @@ describe('authGuard', () => {
       login: 'sensitron',
       displayName: 'Sensitron',
       tokenExpiresAtUtc: '2026-07-28T00:00:00Z',
+      isGlobalAdmin: false,
     });
 
     expect(await resultPromise).toBe(true);

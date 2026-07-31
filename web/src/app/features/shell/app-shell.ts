@@ -67,6 +67,13 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
             <app-language-switcher />
 
             @if (currentUser(); as user) {
+              <!-- Visibility only — /admin is behind adminGuard and every admin endpoint behind
+                   GlobalAdminAuthorizationFilter. The flag rides along on the cached /me. -->
+              @if (user.isGlobalAdmin) {
+                <a routerLink="/admin" class="px-1 py-2 text-sm text-slate-400 hover:underline">{{
+                  'shell.admin' | transloco
+                }}</a>
+              }
               <a
                 routerLink="/my-votings"
                 class="px-1 py-2 text-sm text-slate-400 hover:underline"
@@ -126,6 +133,15 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
               class="absolute inset-x-0 top-full z-20 mt-3 flex flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 shadow-lg md:hidden"
             >
               @if (currentUser(); as user) {
+                @if (user.isGlobalAdmin) {
+                  <a
+                    routerLink="/admin"
+                    class="rounded-md px-3 py-3 text-sm text-slate-200 transition hover:bg-slate-800"
+                    (click)="closeMenu()"
+                  >
+                    {{ 'shell.admin' | transloco }}
+                  </a>
+                }
                 <a
                   routerLink="/my-votings"
                   class="rounded-md px-3 py-3 text-sm text-slate-200 transition hover:bg-slate-800"

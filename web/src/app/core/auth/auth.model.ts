@@ -3,4 +3,5 @@ export interface AuthUser {
   login: string;
   displayName: string;
   tokenExpiresAtUtc: string;
+  isGlobalAdmin: boolean;
 }

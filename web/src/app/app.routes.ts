@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 
+import { adminGuard } from './core/auth/admin.guard';
 import { authGuard } from './core/auth/auth.guard';
 import { homeGuard } from './core/auth/home.guard';
 import { usageStatsAccessGuard } from './core/channels/usage-stats-access.guard';
@@ -30,6 +31,31 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/my-votings/my-votings-page').then((m) => m.MyVotingsPage),
         canActivate: [authGuard],
+      },
+      {
+        // Global-admin area. The guard reads the cached /me; every endpoint behind these pages is
+        // additionally protected server-side by GlobalAdminAuthorizationFilter.
+        path: 'admin',
+        loadComponent: () => import('./features/admin/admin-layout').then((m) => m.AdminLayout),
+        canActivate: [adminGuard],
+        children: [
+          { path: '', redirectTo: 'monitoring', pathMatch: 'full' },
+          {
+            path: 'monitoring',
+            loadComponent: () =>
+              import('./features/admin/admin-monitoring-page').then((m) => m.AdminMonitoringPage),
+          },
+          {
+            path: 'channels',
+            loadComponent: () =>
+              import('./features/admin/admin-channels-page').then((m) => m.AdminChannelsPage),
+          },
+          {
+            path: 'audit-log',
+            loadComponent: () =>
+              import('./features/admin/admin-audit-log-page').then((m) => m.AdminAuditLogPage),
+          },
+        ],
       },
       {
         path: 'channels/:channelName',

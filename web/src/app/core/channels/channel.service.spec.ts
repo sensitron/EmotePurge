@@ -81,6 +81,16 @@ describe('ChannelService', () => {
     req.flush(null);
   });
 
+  it('purge DELETEs /api/channels/{channelName}/purge', () => {
+    // Distinct from leave(): same verb, different path — a regression that dropped the /purge
+    // suffix would silently downgrade an irreversible purge into a harmless deactivation.
+    service.purge('sensitron').subscribe();
+
+    const req = httpMock.expectOne('/api/channels/sensitron/purge');
+    expect(req.request.method).toBe('DELETE');
+    req.flush(null);
+  });
+
   it('listAll GETs /api/channels', () => {
     const dtos: AdminChannelDto[] = [];
     service.listAll().subscribe();

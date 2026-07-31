@@ -34,6 +34,15 @@ export class ChannelService {
     return this.http.delete<void>(`/api/channels/${channelName}`);
   }
 
+  /**
+   * Irreversible: removes the channel with its emotes, usage history, vote sessions and votes
+   * (server-side cascades). Global-admin-only — deliberately not reachable from any channel-scoped
+   * screen, only from the admin channel page, and only behind a typed name confirmation.
+   */
+  purge(channelName: string): Observable<void> {
+    return this.http.delete<void>(`/api/channels/${channelName}/purge`);
+  }
+
   /** Admin-only — 403s for everyone else, which callers treat as "hide the admin section". */
   listAll(): Observable<AdminChannelDto[]> {
     return this.http.get<AdminChannelDto[]>('/api/channels');
