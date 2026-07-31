@@ -1,7 +1,7 @@
 import { computed, signal } from '@angular/core';
 
 /**
- * Checkbox + shift-click range multi-select over a (possibly virtual-scrolled) list.
+ * Card-click + shift-click range multi-select over a (possibly virtual-scrolled) list.
  * Not a service — selection is page-local UI state, like a FormControl, not app-wide state.
  * `items` must return the full logically-ordered/filtered list (not the DOM-rendered subset),
  * so the shift-click range stays correct regardless of what CdkVirtualScrollViewport has mounted.
@@ -9,7 +9,7 @@ import { computed, signal } from '@angular/core';
  * Keyed, never identity- or position-based: the selection stores `keyFn(item)` (the emote id).
  * A refetch hands out freshly deserialized objects for the very same rows, and flipping the sort
  * direction moves every row to a different position — both used to silently desynchronize the
- * rendered checkboxes from what the delete path actually submitted.
+ * rendered selection state from what the delete path actually submitted.
  *
  * Two deliberately separate views on the selection:
  *  - `selectedKeys` is authoritative. It does not depend on the item still being present in
@@ -21,7 +21,7 @@ import { computed, signal } from '@angular/core';
  *
  * Backed by a signal (not @angular/cdk/collections' SelectionModel) — a computed() elsewhere that
  * reads the selection needs an actual signal read to know when to recompute; a plain mutable
- * SelectionModel gives it nothing to track, so toggling a checkbox would never trigger a re-render.
+ * SelectionModel gives it nothing to track, so toggling a card would never trigger a re-render.
  */
 export class ListSelection<T> {
   private readonly selectedKeySet = signal<ReadonlySet<string>>(new Set());

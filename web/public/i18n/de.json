@@ -89,6 +89,11 @@
       "copyright": "© 2026 EmotePurge"
     }
   },
+  "dateRange": {
+    "from": "Von",
+    "to": "Bis",
+    "editRange": "Eigenen Zeitraum bearbeiten"
+  },
   "datetimePicker": {
     "placeholder": "Jetzt (Standard)",
     "reset": "Zurücksetzen",
@@ -291,8 +296,6 @@
     "preset30Days": "30 Tage",
     "presetCustom": "Eigener",
     "presetGroupLabel": "Zeitraum",
-    "fromLabel": "von",
-    "toLabel": "bis",
     "dateRangeTo": "bis",
     "sortByUsage": "Nutzung",
     "filterMinPlaceholder": "Min",

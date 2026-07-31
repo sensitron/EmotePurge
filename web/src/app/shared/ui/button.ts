@@ -13,7 +13,7 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   // confirm button inside a dialog and for a page's primary destructive CTA (mass-delete).
   // See docs/UI-Designsprache.md §4.2.
   danger: 'border border-red-800 text-red-400 hover:bg-red-950',
-  'danger-solid': 'bg-red-700 font-medium text-white hover:bg-red-600',
+  'danger-solid': 'bg-red-800 font-medium text-white hover:bg-red-700',
 };
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {

@@ -8,6 +8,7 @@ import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { pluralKey } from '../../core/i18n/plural';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
+import { DateRangePopover } from '../../shared/datetime/date-range-popover';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
@@ -22,8 +23,9 @@ type SortDirection = 'asc' | 'desc';
 type RangePreset = '0' | '7' | '30' | 'custom';
 
 // Row height (px) fed to CdkVirtualScrollViewport — must match the fixed card height + row
-// wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same height.
-const ROW_HEIGHT_PX = 112;
+// wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same
+// height. Card h-28 (112) + row py-2 (16).
+const ROW_HEIGHT_PX = 128;
 
 // Joining a channel does not fill it with emotes right away: POST /join only writes the channel row
 // and publishes JOIN to Redis, and the worker resolves the 7TV set a beat later. Since the overview
@@ -54,6 +56,7 @@ function daysAgo(days: number): Date {
     MassDeletePanel,
     EmoteCardHeader,
     SegmentedControl,
+    DateRangePopover,
     TranslocoPipe,
   ],
   host: {

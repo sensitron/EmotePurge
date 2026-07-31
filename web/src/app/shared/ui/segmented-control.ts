@@ -32,7 +32,7 @@ export interface SegmentedControlOption {
           [class]="
             'grow px-3 py-1.5 text-sm whitespace-nowrap transition ' +
             (value() === option.value
-              ? 'bg-purple-600 font-medium text-white'
+              ? 'bg-purple-700 font-medium text-white'
               : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
           "
           (click)="value.set(option.value)"

@@ -89,6 +89,11 @@
       "copyright": "© 2026 EmotePurge"
     }
   },
+  "dateRange": {
+    "from": "From",
+    "to": "To",
+    "editRange": "Edit custom range"
+  },
   "datetimePicker": {
     "placeholder": "Now (default)",
     "reset": "Reset",
@@ -291,8 +296,6 @@
     "preset30Days": "30 days",
     "presetCustom": "Custom",
     "presetGroupLabel": "Time range",
-    "fromLabel": "from",
-    "toLabel": "to",
     "dateRangeTo": "to",
     "sortByUsage": "Usage",
     "filterMinPlaceholder": "Min",

@@ -22,14 +22,21 @@ import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
-import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
+import {
+  chunkIntoRows,
+  computeGridColumns,
+  isCompactViewport,
+} from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
 
 // Row height (px) fed to CdkVirtualScrollViewport — see the identical comment in UsageStatsPage.
 // Taller than the usage-stats grid: each card also carries a score line and two stacked,
-// full-width vote buttons (icon + visible label + count).
+// full-width vote buttons (icon + visible label + count). Card h-44 (176) + row py-2 (16).
 const ROW_HEIGHT_PX = 192;
+// Below `sm` the vote buttons grow to the 44px touch target (min-h-11), so the cards switch to
+// h-54: card 216 + row py-2 (16). Must stay in sync with the card's `h-54 sm:h-44` classes.
+const COMPACT_ROW_HEIGHT_PX = 232;
 
 @Component({
   selector: 'app-vote-session-detail-page',
@@ -44,7 +51,7 @@ const ROW_HEIGHT_PX = 192;
     TranslocoPipe,
   ],
   host: {
-    '(window:resize)': 'updateColumns()',
+    '(window:resize)': 'onResize()',
   },
   templateUrl: './vote-session-detail-page.html',
 })
@@ -61,12 +68,15 @@ export class VoteSessionDetailPage {
   protected readonly voteType = VoteType;
   protected readonly currentUser = this.authService.currentUser;
 
-  protected readonly rowHeight = ROW_HEIGHT_PX;
-  protected readonly columns = signal(computeGridColumns(window.innerWidth));
+  // Columns and row height both derive from the viewport width; one signal keeps them in step.
+  private readonly viewportWidth = signal(window.innerWidth);
+  protected readonly columns = computed(() => computeGridColumns(this.viewportWidth()));
+  protected readonly rowHeight = computed(() =>
+    isCompactViewport(this.viewportWidth()) ? COMPACT_ROW_HEIGHT_PX : ROW_HEIGHT_PX,
+  );
 
   protected readonly results = signal<VoteSessionResults | null>(null);
   protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
-  protected readonly canManage = signal(false);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
 
@@ -136,8 +146,8 @@ export class VoteSessionDetailPage {
     effect(() => this.load());
   }
 
-  protected updateColumns(): void {
-    this.columns.set(computeGridColumns(window.innerWidth));
+  protected onResize(): void {
+    this.viewportWidth.set(window.innerWidth);
   }
 
   protected formatDateTime(iso: string): string {
@@ -190,11 +200,8 @@ export class VoteSessionDetailPage {
     });
 
     this.channelService.getStatus(channelName).subscribe({
-      next: (status) => {
-        this.canManage.set(true);
-        this.activeEmoteSetId.set(status.activeEmoteSetId);
-      },
-      error: () => this.canManage.set(false),
+      next: (status) => this.activeEmoteSetId.set(status.activeEmoteSetId),
+      error: () => this.activeEmoteSetId.set(null),
     });
   }
 

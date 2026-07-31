@@ -22,26 +22,9 @@
       [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
     />
     @if (rangePreset() === 'custom') {
-      <label for="usage-stats-from-date" class="text-slate-400">{{
-        'usageStats.fromLabel' | transloco
-      }}</label>
-      <input
-        id="usage-stats-from-date"
-        type="date"
-        [value]="from()"
-        (change)="from.set($any($event.target).value)"
-        class="app-input-sm"
-      />
-      <label for="usage-stats-to-date" class="text-slate-400">{{
-        'usageStats.toLabel' | transloco
-      }}</label>
-      <input
-        id="usage-stats-to-date"
-        type="date"
-        [value]="to()"
-        (change)="to.set($any($event.target).value)"
-        class="app-input-sm"
-      />
+      <!-- Popover instead of inline date inputs: four extra flex items used to push the rest of
+           the toolbar onto a second row whenever "custom" was active. -->
+      <app-date-range-popover [(from)]="from" [(to)]="to" />
     }
     <button type="button" appButton="neutral" (click)="toggleSort()">
       {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
@@ -80,7 +63,7 @@
       class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
       [class]="
         usageFilter.isUnusedActive()
-          ? 'bg-purple-600 font-medium text-white hover:bg-purple-500'
+          ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
           : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
       "
       [attr.aria-pressed]="usageFilter.isUnusedActive()"
@@ -115,7 +98,7 @@
     <div role="status" [attr.aria-label]="'usageStats.loading' | transloco">
       <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6" aria-hidden="true">
         @for (cell of skeletonCells; track cell) {
-          <div class="app-skeleton h-24"></div>
+          <div class="app-skeleton h-28"></div>
         }
       </div>
     </div>
@@ -139,13 +122,17 @@
       </app-empty-state>
     }
   } @else {
+    <!-- Virtualized against the window scroll (scrollWindow): the page scrolls as one document,
+         the sticky bars pin over the rows passing beneath them (design doc §8.5). -->
     <cdk-virtual-scroll-viewport
+      scrollWindow
       [itemSize]="rowHeight"
-      class="h-[clamp(16rem,calc(100dvh-22rem),32rem)] rounded-md border border-slate-800"
+      [minBufferPx]="rowHeight"
+      [maxBufferPx]="rowHeight * 2"
     >
       <div
         *cdkVirtualFor="let row of rows()"
-        class="grid gap-3 px-3 py-2"
+        class="grid gap-3 py-2"
         [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
       >
         @for (emote of row; track emote.emoteId) {
@@ -154,7 +141,7 @@
             tabindex="0"
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
-              'flex h-24 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              'flex h-28 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
               (selection.isSelected(emote)
                 ? 'ring-2 ring-purple-500 bg-purple-950/40'
                 : 'bg-slate-900')
@@ -163,10 +150,7 @@
             (keydown.enter)="selection.onRowClick(emote, $any($event))"
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
-            <app-emote-card-header
-              [name]="emote.emoteName"
-              [checked]="selection.isSelected(emote)"
-            />
+            <app-emote-card-header [name]="emote.emoteName" />
             <div class="flex h-10 shrink-0 items-center justify-center">
               <img
                 [ngSrc]="emote.imageUrl"
@@ -176,7 +160,7 @@
                 class="max-h-10 max-w-10 object-contain"
               />
             </div>
-            <span class="text-xs text-slate-400">{{ emote.totalUseCount }}x</span>
+            <span class="text-sm font-medium text-slate-200">{{ emote.totalUseCount }}x</span>
           </div>
         }
       </div>

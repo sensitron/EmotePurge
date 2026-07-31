@@ -56,7 +56,7 @@
       class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
       [class]="
         usageFilter.isUnusedActive()
-          ? 'bg-purple-600 font-medium text-white hover:bg-purple-500'
+          ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
           : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
       "
       [attr.aria-pressed]="usageFilter.isUnusedActive()"
@@ -89,7 +89,7 @@
     <div role="status" [attr.aria-label]="'common.loading' | transloco">
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5" aria-hidden="true">
         @for (cell of skeletonCells; track cell) {
-          <div class="app-skeleton h-44"></div>
+          <div class="app-skeleton h-54 sm:h-44"></div>
         }
       </div>
     </div>
@@ -105,13 +105,17 @@
       </app-empty-state>
     }
   } @else {
+    <!-- Virtualized against the window scroll (scrollWindow): the page scrolls as one document,
+         the sticky bars pin over the rows passing beneath them (design doc §8.5). -->
     <cdk-virtual-scroll-viewport
-      [itemSize]="rowHeight"
-      class="h-[clamp(16rem,calc(100dvh-22rem),32rem)] rounded-md border border-slate-800"
+      scrollWindow
+      [itemSize]="rowHeight()"
+      [minBufferPx]="rowHeight()"
+      [maxBufferPx]="rowHeight() * 2"
     >
       <div
         *cdkVirtualFor="let row of rows()"
-        class="grid gap-3 px-3 py-2"
+        class="grid gap-3 py-2"
         [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
       >
         @for (emote of row; track emote.emoteId) {
@@ -120,7 +124,7 @@
             tabindex="0"
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
-              'flex h-44 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              'flex h-54 sm:h-44 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
               (selection.isSelected(emote)
                 ? 'ring-2 ring-purple-500 bg-purple-950/40'
                 : 'bg-slate-900')
@@ -129,11 +133,7 @@
             (keydown.enter)="selection.onRowClick(emote, $any($event))"
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
-            <app-emote-card-header
-              [name]="emote.emoteName"
-              [checked]="selection.isSelected(emote)"
-              [showCheckbox]="canManage()"
-            />
+            <app-emote-card-header [name]="emote.emoteName" />
             <div class="flex h-10 shrink-0 items-center justify-center">
               <img
                 [ngSrc]="emote.imageUrl"
@@ -143,13 +143,14 @@
                 class="max-h-10 max-w-10 object-contain"
               />
             </div>
-            <span class="text-xs text-slate-400"
-              >{{ emote.totalUseCount }}x · {{ formatScore(emote.score) }}</span
+            <span class="text-sm font-medium text-slate-200"
+              >{{ emote.totalUseCount }}x
+              <span class="text-xs font-normal text-slate-400">· {{ formatScore(emote.score) }}</span></span
             >
             <div class="mt-auto grid gap-1" (click)="$event.stopPropagation()">
               <button
                 type="button"
-                class="flex min-h-6 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition"
+                class="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6"
                 [class]="
                   emote.myVote === voteType.Keep
                     ? 'bg-emerald-700 text-white hover:bg-emerald-600'
@@ -177,7 +178,7 @@
               </button>
               <button
                 type="button"
-                class="flex min-h-6 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition"
+                class="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6"
                 [class]="
                   emote.myVote === voteType.Delete
                     ? 'bg-red-700 text-white hover:bg-red-600'
