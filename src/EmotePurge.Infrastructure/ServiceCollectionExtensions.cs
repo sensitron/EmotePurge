@@ -10,6 +10,7 @@ using EmotePurge.Infrastructure.Twitch;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace EmotePurge.Infrastructure;
@@ -29,6 +30,13 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IRedisPublisher, RedisPublisher>();
         services.AddSingleton<IRedisSubscriber, RedisSubscriber>();
+
+        // Singleton by necessity, not convenience: it holds the one process-wide subscription to
+        // live:events and the fan-out table of the open browser connections. Built through a factory
+        // so its options record keeps its defaults instead of needing its own registration.
+        services.AddSingleton<ILiveEventStream>(sp => new RedisLiveEventStream(
+            sp.GetRequiredService<IRedisSubscriber>(),
+            sp.GetRequiredService<ILogger<RedisLiveEventStream>>()));
 
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IAdminChannelQueryService, AdminChannelQueryService>();

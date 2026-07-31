@@ -1,0 +1,216 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
+using EmotePurge.Core.Messaging;
+using Microsoft.Extensions.Logging;
+
+namespace EmotePurge.Infrastructure.Redis;
+
+/// <summary>
+/// Limits and pacing of the live-event fan-out. A constructor parameter with defaults rather than
+/// IOptions so tests can run with a 50 ms heartbeat without a configuration round-trip.
+/// </summary>
+public sealed record LiveEventStreamOptions
+{
+    /// <summary>
+    /// Must stay well below the smallest read timeout of anything between us and the browser
+    /// (nginx defaults to 60 s), otherwise an idle stream is killed as dead.
+    /// </summary>
+    public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(15);
+
+    /// <summary>Hard ceiling of concurrent streams per process.</summary>
+    public int MaxSubscriptions { get; init; } = 500;
+
+    /// <summary>Concurrent streams one identity may hold (browser tabs of one login).</summary>
+    public int MaxPerSubscriber { get; init; } = 3;
+}
+
+/// <summary>
+/// Subscribes to <see cref="LiveEvents.Channel"/> exactly once per process — lazily, on the first
+/// client, so a process that never serves a stream never touches the channel — and fans every
+/// message out to the currently open connections.
+/// </summary>
+public sealed class RedisLiveEventStream(
+    IRedisSubscriber redisSubscriber,
+    ILogger<RedisLiveEventStream> logger,
+    LiveEventStreamOptions? options = null) : ILiveEventStream
+{
+    // Per-connection buffer. Overflow drops the OLDEST event, and that is correct here rather than
+    // merely tolerable: these are thin stale-notifications, so a dropped one is fully subsumed by
+    // any later one of the same type — the client refetches the complete state either way. The
+    // alternative (waiting for room) would block the shared Redis handler and thereby stall every
+    // other connection behind one slow reader.
+    private const int PerConnectionCapacity = 64;
+
+    private readonly LiveEventStreamOptions _options = options ?? new LiveEventStreamOptions();
+    private readonly ConcurrentDictionary<Guid, Subscription> _subscriptions = new();
+    private readonly SemaphoreSlim _subscribeGate = new(1, 1);
+    private readonly Lock _limitLock = new();
+    private bool _redisSubscribed;
+
+    public async Task<ILiveEventSubscription?> SubscribeAsync(
+        string subscriberKey,
+        Func<LiveEvent, bool> filter,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureRedisSubscribedAsync(cancellationToken);
+
+        var subscription = new Subscription(subscriberKey, filter, _options, Remove);
+
+        // Counting and inserting under one lock: two concurrent connections of the same user would
+        // otherwise both read "2 open" and both be admitted past a limit of 3.
+        lock (_limitLock)
+        {
+            if (_subscriptions.Count >= _options.MaxSubscriptions)
+            {
+                logger.LogWarning(
+                    "Live-Event-Stream abgelehnt: prozessweites Limit von {Limit} Verbindungen erreicht.",
+                    _options.MaxSubscriptions);
+                return null;
+            }
+
+            var perSubscriber = 0;
+            foreach (var open in _subscriptions.Values)
+            {
+                if (string.Equals(open.SubscriberKey, subscriberKey, StringComparison.Ordinal))
+                {
+                    perSubscriber++;
+                }
+            }
+
+            if (perSubscriber >= _options.MaxPerSubscriber)
+            {
+                logger.LogInformation(
+                    "Live-Event-Stream abgelehnt: {Key} hält bereits {Limit} Verbindungen.",
+                    subscriberKey, _options.MaxPerSubscriber);
+                return null;
+            }
+
+            _subscriptions[subscription.Id] = subscription;
+        }
+
+        return subscription;
+    }
+
+    private async Task EnsureRedisSubscribedAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _redisSubscribed))
+        {
+            return;
+        }
+
+        await _subscribeGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_redisSubscribed)
+            {
+                return;
+            }
+
+            await redisSubscriber.SubscribeAsync(LiveEvents.Channel, OnMessageAsync, cancellationToken);
+            Volatile.Write(ref _redisSubscribed, true);
+        }
+        finally
+        {
+            _subscribeGate.Release();
+        }
+    }
+
+    private Task OnMessageAsync(string _, string payload)
+    {
+        var liveEvent = LiveEvent.TryParse(payload);
+        if (liveEvent is null)
+        {
+            // Dropped, never fatal: anything may publish onto a Redis channel, and one malformed
+            // message must not take every open browser connection down with it.
+            logger.LogWarning("Ungültiges Live-Event auf {Channel} verworfen: {Payload}.", LiveEvents.Channel, payload);
+            return Task.CompletedTask;
+        }
+
+        foreach (var subscription in _subscriptions.Values)
+        {
+            try
+            {
+                subscription.Offer(liveEvent);
+            }
+            catch (Exception ex)
+            {
+                // One connection's predicate throwing must not cost the remaining connections their
+                // event — this loop is the only delivery path for all of them.
+                logger.LogWarning(ex, "Zustellung eines Live-Events an eine Verbindung fehlgeschlagen.");
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void Remove(Guid id) => _subscriptions.TryRemove(id, out _);
+
+    private sealed class Subscription(
+        string subscriberKey,
+        Func<LiveEvent, bool> filter,
+        LiveEventStreamOptions options,
+        Action<Guid> onDisposed) : ILiveEventSubscription
+    {
+        private readonly Channel<LiveEvent> _channel = System.Threading.Channels.Channel.CreateBounded<LiveEvent>(
+            new BoundedChannelOptions(PerConnectionCapacity)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = false,
+            });
+
+        public Guid Id { get; } = Guid.NewGuid();
+
+        public string SubscriberKey { get; } = subscriberKey;
+
+        public IAsyncEnumerable<LiveEvent> Events => ReadAsync();
+
+        public void Offer(LiveEvent liveEvent)
+        {
+            if (filter(liveEvent))
+            {
+                // TryWrite, never WriteAsync: this runs on the shared Redis handler and must return
+                // immediately. With DropOldest it always succeeds unless the channel is completed.
+                _channel.Writer.TryWrite(liveEvent);
+            }
+        }
+
+        private async IAsyncEnumerable<LiveEvent> ReadAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            while (true)
+            {
+                LiveEvent? next;
+                try
+                {
+                    using var idleTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    idleTimeout.CancelAfter(options.HeartbeatInterval);
+                    next = await _channel.Reader.ReadAsync(idleTimeout.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Nothing arrived within the heartbeat window — emit a ping instead of a real
+                    // event. Heartbeats are injected here, not published to Redis.
+                    next = LiveEvent.Heartbeat;
+                }
+                catch (OperationCanceledException)
+                {
+                    yield break;
+                }
+                catch (ChannelClosedException)
+                {
+                    yield break;
+                }
+
+                yield return next;
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            onDisposed(Id);
+            _channel.Writer.TryComplete();
+            return ValueTask.CompletedTask;
+        }
+    }
+}
