@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<User> Users => Set<User>();
     public DbSet<VoteSession> VoteSessions => Set<VoteSession>();
     public DbSet<Vote> Votes => Set<Vote>();
+    public DbSet<AuditLogEntry> AuditLogEntries => Set<AuditLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +83,30 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(v => v.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AuditLogEntry>(entity =>
+        {
+            // No relationships at all, on purpose: actor and channel are snapshot strings, never FKs
+            // (see AuditLogEntry's remarks — a purge deletes its own channel row in the transaction
+            // that records the purge). Lengths are declared here because the columns hold external
+            // identifiers with known bounds (a Twitch login is at most 25 characters), unlike the
+            // free-text columns elsewhere in this model.
+            entity.Property(e => e.Action).HasMaxLength(64);
+            entity.Property(e => e.ActorTwitchUserId).HasMaxLength(64);
+            entity.Property(e => e.ActorLogin).HasMaxLength(64);
+            entity.Property(e => e.ChannelName).HasMaxLength(25);
+            entity.Property(e => e.TargetType).HasMaxLength(32);
+            entity.Property(e => e.TargetId).HasMaxLength(64);
+
+            // jsonb rather than text: the payload is JSON, and storing it as such keeps a later
+            // filter on a details field ("which purge removed more than 500 emotes?") a query
+            // instead of a migration.
+            entity.Property(e => e.DetailsJson).HasColumnType("jsonb");
+
+            // The only access pattern today is "newest first, paged" — a descending index answers
+            // that ordering directly. The (ChannelName, OccurredAtUtc) index waits for the filter UI.
+            entity.HasIndex(e => e.OccurredAtUtc).IsDescending();
         });
     }
 }

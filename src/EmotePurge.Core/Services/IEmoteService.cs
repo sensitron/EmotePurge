@@ -8,5 +8,7 @@ public interface IEmoteService
     // emote rows must survive a 7TV deletion (UsageStat/Vote history cascades off Emote.Id).
     // emoteIds not belonging to this channel, unknown, or already archived land in NotFoundIds
     // instead of failing the whole batch.
-    Task<SyncDeletedResultDto> MarkDeletedAsync(string channelName, IReadOnlyList<string> emoteIds, CancellationToken cancellationToken = default);
+    // actor is audited (emotes.syncDeleted) together with the archiving, in the same transaction —
+    // but only when something was actually archived; a call that matched nothing is not an event.
+    Task<SyncDeletedResultDto> MarkDeletedAsync(string channelName, IReadOnlyList<string> emoteIds, AuditActor actor, CancellationToken cancellationToken = default);
 }

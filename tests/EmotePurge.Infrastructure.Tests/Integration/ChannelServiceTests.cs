@@ -1,6 +1,10 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Messaging;
+using EmotePurge.Core.Services;
+using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
+using Microsoft.EntityFrameworkCore;
 using NSubstitute;
 using Xunit;
 
@@ -9,6 +13,8 @@ namespace EmotePurge.Infrastructure.Tests.Integration;
 [Collection("Postgres")]
 public class ChannelServiceTests(PostgresFixture fixture)
 {
+    private static readonly AuditActor Actor = new("4711", "sensitron");
+
     [Fact]
     public async Task JoinAsync_CreatesChannel_AndPublishesJoinCommand()
     {
@@ -16,7 +22,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
 
-        var channel = await service.JoinAsync("ChannelServiceTest1");
+        var channel = await service.JoinAsync("ChannelServiceTest1", Actor);
 
         Assert.Equal("channelservicetest1", channel.ChannelName);
         Assert.True(channel.IsBotActive);
@@ -32,8 +38,8 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
 
-        var first = await service.JoinAsync("channelservicetest2");
-        var second = await service.JoinAsync("channelservicetest2");
+        var first = await service.JoinAsync("channelservicetest2", Actor);
+        var second = await service.JoinAsync("channelservicetest2", Actor);
 
         Assert.Equal(first.Id, second.Id);
         var all = await service.ListAllAsync();
@@ -49,9 +55,9 @@ public class ChannelServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
-        await service.JoinAsync("channelservicetest3");
+        await service.JoinAsync("channelservicetest3", Actor);
 
-        var deactivated = await service.LeaveAsync("ChannelServiceTest3");
+        var deactivated = await service.LeaveAsync("ChannelServiceTest3", Actor);
 
         Assert.True(deactivated);
         var channel = await service.GetByNameAsync("channelservicetest3");
@@ -68,10 +74,10 @@ public class ChannelServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
-        var joined = await service.JoinAsync("channelservicetest5");
-        await service.LeaveAsync("channelservicetest5");
+        var joined = await service.JoinAsync("channelservicetest5", Actor);
+        await service.LeaveAsync("channelservicetest5", Actor);
 
-        var rejoined = await service.JoinAsync("channelservicetest5");
+        var rejoined = await service.JoinAsync("channelservicetest5", Actor);
 
         Assert.Equal(joined.Id, rejoined.Id);
         Assert.True(rejoined.IsBotActive);
@@ -83,9 +89,9 @@ public class ChannelServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
-        await service.JoinAsync("channelservicetest6");
+        await service.JoinAsync("channelservicetest6", Actor);
 
-        var purged = await service.PurgeAsync("ChannelServiceTest6");
+        var purged = await service.PurgeAsync("ChannelServiceTest6", Actor);
 
         Assert.True(purged);
         Assert.Null(await service.GetByNameAsync("channelservicetest6"));
@@ -99,7 +105,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
 
-        var purged = await service.PurgeAsync("neverjoinedchannel");
+        var purged = await service.PurgeAsync("neverjoinedchannel", Actor);
 
         Assert.False(purged);
         await redisPublisher.DidNotReceive().PublishAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -112,7 +118,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
 
-        var deactivated = await service.LeaveAsync("neverjoinedchannel");
+        var deactivated = await service.LeaveAsync("neverjoinedchannel", Actor);
 
         Assert.False(deactivated);
         await redisPublisher.DidNotReceive().PublishAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -124,10 +130,81 @@ public class ChannelServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = new ChannelService(db, redisPublisher);
-        await service.JoinAsync("ChannelServiceTest4");
+        await service.JoinAsync("ChannelServiceTest4", Actor);
 
         var found = await service.GetByNameAsync("  channelservicetest4  ");
 
         Assert.NotNull(found);
+    }
+
+    [Fact]
+    public async Task JoinAsync_WritesAuditEntry_WithNormalizedChannelName_AndActor()
+    {
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+
+        await service.JoinAsync("ChannelServiceAudit1", Actor);
+
+        var entry = Assert.Single(await LoadAuditEntriesAsync(db, "channelserviceaudit1"));
+        Assert.Equal(AuditActions.ChannelJoin, entry.Action);
+        // The name is stored normalized, not as typed — the audit log filters on the same form every
+        // other channel lookup does.
+        Assert.Equal("channelserviceaudit1", entry.ChannelName);
+        Assert.Equal(Actor.TwitchUserId, entry.ActorTwitchUserId);
+        Assert.Equal(Actor.Login, entry.ActorLogin);
+        Assert.Null(entry.DetailsJson);
+    }
+
+    [Fact]
+    public async Task LeaveAsync_WritesAuditEntry_AfterTheJoinEntry()
+    {
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+        await service.JoinAsync("channelserviceaudit2", Actor);
+
+        await service.LeaveAsync("ChannelServiceAudit2", Actor);
+
+        var entries = await LoadAuditEntriesAsync(db, "channelserviceaudit2");
+        Assert.Equal([AuditActions.ChannelJoin, AuditActions.ChannelLeave], entries.Select(e => e.Action));
+    }
+
+    [Fact]
+    public async Task PurgeAsync_AuditEntry_SurvivesTheChannelDeletion()
+    {
+        // The reason ChannelName is a snapshot string and not a foreign key: the entry is written in
+        // the same transaction that deletes the channel, and an FK would have cascaded away the only
+        // record that the purge ever happened.
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+        await service.JoinAsync("channelserviceaudit3", Actor);
+
+        await service.PurgeAsync("channelserviceaudit3", Actor);
+
+        Assert.Null(await service.GetByNameAsync("channelserviceaudit3"));
+        var entries = await LoadAuditEntriesAsync(db, "channelserviceaudit3");
+        Assert.Equal([AuditActions.ChannelJoin, AuditActions.ChannelPurge], entries.Select(e => e.Action));
+    }
+
+    [Fact]
+    public async Task LeaveAndPurge_ForUnknownChannel_WriteNoAuditEntry()
+    {
+        // No-ops are not events: both calls return false without touching anything, so the log must
+        // stay empty rather than record an action that did not happen.
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+
+        await service.LeaveAsync("channelserviceaudit4", Actor);
+        await service.PurgeAsync("channelserviceaudit4", Actor);
+
+        Assert.Empty(await LoadAuditEntriesAsync(db, "channelserviceaudit4"));
+    }
+
+    private static async Task<IReadOnlyList<AuditLogEntry>> LoadAuditEntriesAsync(AppDbContext db, string channelName)
+    {
+        return await db.AuditLogEntries
+            .AsNoTracking()
+            .Where(e => e.ChannelName == channelName)
+            .OrderBy(e => e.Id)
+            .ToListAsync();
     }
 }

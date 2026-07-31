@@ -44,11 +44,13 @@ public static class VoteSessionLimits
 public interface IVoteSessionService
 {
     // The service validates; the endpoint maps the result to a status code. startedAt null = now.
+    // actor is audited together with the created session (same transaction).
     Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
-        string channelName, string title, AllowedRoles allowedVoterRoles, DateTime? startedAt = null, CancellationToken cancellationToken = default);
+        string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null, CancellationToken cancellationToken = default);
 
-    // null = channel/session not found or session doesn't belong to that channel. Idempotent no-op if already ended.
-    Task<VoteSession?> EndAsync(string channelName, long sessionId, CancellationToken cancellationToken = default);
+    // null = channel/session not found or session doesn't belong to that channel. Idempotent no-op if
+    // already ended — and a no-op writes no audit entry, because nothing happened.
+    Task<VoteSession?> EndAsync(string channelName, long sessionId, AuditActor actor, CancellationToken cancellationToken = default);
 
     Task<(VoteCastResult Result, Vote? Vote)> CastVoteAsync(
         string channelName, long sessionId, string emoteId, string voterTwitchUserId, VoteType type, CancellationToken cancellationToken = default);
@@ -62,5 +64,5 @@ public interface IVoteSessionService
     // No IsActive guard: a manager may delete an active session too, same as LeaveAsync being
     // usable regardless of a channel's vote-session state. Returns false if the channel or session
     // isn't found (bool convention, mirrors ChannelService.LeaveAsync).
-    Task<bool> DeleteAsync(string channelName, long sessionId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(string channelName, long sessionId, AuditActor actor, CancellationToken cancellationToken = default);
 }

@@ -31,6 +31,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRedisSubscriber, RedisSubscriber>();
 
         services.AddScoped<IChannelService, ChannelService>();
+        services.AddScoped<IAdminChannelQueryService, AdminChannelQueryService>();
+        // Read side only — audit entries are written by the services that perform the actions, into
+        // those actions' own transactions (see AuditLogWrites).
+        services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
         services.AddScoped<IEmoteService, EmoteService>();
         services.AddScoped<IEmoteSetOwnershipService, EmoteSetOwnershipService>();
 

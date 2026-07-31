@@ -1,3 +1,4 @@
+using System.Globalization;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
@@ -7,8 +8,11 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class VoteSessionService(AppDbContext db) : IVoteSessionService
 {
+    // AuditLogEntry.TargetType for every entry this service writes.
+    private const string VoteSessionTargetType = "voteSession";
+
     public async Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
-        string channelName, string title, AllowedRoles allowedVoterRoles, DateTime? startedAt = null, CancellationToken cancellationToken = default)
+        string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null, CancellationToken cancellationToken = default)
     {
         // Validated here rather than in the endpoint: this is the layer that has tests, and it is the
         // one every future caller goes through. The endpoint only maps these results to error codes.
@@ -55,24 +59,50 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             AllowedVoterRoles = allowedVoterRoles,
             StartedAt = startedAt ?? DateTime.UtcNow
         };
+        // The only audited write in this file that cannot be a single SaveChanges: VoteSession.Id is
+        // database-generated, so the audit entry's TargetId does not exist until the insert has run.
+        // An explicit transaction keeps the guarantee anyway — either both rows land or neither does,
+        // which is the whole point of writing audit entries in the action's own transaction.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
         db.VoteSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
+
+        db.AddAuditEntry(
+            actor,
+            AuditActions.VoteSessionCreate,
+            channelName: channel.ChannelName,
+            targetType: VoteSessionTargetType,
+            targetId: session.Id.ToString(CultureInfo.InvariantCulture),
+            details: new { title = session.Title });
+        await db.SaveChangesAsync(cancellationToken);
+
+        await transaction.CommitAsync(cancellationToken);
 
         return (CreateVoteSessionResult.Success, session);
     }
 
-    public async Task<VoteSession?> EndAsync(string channelName, long sessionId, CancellationToken cancellationToken = default)
+    public async Task<VoteSession?> EndAsync(string channelName, long sessionId, AuditActor actor, CancellationToken cancellationToken = default)
     {
-        var (_, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
+        var (channel, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
         if (session is null)
         {
             return null;
         }
 
+        // Ending an already-ended session is a no-op by contract, and a no-op is not an event — so
+        // the audit entry sits inside this branch rather than beside it.
         if (session.IsActive)
         {
             session.IsActive = false;
             session.EndedAt = DateTime.UtcNow;
+            db.AddAuditEntry(
+                actor,
+                AuditActions.VoteSessionEnd,
+                channelName: channel!.ChannelName,
+                targetType: VoteSessionTargetType,
+                targetId: session.Id.ToString(CultureInfo.InvariantCulture),
+                details: new { title = session.Title });
             await db.SaveChangesAsync(cancellationToken);
         }
 
@@ -182,14 +212,23 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
         return VoteCastResult.Success;
     }
 
-    public async Task<bool> DeleteAsync(string channelName, long sessionId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteAsync(string channelName, long sessionId, AuditActor actor, CancellationToken cancellationToken = default)
     {
-        var (_, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
+        var (channel, session) = await db.LoadChannelSessionAsync(channelName, sessionId, cancellationToken);
         if (session is null)
         {
             return false;
         }
 
+        // Title captured into the entry before the row disappears — after the delete there is nothing
+        // left to look the session's name up in.
+        db.AddAuditEntry(
+            actor,
+            AuditActions.VoteSessionDelete,
+            channelName: channel!.ChannelName,
+            targetType: VoteSessionTargetType,
+            targetId: session.Id.ToString(CultureInfo.InvariantCulture),
+            details: new { title = session.Title });
         db.VoteSessions.Remove(session);
         await db.SaveChangesAsync(cancellationToken);
         return true;

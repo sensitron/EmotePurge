@@ -24,6 +24,7 @@ public static class EmoteEndpoints
         group.MapPost("/sync-deleted", async (
             string channelName,
             SyncDeletedRequest request,
+            HttpContext httpContext,
             IEmoteService emoteService,
             CancellationToken ct) =>
         {
@@ -32,7 +33,13 @@ public static class EmoteEndpoints
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty });
             }
 
-            var result = await emoteService.MarkDeletedAsync(channelName, request.EmoteIds, ct);
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await emoteService.MarkDeletedAsync(channelName, request.EmoteIds, actor, ct);
             return Results.Ok(new { archivedCount = result.ArchivedCount, notFoundIds = result.NotFoundIds });
         })
         // Overrides the group's strict policy: this is the one call that must never be dropped. The

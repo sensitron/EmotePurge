@@ -103,10 +103,17 @@ public static class ChannelEndpoints
 
         group.MapPost("/{channelName}/join", async (
             string channelName,
+            HttpContext httpContext,
             IChannelService channelService,
             CancellationToken ct) =>
         {
-            var channel = await channelService.JoinAsync(channelName, ct);
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var channel = await channelService.JoinAsync(channelName, actor, ct);
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
@@ -114,28 +121,43 @@ public static class ChannelEndpoints
 
         group.MapDelete("/{channelName}", async (
             string channelName,
+            HttpContext httpContext,
             IChannelService channelService,
             CancellationToken ct) =>
         {
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
             // Deactivates the bot and keeps all history — see ChannelService.LeaveAsync for why this
             // must not be a delete. The destructive variant lives behind /purge below.
-            var deactivated = await channelService.LeaveAsync(channelName, ct);
+            var deactivated = await channelService.LeaveAsync(channelName, actor, ct);
             return deactivated ? Results.NoContent() : Results.NotFound();
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
-        // Admin-only and deliberately without any UI: this is the only way to irreversibly remove a
-        // channel with its emotes, usage history, vote sessions and votes. Not behind
+        // Admin-only: the only way to irreversibly remove a channel with its emotes, usage history,
+        // vote sessions and votes. It has a UI since 2026-07-31 (admin channel page, S1-1 reversed) —
+        // reachable only from the global-admin area and behind a typed name confirmation. Not behind
         // ChannelManagementAuthorizationFilter, because that admits moderators — and a positively
         // cached mod status survives a /unmod by up to ten minutes, which is exactly the window in
         // which a just-removed moderator could have destroyed a channel's entire history.
         group.MapDelete("/{channelName}/purge", async (
             string channelName,
+            HttpContext httpContext,
             IChannelService channelService,
             ILogger<Program> logger,
             CancellationToken ct) =>
         {
-            var purged = await channelService.PurgeAsync(channelName, ct);
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var purged = await channelService.PurgeAsync(channelName, actor, ct);
             if (purged)
             {
                 logger.LogWarning("Channel {Channel} wurde per Admin-Purge samt Historie gelöscht.", channelName);

@@ -10,7 +10,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 {
     private const string CommandsChannel = "channel:bot:commands";
 
-    public async Task<Channel> JoinAsync(string channelName, CancellationToken cancellationToken = default)
+    public async Task<Channel> JoinAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -25,13 +25,18 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
             channel.IsBotActive = true;
         }
 
+        // Audited unconditionally, including the "already active" case: every join publishes a JOIN
+        // command and makes the worker (re)enter the channel, so something did happen even when the
+        // row itself is unchanged. This is the one place the no-op rule does not apply.
+        db.AddAuditEntry(actor, AuditActions.ChannelJoin, channelName: normalized);
+
         await db.SaveChangesAsync(cancellationToken);
         await redisPublisher.PublishAsync(CommandsChannel, $"JOIN:{normalized}", cancellationToken);
 
         return channel;
     }
 
-    public async Task<bool> LeaveAsync(string channelName, CancellationToken cancellationToken = default)
+    public async Task<bool> LeaveAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -50,13 +55,16 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         // SevenTvPeriodicResyncWorker and Worker's boot recovery both filter on IsBotActive, and
         // JoinAsync reactivates the row, so nothing else needs to change.
         channel.IsBotActive = false;
+        // Only reached for a channel that exists — the unknown-channel branch above returns without
+        // touching anything and therefore without an entry.
+        db.AddAuditEntry(actor, AuditActions.ChannelLeave, channelName: normalized);
         await db.SaveChangesAsync(cancellationToken);
         await redisPublisher.PublishAsync(CommandsChannel, $"LEAVE:{normalized}", cancellationToken);
 
         return true;
     }
 
-    public async Task<bool> PurgeAsync(string channelName, CancellationToken cancellationToken = default)
+    public async Task<bool> PurgeAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -70,6 +78,10 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         // votes. Publishes LEAVE first so the worker stops matching chat for a channel whose
         // emotes are about to disappear.
         await redisPublisher.PublishAsync(CommandsChannel, $"LEAVE:{normalized}", cancellationToken);
+        // Staged before the Remove and committed with it: the entry is the only trace this channel
+        // ever existed once the cascade has run, which is exactly why AuditLogEntry.ChannelName is a
+        // snapshot string and not a foreign key — an FK would have cascaded this row away too.
+        db.AddAuditEntry(actor, AuditActions.ChannelPurge, channelName: normalized);
         db.Channels.Remove(channel);
         await db.SaveChangesAsync(cancellationToken);
 

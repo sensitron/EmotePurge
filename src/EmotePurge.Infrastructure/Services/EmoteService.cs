@@ -7,7 +7,7 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class EmoteService(AppDbContext db) : IEmoteService
 {
-    public async Task<SyncDeletedResultDto> MarkDeletedAsync(string channelName, IReadOnlyList<string> emoteIds, CancellationToken cancellationToken = default)
+    public async Task<SyncDeletedResultDto> MarkDeletedAsync(string channelName, IReadOnlyList<string> emoteIds, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -26,6 +26,17 @@ public class EmoteService(AppDbContext db) : IEmoteService
         {
             emote.IsArchived = true;
             emote.LastSyncedAt = now;
+        }
+
+        // Nothing matched means nothing was archived — a re-sent batch after a retry, or ids from
+        // another channel. That is not an event worth a row; the caller still gets its NotFoundIds.
+        if (emotes.Count > 0)
+        {
+            db.AddAuditEntry(
+                actor,
+                AuditActions.EmotesSyncDeleted,
+                channelName: normalized,
+                details: new { emoteCount = emotes.Count });
         }
 
         await db.SaveChangesAsync(cancellationToken);

@@ -25,4 +25,19 @@ internal static class ClaimsPrincipalExtensions
 
         return new TwitchPrincipalInfo(twitchUserId, twitchLogin, tokenStillValid ? accessToken : null);
     }
+
+    /// <summary>
+    /// The caller as the audit log records them: id plus login, both snapshotted at action time.
+    /// Null exactly when <see cref="TryBuildTwitchPrincipal"/> is — an unauthenticated request, which
+    /// none of the audited endpoints can be reached by (they all sit behind
+    /// <c>RequireAuthorization()</c>), so the null branch is a guard, not a case.
+    /// </summary>
+    public static AuditActor? TryBuildAuditActor(this ClaimsPrincipal user)
+    {
+        var twitchUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        var twitchLogin = user.FindFirstValue(TwitchClaimTypes.Login);
+        return twitchUserId is null || twitchLogin is null
+            ? null
+            : new AuditActor(twitchUserId, twitchLogin);
+    }
 }

@@ -20,13 +20,20 @@ public static class VoteSessionEndpoints
         group.MapPost("", async (
             string channelName,
             CreateVoteSessionRequest request,
+            HttpContext httpContext,
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
             // Pure translation — the rules themselves live in VoteSessionService, which is the tested
             // layer and the one every non-HTTP caller goes through.
             var (result, session) = await voteSessionService.CreateAsync(
-                channelName, request.Title, request.AllowedVoterRoles, request.StartedAt, ct);
+                channelName, request.Title, request.AllowedVoterRoles, actor, request.StartedAt, ct);
 
             return result switch
             {
@@ -47,10 +54,17 @@ public static class VoteSessionEndpoints
         group.MapPost("/{sessionId:long}/end", async (
             string channelName,
             long sessionId,
+            HttpContext httpContext,
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
-            var session = await voteSessionService.EndAsync(channelName, sessionId, ct);
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var session = await voteSessionService.EndAsync(channelName, sessionId, actor, ct);
             if (session is null)
             {
                 return Results.NotFound();
@@ -63,10 +77,17 @@ public static class VoteSessionEndpoints
         group.MapDelete("/{sessionId:long}", async (
             string channelName,
             long sessionId,
+            HttpContext httpContext,
             IVoteSessionService voteSessionService,
             CancellationToken ct) =>
         {
-            var deleted = await voteSessionService.DeleteAsync(channelName, sessionId, ct);
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var deleted = await voteSessionService.DeleteAsync(channelName, sessionId, actor, ct);
             return deleted ? Results.NoContent() : Results.NotFound();
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
