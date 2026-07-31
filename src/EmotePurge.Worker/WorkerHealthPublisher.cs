@@ -18,6 +18,9 @@ public class WorkerHealthPublisher(
     ILogger<WorkerHealthPublisher> logger,
     ITwitchChatManager twitchChatManager,
     ISevenTvEventClient sevenTvEventClient,
+    SevenTvSubscriptionRegistry subscriptionRegistry,
+    WorkerStats stats,
+    IEmoteUsageCounter usageCounter,
     IConnectionMultiplexer redis) : BackgroundService
 {
     private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(20);
@@ -46,7 +49,16 @@ public class WorkerHealthPublisher(
                     sevenTvEventClient.IsConnected,
                     sevenTvEventClient.LastFrameReceivedUtc,
                     sevenTvEventClient.LastDispatchReceivedUtc,
-                    sevenTvEventClient.ConnectAttemptedUtc),
+                    sevenTvEventClient.ConnectAttemptedUtc,
+                    // Detail fields for the admin monitoring page — same key, same snapshot, no
+                    // second Redis key (see the class comment).
+                    subscriptionRegistry.DesiredChannels.Count,
+                    subscriptionRegistry.DesiredSubscriptionCount,
+                    subscriptionRegistry.UnacknowledgedCount,
+                    stats.ConsecutiveFlushFailures,
+                    stats.LastFlushSuccessUtc,
+                    stats.LastFlushRowCount,
+                    usageCounter.PendingEmoteCount),
                 JsonSerializerOptions.Web);
 
             await redis.GetDatabase().StringSetAsync(WorkerHealthKeys.TwitchConnection, payload, WorkerHealthKeys.Ttl);

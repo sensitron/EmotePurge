@@ -5,6 +5,7 @@ namespace EmotePurge.Worker;
 public class UsageFlushWorker(
     ILogger<UsageFlushWorker> logger,
     IEmoteUsageCounter usageCounter,
+    WorkerStats stats,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
     private static readonly TimeSpan FlushInterval = TimeSpan.FromSeconds(30);
@@ -14,8 +15,6 @@ public class UsageFlushWorker(
     // UsageStat.Date is the day the flush *succeeds*, so counts carried across a long outage would
     // eventually be booked on the wrong calendar day. Five attempts ≈ 2.5 minutes of tolerance.
     private const int MaxConsecutiveFailuresToRequeue = 5;
-
-    private int _consecutiveFailures;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -50,27 +49,29 @@ public class UsageFlushWorker(
             using var scope = scopeFactory.CreateScope();
             var flushService = scope.ServiceProvider.GetRequiredService<IUsageStatFlushService>();
             await flushService.FlushAsync(counts, ct);
-            _consecutiveFailures = 0;
+            // Bookkeeping moved to the shared WorkerStats so GET /api/admin/health can report it;
+            // the requeue/drop behaviour below is unchanged.
+            stats.RecordFlushSuccess(counts.Count, DateTime.UtcNow);
         }
         catch (Exception ex)
         {
             // An unhandled exception here would (StopHost default) kill the whole Worker
             // process, not just this flush cycle — so it never propagates.
-            _consecutiveFailures++;
-            if (_consecutiveFailures <= MaxConsecutiveFailuresToRequeue)
+            var consecutiveFailures = stats.RecordFlushFailure();
+            if (consecutiveFailures <= MaxConsecutiveFailuresToRequeue)
             {
                 usageCounter.Merge(counts);
                 logger.LogWarning(
                     ex,
                     "Usage-Stat-Flush fehlgeschlagen ({Attempt}. Versuch in Folge), {Count} Counts für den nächsten Durchlauf zurückgestellt.",
-                    _consecutiveFailures, counts.Count);
+                    consecutiveFailures, counts.Count);
             }
             else
             {
                 logger.LogError(
                     ex,
                     "Usage-Stat-Flush seit {Attempt} Durchläufen fehlgeschlagen, {Count} Counts verworfen.",
-                    _consecutiveFailures, counts.Count);
+                    consecutiveFailures, counts.Count);
             }
         }
     }

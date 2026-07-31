@@ -7,6 +7,7 @@ builder.Services.AddEmotePurgeInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<ITwitchChatManager, TwitchChatManager>();
 builder.Services.AddSingleton<IEmoteUsageCounter, EmoteUsageCounter>();
 builder.Services.AddSingleton<BootRecoveryGate>();
+builder.Services.AddSingleton<WorkerStats>();
 builder.Services.AddSingleton<SevenTvSubscriptionRegistry>();
 builder.Services.AddSingleton<ISevenTvEventClient, SevenTvEventClient>();
 builder.Services.AddHostedService<Worker>();

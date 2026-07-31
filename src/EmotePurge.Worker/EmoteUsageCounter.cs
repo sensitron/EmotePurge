@@ -19,4 +19,8 @@ public class EmoteUsageCounter : IEmoteUsageCounter
 
     public IReadOnlyDictionary<string, int> DrainAndReset()
         => Interlocked.Exchange(ref _counts, new ConcurrentDictionary<string, int>());
+
+    // Volatile.Read because DrainAndReset swaps the whole dictionary out from under concurrent
+    // readers; without it this could observe a stale reference.
+    public int PendingEmoteCount => Volatile.Read(ref _counts).Count;
 }

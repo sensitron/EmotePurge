@@ -26,7 +26,18 @@ public record WorkerHealthSnapshot(
     bool SevenTvConnected = false,
     DateTime? SevenTvLastFrameUtc = null,
     DateTime? SevenTvLastDispatchUtc = null,
-    DateTime? SevenTvConnectAttemptedUtc = null);
+    DateTime? SevenTvConnectAttemptedUtc = null,
+    // Admin-only detail fields, appended 2026-07-31 for GET /api/admin/health (Z1 health split).
+    // Nullable rather than 0-defaulted on purpose: a payload from an older worker must read as
+    // "unknown", not as "zero subscriptions / zero failures", which would look like a healthy idle
+    // worker on the monitoring page. The public GET /api/worker/health never surfaces these.
+    int? SevenTvDesiredChannelCount = null,
+    int? SevenTvDesiredSubscriptionCount = null,
+    int? SevenTvUnacknowledgedCount = null,
+    int? FlushConsecutiveFailures = null,
+    DateTime? FlushLastSuccessUtc = null,
+    int? FlushLastRowCount = null,
+    int? PendingEmoteCount = null);
 
 /// <summary>
 /// Reads the health snapshot the worker publishes. The API and the worker deliberately never talk
