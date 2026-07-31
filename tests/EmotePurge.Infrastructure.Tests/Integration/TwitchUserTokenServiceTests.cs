@@ -18,6 +18,10 @@ public class TwitchUserTokenServiceTests(PostgresFixture fixture)
 {
     private readonly AesGcmTokenCipher _cipher = CreateCipher();
 
+    // The token paths never touch the role cache — a substitute keeps this class on the Postgres
+    // fixture alone instead of dragging a Redis container in for a dependency it does not exercise.
+    private readonly IModRoleCache _modRoleCache = Substitute.For<IModRoleCache>();
+
     private static AesGcmTokenCipher CreateCipher()
     {
         var configuration = new ConfigurationBuilder()
@@ -33,13 +37,13 @@ public class TwitchUserTokenServiceTests(PostgresFixture fixture)
         AppDbContext db, ITwitchAuthClient authClient, TwitchTokenRefreshGate gate)
     {
         return new TwitchUserTokenService(
-            new UserService(db, _cipher), authClient, gate, NullLogger<TwitchUserTokenService>.Instance);
+            new UserService(db, _cipher, _modRoleCache), authClient, gate, NullLogger<TwitchUserTokenService>.Instance);
     }
 
     private async Task SeedUserWithTokensAsync(string userId, DateTime accessTokenExpiresAtUtc, string? scopes = null)
     {
         await using var db = fixture.CreateDbContext();
-        var userService = new UserService(db, _cipher);
+        var userService = new UserService(db, _cipher, _modRoleCache);
         await userService.UpsertLoginAsync(userId, userId, userId);
         await userService.StoreTwitchTokensAsync(
             userId, "stored-access", accessTokenExpiresAtUtc, "stored-refresh",
@@ -94,7 +98,7 @@ public class TwitchUserTokenServiceTests(PostgresFixture fixture)
         Assert.False(result.ReauthRequired);
 
         await using var verifyDb = fixture.CreateDbContext();
-        var stored = await new UserService(verifyDb, _cipher).GetTwitchTokensAsync("uts-refresh");
+        var stored = await new UserService(verifyDb, _cipher, _modRoleCache).GetTwitchTokensAsync("uts-refresh");
         Assert.NotNull(stored);
         Assert.Equal("rotated-refresh", stored.RefreshToken);
         Assert.Equal("new-access", stored.AccessToken);
@@ -146,7 +150,7 @@ public class TwitchUserTokenServiceTests(PostgresFixture fixture)
         Assert.Null(result.AccessToken);
         Assert.True(result.ReauthRequired);
         await using var verifyDb = fixture.CreateDbContext();
-        Assert.Null(await new UserService(verifyDb, _cipher).GetTwitchTokensAsync("uts-invalid"));
+        Assert.Null(await new UserService(verifyDb, _cipher, _modRoleCache).GetTwitchTokensAsync("uts-invalid"));
     }
 
     [Fact]
@@ -164,7 +168,7 @@ public class TwitchUserTokenServiceTests(PostgresFixture fixture)
         Assert.Null(result.AccessToken);
         Assert.False(result.ReauthRequired);
         await using var verifyDb = fixture.CreateDbContext();
-        var stored = await new UserService(verifyDb, _cipher).GetTwitchTokensAsync("uts-transient");
+        var stored = await new UserService(verifyDb, _cipher, _modRoleCache).GetTwitchTokensAsync("uts-transient");
         Assert.NotNull(stored);
         Assert.Equal("stored-refresh", stored.RefreshToken);
     }
@@ -173,7 +177,7 @@ public class TwitchUserTokenServiceTests(PostgresFixture fixture)
     public async Task NoStoredTokens_ReportsReauthRequired()
     {
         await using var db = fixture.CreateDbContext();
-        await new UserService(db, _cipher).UpsertLoginAsync("uts-none", "uts-none", "uts-none");
+        await new UserService(db, _cipher, _modRoleCache).UpsertLoginAsync("uts-none", "uts-none", "uts-none");
         var authClient = Substitute.For<ITwitchAuthClient>();
         var service = CreateService(db, authClient, new TwitchTokenRefreshGate());
 

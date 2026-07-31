@@ -41,6 +41,37 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
     public Task SetIsSubscriberAsync(string twitchUserId, string broadcasterTwitchId, bool isSubscriber, CancellationToken cancellationToken = default) =>
         SetAsync(BuildKey("subcheck", twitchUserId, broadcasterTwitchId), isSubscriber);
 
+    public async Task<int> InvalidateUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    {
+        // The per-scope keys (modcheck/subcheck) are not enumerable from the user id alone, so this
+        // SCANs for them — acceptable here: the keyspace is small (role checks for logged-in users
+        // only) and the call is a rare, admin-triggered action, not a request path. KeysAsync uses
+        // cursor-based SCAN under the hood, never the blocking KEYS command.
+        var keys = new List<RedisKey> { $"7tveditor:{twitchUserId}" };
+        foreach (var endpoint in connectionMultiplexer.GetEndPoints())
+        {
+            var server = connectionMultiplexer.GetServer(endpoint);
+            if (server.IsReplica)
+            {
+                continue;
+            }
+
+            await foreach (var key in server.KeysAsync(pattern: $"modcheck:{twitchUserId}:*").WithCancellation(cancellationToken))
+            {
+                keys.Add(key);
+            }
+
+            await foreach (var key in server.KeysAsync(pattern: $"subcheck:{twitchUserId}:*").WithCancellation(cancellationToken))
+            {
+                keys.Add(key);
+            }
+        }
+
+        // KeyDelete reports how many keys existed — the 7tveditor guess above is only counted when
+        // there actually was a cached grant set.
+        return (int)await connectionMultiplexer.GetDatabase().KeyDeleteAsync([.. keys.Distinct()]);
+    }
+
     private async Task<bool?> TryGetAsync(string key)
     {
         var value = await connectionMultiplexer.GetDatabase().StringGetAsync(key);

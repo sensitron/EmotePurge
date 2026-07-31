@@ -26,4 +26,10 @@ public interface IModRoleCache
     Task<bool?> TryGetIsSubscriberAsync(string twitchUserId, string broadcasterTwitchId, CancellationToken cancellationToken = default);
 
     Task SetIsSubscriberAsync(string twitchUserId, string broadcasterTwitchId, bool isSubscriber, CancellationToken cancellationToken = default);
+
+    // Drops every cached role answer for one user — moderator, subscriber and 7TV editor alike —
+    // so the next check resolves live. This is the admin escape hatch for the staleness trade-off
+    // described above (a /unmod -> /mod flip used to require deleting the Redis key by hand).
+    // Returns the number of entries actually removed.
+    Task<int> InvalidateUserAsync(string twitchUserId, CancellationToken cancellationToken = default);
 }

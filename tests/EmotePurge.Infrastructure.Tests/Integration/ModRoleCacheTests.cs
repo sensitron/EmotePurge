@@ -1,3 +1,4 @@
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Tests.Fixtures;
 using Microsoft.Extensions.Configuration;
@@ -57,5 +58,53 @@ public class ModRoleCacheTests(RedisFixture fixture)
 
         Assert.True(await cache.TryGetIsModeratorAsync("user-multi", "channel-x"));
         Assert.Null(await cache.TryGetIsModeratorAsync("user-multi", "channel-y"));
+    }
+
+    [Fact]
+    public async Task InvalidateUserAsync_RemovesModSubscriberAndEditorEntries_AcrossAllChannels()
+    {
+        // The admin escape hatch has to reach every key shape at once — a per-channel modcheck
+        // survivor would leave exactly the stale answer the invalidation was triggered for.
+        var cache = new ModRoleCache(fixture.Connection, BuildConfiguration());
+        await cache.SetIsModeratorAsync("user-invalidate-1", "channel-a", isModerator: true);
+        await cache.SetIsModeratorAsync("user-invalidate-1", "channel-b", isModerator: false);
+        await cache.SetIsSubscriberAsync("user-invalidate-1", "broadcaster-1", isSubscriber: true);
+        await cache.SetSevenTvEditorGrantsAsync(
+            "user-invalidate-1",
+            new SevenTvEditorGrants(new HashSet<string> { "channel-a" }, new HashSet<string> { "broadcaster-1" }));
+
+        var removed = await cache.InvalidateUserAsync("user-invalidate-1");
+
+        Assert.Equal(4, removed);
+        Assert.Null(await cache.TryGetIsModeratorAsync("user-invalidate-1", "channel-a"));
+        Assert.Null(await cache.TryGetIsModeratorAsync("user-invalidate-1", "channel-b"));
+        Assert.Null(await cache.TryGetIsSubscriberAsync("user-invalidate-1", "broadcaster-1"));
+        Assert.Null(await cache.TryGetSevenTvEditorGrantsAsync("user-invalidate-1"));
+    }
+
+    [Fact]
+    public async Task InvalidateUserAsync_LeavesOtherUsersEntriesUntouched()
+    {
+        // The SCAN pattern is built from the user id, so a too-greedy glob would silently flush
+        // every logged-in user's role answers instead of one person's.
+        var cache = new ModRoleCache(fixture.Connection, BuildConfiguration());
+        await cache.SetIsModeratorAsync("user-invalidate-2", "channel-a", isModerator: true);
+        await cache.SetIsModeratorAsync("user-invalidate-3", "channel-a", isModerator: true);
+        await cache.SetIsSubscriberAsync("user-invalidate-3", "broadcaster-1", isSubscriber: true);
+
+        var removed = await cache.InvalidateUserAsync("user-invalidate-2");
+
+        Assert.Equal(1, removed);
+        Assert.True(await cache.TryGetIsModeratorAsync("user-invalidate-3", "channel-a"));
+        Assert.True(await cache.TryGetIsSubscriberAsync("user-invalidate-3", "broadcaster-1"));
+    }
+
+    [Fact]
+    public async Task InvalidateUserAsync_ForUserWithoutEntries_ReturnsZero()
+    {
+        // Including the unconditionally probed 7tveditor key: it is only counted when it existed.
+        var cache = new ModRoleCache(fixture.Connection, BuildConfiguration());
+
+        Assert.Equal(0, await cache.InvalidateUserAsync("user-invalidate-nobody"));
     }
 }

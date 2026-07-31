@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
+using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
@@ -9,8 +11,10 @@ using Xunit;
 
 namespace EmotePurge.Infrastructure.Tests.Integration;
 
+// Postgres comes from the shared collection; Redis is a class fixture because InvalidateRoleCache
+// spans both stores and the real ModRoleCache is what makes the removed-entry count meaningful.
 [Collection("Postgres")]
-public class UserServiceTests(PostgresFixture fixture)
+public class UserServiceTests(PostgresFixture fixture, RedisFixture redisFixture) : IClassFixture<RedisFixture>
 {
     private static AesGcmTokenCipher CreateCipher()
     {
@@ -23,11 +27,13 @@ public class UserServiceTests(PostgresFixture fixture)
         return new AesGcmTokenCipher(configuration);
     }
 
+    private ModRoleCache CreateRoleCache() => new(redisFixture.Connection, new ConfigurationBuilder().Build());
+
     [Fact]
     public async Task StoreTwitchTokens_ThenGet_RoundTripsAllFields()
     {
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
         await service.UpsertLoginAsync("user-tokens-1", "usertokens1", "UserTokens1");
         var expiresAt = DateTime.UtcNow.AddHours(4);
 
@@ -45,7 +51,7 @@ public class UserServiceTests(PostgresFixture fixture)
     public async Task StoreTwitchTokens_NeverWritesPlaintextToTheDatabase()
     {
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
         await service.UpsertLoginAsync("user-tokens-2", "usertokens2", "UserTokens2");
 
         await service.StoreTwitchTokensAsync("user-tokens-2", "plain-access", DateTime.UtcNow.AddHours(4), "plain-refresh", null);
@@ -64,19 +70,19 @@ public class UserServiceTests(PostgresFixture fixture)
         // Simulates a rotated/lost encryption key: the stored row exists but must behave exactly
         // like "no token stored" instead of surfacing garbage or an exception.
         await using var db = fixture.CreateDbContext();
-        await new UserService(db, CreateCipher()).UpsertLoginAsync("user-tokens-3", "usertokens3", "UserTokens3");
-        await new UserService(db, CreateCipher()).StoreTwitchTokensAsync(
+        await new UserService(db, CreateCipher(), CreateRoleCache()).UpsertLoginAsync("user-tokens-3", "usertokens3", "UserTokens3");
+        await new UserService(db, CreateCipher(), CreateRoleCache()).StoreTwitchTokensAsync(
             "user-tokens-3", "access", DateTime.UtcNow.AddHours(4), "refresh", null);
 
         await using var readDb = fixture.CreateDbContext();
-        Assert.Null(await new UserService(readDb, CreateCipher()).GetTwitchTokensAsync("user-tokens-3"));
+        Assert.Null(await new UserService(readDb, CreateCipher(), CreateRoleCache()).GetTwitchTokensAsync("user-tokens-3"));
     }
 
     [Fact]
     public async Task ClearTwitchTokens_RemovesAllFourColumns()
     {
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
         await service.UpsertLoginAsync("user-tokens-4", "usertokens4", "UserTokens4");
         await service.StoreTwitchTokensAsync("user-tokens-4", "access", DateTime.UtcNow.AddHours(4), "refresh", "scopes");
 
@@ -96,14 +102,14 @@ public class UserServiceTests(PostgresFixture fixture)
     {
         await using var db = fixture.CreateDbContext();
 
-        Assert.Null(await new UserService(db, CreateCipher()).GetTwitchTokensAsync("user-tokens-nobody"));
+        Assert.Null(await new UserService(db, CreateCipher(), CreateRoleCache()).GetTwitchTokensAsync("user-tokens-nobody"));
     }
 
     [Fact]
     public async Task StoreTwitchTokens_ForUnknownUser_IsANoOp()
     {
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
 
         await service.StoreTwitchTokensAsync("user-tokens-ghost", "access", DateTime.UtcNow, "refresh", null);
 
@@ -114,7 +120,7 @@ public class UserServiceTests(PostgresFixture fixture)
     public async Task RevokeSessions_WithActor_WritesTheAuditEntryInTheSameTransaction()
     {
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
         await service.UpsertLoginAsync("user-revoke-1", "userrevoke1", "UserRevoke1");
 
         var revoked = await service.RevokeSessionsAsync("user-revoke-1", new AuditActor("admin-1", "sensitron"));
@@ -138,7 +144,7 @@ public class UserServiceTests(PostgresFixture fixture)
     {
         // The self-logout path: revocation happens, but no login/logout noise in the audit log.
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
         await service.UpsertLoginAsync("user-revoke-2", "userrevoke2", "UserRevoke2");
 
         var revoked = await service.RevokeSessionsAsync("user-revoke-2", actor: null);
@@ -153,12 +159,59 @@ public class UserServiceTests(PostgresFixture fixture)
     public async Task RevokeSessions_ForUnknownUser_ReturnsFalse_AndWritesNothing()
     {
         await using var db = fixture.CreateDbContext();
-        var service = new UserService(db, CreateCipher());
+        var service = new UserService(db, CreateCipher(), CreateRoleCache());
 
         var revoked = await service.RevokeSessionsAsync("user-revoke-nobody", new AuditActor("admin-1", "sensitron"));
 
         Assert.False(revoked);
         await using var verifyDb = fixture.CreateDbContext();
         Assert.False(await verifyDb.AuditLogEntries.AsNoTracking().AnyAsync(e => e.TargetId == "user-revoke-nobody"));
+    }
+
+    [Fact]
+    public async Task InvalidateRoleCache_ForKnownUser_ClearsRedisEntries_AndAuditsTheCount()
+    {
+        await using var db = fixture.CreateDbContext();
+        var roleCache = CreateRoleCache();
+        var service = new UserService(db, CreateCipher(), roleCache);
+        await service.UpsertLoginAsync("user-rolecache-1", "userrolecache1", "UserRoleCache1");
+        await roleCache.SetIsModeratorAsync("user-rolecache-1", "channel-a", isModerator: true);
+        await roleCache.SetIsSubscriberAsync("user-rolecache-1", "9001", isSubscriber: true);
+
+        var removedEntries = await service.InvalidateRoleCacheAsync("user-rolecache-1", new AuditActor("admin-1", "sensitron"));
+
+        Assert.Equal(2, removedEntries);
+        Assert.Null(await roleCache.TryGetIsModeratorAsync("user-rolecache-1", "channel-a"));
+        Assert.Null(await roleCache.TryGetIsSubscriberAsync("user-rolecache-1", "9001"));
+
+        await using var verifyDb = fixture.CreateDbContext();
+        var entry = await verifyDb.AuditLogEntries.AsNoTracking()
+            .SingleAsync(e => e.TargetType == "user" && e.TargetId == "user-rolecache-1");
+        Assert.Equal(AuditActions.UserInvalidateRoleCache, entry.Action);
+        Assert.Equal("sensitron", entry.ActorLogin);
+        // The count is the whole point of the entry: it tells the reader whether anything was
+        // actually cached, which a bare "invalidated" line could not. Parsed rather than substring-
+        // matched because the jsonb column hands the payload back reformatted, not byte-identical.
+        using var details = JsonDocument.Parse(entry.DetailsJson!);
+        Assert.Equal("userrolecache1", details.RootElement.GetProperty("login").GetString());
+        Assert.Equal(2, details.RootElement.GetProperty("removedEntries").GetInt32());
+    }
+
+    [Fact]
+    public async Task InvalidateRoleCache_ForUnknownUser_ReturnsNull_AndTouchesNeitherStore()
+    {
+        // The unknown-user branch returns before Redis is reached — verified by seeding a key under
+        // that very id and watching it survive, which a SCAN-then-delete would have removed.
+        await using var db = fixture.CreateDbContext();
+        var roleCache = CreateRoleCache();
+        var service = new UserService(db, CreateCipher(), roleCache);
+        await roleCache.SetIsModeratorAsync("user-rolecache-nobody", "channel-a", isModerator: true);
+
+        var removedEntries = await service.InvalidateRoleCacheAsync("user-rolecache-nobody", new AuditActor("admin-1", "sensitron"));
+
+        Assert.Null(removedEntries);
+        Assert.True(await roleCache.TryGetIsModeratorAsync("user-rolecache-nobody", "channel-a"));
+        await using var verifyDb = fixture.CreateDbContext();
+        Assert.False(await verifyDb.AuditLogEntries.AsNoTracking().AnyAsync(e => e.TargetId == "user-rolecache-nobody"));
     }
 }

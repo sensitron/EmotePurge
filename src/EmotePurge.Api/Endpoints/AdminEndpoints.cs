@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Api.Endpoints;
@@ -103,6 +104,32 @@ public static class AdminEndpoints
             return Results.Ok(channels);
         });
 
+        group.MapPost("/channels/{channelName}/resync", async (
+            string channelName,
+            ClaimsPrincipal principal,
+            IChannelService channelService,
+            CancellationToken ct) =>
+        {
+            var actor = principal.TryBuildAuditActor();
+            if (actor is null)
+            {
+                // Unreachable behind RequireAuthorization + the admin filter; guard, not a case.
+                return Results.Unauthorized();
+            }
+
+            // 202, not 200: the command protocol is one-way, so success means "the worker was
+            // told", never "the sync finished". Completion shows up as LastSyncedAtUtc in
+            // GET /channels on the next refresh.
+            var result = await channelService.TriggerResyncAsync(channelName, actor, ct);
+            return result switch
+            {
+                ChannelResyncResult.Triggered => Results.Accepted(),
+                ChannelResyncResult.NotFound => Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotFound }),
+                ChannelResyncResult.NotActive => Results.Conflict(new { errorCode = ApiErrorCodes.ChannelNotJoined }),
+                _ => Results.Problem(),
+            };
+        });
+
         group.MapGet("/users", async (
             int page,
             int pageSize,
@@ -142,6 +169,27 @@ public static class AdminEndpoints
 
             await userService.ClearTwitchTokensAsync(twitchUserId, ct);
             return Results.NoContent();
+        });
+
+        group.MapPost("/users/{twitchUserId}/invalidate-role-cache", async (
+            string twitchUserId,
+            ClaimsPrincipal principal,
+            IUserService userService,
+            CancellationToken ct) =>
+        {
+            var actor = principal.TryBuildAuditActor();
+            if (actor is null)
+            {
+                // Unreachable behind RequireAuthorization + the admin filter; guard, not a case.
+                return Results.Unauthorized();
+            }
+
+            // The admin remedy for the documented mod-cache staleness (decision log 2026-07-25):
+            // a /unmod -> /mod flip no longer waits out the TTL or a manual Redis delete.
+            var removedEntries = await userService.InvalidateRoleCacheAsync(twitchUserId, actor, ct);
+            return removedEntries is null
+                ? Results.NotFound()
+                : Results.Ok(new { removedEntries });
         });
 
         group.MapGet("/audit-log", async (

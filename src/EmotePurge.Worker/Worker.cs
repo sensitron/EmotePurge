@@ -15,7 +15,6 @@ public class Worker(
     ISevenTvEventClient sevenTvEventClient,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
-    private const string CommandsChannel = "channel:bot:commands";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -28,23 +27,32 @@ public class Worker(
 
         await RunBootRecoveryAsync(stoppingToken);
 
-        // Echtzeit-Join-/Leave-Kommandos von der Api
-        await redisSubscriber.SubscribeAsync(CommandsChannel, async (_, message) =>
+        // Echtzeit-Join-/Leave-/Resync-Kommandos von der Api
+        await redisSubscriber.SubscribeAsync(BotCommands.Channel, async (_, message) =>
         {
-            if (message.StartsWith("JOIN:", StringComparison.Ordinal))
+            if (message.StartsWith(BotCommands.JoinPrefix, StringComparison.Ordinal))
             {
-                var channelName = message["JOIN:".Length..];
+                var channelName = message[BotCommands.JoinPrefix.Length..];
                 logger.LogInformation("Redis-Kommando: joine {Channel}.", channelName);
                 await twitchChatManager.JoinChannelAsync(channelName);
                 await SyncSevenTvAsync(channelName, stoppingToken);
             }
-            else if (message.StartsWith("LEAVE:", StringComparison.Ordinal))
+            else if (message.StartsWith(BotCommands.LeavePrefix, StringComparison.Ordinal))
             {
-                var channelName = message["LEAVE:".Length..];
+                var channelName = message[BotCommands.LeavePrefix.Length..];
                 logger.LogInformation("Redis-Kommando: verlasse {Channel}.", channelName);
                 emoteMatchCache.RemoveChannel(channelName);
                 sevenTvEventClient.Unsubscribe(channelName);
                 await twitchChatManager.LeaveChannelAsync(channelName);
+            }
+            else if (message.StartsWith(BotCommands.ResyncPrefix, StringComparison.Ordinal))
+            {
+                // Admin-getriggerter Sofort-Resync: gleiche Schritte wie ein Tick des periodischen
+                // Resyncs für genau diesen Channel (EnsureJoined als Konvergenznetz inklusive).
+                var channelName = message[BotCommands.ResyncPrefix.Length..];
+                logger.LogInformation("Redis-Kommando: resynce {Channel}.", channelName);
+                await twitchChatManager.EnsureJoinedAsync(channelName);
+                await SyncSevenTvAsync(channelName, stoppingToken);
             }
         }, stoppingToken);
 

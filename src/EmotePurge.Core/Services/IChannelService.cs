@@ -2,6 +2,13 @@ using EmotePurge.Core.Entities;
 
 namespace EmotePurge.Core.Services;
 
+public enum ChannelResyncResult
+{
+    Triggered,
+    NotFound,
+    NotActive,
+}
+
 public interface IChannelService
 {
     // All three write methods take the acting user: each writes its own AuditLogEntry into the same
@@ -19,4 +26,12 @@ public interface IChannelService
     Task<bool> PurgeAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default);
 
     Task<Channel?> GetByNameAsync(string channelName, CancellationToken cancellationToken = default);
+
+    // Publishes a RESYNC command for an active channel, making the worker re-resolve the full 7TV
+    // truth immediately instead of waiting for the next periodic tick. Fire-and-forget by design:
+    // the command protocol is one-way, so "triggered" means "published", not "completed" — the
+    // admin channel list's LastSyncedAtUtc is where completion becomes visible. Restricted to
+    // active channels: the worker's sync path would otherwise create an EventAPI subscription for
+    // a channel the bot is not even in.
+    Task<ChannelResyncResult> TriggerResyncAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default);
 }

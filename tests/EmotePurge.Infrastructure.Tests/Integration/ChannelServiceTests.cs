@@ -199,6 +199,81 @@ public class ChannelServiceTests(PostgresFixture fixture)
         Assert.Empty(await LoadAuditEntriesAsync(db, "channelserviceaudit4"));
     }
 
+    [Fact]
+    public async Task TriggerResyncAsync_ForActiveChannel_PublishesResyncCommand_AndWritesAuditEntry()
+    {
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+        await service.JoinAsync("channelserviceresync1", Actor);
+
+        var result = await service.TriggerResyncAsync("channelserviceresync1", Actor);
+
+        Assert.Equal(ChannelResyncResult.Triggered, result);
+        await redisPublisher.Received(1).PublishAsync(
+            BotCommands.Channel, "RESYNC:channelserviceresync1", Arg.Any<CancellationToken>());
+
+        var entries = await LoadAuditEntriesAsync(db, "channelserviceresync1");
+        Assert.Equal([AuditActions.ChannelJoin, AuditActions.ChannelResync], entries.Select(e => e.Action));
+        var resync = entries[^1];
+        Assert.Equal("channelserviceresync1", resync.ChannelName);
+        Assert.Equal(Actor.TwitchUserId, resync.ActorTwitchUserId);
+        Assert.Equal(Actor.Login, resync.ActorLogin);
+    }
+
+    [Fact]
+    public async Task TriggerResyncAsync_NormalizesTheChannelName_ForLookupPublishAndAudit()
+    {
+        // The command payload the worker parses and the audit row must both carry the stored form,
+        // not whatever casing/padding the caller typed.
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+        await service.JoinAsync("channelserviceresync2", Actor);
+
+        var result = await service.TriggerResyncAsync("  ChannelServiceResync2  ", Actor);
+
+        Assert.Equal(ChannelResyncResult.Triggered, result);
+        await redisPublisher.Received(1).PublishAsync(
+            BotCommands.Channel, "RESYNC:channelserviceresync2", Arg.Any<CancellationToken>());
+        var entries = await LoadAuditEntriesAsync(db, "channelserviceresync2");
+        Assert.Equal([AuditActions.ChannelJoin, AuditActions.ChannelResync], entries.Select(e => e.Action));
+    }
+
+    [Fact]
+    public async Task TriggerResyncAsync_ForUnknownChannel_ReturnsNotFound_AndDoesNothing()
+    {
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+
+        var result = await service.TriggerResyncAsync("channelserviceresync3", Actor);
+
+        Assert.Equal(ChannelResyncResult.NotFound, result);
+        await redisPublisher.DidNotReceive().PublishAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        Assert.Empty(await LoadAuditEntriesAsync(db, "channelserviceresync3"));
+    }
+
+    [Fact]
+    public async Task TriggerResyncAsync_ForInactiveChannel_ReturnsNotActive_AndDoesNothing()
+    {
+        // A left channel keeps its row and its history, but resyncing it would subscribe its emote
+        // set on the EventAPI while nothing consumes the events — a no-op, so also unaudited.
+        await using var db = fixture.CreateDbContext();
+        var redisPublisher = Substitute.For<IRedisPublisher>();
+        var service = new ChannelService(db, redisPublisher);
+        await service.JoinAsync("channelserviceresync4", Actor);
+        await service.LeaveAsync("channelserviceresync4", Actor);
+        redisPublisher.ClearReceivedCalls();
+
+        var result = await service.TriggerResyncAsync("channelserviceresync4", Actor);
+
+        Assert.Equal(ChannelResyncResult.NotActive, result);
+        await redisPublisher.DidNotReceive().PublishAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        var entries = await LoadAuditEntriesAsync(db, "channelserviceresync4");
+        Assert.Equal([AuditActions.ChannelJoin, AuditActions.ChannelLeave], entries.Select(e => e.Action));
+    }
+
     private static async Task<IReadOnlyList<AuditLogEntry>> LoadAuditEntriesAsync(AppDbContext db, string channelName)
     {
         return await db.AuditLogEntries

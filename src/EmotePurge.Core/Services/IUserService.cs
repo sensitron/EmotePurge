@@ -31,4 +31,10 @@ public interface IUserService
 
     // Drops all stored Twitch tokens (logout, or Twitch reported the refresh token as invalid).
     Task ClearTwitchTokensAsync(string twitchUserId, CancellationToken cancellationToken = default);
+
+    // Admin action: drops every cached role answer (mod/sub/7TV editor) for this user via
+    // IModRoleCache, so the next authorization check resolves live. Returns the number of removed
+    // cache entries, or null when the user is unknown. Audited as user.invalidateRoleCache; the
+    // actor is required — unlike session revocation there is no self-service variant of this.
+    Task<int?> InvalidateRoleCacheAsync(string twitchUserId, AuditActor actor, CancellationToken cancellationToken = default);
 }

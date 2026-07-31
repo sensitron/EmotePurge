@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Infrastructure.Services;
 
-public class UserService(AppDbContext db, ITokenCipher tokenCipher) : IUserService
+public class UserService(AppDbContext db, ITokenCipher tokenCipher, IModRoleCache modRoleCache) : IUserService
 {
     public async Task<User> UpsertLoginAsync(string twitchUserId, string twitchUsername, string displayName, CancellationToken cancellationToken = default)
     {
@@ -61,6 +61,35 @@ public class UserService(AppDbContext db, ITokenCipher tokenCipher) : IUserServi
 
         await db.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    public async Task<int?> InvalidateRoleCacheAsync(string twitchUserId, AuditActor actor, CancellationToken cancellationToken = default)
+    {
+        var user = await db.Users
+            .AsNoTracking()
+            .SingleOrDefaultAsync(u => u.Id == twitchUserId, cancellationToken);
+        if (user is null)
+        {
+            // Unknown user means nothing could have been cached under this id (entries only exist
+            // for users who logged in and triggered a role check) — and it keeps arbitrary route
+            // input away from the Redis SCAN pattern.
+            return null;
+        }
+
+        var removedEntries = await modRoleCache.InvalidateUserAsync(twitchUserId, cancellationToken);
+
+        // Audited after the deletion so the entry carries the real count. The Redis write and the
+        // audit row cannot share a transaction anyway; if this save fails the cache is already
+        // clean, which is the harmless direction (entries repopulate on the next check).
+        db.AddAuditEntry(
+            actor,
+            AuditActions.UserInvalidateRoleCache,
+            targetType: "user",
+            targetId: twitchUserId,
+            details: new { login = user.TwitchUsername, removedEntries });
+        await db.SaveChangesAsync(cancellationToken);
+
+        return removedEntries;
     }
 
     public async Task StoreTwitchTokensAsync(string twitchUserId, string accessToken, DateTime accessTokenExpiresAtUtc, string refreshToken, string? scopes, CancellationToken cancellationToken = default)

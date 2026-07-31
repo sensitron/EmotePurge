@@ -8,8 +8,6 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : IChannelService
 {
-    private const string CommandsChannel = "channel:bot:commands";
-
     public async Task<Channel> JoinAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
@@ -31,7 +29,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         db.AddAuditEntry(actor, AuditActions.ChannelJoin, channelName: normalized);
 
         await db.SaveChangesAsync(cancellationToken);
-        await redisPublisher.PublishAsync(CommandsChannel, $"JOIN:{normalized}", cancellationToken);
+        await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.JoinPrefix}{normalized}", cancellationToken);
 
         return channel;
     }
@@ -59,7 +57,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         // touching anything and therefore without an entry.
         db.AddAuditEntry(actor, AuditActions.ChannelLeave, channelName: normalized);
         await db.SaveChangesAsync(cancellationToken);
-        await redisPublisher.PublishAsync(CommandsChannel, $"LEAVE:{normalized}", cancellationToken);
+        await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.LeavePrefix}{normalized}", cancellationToken);
 
         return true;
     }
@@ -77,7 +75,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         // The deliberate hard delete, cascading through emotes, usage stats, vote sessions and
         // votes. Publishes LEAVE first so the worker stops matching chat for a channel whose
         // emotes are about to disappear.
-        await redisPublisher.PublishAsync(CommandsChannel, $"LEAVE:{normalized}", cancellationToken);
+        await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.LeavePrefix}{normalized}", cancellationToken);
         // Staged before the Remove and committed with it: the entry is the only trace this channel
         // ever existed once the cascade has run, which is exactly why AuditLogEntry.ChannelName is a
         // snapshot string and not a foreign key — an FK would have cascaded this row away too.
@@ -92,5 +90,31 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
     {
         var normalized = ChannelName.Normalize(channelName);
         return await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+    }
+
+    public async Task<ChannelResyncResult> TriggerResyncAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
+    {
+        var normalized = ChannelName.Normalize(channelName);
+
+        var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        if (channel is null)
+        {
+            return ChannelResyncResult.NotFound;
+        }
+
+        if (!channel.IsBotActive)
+        {
+            // See the interface remarks: syncing an inactive channel would subscribe its emote set
+            // on the EventAPI while nothing consumes the events. No audit entry — nothing happened.
+            return ChannelResyncResult.NotActive;
+        }
+
+        // Audited like JoinAsync's always-audit case: the row is untouched, but a command is
+        // published and the worker will do real work because of it.
+        db.AddAuditEntry(actor, AuditActions.ChannelResync, channelName: normalized);
+        await db.SaveChangesAsync(cancellationToken);
+        await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.ResyncPrefix}{normalized}", cancellationToken);
+
+        return ChannelResyncResult.Triggered;
     }
 }
