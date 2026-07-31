@@ -248,6 +248,49 @@ describe('SevenTvDeleteService', () => {
     expect(service.queue()).toEqual([]);
   });
 
+  it('reset() also drops the retry state — retrySyncReport() afterwards sends nothing', () => {
+    runOneDeleteToSyncRequest().flush(null, { status: 401, statusText: 'Unauthorized' });
+
+    service.reset();
+    service.retrySyncReport();
+
+    httpMock.expectNone(SYNC_ENDPOINT);
+  });
+
+  it('resetIfChannelChanged() clears a finished run when entering another channel', () => {
+    runOneDeleteToSyncRequest().flush({ archivedCount: 1, notFoundIds: [] });
+
+    service.resetIfChannelChanged('other-channel');
+
+    expect(service.queue()).toEqual([]);
+    expect(service.syncReport()).toBe('idle');
+  });
+
+  it('resetIfChannelChanged() keeps a finished run in its own channel', () => {
+    runOneDeleteToSyncRequest().flush({ archivedCount: 1, notFoundIds: [] });
+
+    service.resetIfChannelChanged('sensitron');
+
+    expect(service.queue().length).toBe(1);
+    expect(service.syncReport()).toBe('succeeded');
+  });
+
+  it('resetIfChannelChanged() leaves a running run alone, even for another channel', () => {
+    service.startDelete('set-1', 'sensitron', EMOTES);
+
+    service.resetIfChannelChanged('other-channel');
+
+    expect(service.isRunning()).toBe(true);
+    expect(service.queue().length).toBe(2);
+
+    // Drain the run so afterEach's httpMock.verify() stays green.
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(DELETE_DELAY_MS);
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(DELETE_DELAY_MS);
+    httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 2, notFoundIds: [] });
+  });
+
   it('does not start a second run while one is already in progress', () => {
     service.startDelete('set-1', 'sensitron', EMOTES);
     const firstQueueLength = service.queue().length;

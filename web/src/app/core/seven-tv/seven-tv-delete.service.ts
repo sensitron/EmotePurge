@@ -138,10 +138,28 @@ export class SevenTvDeleteService {
     this.finish();
   }
 
-  /** Clears the panel after the admin has acknowledged a finished/cancelled run. */
+  /** Clears the panel after the admin has acknowledged a finished/cancelled run. Also drops the
+   *  run's channel and reported ids: with the panel gone there is nothing left to retry against. */
   reset(): void {
     this.queue.set([]);
     this.syncReport.set('idle');
+    this.currentChannelName = null;
+    this.lastReportedIds = [];
+  }
+
+  /** The panel is a root-service singleton, so a finished run used to follow the user into the
+   *  next channel's workspace, still showing the previous channel's counts. A *running* run is
+   *  deliberately left alone — hiding it would be worse than showing it on the wrong page, and it
+   *  still needs its channel for the closing sync call. */
+  resetIfChannelChanged(channelName: string): void {
+    if (
+      this.isRunning() ||
+      this.currentChannelName === null ||
+      this.currentChannelName === channelName
+    ) {
+      return;
+    }
+    this.reset();
   }
 
   /** Manual retry for the closing report. The 7TV deletions are long done at this point, so this

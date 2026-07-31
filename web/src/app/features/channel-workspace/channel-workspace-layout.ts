@@ -5,6 +5,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
@@ -102,6 +103,7 @@ export class ChannelWorkspaceLayout {
   readonly channelName = input.required<string>();
 
   private readonly channelService = inject(ChannelService);
+  private readonly deleteService = inject(SevenTvDeleteService);
   private readonly router = inject(Router);
   private readonly translocoService = inject(TranslocoService);
   private readonly dialog = inject(Dialog);
@@ -124,11 +126,16 @@ export class ChannelWorkspaceLayout {
   protected readonly errorMessage = signal<string | null>(null);
 
   constructor() {
-    effect(() => this.loadPermissions());
+    effect(() => {
+      const channelName = this.channelName();
+      // A finished mass-delete run from another channel must not follow the user in here.
+      this.deleteService.resetIfChannelChanged(channelName);
+      this.loadPermissions(channelName);
+    });
   }
 
-  private loadPermissions(): void {
-    this.channelService.getPermissions(this.channelName()).subscribe({
+  private loadPermissions(channelName: string): void {
+    this.channelService.getPermissions(channelName).subscribe({
       next: (permissions) => {
         this.canManage.set(permissions.canManage);
         this.canViewUsageStats.set(permissions.canViewUsageStats);

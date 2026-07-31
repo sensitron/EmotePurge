@@ -16,6 +16,15 @@ import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-d
           <button type="button" class="text-red-400 hover:underline" (click)="cancelled.emit()">
             {{ 'common.cancel' | transloco }}
           </button>
+        } @else {
+          <!-- h-7 + px-2 keeps this above the 24px target floor (the audit gate counts every button). -->
+          <button
+            type="button"
+            class="flex h-7 items-center rounded px-2 text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+            (click)="dismissed.emit()"
+          >
+            {{ 'common.close' | transloco }}
+          </button>
         }
       </div>
       <div class="h-2 w-full overflow-hidden rounded-full bg-slate-700">
@@ -56,6 +65,7 @@ export class DeleteProgressPanel {
   readonly isRunning = input.required<boolean>();
   readonly syncReport = input.required<SyncReportState>();
   readonly cancelled = output<void>();
+  readonly dismissed = output<void>();
   readonly syncRetryRequested = output<void>();
 
   private readonly translocoService = inject(TranslocoService);

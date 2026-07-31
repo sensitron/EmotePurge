@@ -353,6 +353,7 @@
   },
   "common": {
     "cancel": "Abbrechen",
+    "close": "Schließen",
     "loading": "Lädt …",
     "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben."
   },
