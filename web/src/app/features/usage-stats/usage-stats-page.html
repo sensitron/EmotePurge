@@ -15,17 +15,25 @@
 
   <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
   <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
-    <app-segmented-control
-      [options]="presetOptions"
-      [value]="rangePreset()"
-      (valueChange)="onPresetChange($event)"
-      [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
-    />
-    @if (rangePreset() === 'custom') {
-      <!-- Popover instead of inline date inputs: four extra flex items used to push the rest of
-           the toolbar onto a second row whenever "custom" was active. -->
-      <app-date-range-popover [(from)]="from" [(to)]="to" />
-    }
+    <!-- The custom-range popover anchors below the segmented control instead of occupying its
+         own toolbar slot — activating "custom" must never add width and wrap the toolbar (it did,
+         locale-dependently). Reopening = clicking the selected "custom" segment again. -->
+    <div class="relative" data-date-range-anchor>
+      <app-segmented-control
+        [options]="presetOptions"
+        [value]="rangePreset()"
+        (valueChange)="onPresetChange($event)"
+        (reselected)="onPresetReselected($event)"
+        [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
+      />
+      @if (rangePreset() === 'custom' && isCustomRangeOpen()) {
+        <app-date-range-popover
+          [(from)]="from"
+          [(to)]="to"
+          (closed)="isCustomRangeOpen.set(false)"
+        />
+      }
+    </div>
     <button type="button" appButton="neutral" (click)="toggleSort()">
       {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
     </button>
@@ -147,6 +155,7 @@
                 : 'bg-slate-900')
             "
             (click)="selection.onRowClick(emote, $event)"
+            (mousedown)="$event.shiftKey && $event.preventDefault()"
             (keydown.enter)="selection.onRowClick(emote, $any($event))"
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
@@ -160,7 +169,12 @@
                 class="max-h-10 max-w-10 object-contain"
               />
             </div>
-            <span class="text-sm font-medium text-slate-200">{{ emote.totalUseCount }}x</span>
+            <span class="truncate text-sm font-medium text-slate-200"
+              >{{ emote.totalUseCount }}x
+              <span class="text-xs font-normal text-slate-400">{{
+                'usageStats.usageLabel' | transloco
+              }}</span></span
+            >
           </div>
         }
       </div>

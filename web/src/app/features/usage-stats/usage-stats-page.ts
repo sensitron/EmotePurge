@@ -77,9 +77,10 @@ export class UsageStatsPage {
   protected readonly to = signal(toIsoDate(new Date()));
   protected readonly sortDirection = signal<SortDirection>('desc');
 
-  // Which segment is lit; 'custom' exposes the two date inputs instead of changing the dates.
+  // Which segment is lit; 'custom' opens the date-range popover instead of changing the dates.
   // Must match the initial from()/to() pair above.
   protected readonly rangePreset = signal<RangePreset>('7');
+  protected readonly isCustomRangeOpen = signal(false);
   protected readonly presetOptions: SegmentedControlOption[] = [
     { value: '0', labelKey: 'usageStats.presetToday' },
     { value: '7', labelKey: 'usageStats.preset7Days' },
@@ -150,9 +151,17 @@ export class UsageStatsPage {
 
   protected onPresetChange(value: string): void {
     this.rangePreset.set(value as RangePreset);
+    this.isCustomRangeOpen.set(value === 'custom');
     if (value !== 'custom') {
       this.from.set(toIsoDate(daysAgo(Number(value))));
       this.to.set(toIsoDate(new Date()));
+    }
+  }
+
+  // Clicking the already-selected "custom" segment reopens the popover after it was dismissed.
+  protected onPresetReselected(value: string): void {
+    if (value === 'custom') {
+      this.isCustomRangeOpen.set(true);
     }
   }
 

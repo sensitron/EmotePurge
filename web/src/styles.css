@@ -103,13 +103,6 @@
     backdrop-filter: blur(8px);
   }
 
-  /* CDK swaps rendered rows in and out above the current position; the browser's scroll anchoring
-     would try to compensate on the document and jitter. The inner-scroller variant got this via
-     .cdk-virtual-scrollable — the window-scrolled variant (scrollWindow) has to say it itself. */
-  cdk-virtual-scroll-viewport[scrollWindow] {
-    overflow-anchor: none;
-  }
-
   /* Skeleton block for page-level loading (NN/g: skeletons for page loads, spinners only for
      isolated actions). Own keyframes instead of Tailwind's animate-pulse so the class works from
      plain CSS without depending on a utility being emitted elsewhere. */
@@ -139,4 +132,24 @@
   width: 100%;
   max-width: min(28rem, calc(100vw - 2rem));
   color: var(--color-slate-100);
+}
+
+/* Window-scrolled virtual-scroll chrome — UNlayered for the same reason as the dialog rules
+   above: CDK's own component styles are unlayered, and unlayered declarations beat anything
+   inside @layer regardless of specificity.
+
+   overflow-anchor: CDK swaps rendered rows in and out above the current position; the browser's
+   scroll anchoring would try to compensate on the document and jitter. The inner-scroller variant
+   got this via .cdk-virtual-scrollable — the scrollWindow variant has to say it itself.
+
+   contain: CDK's `contain: content` includes paint containment, which clips anything a card
+   paints outside its box — the 2px selection ring and the focus outline of the first/last grid
+   column were cut off once the row wrapper lost its horizontal padding. Layout/style containment
+   keeps the isolation without the clipping; only ~2 rendered rows exist at any time anyway. */
+cdk-virtual-scroll-viewport[scrollWindow] {
+  overflow-anchor: none;
+}
+
+cdk-virtual-scroll-viewport[scrollWindow] .cdk-virtual-scroll-content-wrapper {
+  contain: layout style;
 }

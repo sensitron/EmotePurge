@@ -22,21 +22,15 @@ import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
-import {
-  chunkIntoRows,
-  computeGridColumns,
-  isCompactViewport,
-} from '../../shared/grid/grid-columns';
+import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
 
 // Row height (px) fed to CdkVirtualScrollViewport — see the identical comment in UsageStatsPage.
-// Taller than the usage-stats grid: each card also carries a score line and two stacked,
-// full-width vote buttons (icon + visible label + count). Card h-44 (176) + row py-2 (16).
+// Taller than the usage-stats grid: each card also carries a score line and the vote buttons.
+// Card h-44 (176) + row py-2 (16). One height for all breakpoints: below `sm` the buttons sit
+// side by side at 44px, which needs *less* height than the stacked desktop pair.
 const ROW_HEIGHT_PX = 192;
-// Below `sm` the vote buttons grow to the 44px touch target (min-h-11), so the cards switch to
-// h-54: card 216 + row py-2 (16). Must stay in sync with the card's `h-54 sm:h-44` classes.
-const COMPACT_ROW_HEIGHT_PX = 232;
 
 @Component({
   selector: 'app-vote-session-detail-page',
@@ -68,12 +62,9 @@ export class VoteSessionDetailPage {
   protected readonly voteType = VoteType;
   protected readonly currentUser = this.authService.currentUser;
 
-  // Columns and row height both derive from the viewport width; one signal keeps them in step.
   private readonly viewportWidth = signal(window.innerWidth);
   protected readonly columns = computed(() => computeGridColumns(this.viewportWidth()));
-  protected readonly rowHeight = computed(() =>
-    isCompactViewport(this.viewportWidth()) ? COMPACT_ROW_HEIGHT_PX : ROW_HEIGHT_PX,
-  );
+  protected readonly rowHeight = ROW_HEIGHT_PX;
 
   protected readonly results = signal<VoteSessionResults | null>(null);
   protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
@@ -164,6 +155,13 @@ export class VoteSessionDetailPage {
     return new Intl.NumberFormat(toLocale(this.languageService.lang()), {
       maximumFractionDigits: 1,
     }).format(value);
+  }
+
+  // Full, untruncated stats wording as a tooltip — the visible line may ellipsize on narrow cards.
+  protected statsTitle(emote: VoteSessionResult): string {
+    const usage = this.translocoService.translate('usageStats.usageLabel');
+    const score = this.translocoService.translate('voting.detail.scoreLabel');
+    return `${emote.totalUseCount}x ${usage} · ${score} ${this.formatScore(emote.score)}`;
   }
 
   protected keepButtonTitle(emote: VoteSessionResult): string {

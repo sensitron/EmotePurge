@@ -297,6 +297,7 @@
     "presetCustom": "Custom",
     "presetGroupLabel": "Time range",
     "dateRangeTo": "to",
+    "usageLabel": "uses",
     "sortByUsage": "Usage",
     "filterMinPlaceholder": "Min",
     "filterMaxPlaceholder": "Max",
@@ -342,6 +343,7 @@
       "deleteAriaLabel": "Suggest delete",
       "keepLabel": "Keep",
       "deleteLabel": "Delete",
+      "scoreLabel": "Score",
       "retractVote": "Retract vote",
       "errors": {
         "loadFailed": "Couldn't load the voting session.",

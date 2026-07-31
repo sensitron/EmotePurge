@@ -1,4 +1,4 @@
-import { Component, input, model } from '@angular/core';
+import { Component, input, model, output } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 export interface SegmentedControlOption {
@@ -35,7 +35,7 @@ export interface SegmentedControlOption {
               ? 'bg-purple-700 font-medium text-white'
               : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
           "
-          (click)="value.set(option.value)"
+          (click)="onSegmentClick(option)"
           (keydown)="onKeydown($event, index)"
         >
           {{ option.labelKey | transloco }}
@@ -48,6 +48,18 @@ export class SegmentedControl {
   readonly options = input.required<SegmentedControlOption[]>();
   readonly ariaLabel = input('');
   readonly value = model.required<string>();
+  // Clicking the already-selected option. `value` (a model) never re-emits the same value, but a
+  // caller may hang UI off a segment (the usage-stats custom-range popover) and needs "the user
+  // clicked 'custom' again" to reopen it. Works via keyboard too — Enter/Space fire click.
+  readonly reselected = output<string>();
+
+  protected onSegmentClick(option: SegmentedControlOption): void {
+    if (this.value() === option.value) {
+      this.reselected.emit(option.value);
+      return;
+    }
+    this.value.set(option.value);
+  }
 
   protected tabIndexFor(option: SegmentedControlOption): number {
     const options = this.options();

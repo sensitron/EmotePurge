@@ -297,6 +297,7 @@
     "presetCustom": "Eigener",
     "presetGroupLabel": "Zeitraum",
     "dateRangeTo": "bis",
+    "usageLabel": "Nutzung",
     "sortByUsage": "Nutzung",
     "filterMinPlaceholder": "Min",
     "filterMaxPlaceholder": "Max",
@@ -342,6 +343,7 @@
       "deleteAriaLabel": "Löschen vorschlagen",
       "keepLabel": "Behalten",
       "deleteLabel": "Löschen",
+      "scoreLabel": "Score",
       "retractVote": "Vote zurücknehmen",
       "errors": {
         "loadFailed": "Abstimmung konnte nicht geladen werden.",
