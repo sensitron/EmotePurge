@@ -37,10 +37,13 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
         class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(circle_at_25%_0%,rgba(147,51,234,0.14),transparent_55%),radial-gradient(circle_at_80%_0%,rgba(236,72,153,0.1),transparent_50%)] mask-[linear-gradient(to_bottom,black_30%,transparent)]"
         aria-hidden="true"
       ></div>
+      <!-- h-14 is a contract, not styling: the sticky tab bars pin at top-14 and the sticky
+           filter toolbars at top-24, both assuming exactly this header height (design doc §8.5).
+           z-30 keeps the header (and its mobile disclosure) above the z-20 sticky bars. -->
       <header
-        class="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/80 px-4 py-3 backdrop-blur"
+        class="sticky top-0 z-30 h-14 border-b border-slate-800 bg-slate-950/80 px-4 backdrop-blur"
       >
-        <div class="relative mx-auto flex max-w-5xl items-center justify-between gap-3">
+        <div class="relative mx-auto flex h-full max-w-5xl items-center justify-between gap-3">
           <!-- Logo and worker-health dot form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
           <div class="flex min-w-0 items-center gap-3">

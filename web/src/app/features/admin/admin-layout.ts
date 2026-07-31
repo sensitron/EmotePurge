@@ -14,7 +14,9 @@ import { TranslocoPipe } from '@jsverse/transloco';
     <div>
       <h1 class="mb-4 text-2xl font-bold tracking-tight">{{ 'admin.title' | transloco }}</h1>
 
-      <nav class="mb-6 flex gap-2 border-b border-slate-800">
+      <!-- Sticky under the h-14 shell header; h-10 is a contract — filter toolbars pin at
+           top-24 (= 14 + 10). Links are flex/items-center so the fixed height carries exactly. -->
+      <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-slate-800">
         <a
           routerLink="monitoring"
           routerLinkActive
@@ -22,8 +24,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
           #monitoringTab="routerLinkActive"
           [class]="
             monitoringTab.isActive
-              ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
-              : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
           "
         >
           {{ 'admin.tabs.monitoring' | transloco }}
@@ -35,8 +37,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
           #channelsTab="routerLinkActive"
           [class]="
             channelsTab.isActive
-              ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
-              : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
           "
         >
           {{ 'admin.tabs.channels' | transloco }}
@@ -48,8 +50,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
           #usersTab="routerLinkActive"
           [class]="
             usersTab.isActive
-              ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
-              : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
           "
         >
           {{ 'admin.tabs.users' | transloco }}
@@ -61,8 +63,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
           #auditLogTab="routerLinkActive"
           [class]="
             auditLogTab.isActive
-              ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
-              : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
           "
         >
           {{ 'admin.tabs.auditLog' | transloco }}

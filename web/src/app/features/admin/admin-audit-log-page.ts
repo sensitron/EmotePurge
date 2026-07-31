@@ -124,7 +124,9 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
         </button>
       </header>
 
-      <div class="flex flex-col gap-3">
+      <!-- Sticky below header (top-14) + admin tabs (h-10): top-24. py-2 gives the blur a surface
+           instead of a hard edge against the rows scrolling through underneath (design doc §8.5). -->
+      <div class="app-sticky-bar top-24 flex flex-col gap-3 py-2">
         <app-segmented-control
           [options]="actionOptions"
           [value]="actionFilter()"

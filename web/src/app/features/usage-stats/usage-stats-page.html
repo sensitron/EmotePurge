@@ -13,7 +13,8 @@
     </button>
   </header>
 
-  <div class="flex flex-wrap items-center gap-2 text-sm">
+  <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
+  <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
     <app-segmented-control
       [options]="presetOptions"
       [value]="rangePreset()"

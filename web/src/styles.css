@@ -90,6 +90,19 @@
     box-shadow: 0 8px 24px -12px rgb(88 28 135 / 0.55);
   }
 
+  /* Sticky bar for the in-page layers that stay visible while content scrolls (tab navs at
+     top-14, filter toolbars at top-24 — the `top` offset is a Tailwind class at the usage site,
+     because it depends on which layers sit above). z-index 20 places these above the content's
+     z-10 action containers and below the shell header's z-30 (its mobile disclosure must drop
+     OVER a sticky tab bar). color-mix instead of a `/85` utility for consistency with the other
+     var()-based component classes in this file. */
+  .app-sticky-bar {
+    position: sticky;
+    z-index: 20;
+    background-color: color-mix(in srgb, var(--color-slate-950) 85%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
   /* Skeleton block for page-level loading (NN/g: skeletons for page loads, spinners only for
      isolated actions). Own keyframes instead of Tailwind's animate-pulse so the class works from
      plain CSS without depending on a utility being emitted elsewhere. */

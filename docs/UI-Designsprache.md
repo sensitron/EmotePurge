@@ -188,7 +188,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Kanonisches Snippet — inklusive `ariaCurrentWhenActive="page"`, das ist Pflicht:
 
   ```html
-  <nav class="mb-6 flex gap-2 border-b border-slate-800">
+  <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-slate-800">
     <a
       [routerLink]="['...', 'tab']"
       routerLinkActive
@@ -196,14 +196,14 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
       #tab="routerLinkActive"
       [class]="
         tab.isActive
-          ? 'border-b-2 border-purple-500 px-3 py-2 text-sm text-slate-100 transition'
-          : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate-400 transition hover:text-slate-200'
+          ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
+          : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
       "
     >{{ 'x.tab' | transloco }}</a>
   </nav>
   ```
 
-  Die Klassenkette ist bewusst (noch) keine Primitive — bei Änderungen **alle** Vorkommen synchron halten: `admin-layout.ts` (3×), `channel-workspace-layout.ts` (2×).
+  Die Klassenkette ist bewusst (noch) keine Primitive — bei Änderungen **alle** Vorkommen synchron halten: `admin-layout.ts` (4×), `channel-workspace-layout.ts` (2×). `h-10` und `flex items-center` (statt `py-2`) sind Teil des Sticky-Vertrags aus §8.5 — die Tab-Leisten-Höhe ist der `top`-Offset der Filter-Toolbars.
 - **Referenz:** `web/src/app/features/admin/admin-layout.ts`.
 
 ### 8.2 In-Page-Anker
@@ -220,6 +220,21 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 - **Was gilt:** Seitenweise Listen nutzen `<app-pager [page] [totalPages] (pageChange)>` gegen ein `PagedResult<T>` vom Backend (`items/page/pageSize/totalCount/totalPages`); der Pager versteckt sich bei einer Seite selbst. `create`/`delete` laden die Liste neu statt optimistisch zu patchen (verschiebt sonst die Paginierung); reine In-Place-Änderungen dürfen lokal patchen.
 - **Referenz:** `web/src/app/shared/pagination/pager.ts`; Verwendung `admin-audit-log-page.ts`, `vote-session-list-page.ts`.
+
+### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
+
+- **Was gilt:** Die Seite scrollt als **ein Dokument** (kein App-Frame mit innerem Scroll-Container — der bräche CDK-Virtual-Scroll, Router-Scroll-Restoration und das Einklappen der Mobile-Browserleiste). Drei Ebenen bleiben dabei per `position: sticky` sichtbar, mit **festen Höhen als Vertrag**:
+
+  | Ebene | Höhe | `top` | z |
+  |---|---|---|---|
+  | Shell-Header (`app-shell.ts`) | `h-14` | `top-0` | `z-30` |
+  | Tab-Leisten (§8.1) | `h-10` | `top-14` | `z-20` (via `.app-sticky-bar`) |
+  | Filter-Toolbars | variabel (darf wrappen) | `top-24` | `z-20` (via `.app-sticky-bar`) |
+
+  Sticky-Leisten nutzen die Primitive **`.app-sticky-bar`** (`styles.css`): sticky + `z-20` + abgedunkelter Blur-Hintergrund; nur der `top`-Offset kommt als Tailwind-Klasse an der Verwendungsstelle. Filter-Toolbars bekommen zusätzlich `py-2`, damit der Blur eine Fläche hat. **Neue Seite mit Filter-Toolbar ⇒ `app-sticky-bar top-24 py-2`**, neue Tab-Leiste ⇒ Snippet aus §8.1.
+- **z-Leiter (verbindlich):** dekorativer Glow `-z-10` < Karten-Action-Container/Stretched-Link `z-10` (§2.3, unverändert) < Sticky-Leisten `z-20` < Shell-/Landing-Header `z-30` (dessen Mobile-Disclosure liegt als `z-20` **im** Header-Kontext und damit über allem). Dropdowns, die aus einer Sticky-Leiste heraus öffnen (z. B. Custom-Range-Inputs der Usage-Stats), erben deren `z-20`-Kontext und liegen damit über dem Content; Dropdowns im Content (Datetime-Picker im Create-Formular, `z-30` im `z-10`-Karten-Kontext) bleiben unter den Leisten — sie öffnen nach unten, weg davon.
+- **Warum feste Höhen:** `sticky` braucht für gestapelte Ebenen exakte `top`-Offsets. `h-14`/`h-10` sind deshalb keine Optik, sondern Berechnungsgrundlage (`top-24` = 14 + 10) — wer sie ändert, zieht alle `top`-Werte nach. Die Filter-Toolbar selbst darf beliebig hoch wrappen, ihr eigener `top` hängt nur von den Ebenen **über** ihr ab.
+- **Referenz:** `web/src/styles.css` (`.app-sticky-bar`), `web/src/app/features/admin/admin-audit-log-page.ts` (Toolbar), `web/src/app/features/shell/app-shell.ts` (Header).
 
 ## 9. i18n-Pflichten
 

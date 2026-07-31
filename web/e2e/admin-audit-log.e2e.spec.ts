@@ -166,6 +166,29 @@ test.describe('global admin on /admin/audit-log', () => {
     await expect(channelInput).toBeEnabled();
   });
 
+  test('header, tabs and filter toolbar stay pinned while the list scrolls', async ({ page }) => {
+    await mockAuditLog(page, {
+      1: Array.from({ length: 25 }, (_, i) => ({
+        id: 100 - i,
+        action: 'channel.join',
+        channelName: 'handofblood',
+      })),
+    });
+
+    await page.goto('/admin/audit-log');
+    await expect(page.getByRole('listitem').getByText('Channel beigetreten').first()).toBeVisible();
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+    // The three sticky layers (design doc §8.5): shell header, admin tab bar, filter toolbar...
+    await expect(page.getByRole('link', { name: 'Emote Purge' })).toBeInViewport();
+    await expect(page.getByRole('link', { name: 'Audit-Log' })).toBeInViewport();
+    await expect(page.getByRole('textbox', { name: 'Nach Channel filtern' })).toBeInViewport();
+    // ...while the page title above them scrolls away like normal content.
+    await expect(page.getByRole('heading', { level: 1 })).not.toBeInViewport();
+  });
+
   test('renders the empty state when nothing has been audited yet', async ({ page }) => {
     await mockAuditLog(page, { 1: [] });
 
