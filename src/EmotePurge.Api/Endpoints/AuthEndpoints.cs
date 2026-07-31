@@ -114,13 +114,22 @@ public static class AuthEndpoints
             return Results.Redirect(postLoginRedirectUrl);
         });
 
-        group.MapGet("/me", (ClaimsPrincipal user) => Results.Ok(new
+        group.MapGet("/me", (ClaimsPrincipal user, IChannelAccessService channelAccessService) =>
         {
-            twitchUserId = user.FindFirstValue(ClaimTypes.NameIdentifier),
-            login = user.FindFirstValue(TwitchClaimTypes.Login),
-            displayName = user.FindFirstValue(TwitchClaimTypes.DisplayName),
-            tokenExpiresAtUtc = user.FindFirstValue(TwitchClaimTypes.TokenExpiresAtUtc)
-        })).RequireAuthorization();
+            // Pure config lookup (Auth:AdminTwitchLogins) — no DB, no HTTP, safe to do per request.
+            // Lets the frontend gate its admin area off the cached /me instead of probing an
+            // admin-only endpoint and reading its 403 as a permission bit.
+            var principal = user.TryBuildTwitchPrincipal();
+
+            return Results.Ok(new
+            {
+                twitchUserId = user.FindFirstValue(ClaimTypes.NameIdentifier),
+                login = user.FindFirstValue(TwitchClaimTypes.Login),
+                displayName = user.FindFirstValue(TwitchClaimTypes.DisplayName),
+                tokenExpiresAtUtc = user.FindFirstValue(TwitchClaimTypes.TokenExpiresAtUtc),
+                isGlobalAdmin = principal is not null && channelAccessService.IsGlobalAdmin(principal)
+            });
+        }).RequireAuthorization();
 
         group.MapPost("/logout", async (
             HttpContext httpContext,
