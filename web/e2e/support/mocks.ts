@@ -431,3 +431,94 @@ export async function mockActiveEmoteSet(
     fulfillJson(route, 200, { activeEmoteSetId }),
   );
 }
+
+export interface LiveEventFrame {
+  type: string;
+  channel?: string;
+  sessionId?: number;
+}
+
+/**
+ * Replaces `window.EventSource` with an inert stub before the app boots.
+ *
+ * `page.route()` cannot help here: SSE is a long-lived streaming response, and the live endpoints
+ * do not exist behind `ng serve`'s dev proxy in these tests — every page that opens one would sit
+ * in the browser's ~3-second reconnect loop for the whole spec. In the audit harness it is worse
+ * still: an open EventSource means `waitForLoadState('networkidle')` never resolves.
+ *
+ * Also exposes `window.__emitLive(event)` so a spec can push a frame into the running app; use the
+ * typed {@link emitLive} wrapper below rather than calling it by hand.
+ */
+export async function installLiveStub(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const instances: StubEventSource[] = [];
+
+    type MessageListener = (event: { data: string }) => void;
+
+    class StubEventSource {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onmessage: MessageListener | null = null;
+      onerror: (() => void) | null = null;
+      private readonly listeners: MessageListener[] = [];
+
+      constructor(readonly url: string) {
+        instances.push(this);
+      }
+
+      addEventListener(type: string, listener: MessageListener): void {
+        if (type === 'message') {
+          this.listeners.push(listener);
+        }
+      }
+
+      removeEventListener(type: string, listener: MessageListener): void {
+        if (type !== 'message') {
+          return;
+        }
+        const index = this.listeners.indexOf(listener);
+        if (index >= 0) {
+          this.listeners.splice(index, 1);
+        }
+      }
+
+      close(): void {
+        this.readyState = 2;
+        const index = instances.indexOf(this);
+        if (index >= 0) {
+          instances.splice(index, 1);
+        }
+      }
+
+      dispatch(data: string): void {
+        this.onmessage?.({ data });
+        for (const listener of [...this.listeners]) {
+          listener({ data });
+        }
+      }
+    }
+
+    const global = window as unknown as Record<string, unknown>;
+    global['EventSource'] = StubEventSource;
+    global['__emitLive'] = (event: unknown) => {
+      const data = JSON.stringify(event);
+      for (const instance of [...instances]) {
+        if (instance.readyState !== 2) {
+          instance.dispatch(data);
+        }
+      }
+    };
+  });
+}
+
+/** Pushes one live-update frame into every EventSource the app currently holds open. */
+export async function emitLive(page: Page, event: LiveEventFrame): Promise<void> {
+  await page.evaluate(
+    (frame) => (window as unknown as { __emitLive: (e: unknown) => void }).__emitLive(frame),
+    event,
+  );
+}
