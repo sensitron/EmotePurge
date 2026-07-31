@@ -232,6 +232,7 @@ app.MapVoteSessionEndpoints();
 app.MapAuthEndpoints();
 app.MapWorkerHealthEndpoints();
 app.MapAdminEndpoints();
+app.MapLiveEndpoints();
 
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
 // Needs the options passed separately: the SPA fallback serves index.html through its own endpoint,

@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using EmotePurge.Api.Auth;
 using EmotePurge.Api.Validation;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Api.Endpoints;
@@ -95,6 +96,13 @@ public static class AdminEndpoints
                 },
             });
         });
+
+        // Inside the group, not next to the channel stream in LiveEndpoints: that is what makes the
+        // group's GlobalAdminAuthorizationFilter apply to it by construction (see the class comment).
+        group.MapGet("/live", (
+            HttpContext httpContext,
+            ILiveEventStream liveEventStream,
+            CancellationToken ct) => LiveEndpoints.OpenAdminAsync(httpContext, liveEventStream, ct));
 
         group.MapGet("/channels", async (IAdminChannelQueryService channelQueryService, CancellationToken ct) =>
         {
