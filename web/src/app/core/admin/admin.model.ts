@@ -65,7 +65,7 @@ export interface AdminChannel {
 }
 
 /**
- * The seven audited actions, mirroring `EmotePurge.Core.Entities.AuditActions`. Typed as a union of
+ * The audited actions, mirroring `EmotePurge.Core.Entities.AuditActions`. Typed as a union of
  * the literal strings the server sends, but consumers must still handle an unknown value: an entry
  * written by a newer backend carries an action this build has no label for, and a log that hides
  * rows it cannot name would be worse than one that shows the raw string.
@@ -78,6 +78,17 @@ export type AuditAction =
   | 'voteSession.end'
   | 'voteSession.delete'
   | 'emotes.syncDeleted';
+
+/**
+ * Optional narrowing of GET /api/admin/audit-log; fields are AND-combined server-side.
+ * `action` matches exactly, `channel` matches the normalized name exactly (the server normalizes,
+ * so raw input like "HandOfBlood" is fine), `actor` is a case-insensitive substring match.
+ */
+export interface AuditLogFilter {
+  action?: string;
+  channel?: string;
+  actor?: string;
+}
 
 /**
  * One row of GET /api/admin/audit-log (paged via the shared `PagedResult<T>` envelope).

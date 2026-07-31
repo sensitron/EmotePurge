@@ -194,6 +194,25 @@ describe('AdminService', () => {
     });
   });
 
+  it('listAuditLog appends only the filter params that are set', () => {
+    service.listAuditLog(1, 25, { action: 'channel.purge', channel: 'handofblood' }).subscribe();
+
+    // No `actor` param: an unset filter field must not appear as an empty query param, otherwise
+    // the backend would treat "" as a filter value and the URL stops being cache-comparable.
+    httpMock
+      .expectOne('/api/admin/audit-log?page=1&pageSize=25&action=channel.purge&channel=handofblood')
+      .flush({ items: [], page: 1, pageSize: 25, totalCount: 0, totalPages: 0 });
+  });
+
+  it('listAuditLog trims text filters and drops blank ones', () => {
+    service.listAuditLog(1, 25, { channel: '  HandOfBlood  ', actor: '   ' }).subscribe();
+
+    // Trimming here keeps the URL stable; case-normalization stays server-side next to Regel 9.
+    httpMock
+      .expectOne('/api/admin/audit-log?page=1&pageSize=25&channel=HandOfBlood')
+      .flush({ items: [], page: 1, pageSize: 25, totalCount: 0, totalPages: 0 });
+  });
+
   it('hands detailsJson through as raw text, unparsed', () => {
     // The column is free-form per action; parsing belongs in the page (defensively), not in the
     // service — a service that parsed it would have to decide what an unknown shape means.

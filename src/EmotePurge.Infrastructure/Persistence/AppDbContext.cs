@@ -104,9 +104,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // instead of a migration.
             entity.Property(e => e.DetailsJson).HasColumnType("jsonb");
 
-            // The only access pattern today is "newest first, paged" — a descending index answers
-            // that ordering directly. The (ChannelName, OccurredAtUtc) index waits for the filter UI.
+            // The unfiltered access pattern is "newest first, paged" — a descending index answers
+            // that ordering directly.
             entity.HasIndex(e => e.OccurredAtUtc).IsDescending();
+
+            // The channel filter of the admin audit-log UI matches exactly on the normalized name,
+            // so this compound index serves both the filter and its "newest first" ordering. The
+            // action and actor filters deliberately have no index: action has a handful of distinct
+            // values, and the actor filter is a substring match no btree could serve anyway.
+            entity.HasIndex(e => new { e.ChannelName, e.OccurredAtUtc }).IsDescending(false, true);
         });
     }
 }

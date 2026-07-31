@@ -217,6 +217,18 @@
       "empty": "Noch keine Einträge.",
       "emptyHint": "Hier landet jede Channel-, Abstimmungs- und Emote-Löschaktion, sobald sie ausgeführt wurde.",
       "actor": "von {{actor}}",
+      "filter": {
+        "actionLabel": "Nach Aktion filtern",
+        "all": "Alle",
+        "channelLabel": "Nach Channel filtern",
+        "channelNotApplicable": "Diese Aktion hat keinen Channel",
+        "channelPlaceholder": "Channel",
+        "actorLabel": "Nach ausführendem User filtern",
+        "actorPlaceholder": "User",
+        "noMatches": "Keine Einträge für diese Filter.",
+        "noMatchesHint": "Filter anpassen oder zurücksetzen, um wieder Einträge zu sehen.",
+        "reset": "Filter zurücksetzen"
+      },
       "actions": {
         "channelJoin": "Channel beigetreten",
         "channelLeave": "Channel verlassen",

@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
@@ -108,6 +109,90 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
         // Handed to the client verbatim (jsonb round-trip aside) — the UI parses it defensively.
         Assert.Contains("\"emoteCount\"", dto.DetailsJson);
     }
+
+    [Fact]
+    public async Task ListAsync_FiltersByAction_AndCountsOnlyTheFilteredSet()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-actionfilter";
+        var baseTime = new DateTime(2099, 7, 31, 13, 0, 0, DateTimeKind.Utc);
+        await SeedAsync(db, channel,
+            (AuditActions.ChannelJoin, baseTime),
+            (AuditActions.ChannelLeave, baseTime.AddMinutes(1)),
+            (AuditActions.ChannelJoin, baseTime.AddMinutes(2)));
+
+        // Channel narrows to this test's rows; action is the filter under test.
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(AuditActions.ChannelJoin, channel, null));
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.Equal(1, page.TotalPages);
+        Assert.All(page.Items, i => Assert.Equal(AuditActions.ChannelJoin, i.Action));
+        Assert.All(page.Items, i => Assert.Equal(channel, i.ChannelName));
+    }
+
+    [Fact]
+    public async Task ListAsync_NormalizesTheChannelFilter_BeforeMatching()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-normalize";
+        await SeedAsync(db, channel,
+            (AuditActions.ChannelJoin, new DateTime(2099, 7, 31, 14, 0, 0, DateTimeKind.Utc)));
+
+        // Raw admin input: Twitch names get typed with capitals and stray whitespace (Regel 9).
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, $"  {channel.ToUpperInvariant()}  ", null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(channel, dto.ChannelName);
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Fact]
+    public async Task ListAsync_FiltersActorBySubstring_CaseInsensitively()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-actorfilter";
+        var baseTime = new DateTime(2099, 7, 31, 15, 0, 0, DateTimeKind.Utc);
+        db.AuditLogEntries.AddRange(
+            NewEntry(channel, AuditActions.ChannelJoin, baseTime, actorLogin: "handofblood"),
+            NewEntry(channel, AuditActions.ChannelJoin, baseTime.AddMinutes(1), actorLogin: "sensitron"));
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, "OFBLO"));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal("handofblood", dto.ActorLogin);
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Fact]
+    public async Task ListAsync_TreatsBlankFilterValues_AsNoFilter()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-blank";
+        await SeedAsync(db, channel,
+            (AuditActions.ChannelJoin, new DateTime(2099, 7, 31, 16, 0, 0, DateTimeKind.Utc)));
+
+        // The endpoint already nulls blank query params; the service still must not turn a stray
+        // whitespace value into a filter that matches nothing.
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 100, new AuditLogFilter("   ", channel, "   "));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(AuditActions.ChannelJoin, dto.Action);
+    }
+
+    private static AuditLogEntry NewEntry(string channelName, string action, DateTime occurredAtUtc, string actorLogin)
+        => new()
+        {
+            OccurredAtUtc = occurredAtUtc,
+            ActorTwitchUserId = "4711",
+            ActorLogin = actorLogin,
+            Action = action,
+            ChannelName = channelName
+        };
 
     private static async Task SeedAsync(AppDbContext db, string channelName, params (string Action, DateTime OccurredAtUtc)[] entries)
     {

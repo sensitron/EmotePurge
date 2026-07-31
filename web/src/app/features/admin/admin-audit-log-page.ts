@@ -1,8 +1,9 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { rxResource, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { debounceTime } from 'rxjs';
 
 import { AuditLogEntry } from '../../core/admin/admin.model';
 import { AdminService } from '../../core/admin/admin.service';
@@ -14,9 +15,16 @@ import { Pager } from '../../shared/pagination/pager';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 
 const PAGE_SIZE = 25;
+
+/** Long enough to swallow keystrokes of one word, short enough to still feel live. */
+const FILTER_DEBOUNCE_MS = 300;
+
+/** Actions without a channel dimension — the channel filter is meaningless while one is selected. */
+const CHANNELLESS_ACTIONS: ReadonlySet<string> = new Set(['user.revokeSessions']);
 
 const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
   items: [],
@@ -99,7 +107,7 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
  */
 @Component({
   selector: 'app-admin-audit-log-page',
-  imports: [Button, EmptyState, NoticeBanner, Pager, RouterLink, SkeletonRows, TranslocoPipe],
+  imports: [Button, EmptyState, NoticeBanner, Pager, RouterLink, SegmentedControl, SkeletonRows, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-4">
       <header class="flex flex-wrap items-center justify-between gap-3">
@@ -115,6 +123,48 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
         </button>
       </header>
 
+      <div class="flex flex-col gap-3">
+        <app-segmented-control
+          [options]="actionOptions"
+          [value]="actionFilter()"
+          (valueChange)="onActionFilterChange($event)"
+          [ariaLabel]="'admin.audit.filter.actionLabel' | transloco"
+        />
+        <!-- Filter-toolbar fields: no visible label by design, aria-label + title instead (§5.2).
+             Live filtering per keystroke like the emote grid; requests are debounced in the class. -->
+        <div class="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            class="app-input-sm w-44 disabled:cursor-not-allowed disabled:opacity-50"
+            [value]="channelFilter()"
+            (input)="onChannelFilterInput($event)"
+            [disabled]="channelFilterDisabled()"
+            [placeholder]="'admin.audit.filter.channelPlaceholder' | transloco"
+            [attr.aria-label]="'admin.audit.filter.channelLabel' | transloco"
+            [title]="
+              (channelFilterDisabled()
+                ? 'admin.audit.filter.channelNotApplicable'
+                : 'admin.audit.filter.channelLabel'
+              ) | transloco
+            "
+          />
+          <input
+            type="text"
+            class="app-input-sm w-44"
+            [value]="actorFilter()"
+            (input)="onActorFilterInput($event)"
+            [placeholder]="'admin.audit.filter.actorPlaceholder' | transloco"
+            [attr.aria-label]="'admin.audit.filter.actorLabel' | transloco"
+            [title]="'admin.audit.filter.actorLabel' | transloco"
+          />
+          @if (hasActiveFilters()) {
+            <button type="button" appButton="outline" (click)="resetFilters()">
+              {{ 'admin.audit.filter.reset' | transloco }}
+            </button>
+          }
+        </div>
+      </div>
+
       @if (errorMessage(); as error) {
         <app-notice-banner variant="error">{{ error | transloco }}</app-notice-banner>
       }
@@ -122,11 +172,23 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
       @if (isLoading()) {
         <app-skeleton-rows [count]="5" />
       } @else if (rows().length === 0) {
-        <app-empty-state
-          icon="📋"
-          [title]="'admin.audit.empty' | transloco"
-          [description]="'admin.audit.emptyHint' | transloco"
-        />
+        @if (hasActiveFilters()) {
+          <app-empty-state
+            icon="🔍"
+            [title]="'admin.audit.filter.noMatches' | transloco"
+            [description]="'admin.audit.filter.noMatchesHint' | transloco"
+          >
+            <button type="button" appButton="outline" (click)="resetFilters()">
+              {{ 'admin.audit.filter.reset' | transloco }}
+            </button>
+          </app-empty-state>
+        } @else {
+          <app-empty-state
+            icon="📋"
+            [title]="'admin.audit.empty' | transloco"
+            [description]="'admin.audit.emptyHint' | transloco"
+          />
+        }
       } @else {
         <ul class="flex flex-col gap-2">
           @for (row of rows(); track row.id) {
@@ -178,11 +240,57 @@ export class AdminAuditLogPage {
 
   protected readonly page = signal(1);
 
-  // Same rxResource shape as vote-session-list-page.ts: setting `page` is the whole reload trigger,
-  // no hand-written effect and no double request.
+  // Live filter state, updated per keystroke — same feel as the emote grid's filter. That one is
+  // client-side over an in-memory array; here a paged endpoint sits behind every change, so the
+  // text values reach the request only through the debounced signals below.
+  protected readonly actionFilter = signal('');
+  protected readonly channelFilter = signal('');
+  protected readonly actorFilter = signal('');
+
+  private readonly debouncedChannelFilter = toSignal(
+    toObservable(this.channelFilter).pipe(debounceTime(FILTER_DEBOUNCE_MS)),
+    { initialValue: '' },
+  );
+  private readonly debouncedActorFilter = toSignal(
+    toObservable(this.actorFilter).pipe(debounceTime(FILTER_DEBOUNCE_MS)),
+    { initialValue: '' },
+  );
+
+  /** True while an action without a channel dimension is selected — the channel input is disabled
+   *  then, and a previously typed channel value has already been cleared by the action handler. */
+  protected readonly channelFilterDisabled = computed(() =>
+    CHANNELLESS_ACTIONS.has(this.actionFilter()),
+  );
+
+  /** "All" plus one segment per known action, reusing the row labels — the filter can only ever
+   *  offer what this build can name. */
+  protected readonly actionOptions: SegmentedControlOption[] = [
+    { value: '', labelKey: 'admin.audit.filter.all' },
+    ...Object.entries(ACTION_KEYS).map(([value, labelKey]) => ({ value, labelKey })),
+  ];
+
+  protected readonly hasActiveFilters = computed(
+    () => this.actionFilter() !== '' || this.channelFilter() !== '' || this.actorFilter() !== '',
+  );
+
+  // Same rxResource shape as vote-session-list-page.ts: setting `page` or a filter is the whole
+  // reload trigger, no hand-written effect. The action segment applies immediately; the text
+  // filters flow in through their debounced counterparts.
   private readonly auditLogResource = rxResource({
-    params: () => ({ page: this.page() }),
-    stream: ({ params }) => this.adminService.listAuditLog(params.page, PAGE_SIZE),
+    params: () => ({
+      page: this.page(),
+      action: this.actionFilter(),
+      // Short-circuited while disabled: the debounced signal lags the cleared raw value by one
+      // debounce window, and that window must not produce a request with the stale channel.
+      channel: this.channelFilterDisabled() ? '' : this.debouncedChannelFilter(),
+      actor: this.debouncedActorFilter(),
+    }),
+    stream: ({ params }) =>
+      this.adminService.listAuditLog(params.page, PAGE_SIZE, {
+        action: params.action || undefined,
+        channel: params.channel || undefined,
+        actor: params.actor || undefined,
+      }),
     defaultValue: EMPTY_PAGE,
   });
 
@@ -220,5 +328,34 @@ export class AdminAuditLogPage {
 
   protected onPageChange(newPage: number): void {
     this.page.set(newPage);
+  }
+
+  // Every filter change jumps back to page 1: the old page number belongs to the old result set,
+  // and a filter that shrinks the set below the current page would otherwise show a stray empty page.
+  protected onActionFilterChange(action: string): void {
+    this.actionFilter.set(action);
+    if (CHANNELLESS_ACTIONS.has(action)) {
+      // A stale channel value combined with a channel-less action could only ever match nothing;
+      // clearing it here is what makes disabling the input honest.
+      this.channelFilter.set('');
+    }
+    this.page.set(1);
+  }
+
+  protected onChannelFilterInput(event: Event): void {
+    this.channelFilter.set((event.target as HTMLInputElement).value);
+    this.page.set(1);
+  }
+
+  protected onActorFilterInput(event: Event): void {
+    this.actorFilter.set((event.target as HTMLInputElement).value);
+    this.page.set(1);
+  }
+
+  protected resetFilters(): void {
+    this.actionFilter.set('');
+    this.channelFilter.set('');
+    this.actorFilter.set('');
+    this.page.set(1);
   }
 }

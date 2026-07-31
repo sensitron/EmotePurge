@@ -204,6 +204,11 @@ export interface MockAuditLogEntry {
  *
  * `totalCount` defaults to enough rows to make the requested pages exist, because `totalPages` is
  * what decides whether the pager renders at all.
+ *
+ * When the request carries `action`/`channel`/`actor` filter params, the handler mirrors the
+ * server's semantics over the union of all defined pages instead: action and channel match exactly
+ * (channel case-insensitively — the server normalizes), actor is a case-insensitive substring, and
+ * the filtered set is re-paged with its own total.
  */
 export async function mockAuditLog(
   page: Page,
@@ -219,21 +224,48 @@ export async function mockAuditLog(
       ? (highestPage - 1) * pageSize + (entriesByPage[highestPage]?.length ?? 0)
       : (entriesByPage[1]?.length ?? 0));
 
+  const withDefaults = (entry: MockAuditLogEntry) => ({
+    id: entry.id,
+    occurredAtUtc: entry.occurredAtUtc ?? '2026-07-31T12:00:00Z',
+    actorTwitchUserId: entry.actorTwitchUserId ?? '1',
+    actorLogin: entry.actorLogin ?? 'sensitron',
+    action: entry.action,
+    channelName: entry.channelName ?? null,
+    targetType: entry.targetType ?? null,
+    targetId: entry.targetId ?? null,
+    detailsJson: entry.detailsJson ?? null,
+  });
+
   await page.route('**/api/admin/audit-log**', (route) => {
-    const requestedPage = Number(new URL(route.request().url()).searchParams.get('page') ?? '1');
+    const params = new URL(route.request().url()).searchParams;
+    const requestedPage = Number(params.get('page') ?? '1');
+    const action = params.get('action');
+    const channel = params.get('channel')?.trim().toLowerCase() || null;
+    const actor = params.get('actor')?.trim().toLowerCase() || null;
+
+    if (action || channel || actor) {
+      const filtered = pageNumbers
+        .sort((a, b) => a - b)
+        .flatMap((pageNumber) => entriesByPage[pageNumber])
+        .map(withDefaults)
+        .filter(
+          (entry) =>
+            (!action || entry.action === action) &&
+            (!channel || entry.channelName?.toLowerCase() === channel) &&
+            (!actor || entry.actorLogin.toLowerCase().includes(actor)),
+        );
+      return fulfillJson(route, 200, {
+        items: filtered.slice((requestedPage - 1) * pageSize, requestedPage * pageSize),
+        page: requestedPage,
+        pageSize,
+        totalCount: filtered.length,
+        totalPages: filtered.length === 0 ? 0 : Math.ceil(filtered.length / pageSize),
+      });
+    }
+
     const items = entriesByPage[requestedPage] ?? [];
     return fulfillJson(route, 200, {
-      items: items.map((entry) => ({
-        id: entry.id,
-        occurredAtUtc: entry.occurredAtUtc ?? '2026-07-31T12:00:00Z',
-        actorTwitchUserId: entry.actorTwitchUserId ?? '1',
-        actorLogin: entry.actorLogin ?? 'sensitron',
-        action: entry.action,
-        channelName: entry.channelName ?? null,
-        targetType: entry.targetType ?? null,
-        targetId: entry.targetId ?? null,
-        detailsJson: entry.detailsJson ?? null,
-      })),
+      items: items.map(withDefaults),
       page: requestedPage,
       pageSize,
       totalCount: effectiveTotal,

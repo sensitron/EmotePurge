@@ -38,10 +38,11 @@ test.describe('global admin on /admin/audit-log', () => {
 
     await page.goto('/admin/audit-log');
 
-    // The action string is never shown raw — every one of the seven has a label.
-    await expect(page.getByText('Channel gelöscht')).toBeVisible();
-    await expect(page.getByText('Emotes als gelöscht markiert')).toBeVisible();
-    await expect(page.getByText('Abstimmung erstellt')).toBeVisible();
+    // The action string is never shown raw — every one of the seven has a label. Scoped to the
+    // list rows because the filter toolbar's segments carry the same labels.
+    await expect(page.getByRole('listitem').getByText('Channel gelöscht')).toBeVisible();
+    await expect(page.getByRole('listitem').getByText('Emotes als gelöscht markiert')).toBeVisible();
+    await expect(page.getByRole('listitem').getByText('Abstimmung erstellt')).toBeVisible();
 
     // Actor and details come from the row itself; the channel is a link into its workspace.
     await expect(page.getByText('von sensitron').first()).toBeVisible();
@@ -60,7 +61,7 @@ test.describe('global admin on /admin/audit-log', () => {
     });
 
     await page.goto('/admin/audit-log');
-    await expect(page.getByText('Channel beigetreten')).toBeVisible();
+    await expect(page.getByRole('listitem').getByText('Channel beigetreten')).toBeVisible();
 
     const secondPageRequest = page.waitForRequest(
       (request) =>
@@ -69,8 +70,68 @@ test.describe('global admin on /admin/audit-log', () => {
     await page.getByRole('button', { name: 'Weiter' }).click();
     await secondPageRequest;
 
-    await expect(page.getByText('Channel verlassen')).toBeVisible();
-    await expect(page.getByText('Channel beigetreten')).toHaveCount(0);
+    await expect(page.getByRole('listitem').getByText('Channel verlassen')).toBeVisible();
+    await expect(page.getByRole('listitem').getByText('Channel beigetreten')).toHaveCount(0);
+  });
+
+  test('action filter narrows the list and jumps back to page 1', async ({ page }) => {
+    await mockAuditLog(page, {
+      1: [
+        { id: 30, action: 'channel.join', channelName: 'handofblood' },
+        { id: 29, action: 'channel.purge', channelName: 'oldchannel' },
+      ],
+      2: [{ id: 5, action: 'channel.leave', channelName: 'sensitron' }],
+    });
+
+    await page.goto('/admin/audit-log');
+    // Move off page 1 first, so the filter's page reset is observable in the request below.
+    await page.getByRole('button', { name: 'Weiter' }).click();
+    await expect(page.getByRole('listitem').getByText('Channel verlassen')).toBeVisible();
+
+    const filteredRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes('action=channel.purge') && request.url().includes('page=1'),
+    );
+    await page.getByRole('radio', { name: 'Channel gelöscht' }).click();
+    await filteredRequest;
+
+    await expect(page.getByRole('listitem').getByText('Channel gelöscht')).toBeVisible();
+    await expect(page.getByRole('listitem').getByText('Channel beigetreten')).toHaveCount(0);
+    await expect(page.getByRole('listitem').getByText('Channel verlassen')).toHaveCount(0);
+  });
+
+  test('channel search filters live while typing; reset restores the unfiltered list', async ({
+    page,
+  }) => {
+    await mockAuditLog(page, {
+      1: [
+        { id: 2, action: 'channel.join', channelName: 'handofblood' },
+        { id: 1, action: 'channel.join', channelName: 'sensitron' },
+      ],
+    });
+
+    await page.goto('/admin/audit-log');
+    const channelInput = page.getByRole('textbox', { name: 'Nach Channel filtern' });
+
+    // No Enter, no blur — typing alone must trigger the (debounced) request, same live feel as
+    // the emote grid's filter. Typed with capitals: the server normalizes, the mock mirrors that.
+    const filteredRequest = page.waitForRequest((request) =>
+      request.url().includes('channel=HandOfBlood'),
+    );
+    await channelInput.fill('HandOfBlood');
+    await filteredRequest;
+
+    await expect(page.getByRole('link', { name: '#handofblood' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '#sensitron' })).toHaveCount(0);
+
+    // A filter matching nothing shows the filtered empty state, whose reset button clears
+    // every filter (two reset buttons exist then — toolbar and empty state — hence first()).
+    await channelInput.fill('doesnotexist');
+    await expect(page.getByText('Keine Einträge für diese Filter.')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Filter zurücksetzen' }).first().click();
+    await expect(page.getByRole('link', { name: '#sensitron' })).toBeVisible();
+    await expect(channelInput).toHaveValue('');
   });
 
   test('renders the empty state when nothing has been audited yet', async ({ page }) => {

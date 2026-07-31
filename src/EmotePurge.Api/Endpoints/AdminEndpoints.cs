@@ -105,6 +105,9 @@ public static class AdminEndpoints
         group.MapGet("/audit-log", async (
             int page,
             int pageSize,
+            string? action,
+            string? channel,
+            string? actor,
             IAuditLogQueryService auditLogQueryService,
             CancellationToken ct) =>
         {
@@ -114,8 +117,18 @@ public static class AdminEndpoints
             var effectivePage = page <= 0 ? 1 : page;
             var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
 
-            var result = await auditLogQueryService.ListAsync(effectivePage, effectivePageSize, ct);
+            // Filters are pass-through: an unknown action or channel simply yields an empty page.
+            // Channel normalization happens in the query service, next to the matching rule it feeds.
+            var filter = new AuditLogFilter(
+                NullIfBlank(action),
+                NullIfBlank(channel),
+                NullIfBlank(actor));
+
+            var result = await auditLogQueryService.ListAsync(effectivePage, effectivePageSize, filter, ct);
             return Results.Ok(result);
         });
     }
+
+    private static string? NullIfBlank(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

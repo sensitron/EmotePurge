@@ -217,6 +217,18 @@
       "empty": "No entries yet.",
       "emptyHint": "Every channel, voting and emote-deletion action shows up here once it has been performed.",
       "actor": "by {{actor}}",
+      "filter": {
+        "actionLabel": "Filter by action",
+        "all": "All",
+        "channelLabel": "Filter by channel",
+        "channelNotApplicable": "This action has no channel",
+        "channelPlaceholder": "Channel",
+        "actorLabel": "Filter by acting user",
+        "actorPlaceholder": "User",
+        "noMatches": "No entries for these filters.",
+        "noMatchesHint": "Adjust or reset the filters to see entries again.",
+        "reset": "Reset filters"
+      },
       "actions": {
         "channelJoin": "Channel joined",
         "channelLeave": "Channel left",
