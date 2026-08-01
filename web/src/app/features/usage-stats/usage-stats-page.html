@@ -85,6 +85,24 @@
     {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
   </p>
 
+  <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up as a
+       curated vote-session ballot. Count in the label + disabled at zero, mirroring the delete
+       button's conventions; managers only (the endpoint would 403 a 7TV editor). -->
+  @if (canManage()) {
+    <div class="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        appButton="primary"
+        buttonSize="lg"
+        class="disabled:cursor-not-allowed"
+        [disabled]="selection.selectedKeys().length === 0"
+        (click)="openCreateVoteSession()"
+      >
+        {{ 'usageStats.createVoteSession' | transloco: { count: selection.selectedKeys().length } }}
+      </button>
+    </div>
+  }
+
   @if (activeEmoteSetId(); as setId) {
     <app-mass-delete-panel
       [setId]="setId"

@@ -1,7 +1,9 @@
 import { NgOptimizedImage } from '@angular/common';
+import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
-import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 import {
   Subscription,
@@ -13,11 +15,18 @@ import {
   of,
   switchMap,
   take,
+  tap,
   timer,
 } from 'rxjs';
 
+import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { pluralKey } from '../../core/i18n/plural';
+import { VoteSessionSummary } from '../../core/voting/vote-session.model';
+import {
+  CreateVoteSessionDialog,
+  CreateVoteSessionDialogData,
+} from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
 import { LiveUpdateService } from '../../core/live/live-update.service';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
@@ -89,6 +98,20 @@ export class UsageStatsPage {
   private readonly usageStatService = inject(UsageStatService);
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly liveUpdateService = inject(LiveUpdateService);
+  private readonly channelService = inject(ChannelService);
+  private readonly dialog = inject(Dialog);
+  private readonly router = inject(Router);
+
+  // The route guard admits 7TV editors (canViewUsageStats), but creating a vote session is a
+  // management action (ChannelManagementAuthorizationFilter on the endpoint) — the button only
+  // shows where the click can succeed. Same pattern as VoteSessionListPage's create form.
+  private readonly permissionsResource = rxResource({
+    params: () => this.channelName(),
+    stream: ({ params }) => this.channelService.getPermissions(params),
+  });
+  protected readonly canManage = computed(
+    () => this.permissionsResource.value()?.canManage ?? false,
+  );
 
   // A computed, not a field read in the constructor: channelName is a required input and reading it
   // during construction throws NG0950. computed() is lazy, so the first read happens inside the
@@ -165,23 +188,54 @@ export class UsageStatsPage {
     });
     this.destroyRef.onDestroy(() => this.syncPoll?.unsubscribe());
 
-    // Live refresh after the worker's usage flush. switchMap closes the previous channel's stream
-    // when the route parameter changes, so there is never more than one open connection per page.
+    // Live refresh after the worker's usage flush and after real emote-inventory changes
+    // (`channel.synced` only fires when a sync actually changed something — add/remove on 7TV,
+    // set swap, mass delete). switchMap closes the previous channel's stream when the route
+    // parameter changes, so there is never more than one open connection per page.
     // The reload is deliberately quiet: neither the selection nor the skeleton may move under a
     // user who did not ask for anything — this update arrives unrequested.
     toObservable(this.liveUrl)
       .pipe(
         switchMap((url) => this.liveUpdateService.stream(url)),
-        filter((event) => event.type === LIVE_EVENT_TYPES.usageFlushed),
+        filter(
+          (event) =>
+            event.type === LIVE_EVENT_TYPES.usageFlushed ||
+            event.type === LIVE_EVENT_TYPES.channelSynced,
+        ),
+        // Flag instead of a second stream() subscription (it is cold — one EventSource per
+        // subscriber): remembers across the debounce whether a sync was among the merged events,
+        // because only then can the active set id have moved.
+        tap((event) => {
+          if (event.type === LIVE_EVENT_TYPES.channelSynced) {
+            this.syncSeenSinceReload = true;
+          }
+        }),
         debounceTime(LIVE_RELOAD_DEBOUNCE_MS),
         takeUntilDestroyed(),
       )
-      .subscribe(() =>
+      .subscribe(() => {
         this.loadTotals(this.channelName(), this.from(), this.to(), {
           preserveSelection: true,
           silent: true,
-        }),
-      );
+        });
+        if (this.syncSeenSinceReload) {
+          this.syncSeenSinceReload = false;
+          this.refreshActiveEmoteSetId();
+        }
+      });
+  }
+
+  // See the tap() above — plain field, not a signal: nothing renders from it.
+  private syncSeenSinceReload = false;
+
+  // Quiet counterpart to the set-id fetch in load(): no sync-poll, and a failed refetch keeps the
+  // current value — this runs unrequested, so it must never take the mass-delete panel away over
+  // a transient error.
+  private refreshActiveEmoteSetId(): void {
+    this.emoteAdminService.getActiveEmoteSetId(this.channelName()).subscribe({
+      next: (result) => this.activeEmoteSetId.set(result.activeEmoteSetId),
+      error: () => undefined,
+    });
   }
 
   protected updateColumns(): void {
@@ -215,6 +269,34 @@ export class UsageStatsPage {
   protected onDeleted(deletedIds: string[]): void {
     this.emotes.update((items) => items.filter((item) => !deletedIds.includes(item.emoteId)));
     this.selection.clear();
+  }
+
+  // Captures the selection at open time: loadTotals clears it on channel/date-range changes, so
+  // the dialog holds its own copy of the ballot rather than a live view of the selection.
+  protected openCreateVoteSession(): void {
+    const emoteIds = [...this.selection.selectedKeys()];
+    if (emoteIds.length === 0) {
+      return;
+    }
+
+    const data: CreateVoteSessionDialogData = {
+      channelName: this.channelName(),
+      emoteIds,
+      usageFromDate: this.from(),
+    };
+    this.dialog
+      .open<VoteSessionSummary | undefined>(CreateVoteSessionDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+        ariaLabelledBy: 'create-vote-session-title',
+      })
+      .closed.subscribe((created) => {
+        if (created) {
+          this.selection.clear();
+          this.router.navigate(['/channels', this.channelName(), 'vote-sessions', created.id]);
+        }
+      });
   }
 
   // The delete run finished on 7TV, but the backend could not confirm it — refetch instead of
