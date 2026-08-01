@@ -68,6 +68,23 @@ dotnet ef migrations add <Name> --project src/EmotePurge.Infrastructure --startu
 dotnet ef database update --project src/EmotePurge.Infrastructure --startup-project src/EmotePurge.Api
 ```
 
+#### Prod-Migration (manuell, über SSH-Tunnel)
+
+Migrationen laufen in Produktion **nicht** automatisch beim App-Start — sie werden von Hand nachgezogen, **bevor** die neuen Images deployt werden (additive Migrationen ignoriert das noch laufende alte Image; umgekehrt liefe die neue Api gegen fehlende Spalten). Prod-Postgres ist auf dem VPS nur an `127.0.0.1:5433` gebunden (`docker-compose.prod.yml`), also erst tunneln:
+
+```
+ssh -N -L 15432:127.0.0.1:5433 <VPS-USER>@<VPS-HOST>
+```
+
+Dann lokal, in einer zweiten Shell. `--connection` statt einer Umgebungsvariable, damit nichts für spätere lokale Läufe hängen bleibt; in PowerShell **einfache** Anführungszeichen, sonst interpoliert die Shell ein `$` im Passwort:
+
+```
+dotnet ef migrations list --project src/EmotePurge.Infrastructure --startup-project src/EmotePurge.Api --connection 'Host=localhost;Port=15432;Database=emotepurge;Username=emotepurge;Password=<PROD-PW>'
+dotnet ef database update --project src/EmotePurge.Infrastructure --startup-project src/EmotePurge.Api --connection 'Host=localhost;Port=15432;Database=emotepurge;Username=emotepurge;Password=<PROD-PW>'
+```
+
+Erst `list` (zeigt, was `(Pending)` ist — mehr als erwartet heißt: Prod hängt mehrere Feature-Runden zurück, dann vorher die Migrationen durchsehen), dann `update`, dann `list` zur Gegenprobe. Das Passwort steht in der `.env` auf dem VPS und gehört nirgends ins Repo (Regel 17).
+
 ### Docker Compose (voller Stack)
 
 ```
