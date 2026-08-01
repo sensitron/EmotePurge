@@ -29,9 +29,19 @@
           }
         </p>
       </div>
-      <button type="button" appButton="neutral" (click)="refresh()">
-        {{ 'usageStats.refresh' | transloco }}
-      </button>
+      <div class="flex items-center gap-2">
+        <!-- The list has the same action, but this page is routinely deep-linked past the list
+             (see the up-link comment above) — a manager arriving from usage-stats or My-Votings
+             had to navigate back just to close the session they were already looking at. -->
+        @if (canManage() && session.isActive) {
+          <button type="button" appButton="neutral" (click)="endSession(session.title)">
+            {{ 'voting.list.end' | transloco }}
+          </button>
+        }
+        <button type="button" appButton="neutral" (click)="refresh()">
+          {{ 'usageStats.refresh' | transloco }}
+        </button>
+      </div>
     </header>
   }
 

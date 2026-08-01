@@ -351,6 +351,7 @@
       "submit": "Abstimmung erstellen"
     },
     "detail": {
+      "endConfirm": "Abstimmung „{{ title }}“ beenden? Danach können keine Stimmen mehr abgegeben werden.",
       "usageSince": "Nutzungsdaten seit",
       "noActiveEmotes": "Keine aktiven Emotes.",
       "keepAriaLabel": "Behalten",

@@ -1,7 +1,9 @@
 import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
+import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { Observable } from 'rxjs';
@@ -23,6 +25,7 @@ import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
+import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { StatusBadge } from '../../shared/ui/status-badge';
@@ -84,6 +87,7 @@ export class VoteSessionDetailPage {
   private readonly authService = inject(AuthService);
   private readonly translocoService = inject(TranslocoService);
   private readonly languageService = inject(LanguageService);
+  private readonly dialog = inject(Dialog);
 
   // Lazy on purpose — reading the required channelName input during construction would throw
   // NG0950; the computed is first evaluated inside liveReload's toObservable effect.
@@ -100,6 +104,19 @@ export class VoteSessionDetailPage {
   protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
+
+  // The one place on this page that asks for the permission instead of inferring it from the data,
+  // and it has to: hasUsageData() below reads null-only rows as "not a manager", which is also what
+  // a fully archived subset ballot looks like — a manager would then lose the end button on exactly
+  // the session most likely to need ending. Same resource the list page uses for its own end button.
+  private readonly permissionsResource = rxResource({
+    params: () => this.channelName(),
+    stream: ({ params }) => this.channelService.getPermissions(params),
+  });
+
+  protected readonly canManage = computed(
+    () => this.permissionsResource.value()?.canManage ?? false,
+  );
 
   // The server reports TotalUseCount as null to everyone CanManageChannelAsync rejects, so data
   // presence *is* the permission verdict — no separate GET /permissions round-trip needed. (An
@@ -297,6 +314,37 @@ export class VoteSessionDetailPage {
 
   protected refresh(): void {
     this.load();
+  }
+
+  /**
+   * Confirmed, unlike the same action in the list: here the button sits right next to "refresh" in
+   * the header, and ending a session cannot be undone. Names the session for the same reason the
+   * delete dialog does — the title is the only thing distinguishing two sessions of one channel.
+   */
+  protected endSession(title: string): void {
+    const data: ConfirmDialogData = {
+      message: this.translocoService.translate('voting.detail.endConfirm', { title }),
+      confirmLabel: this.translocoService.translate('voting.list.end'),
+    };
+    this.dialog
+      .open<boolean>(ConfirmDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+      })
+      .closed.subscribe((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
+        this.errorMessage.set(null);
+        this.voteSessionService.end(this.channelName(), Number(this.sessionId())).subscribe({
+          // Full reload, not a local patch of isActive: the endpoint answers with a summary while
+          // this page holds results, and ending a secret ballot unseals every tally at once — the
+          // page after the click shows materially more than the page before it.
+          next: () => this.load({ freeze: false }),
+          error: (error: HttpErrorResponse) => this.errorMessage.set(apiErrorTranslationKey(error)),
+        });
+      });
   }
 
   protected vote(emote: VoteSessionResult, type: VoteType): void {

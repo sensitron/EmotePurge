@@ -351,6 +351,7 @@
       "submit": "Create voting session"
     },
     "detail": {
+      "endConfirm": "End the voting session \"{{ title }}\"? No further votes can be cast afterwards.",
       "usageSince": "Usage data since",
       "noActiveEmotes": "No active emotes.",
       "keepAriaLabel": "Keep",
