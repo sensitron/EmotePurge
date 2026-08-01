@@ -15,6 +15,10 @@ namespace EmotePurge.Api.Endpoints;
 /// </summary>
 public static class AdminEndpoints
 {
+    // Enough to act on without turning a support page into a 500-name wall. Every list that uses it
+    // ships its untruncated total alongside.
+    private const int DeficitListLimit = 50;
+
     public static void MapAdminEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/admin")
@@ -53,6 +57,7 @@ public static class AdminEndpoints
                         desiredSubscriptionCount = (int?)null,
                         unacknowledgedCount = (int?)null,
                         subscriptionLimit = WorkerHealthStatus.SevenTvSubscriptionLimit,
+                        resyncIntervalSeconds = (int?)null,
                     },
                     flush = new
                     {
@@ -60,6 +65,11 @@ public static class AdminEndpoints
                         lastSuccessUtc = (DateTime?)null,
                         lastRowCount = (int?)null,
                         pendingEmoteCount = (int?)null,
+                    },
+                    worker = new
+                    {
+                        instanceId = (string?)null,
+                        processStartedUtc = (DateTime?)null,
                     },
                 });
             }
@@ -86,7 +96,13 @@ public static class AdminEndpoints
                     desiredChannelCount = snapshot.SevenTvDesiredChannelCount,
                     desiredSubscriptionCount = snapshot.SevenTvDesiredSubscriptionCount,
                     unacknowledgedCount = snapshot.SevenTvUnacknowledgedCount,
-                    subscriptionLimit = WorkerHealthStatus.SevenTvSubscriptionLimit,
+                    // 7TV's own figure from the last Hello when we have it. The constant stays as the
+                    // fallback for the window where the socket has never connected — or where the
+                    // worker still predates the field during a rolling deploy.
+                    subscriptionLimit = snapshot.SevenTvSubscriptionLimit ?? WorkerHealthStatus.SevenTvSubscriptionLimit,
+                    // Not a limit but a rate: with one REST call per channel per tick, this is the
+                    // divisor the UI needs to say "34 requests per 60s" instead of implying a quota.
+                    resyncIntervalSeconds = snapshot.SevenTvResyncIntervalSeconds,
                 },
                 flush = new
                 {
@@ -94,6 +110,115 @@ public static class AdminEndpoints
                     lastSuccessUtc = snapshot.FlushLastSuccessUtc,
                     lastRowCount = snapshot.FlushLastRowCount,
                     pendingEmoteCount = snapshot.PendingEmoteCount,
+                },
+                worker = new
+                {
+                    instanceId = snapshot.WorkerInstanceId,
+                    processStartedUtc = snapshot.ProcessStartedUtc,
+                },
+            });
+        });
+
+        group.MapGet("/roster", async (
+            IWorkerRosterReader rosterReader,
+            IAdminChannelQueryService channelQueryService,
+            CancellationToken ct) =>
+        {
+            // Its own endpoint rather than more fields on /health: /health is refetched on every
+            // worker.health event (~20s) by every open monitoring page and carries a deliberately
+            // stable "same shape when unavailable" contract. Two independent availability flags in
+            // one payload would be exactly the ambiguity that contract exists to avoid.
+            var snapshot = await rosterReader.ReadAsync(ct);
+            var trackedChannels = await channelQueryService.ListActiveChannelNamesAsync(ct);
+
+            if (snapshot is null)
+            {
+                return Results.Ok(new
+                {
+                    snapshotAvailable = false,
+                    trackedChannelCount = trackedChannels.Count,
+                    ceilings = Ceilings(),
+                });
+            }
+
+            var rosterByChannel = snapshot.Channels.ToDictionary(
+                c => c.ChannelName, StringComparer.OrdinalIgnoreCase);
+
+            // "Missing" means not confirmed, which covers both absent-from-the-roster and
+            // present-but-unconfirmed: for the question this page answers — is this channel actually
+            // being counted — the two are the same failure.
+            var missingFromIrc = trackedChannels
+                .Where(name => !rosterByChannel.TryGetValue(name, out var row) || !row.IrcJoinConfirmed)
+                .ToList();
+            var missingFromSevenTv = trackedChannels
+                .Where(name => !rosterByChannel.TryGetValue(name, out var row) || !row.SevenTvEmoteSetAcknowledged)
+                .ToList();
+            // The other direction: the worker holds a channel the database no longer considers
+            // active. A leave that never reached the worker looks exactly like this.
+            var unknownToDatabase = snapshot.Channels
+                .Select(c => c.ChannelName)
+                .Where(name => !trackedChannels.Contains(name, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            return Results.Ok(new
+            {
+                snapshotAvailable = true,
+                snapshot.GeneratedAtUtc,
+                // Staleness as a number the client does not have to derive from two clocks. The TTL
+                // only ever says "gone"; this says "present, and two minutes old".
+                ageSeconds = (int)(DateTime.UtcNow - snapshot.GeneratedAtUtc).TotalSeconds,
+                snapshot.WorkerInstanceId,
+                snapshot.ProcessStartedUtc,
+                // Without this a redeploy reads as a total outage: _desiredChannels is empty until
+                // boot recovery has rejoined everything, so every channel is "missing" for a minute.
+                snapshot.BootRecoveryCompleted,
+                snapshot.Truncated,
+                trackedChannelCount = trackedChannels.Count,
+                rosterChannelCount = snapshot.Channels.Count,
+                ircConfirmedCount = snapshot.Channels.Count(c => c.IrcJoinConfirmed),
+                sevenTvAcknowledgedCount = snapshot.Channels.Count(c => c.SevenTvEmoteSetAcknowledged),
+                // Capped lists plus their untruncated totals: a short list that silently stood for a
+                // long one would read as "almost fine" on the page where that matters most.
+                missingFromIrc = missingFromIrc.Take(DeficitListLimit).ToList(),
+                missingFromIrcTotal = missingFromIrc.Count,
+                missingFromSevenTv = missingFromSevenTv.Take(DeficitListLimit).ToList(),
+                missingFromSevenTvTotal = missingFromSevenTv.Count,
+                unknownToDatabase = unknownToDatabase.Take(DeficitListLimit).ToList(),
+                unknownToDatabaseTotal = unknownToDatabase.Count,
+                ceilings = Ceilings(),
+            });
+        });
+
+        group.MapGet("/channels/{channelName}", async (
+            string channelName,
+            IAdminChannelQueryService channelQueryService,
+            IWorkerRosterReader rosterReader,
+            CancellationToken ct) =>
+        {
+            var channel = await channelQueryService.GetAsync(channelName, ct);
+            if (channel is null)
+            {
+                return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotFound });
+            }
+
+            var snapshot = await rosterReader.ReadAsync(ct);
+            var rosterRow = snapshot?.Channels
+                .FirstOrDefault(c => string.Equals(c.ChannelName, channel.ChannelName, StringComparison.OrdinalIgnoreCase));
+
+            return Results.Ok(new
+            {
+                channel,
+                roster = new
+                {
+                    available = snapshot is not null,
+                    ageSeconds = snapshot is null
+                        ? (int?)null
+                        : (int)(DateTime.UtcNow - snapshot.GeneratedAtUtc).TotalSeconds,
+                    bootRecoveryCompleted = snapshot?.BootRecoveryCompleted,
+                    workerInstanceId = snapshot?.WorkerInstanceId,
+                    // Null with available:true is the finding, not a gap: the worker published a
+                    // roster and this channel is not in it.
+                    channel = rosterRow,
                 },
             });
         });
@@ -230,4 +355,12 @@ public static class AdminEndpoints
 
     private static string? NullIfBlank(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // Shipped in both branches of /roster so the page renders one layout: the ceilings are constants
+    // and do not depend on a snapshot being available.
+    private static object Ceilings() => new
+    {
+        twitchConcurrentChannelLimit = WorkerCapacity.TwitchConcurrentChannelLimit,
+        twitchJoinBudgetChannels = WorkerCapacity.TwitchJoinBudgetChannels,
+    };
 }
