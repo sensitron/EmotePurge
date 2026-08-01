@@ -9,7 +9,7 @@
           }}
           <!-- The usage window only means something to those who see usage figures at all —
                gated like the card stats and the min/max/unused filters. -->
-          @if (canSeeUsage()) {
+          @if (hasUsageData()) {
             ·
             {{ 'voting.detail.usageSince' | transloco }}
             {{ formatDateTime(session.startedAt) }}
@@ -25,62 +25,76 @@
     </header>
   }
 
-  <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
-  <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
-    <!-- Min/Max/unused filter on usage counts, which the server zeroes for non-managers — for them
-         these three controls would filter on meaningless data ("unused" matches everything), so
-         they are gated like the usage figure on the cards. The name filter works for everyone. -->
-    @if (canSeeUsage()) {
+  <!-- A short curated ballot needs no filters at all — the whole toolbar only appears once the
+       list outgrows two grid rows (FILTER_TOOLBAR_MIN_EMOTES). -->
+  @if (showFilterToolbar()) {
+    <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
+    <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
+      <!-- Min/Max/unused filter on usage counts, which the server withholds (null) from
+           non-managers — for them these three controls would filter on absent data, so they are
+           gated like the usage figure on the cards. The name filter works for everyone. -->
+      @if (hasUsageData()) {
+        <input
+          type="number"
+          min="0"
+          [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
+          [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
+          [value]="usageFilter.min() ?? ''"
+          (change)="usageFilter.setMinCount($any($event.target).value)"
+          class="app-input-sm w-20"
+        />
+        <input
+          type="number"
+          min="0"
+          [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
+          [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
+          [value]="usageFilter.max() ?? ''"
+          (change)="usageFilter.setMaxCount($any($event.target).value)"
+          class="app-input-sm w-20"
+        />
+      }
       <input
-        type="number"
-        min="0"
-        [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
-        [value]="usageFilter.min() ?? ''"
-        (change)="usageFilter.setMinCount($any($event.target).value)"
-        class="app-input-sm w-20"
+        type="text"
+        [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
+        [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
+        [title]="'usageStats.filterNameTitle' | transloco"
+        [value]="usageFilter.nameQuery()"
+        (input)="usageFilter.setNameFilter($any($event.target).value)"
+        class="app-input-sm w-40"
       />
-      <input
-        type="number"
-        min="0"
-        [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
-        [value]="usageFilter.max() ?? ''"
-        (change)="usageFilter.setMaxCount($any($event.target).value)"
-        class="app-input-sm w-20"
-      />
-    }
-    <input
-      type="text"
-      [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
-      [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
-      [title]="'usageStats.filterNameTitle' | transloco"
-      [value]="usageFilter.nameQuery()"
-      (input)="usageFilter.setNameFilter($any($event.target).value)"
-      class="app-input-sm w-40"
-    />
-    @if (canSeeUsage()) {
-      <!-- Constant label + pressed state instead of swapping the text — see usage-stats toolbar. -->
-      <button
-        type="button"
-        class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-        [class]="
-          usageFilter.isUnusedActive()
-            ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
-            : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-        "
-        [attr.aria-pressed]="usageFilter.isUnusedActive()"
-        (click)="usageFilter.toggleUnused()"
-      >
-        {{ 'usageStats.showUnusedOnly' | transloco }}
-      </button>
-    }
-  </div>
+      @if (hasUsageData()) {
+        <!-- Constant label + pressed state instead of swapping the text — see usage-stats toolbar. -->
+        <button
+          type="button"
+          class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
+          [class]="
+            usageFilter.isUnusedActive()
+              ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
+              : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+          "
+          [attr.aria-pressed]="usageFilter.isUnusedActive()"
+          (click)="usageFilter.toggleUnused()"
+        >
+          {{ 'usageStats.showUnusedOnly' | transloco }}
+        </button>
+      }
+    </div>
+  }
   <p class="text-sm text-slate-400" role="status">
     {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}
   </p>
 
-  @if (activeEmoteSetId(); as setId) {
+  @if (showLowParticipation()) {
+    <!-- info, not warning: thin participation is a caveat for reading the numbers, nothing is
+         degraded — and role="status" keeps it silent for screen readers (design doc §4.4). -->
+    <app-notice-banner variant="info">
+      {{ lowParticipationKey() | transloco: { count: voterCount() } }}
+    </app-notice-banner>
+  }
+
+  <!-- Gated like the card selection that feeds it — without delete power the panel could only
+       ever show an empty selection. -->
+  @if (canSelectForDelete() && activeEmoteSetId(); as setId) {
     <app-mass-delete-panel
       [setId]="setId"
       [channelName]="channelName()"
@@ -130,39 +144,51 @@
         [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
       >
         @for (emote of row; track emote.emoteId) {
+          <!-- Selection targets only for those who can run the mass delete — everyone else gets a
+               plain card without button semantics, since there is nothing a selection could feed. -->
           <div
-            role="button"
-            tabindex="0"
-            [attr.aria-pressed]="selection.isSelected(emote)"
+            [attr.role]="canSelectForDelete() ? 'button' : null"
+            [attr.tabindex]="canSelectForDelete() ? 0 : null"
+            [attr.aria-pressed]="canSelectForDelete() ? selection.isSelected(emote) : null"
             [class]="
-              'flex h-44 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              'flex h-44 flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition ' +
+              (canSelectForDelete() ? 'cursor-pointer hover:bg-slate-800/70 ' : '') +
               (selection.isSelected(emote)
                 ? 'ring-2 ring-purple-500 bg-purple-950/40'
                 : 'bg-slate-900')
             "
-            (click)="selection.onRowClick(emote, $event)"
-            (mousedown)="$event.shiftKey && $event.preventDefault()"
-            (keydown.enter)="selection.onRowClick(emote, $any($event))"
-            (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
+            (click)="onCardActivate(emote, $event)"
+            (mousedown)="canSelectForDelete() && $event.shiftKey && $event.preventDefault()"
+            (keydown.enter)="onCardActivate(emote, $any($event))"
+            (keydown.space)="onCardActivate(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" />
-            <div class="flex h-10 shrink-0 items-center justify-center">
+            <!-- The archived badge overlays the image block (relative/absolute) instead of adding a
+                 line — the h-44 card contract that ROW_HEIGHT_PX budgets for stays untouched. -->
+            <div class="relative flex h-10 shrink-0 items-center justify-center">
               <img
                 [ngSrc]="emote.imageUrl"
                 width="40"
                 height="40"
                 alt=""
                 class="max-h-10 max-w-10 object-contain"
+                [class.opacity-40]="emote.isArchived"
               />
+              @if (emote.isArchived) {
+                <div class="absolute inset-0 flex items-center justify-center">
+                  <app-status-badge tone="amber">{{
+                    'voting.detail.archivedBadge' | transloco
+                  }}</app-status-badge>
+                </div>
+              }
             </div>
             <!-- Two stacked lines rather than one: side by side, the score ellipsized away on a
                  narrow card. Both are text-xs/leading-tight (15px each), which keeps the pair
                  inside the h-44 card contract that ROW_HEIGHT_PX budgets for — see the arithmetic
-                 next to that constant. The usage line only renders for a viewer the API actually
-                 reports it to (canSeeUsage); everyone else gets a plain 0 from the server, which
-                 as a rendered "0x Nutzung" claimed every emote was unused. -->
+                 next to that constant. The usage line only renders when the server reported a
+                 figure at all (manager view) — null means withheld, not "used 0 times". -->
             <div class="flex flex-col leading-tight" [attr.title]="statsTitle(emote)">
-              @if (canSeeUsage()) {
+              @if (emote.totalUseCount !== null) {
                 <span class="truncate text-xs font-medium text-slate-200"
                   >{{ emote.totalUseCount }}x {{ 'usageStats.usageLabel' | transloco }}</span
                 >
@@ -178,14 +204,17 @@
               class="mt-auto grid grid-cols-2 gap-4 sm:grid-cols-1 sm:gap-1"
               (click)="$event.stopPropagation()"
             >
+              <!-- Archived ballot members stay listed but their voting is closed — the amber badge
+                   over the image names the reason the buttons are disabled (design doc §10). -->
               <button
                 type="button"
-                class="flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6 sm:justify-start"
+                class="flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6 sm:justify-start disabled:cursor-not-allowed disabled:opacity-50"
                 [class]="
                   emote.myVote === voteType.Keep
                     ? 'bg-emerald-700 text-white hover:bg-emerald-600'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 "
+                [disabled]="emote.isArchived"
                 [attr.aria-pressed]="emote.myVote === voteType.Keep"
                 (click)="vote(emote, voteType.Keep)"
                 [attr.aria-label]="'voting.detail.keepAriaLabel' | transloco"
@@ -210,12 +239,13 @@
               </button>
               <button
                 type="button"
-                class="flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6 sm:justify-start"
+                class="flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6 sm:justify-start disabled:cursor-not-allowed disabled:opacity-50"
                 [class]="
                   emote.myVote === voteType.Delete
                     ? 'bg-red-700 text-white hover:bg-red-600'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 "
+                [disabled]="emote.isArchived"
                 [attr.aria-pressed]="emote.myVote === voteType.Delete"
                 (click)="vote(emote, voteType.Delete)"
                 [attr.aria-label]="'voting.detail.deleteAriaLabel' | transloco"

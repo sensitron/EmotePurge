@@ -95,6 +95,31 @@ describe('VoteSessionService', () => {
     req.flush({});
   });
 
+  it('create includes emoteIds when a ballot is given, omitting them when empty', () => {
+    service
+      .create('sensitron', 'Curated round', AllowedRoles.Everyone, undefined, ['e-1', 'e-2'])
+      .subscribe();
+
+    const withBallot = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
+    expect(withBallot.request.body).toEqual({
+      title: 'Curated round',
+      allowedVoterRoles: AllowedRoles.Everyone,
+      emoteIds: ['e-1', 'e-2'],
+    });
+    withBallot.flush({});
+
+    // An empty array must not travel — the server treats an explicit empty ballot as an error,
+    // while an absent field means "all emotes".
+    service.create('sensitron', 'All emotes', AllowedRoles.Everyone, undefined, []).subscribe();
+
+    const withoutBallot = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
+    expect(withoutBallot.request.body).toEqual({
+      title: 'All emotes',
+      allowedVoterRoles: AllowedRoles.Everyone,
+    });
+    withoutBallot.flush({});
+  });
+
   it('end POSTs to the /end sub-route', () => {
     service.end('sensitron', 5).subscribe();
 

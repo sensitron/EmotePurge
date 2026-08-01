@@ -107,10 +107,22 @@ function voteSummaries(count: number) {
     isActive: i < 3,
     startedAt: '2026-07-01T12:00:00Z',
     endedAt: i < 3 ? null : '2026-07-10T12:00:00Z',
+    // Mixed ballot scopes: curated subsets and whole-set (null) sessions side by side.
+    emoteCount: i % 3 === 0 ? null : 10 + i,
   }));
 }
 
-function voteResults(sessionId: number, isActive: boolean) {
+interface VoteResultsOptions {
+  // false = the voter view: the server withholds usage entirely (null, not 0).
+  withUsage?: boolean;
+  // Marks the first two emotes as archived subset members ("no longer in the set" badge).
+  withArchived?: boolean;
+  voterCount?: number;
+  count?: number;
+}
+
+function voteResults(sessionId: number, isActive: boolean, options: VoteResultsOptions = {}) {
+  const { withUsage = true, withArchived = false, voterCount = 25, count = 12 } = options;
   return {
     sessionId,
     title:
@@ -118,12 +130,15 @@ function voteResults(sessionId: number, isActive: boolean) {
     isActive,
     startedAt: '2026-07-01T12:00:00Z',
     endedAt: isActive ? null : '2026-07-10T12:00:00Z',
-    emotes: usageEmotes(12).map((e, i) => ({
+    voterCount,
+    // Backend order: ascending net score, delete candidates first.
+    emotes: usageEmotes(count).map((e, i) => ({
       ...e,
-      normalizedUsageScore: Math.max(0, 1 - i * 0.09),
-      keepVotes: 40 - i * 3,
-      deleteVotes: 2 + i * 4,
-      score: 1 - i * 0.15,
+      totalUseCount: withUsage ? e.totalUseCount : null,
+      keepVotes: 2 + i * 4,
+      deleteVotes: 40 - i * 3,
+      score: -38 + i * 7,
+      isArchived: withArchived && i < 2,
       myVote: i % 3 === 0 ? 1 : i % 3 === 1 ? 2 : null,
     })),
   };
@@ -194,10 +209,15 @@ function mockVoteList(page: Page, sessions: ReturnType<typeof voteSummaries>): P
   );
 }
 
-function mockVoteResults(page: Page, sessionId: number, isActive: boolean): Promise<void> {
+function mockVoteResults(
+  page: Page,
+  sessionId: number,
+  isActive: boolean,
+  options: VoteResultsOptions = {},
+): Promise<void> {
   return page.route(
     (url) => url.pathname === `/api/channels/sensitron/vote-sessions/${sessionId}/results`,
-    (route) => json(route, 200, voteResults(sessionId, isActive)),
+    (route) => json(route, 200, voteResults(sessionId, isActive, options)),
   );
 }
 
@@ -509,15 +529,37 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // The card without its usage line: the results endpoint only reports TotalUseCount to a
-    // manager and sends a plain 0 to everyone else, so a voter must see the score alone rather
-    // than a fabricated "0x Nutzung" on every emote.
+    // The card without its usage line: the results endpoint reports TotalUseCount as null to
+    // everyone but managers, so a voter sees the score alone — and the usage filters disappear
+    // with the data.
     slug: 'vote-detail-voter-only',
     path: '/channels/sensitron/vote-sessions/5',
     setup: async (page) => {
       await authedShell(page);
       await channelWorkspace(page, { canManage: false });
-      await mockVoteResults(page, 5, true);
+      await mockVoteResults(page, 5, true, { withUsage: false });
+    },
+  },
+  {
+    // Curated subset ballot: short enough (10 < FILTER_TOOLBAR_MIN_EMOTES) that the filter
+    // toolbar disappears, with two archived members carrying the amber badge and disabled
+    // vote buttons.
+    slug: 'vote-detail-subset-archived',
+    path: '/channels/sensitron/vote-sessions/5',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockVoteResults(page, 5, true, { withArchived: true, count: 10 });
+    },
+  },
+  {
+    // Thin participation: the info banner qualifies the numbers as not-a-verdict-yet.
+    slug: 'vote-detail-low-participation',
+    path: '/channels/sensitron/vote-sessions/5',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockVoteResults(page, 5, false, { voterCount: 3 });
     },
   },
 ];

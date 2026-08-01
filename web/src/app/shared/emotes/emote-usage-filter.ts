@@ -2,7 +2,9 @@ import { computed, signal } from '@angular/core';
 
 interface FilterableEmote {
   emoteName: string;
-  totalUseCount: number;
+  // null = usage withheld/unknown (non-manager voting view). Usage bounds never match null —
+  // "unused" means a confirmed 0, not "no data".
+  totalUseCount: number | null;
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -48,8 +50,8 @@ export class EmoteUsageFilter<T extends FilterableEmote> {
     const max = this.maxCount();
     const nameRegex = this.nameFilterRegex();
     return items.filter((item) => {
-      if (min !== null && item.totalUseCount < min) return false;
-      if (max !== null && item.totalUseCount > max) return false;
+      if (min !== null && (item.totalUseCount === null || item.totalUseCount < min)) return false;
+      if (max !== null && (item.totalUseCount === null || item.totalUseCount > max)) return false;
       if (nameRegex && !nameRegex.test(item.emoteName)) return false;
       return true;
     });

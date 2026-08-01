@@ -20,6 +20,8 @@ export interface VoteSessionSummary {
   isActive: boolean;
   startedAt: string;
   endedAt: string | null;
+  // Size of the session's explicit ballot; null = dynamic "all emotes" session.
+  emoteCount: number | null;
 }
 
 export interface VoteSessionResult {
@@ -27,11 +29,15 @@ export interface VoteSessionResult {
   emoteName: string;
   sevenTvEmoteId: string;
   imageUrl: string;
-  totalUseCount: number;
-  normalizedUsageScore: number;
+  // Manager-only context: null = withheld (or no longer computed for archived ballot members).
+  // Data presence doubles as the permission signal — no separate canSeeUsage lookup needed.
+  totalUseCount: number | null;
   keepVotes: number;
   deleteVotes: number;
+  // Net keep − delete; chat usage is deliberately not part of the score anymore.
   score: number;
+  // A subset-session member that left the 7TV set mid-session: still listed, voting closed.
+  isArchived: boolean;
   myVote: VoteType | null;
 }
 
@@ -41,6 +47,8 @@ export interface VoteSessionResults {
   isActive: boolean;
   startedAt: string;
   endedAt: string | null;
+  // Distinct voters across the session — the UI flags thin participation with this.
+  voterCount: number;
   emotes: VoteSessionResult[];
 }
 

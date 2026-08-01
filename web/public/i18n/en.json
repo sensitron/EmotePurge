@@ -311,6 +311,7 @@
     "noActiveEmotesHint": "Either the 7TV emote set is empty, or the first sync is still running — the list fills up as soon as data arrives.",
     "noMatches": "No emotes match the current filters.",
     "resetFilters": "Reset filters",
+    "createVoteSession": "Put up for vote ({{count}})",
     "errors": {
       "loadFailed": "Couldn't load usage data."
     }
@@ -323,7 +324,7 @@
       "audienceEveryone": "Everyone",
       "audienceSubs": "Subs",
       "audienceMods": "Mods/Broadcaster",
-      "startCountingLabel": "Count usage from (optional, default: now)",
+      "startCountingLabel": "Count chat usage from (empty = from now)",
       "create": "Create",
       "noSessions": "No voting sessions for this channel yet.",
       "noSessionsManagerHint": "Create the first session above — the community then votes keep-or-delete per emote.",
@@ -335,7 +336,15 @@
       "copyFailed": "Copy failed",
       "end": "End",
       "delete": "Delete",
-      "deleteConfirm": "Permanently delete the voting session \"{{ title }}\"? All votes cast will be lost."
+      "deleteConfirm": "Permanently delete the voting session \"{{ title }}\"? All votes cast will be lost.",
+      "emoteCountAll": "Whole emote set",
+      "emoteCountSome": "{{count}} emotes"
+    },
+    "create": {
+      "dialogTitle": "Create a vote from the selection",
+      "selectedCount": "{{count}} emotes selected",
+      "startPrefillHint": "Prefilled with the start of the selected time range.",
+      "submit": "Create voting session"
     },
     "detail": {
       "usageSince": "Usage data since",
@@ -346,6 +355,12 @@
       "deleteLabel": "Delete",
       "scoreLabel": "Score",
       "retractVote": "Retract vote",
+      "archivedBadge": "No longer in the set",
+      "archivedVoteDisabled": "No longer in the 7TV set — voting for this emote is closed.",
+      "lowParticipation": {
+        "one": "Only 1 person has voted so far — the result isn't a community verdict yet.",
+        "other": "Only {{count}} people have voted so far — the result isn't a community verdict yet."
+      },
       "errors": {
         "loadFailed": "Couldn't load the voting session.",
         "forbidden": "You're not allowed to vote in this session (wrong role)."
@@ -429,6 +444,7 @@
       "invalid_channel_name": "Invalid channel name.",
       "invalid_channel_or_session_id": "Invalid channel or voting session identifier.",
       "emote_ids_empty": "No emotes selected.",
+      "emote_ids_invalid": "At least one selected emote is unknown, belongs to another channel, or is no longer in the set.",
       "invalid_date_format": "Invalid date format.",
       "from_after_to": "The start date must be before the end date.",
       "range_too_large": "The selected time range is too large.",

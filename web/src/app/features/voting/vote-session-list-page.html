@@ -97,12 +97,22 @@
             >
               {{ session.title }}
             </a>
-            <app-status-badge class="shrink-0" [tone]="session.isActive ? 'emerald' : 'slate'">
-              {{
-                (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
-                  | transloco
-              }}
-            </app-status-badge>
+            <div class="flex shrink-0 items-center gap-2">
+              <!-- Ballot scope: an explicit count for curated sessions, "whole set" otherwise. -->
+              <span class="text-xs text-slate-400">
+                {{
+                  session.emoteCount === null
+                    ? ('voting.list.emoteCountAll' | transloco)
+                    : ('voting.list.emoteCountSome' | transloco: { count: session.emoteCount })
+                }}
+              </span>
+              <app-status-badge [tone]="session.isActive ? 'emerald' : 'slate'">
+                {{
+                  (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
+                    | transloco
+                }}
+              </app-status-badge>
+            </div>
           </div>
           <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <button

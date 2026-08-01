@@ -35,16 +35,20 @@ export class VoteSessionService {
     });
   }
 
+  // emoteIds omitted = the session covers all non-archived channel emotes dynamically; a non-empty
+  // list becomes the session's fixed ballot (local emote ids from the results/usage models).
   create(
     channelName: string,
     title: string,
     allowedVoterRoles: AllowedRoles,
     startedAt?: string,
+    emoteIds?: string[],
   ): Observable<VoteSessionSummary> {
     return this.http.post<VoteSessionSummary>(`/api/channels/${channelName}/vote-sessions`, {
       title,
       allowedVoterRoles,
       ...(startedAt ? { startedAt } : {}),
+      ...(emoteIds?.length ? { emoteIds } : {}),
     });
   }
 

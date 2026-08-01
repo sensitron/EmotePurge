@@ -4,7 +4,7 @@ import { EmoteUsageFilter } from './emote-usage-filter';
 
 interface Row {
   emoteName: string;
-  totalUseCount: number;
+  totalUseCount: number | null;
 }
 
 const ROWS: Row[] = [
@@ -63,5 +63,24 @@ describe('EmoteUsageFilter', () => {
     filter.toggleUnused();
     expect(filter.isUnusedActive()).toBe(false);
     expect(filter.apply(ROWS)).toEqual(ROWS);
+  });
+
+  it('null usage never matches a usage bound — including "unused" — but passes without bounds', () => {
+    const rows: Row[] = [
+      { emoteName: 'withData', totalUseCount: 0 },
+      { emoteName: 'withheld', totalUseCount: null },
+    ];
+    const filter = new EmoteUsageFilter<Row>();
+
+    // No usage bounds set: null rows pass through untouched (voter view, name filter only).
+    expect(filter.apply(rows)).toEqual(rows);
+
+    // "Unused" means a confirmed 0 — withheld data must not masquerade as unused.
+    filter.toggleUnused();
+    expect(filter.apply(rows).map((row) => row.emoteName)).toEqual(['withData']);
+
+    filter.toggleUnused();
+    filter.setMinCount('0');
+    expect(filter.apply(rows).map((row) => row.emoteName)).toEqual(['withData']);
   });
 });

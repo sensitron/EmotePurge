@@ -6,6 +6,7 @@ const KNOWN_API_ERROR_CODES = new Set([
   'invalid_channel_name',
   'invalid_channel_or_session_id',
   'emote_ids_empty',
+  'emote_ids_invalid',
   'invalid_date_format',
   'from_after_to',
   'range_too_large',

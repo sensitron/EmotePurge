@@ -311,6 +311,7 @@
     "noActiveEmotesHint": "Entweder ist das 7TV-Emote-Set leer, oder der erste Sync läuft noch — die Liste füllt sich, sobald Daten da sind.",
     "noMatches": "Keine Emotes passen zu den aktuellen Filtern.",
     "resetFilters": "Filter zurücksetzen",
+    "createVoteSession": "Zur Abstimmung stellen ({{count}})",
     "errors": {
       "loadFailed": "Nutzungsdaten konnten nicht geladen werden."
     }
@@ -323,7 +324,7 @@
       "audienceEveryone": "Alle",
       "audienceSubs": "Subs",
       "audienceMods": "Mods/Streamer",
-      "startCountingLabel": "Zählung ab (optional, Standard: jetzt)",
+      "startCountingLabel": "Chat-Nutzung zählen ab (leer = ab jetzt)",
       "create": "Erstellen",
       "noSessions": "Noch keine Abstimmungen für diesen Channel.",
       "noSessionsManagerHint": "Erstelle oben die erste Abstimmung — die Community stimmt dann pro Emote über Behalten oder Löschen ab.",
@@ -335,7 +336,15 @@
       "copyFailed": "Kopieren fehlgeschlagen",
       "end": "Beenden",
       "delete": "Löschen",
-      "deleteConfirm": "Abstimmung „{{ title }}“ unwiderruflich löschen? Alle abgegebenen Stimmen gehen dabei verloren."
+      "deleteConfirm": "Abstimmung „{{ title }}“ unwiderruflich löschen? Alle abgegebenen Stimmen gehen dabei verloren.",
+      "emoteCountAll": "Ganzes Emote-Set",
+      "emoteCountSome": "{{count}} Emotes"
+    },
+    "create": {
+      "dialogTitle": "Abstimmung aus Auswahl erstellen",
+      "selectedCount": "{{count}} Emotes ausgewählt",
+      "startPrefillHint": "Vorbelegt mit dem Beginn des gewählten Zeitraums.",
+      "submit": "Abstimmung erstellen"
     },
     "detail": {
       "usageSince": "Nutzungsdaten seit",
@@ -346,6 +355,12 @@
       "deleteLabel": "Löschen",
       "scoreLabel": "Score",
       "retractVote": "Vote zurücknehmen",
+      "archivedBadge": "Nicht mehr im Set",
+      "archivedVoteDisabled": "Nicht mehr im 7TV-Set — Abstimmung für dieses Emote geschlossen.",
+      "lowParticipation": {
+        "one": "Bisher hat erst 1 Person abgestimmt — das Ergebnis ist noch kein Community-Urteil.",
+        "other": "Bisher haben erst {{count}} Personen abgestimmt — das Ergebnis ist noch kein Community-Urteil."
+      },
       "errors": {
         "loadFailed": "Abstimmung konnte nicht geladen werden.",
         "forbidden": "Du darfst in dieser Abstimmung nicht mitvoten (falsche Rolle für diese Session)."
@@ -429,6 +444,7 @@
       "invalid_channel_name": "Ungültiger Channel-Name.",
       "invalid_channel_or_session_id": "Ungültiger Channel- oder Abstimmungs-Identifier.",
       "emote_ids_empty": "Keine Emotes ausgewählt.",
+      "emote_ids_invalid": "Mindestens ein ausgewähltes Emote ist unbekannt, gehört nicht zu diesem Channel oder ist nicht mehr im Set.",
       "invalid_date_format": "Ungültiges Datumsformat.",
       "from_after_to": "Der Startzeitpunkt muss vor dem Endzeitpunkt liegen.",
       "range_too_large": "Der gewählte Zeitraum ist zu groß.",
