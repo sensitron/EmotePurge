@@ -32,6 +32,13 @@ public static class LiveEvents
     public const string WorkerHealth = "worker.health";
 
     /// <summary>
+    /// The worker published a fresh per-channel roster. No channel scope. Separate from
+    /// <see cref="WorkerHealth"/> because it fires at a third of the rate and the admin roster card
+    /// would otherwise refetch a comparatively expensive read twice for nothing.
+    /// </summary>
+    public const string WorkerRoster = "worker.roster";
+
+    /// <summary>
     /// Heartbeat injected by the Api broker when a stream is idle; never published to Redis.
     /// Consumers drop it — it exists only to keep proxies from timing out an idle connection.
     /// </summary>
@@ -39,7 +46,7 @@ public static class LiveEvents
 
     /// <summary>Types the admin stream (<c>GET /api/admin/live</c>) forwards.</summary>
     public static readonly IReadOnlySet<string> AdminTypes =
-        new HashSet<string>(StringComparer.Ordinal) { WorkerHealth, ChannelSynced };
+        new HashSet<string>(StringComparer.Ordinal) { WorkerHealth, WorkerRoster, ChannelSynced };
 
     /// <summary>Types the channel stream (<c>GET /api/channels/{channelName}/live</c>) forwards.</summary>
     public static readonly IReadOnlySet<string> ChannelTypes =

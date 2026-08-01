@@ -88,6 +88,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMyChannelsService, MyChannelsService>();
         services.AddSingleton<IModRoleCache, ModRoleCache>();
         services.AddSingleton<IWorkerHealthReader, WorkerHealthReader>();
+        services.AddSingleton<IWorkerRosterReader, WorkerRosterReader>();
 
         services.AddScoped<IVoteSessionService, VoteSessionService>();
         services.AddScoped<IVoteSessionQueryService, VoteSessionQueryService>();

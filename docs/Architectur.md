@@ -67,6 +67,7 @@ Publizierende Stellen je Event-Typ (Stand 2026-08-01):
 | `vote.changed` | Api: `VoteSessionEndpoints` (Success-Arme von Vote-POST/DELETE) |
 | `channel.synced` | Worker: `Worker` (JOIN-/RESYNC-Kommando **unconditional**, Boot-Recovery nur bei Änderung), `SevenTvPeriodicResyncWorker` und `SevenTvEventClient` (Delta + Follow-up-/Gap-Fill-Resyncs) **nur bei Änderung** · Api: `EmoteEndpoints` `POST .../emotes/sync-deleted`, wenn ≥1 Emote neu archiviert wurde |
 | `worker.health` | Worker: `WorkerHealthPublisher` |
+| `worker.roster` | Worker: `WorkerRosterPublisher` (60-s-Takt, ein Drittel der Health-Frequenz) |
 
 „Nur bei Änderung" heißt: `SevenTvSyncResult.HasChanges` bzw. `SevenTvDeltaOutcome.Applied` — s. DECISIONS-Eintrag vom 2026-08-01.
 
@@ -245,6 +246,7 @@ Kein Teil der ursprünglichen Spezifikation, aber umfangsmäßig ein eigenes Mod
 > | `User` | `SessionsValidFromUtc` | `20260729222651` | serverseitig wirksames Logout / Session-Revoke: ältere Cookies gelten als ungültig |
 > | `Channel` | `ActiveEmoteSetCapacity` | `20260801183949` | Slot-Limit des aktiven 7TV-Sets, `null` = 7TV hat keins gemeldet (nie 1000 annehmen — Abonnenten haben größere Sets). Nur zusammen mit `ActiveEmoteSetId` im REST-Vollsync geschrieben, nie im EventAPI-Delta |
 > | `Channel` | `TrackingResumedAt` | `20260801183949` | Zeitpunkt des letzten Joins, der den Channel **reaktiviert** hat. `CreatedAt` überschätzt die Abdeckung, weil `LeaveAsync` die Zeile behält — „wir zählen seit" ist `TrackingResumedAt ?? CreatedAt` |
+> | `Channel` | `LastSyncedAtUtc` | `20260801195038` | Wann zuletzt ein REST-Vollsync **erfolgreich durchlief**, unabhängig davon, ob er etwas geändert hat. Bewusst getrennt von `MAX(Emote.LastSyncedAt)` (= letzte Inventaränderung): Emote-Zeilen werden nur bei echter Änderung gestempelt, ein minütlich erfolgreich syncender Channel mit statischem Set las sich sonst als „zuletzt vor drei Tagen synchronisiert". Nur im REST-Pfad geschrieben, nie im Delta-Pfad, und nie Teil der Änderungserkennung |
 > | `Emote` | `FirstSeenAt` | `20260801191203` | Wann das Emote ins 7TV-Set kam, aus dem `timestamp` des Set-Eintrags — dadurch auch für Bestandszeilen rückwirkend korrekt, anders als ein „zuerst gesichtet"-Stempel. `null` = unbekannt, **nie** „neu". Nur der REST-Sync backfillt (der Dispatch-Pfad entscheidet über den ChangeTracker) und der Backfill zählt nicht als Inventaränderung |
 >
 > `AllowedRoles` ist ein `[Flags]`-Enum mit **fünf** Werten: `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.

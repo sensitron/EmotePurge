@@ -8,9 +8,10 @@ builder.Services.AddSingleton<ITwitchChatManager, TwitchChatManager>();
 builder.Services.AddSingleton<IEmoteUsageCounter, EmoteUsageCounter>();
 builder.Services.AddSingleton<BootRecoveryGate>();
 builder.Services.AddSingleton<WorkerStats>();
+builder.Services.AddSingleton<WorkerIdentity>();
 builder.Services.AddSingleton<SevenTvSubscriptionRegistry>();
 builder.Services.AddSingleton<ISevenTvEventClient, SevenTvEventClient>();
-// Six hosted services. The host starts them in registration order, and Worker deliberately goes
+// Seven hosted services. The host starts them in registration order, and Worker deliberately goes
 // first: it runs the boot recovery (rejoin every tracked channel, initial 7TV sync) that the
 // others assume has happened. The ordering is not load-bearing on its own, though —
 // BootRecoveryGate is what actually enforces it, because SevenTvPeriodicResyncWorker running
@@ -23,6 +24,7 @@ builder.Services.AddHostedService<SevenTvPeriodicResyncWorker>();
 builder.Services.AddHostedService<SevenTvEventWorker>();
 builder.Services.AddHostedService<TwitchConnectionWatchdog>();
 builder.Services.AddHostedService<WorkerHealthPublisher>();
+builder.Services.AddHostedService<WorkerRosterPublisher>();
 
 var host = builder.Build();
 host.Run();

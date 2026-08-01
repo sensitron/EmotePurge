@@ -1,0 +1,97 @@
+using System.Text.Json;
+using EmotePurge.Core.Services;
+using EmotePurge.Infrastructure.Redis;
+using EmotePurge.Infrastructure.Tests.Fixtures;
+using Xunit;
+
+namespace EmotePurge.Infrastructure.Tests.Integration;
+
+// Real Redis, not a mocked IDatabase: what is being verified here is the wire format — that what the
+// worker writes with JsonSerializerOptions.Web comes back through the same options unchanged, and
+// that a payload written by a different version of the writer does not throw.
+[Collection("Redis")]
+public class WorkerRosterReaderTests(RedisFixture fixture)
+{
+    [Fact]
+    public async Task ReadAsync_RoundTripsTheSnapshot()
+    {
+        var snapshot = new WorkerRosterSnapshot(
+            new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc),
+            "a1b2c3d4",
+            new DateTime(2026, 8, 1, 9, 30, 0, DateTimeKind.Utc),
+            BootRecoveryCompleted: true,
+            Truncated: false,
+            [
+                new WorkerRosterChannel(
+                    "handofblood",
+                    IrcJoinConfirmed: true,
+                    new DateTime(2026, 8, 1, 11, 59, 0, DateTimeKind.Utc),
+                    "01HSET",
+                    SevenTvEmoteSetAcknowledged: true,
+                    "01HUSER",
+                    SevenTvUserAcknowledged: true),
+                new WorkerRosterChannel(
+                    "sensitron",
+                    IrcJoinConfirmed: false,
+                    LastMessageUtc: null,
+                    SevenTvEmoteSetId: null,
+                    SevenTvEmoteSetAcknowledged: false,
+                    SevenTvUserId: null,
+                    SevenTvUserAcknowledged: false),
+            ]);
+
+        await WriteAsync(JsonSerializer.Serialize(snapshot, JsonSerializerOptions.Web));
+
+        var read = await new WorkerRosterReader(fixture.Connection).ReadAsync();
+
+        Assert.NotNull(read);
+        Assert.Equal(snapshot.GeneratedAtUtc, read.GeneratedAtUtc);
+        Assert.Equal("a1b2c3d4", read.WorkerInstanceId);
+        Assert.True(read.BootRecoveryCompleted);
+        Assert.False(read.Truncated);
+        Assert.Equal(2, read.Channels.Count);
+
+        var joined = read.Channels[0];
+        Assert.Equal("handofblood", joined.ChannelName);
+        Assert.True(joined.IrcJoinConfirmed);
+        Assert.Equal("01HUSER", joined.SevenTvUserId);
+
+        // Nulls survive as nulls. The publisher omits them from the payload entirely, which must
+        // read as "unknown/none" rather than as an empty string or the epoch.
+        var pending = read.Channels[1];
+        Assert.Null(pending.LastMessageUtc);
+        Assert.Null(pending.SevenTvEmoteSetId);
+        Assert.Null(pending.SevenTvUserId);
+    }
+
+    [Fact]
+    public async Task ReadAsync_ReturnsNull_WhenTheKeyIsAbsent()
+    {
+        // The key expired or the worker never started. That absence is the answer the API reports,
+        // not an error it has to handle.
+        await fixture.Connection.GetDatabase().KeyDeleteAsync(WorkerHealthKeys.Roster);
+
+        Assert.Null(await new WorkerRosterReader(fixture.Connection).ReadAsync());
+    }
+
+    [Fact]
+    public async Task ReadAsync_ToleratesAPayloadFromADifferentWriterVersion()
+    {
+        // Rolling deploys put an older worker's payload in front of a newer API. Unknown properties
+        // are ignored, missing ones fall back to their defaults, and a missing channel array must
+        // read as "no rows" rather than throwing or handing every consumer a null list.
+        await WriteAsync("""
+            {"generatedAtUtc":"2026-08-01T12:00:00Z","workerInstanceId":"old","somethingNew":42}
+            """);
+
+        var read = await new WorkerRosterReader(fixture.Connection).ReadAsync();
+
+        Assert.NotNull(read);
+        Assert.Equal("old", read.WorkerInstanceId);
+        Assert.False(read.BootRecoveryCompleted);
+        Assert.Empty(read.Channels);
+    }
+
+    private Task WriteAsync(string payload)
+        => fixture.Connection.GetDatabase().StringSetAsync(WorkerHealthKeys.Roster, payload);
+}
