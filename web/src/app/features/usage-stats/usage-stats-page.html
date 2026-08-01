@@ -15,25 +15,12 @@
 
   <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
   <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
-    <!-- The custom-range popover anchors below the segmented control instead of occupying its
-         own toolbar slot — activating "custom" must never add width and wrap the toolbar (it did,
-         locale-dependently). Reopening = clicking the selected "custom" segment again. -->
-    <div class="relative" data-date-range-anchor>
-      <app-segmented-control
-        [options]="presetOptions"
-        [value]="rangePreset()"
-        (valueChange)="onPresetChange($event)"
-        (reselected)="onPresetReselected($event)"
-        [ariaLabel]="'usageStats.presetGroupLabel' | transloco"
-      />
-      @if (rangePreset() === 'custom' && isCustomRangeOpen()) {
-        <app-date-range-popover
-          [(from)]="from"
-          [(to)]="to"
-          (closed)="isCustomRangeOpen.set(false)"
-        />
-      }
-    </div>
+    <app-date-range-menu
+      [(from)]="from"
+      [(to)]="to"
+      [(preset)]="rangePreset"
+      [earliest]="trackedSinceDate()"
+    />
     <button
       type="button"
       appButton="neutral"
@@ -111,6 +98,19 @@
     >
       {{ 'usageStats.hideObserved' | transloco }}
     </button>
+    <!-- The filter's own readout, so it sits with the controls that produce it and stays visible
+         while the grid scrolls. It used to be a lone paragraph above the slot bar, where two
+         unrelated "x of y" lines ended up stacked on top of each other. ml-auto parks it at the
+         right end of whichever toolbar row it lands on; at 360 px that is a row of its own. -->
+    <p
+      role="status"
+      [class]="
+        'ml-auto whitespace-nowrap ' +
+        (usageFilter.isAnyActive() ? 'font-medium text-purple-300' : 'text-slate-400')
+      "
+    >
+      {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
+    </p>
   </div>
 
   @if (trackedSince(); as since) {
@@ -126,10 +126,6 @@
       </app-notice-banner>
     }
   }
-
-  <p class="text-sm text-slate-400" role="status">
-    {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
-  </p>
 
   <!-- Deliberately not sticky: the top-24 chain (shell header h-14 + workspace tabs h-10) is a
        layout contract, and pinning a third bar would push every filter toolbar in the app down. -->
@@ -234,9 +230,7 @@
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" />
-            <!-- The observation badge overlays the image block instead of taking its own line, the
-                 same trick the voting grid uses for "no longer in the set". -->
-            <div class="relative flex h-10 shrink-0 items-center justify-center">
+            <div class="flex h-10 shrink-0 items-center justify-center">
               <img
                 [ngSrc]="emote.imageUrl"
                 width="40"
@@ -244,13 +238,6 @@
                 alt=""
                 class="max-h-10 max-w-10 object-contain"
               />
-              @if (isUnderObservation(emote)) {
-                <div class="absolute inset-0 flex items-center justify-center">
-                  <app-status-badge tone="blue">{{
-                    'usageStats.observationBadge' | transloco
-                  }}</app-status-badge>
-                </div>
-              }
             </div>
             <span class="truncate text-sm font-medium text-slate-200"
               >{{ emote.totalUseCount }}x
@@ -276,8 +263,26 @@
                 }
               }
             </span>
-            <span class="truncate text-xs text-slate-400">
-              @if (emote.lastUsedDate) {
+            <!-- "New" lives on the time line instead of over the image: it is a statement about
+                 how long the emote has been around, and the badge it replaces covered the emote it
+                 was labelling. A card-edge marker was the alternative and was dropped — a coloured
+                 ring or border reads as "selected" on a grid built for bulk selection (§8.5 keeps
+                 inset-ring-purple for exactly that). The displaced last-used text moves into the
+                 title so nothing is lost. -->
+            <span
+              [class]="
+                'truncate text-xs ' +
+                (isUnderObservation(emote) ? 'text-blue-300' : 'text-slate-400')
+              "
+              [title]="
+                emote.lastUsedDate
+                  ? ('usageStats.lastUsed' | transloco: { date: formatDate(emote.lastUsedDate) })
+                  : ('usageStats.neverUsed' | transloco)
+              "
+            >
+              @if (isUnderObservation(emote)) {
+                {{ observationLabelKey(emote) | transloco: { days: observationDays(emote) } }}
+              } @else if (emote.lastUsedDate) {
                 {{ 'usageStats.lastUsed' | transloco: { date: formatDate(emote.lastUsedDate) } }}
               } @else {
                 {{ 'usageStats.neverUsed' | transloco }}

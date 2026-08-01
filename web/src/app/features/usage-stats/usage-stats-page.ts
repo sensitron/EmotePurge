@@ -1,4 +1,5 @@
 import { NgOptimizedImage } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
@@ -10,6 +11,7 @@ import { Subscription, catchError, first, of, switchMap, take, timer } from 'rxj
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
+import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
@@ -19,9 +21,19 @@ import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.mod
 import { liveReload } from '../../core/live/live-reload';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
-import { DateRangePopover } from '../../shared/datetime/date-range-popover';
+import {
+  DateRangeMenu,
+  DateRangePreset,
+  allTimeStart,
+  toIsoDate,
+} from '../../shared/datetime/date-range-menu';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
-import { UsageTrend, isUnderObservation, usageTrend } from '../../shared/emotes/emote-context';
+import {
+  UsageTrend,
+  daysInSet,
+  isUnderObservation,
+  usageTrend,
+} from '../../shared/emotes/emote-context';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
@@ -30,12 +42,9 @@ import { ListSelection } from '../../shared/selection/list-selection';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
-import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
-import { StatusBadge } from '../../shared/ui/status-badge';
 
 type SortDirection = 'asc' | 'desc';
 type SortKey = 'usage' | 'lastUsed';
-type RangePreset = '0' | '7' | '30' | 'custom';
 
 // Row height (px) fed to CdkVirtualScrollViewport — must match the fixed card height + row
 // wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same
@@ -61,16 +70,6 @@ const SYNC_POLL_MAX_ATTEMPTS = 15;
 // tick) into a single refetch without making the update feel delayed.
 const USAGE_RELOAD_DEBOUNCE_MS = 1000;
 
-function toIsoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function daysAgo(days: number): Date {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date;
-}
-
 function sortableLastUsed(lastUsedDate: string | null): number {
   if (!lastUsedDate) {
     return NEVER_USED_SORT_VALUE;
@@ -91,9 +90,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     MassDeletePanel,
     EmoteCardHeader,
     SlotBudgetBar,
-    StatusBadge,
-    SegmentedControl,
-    DateRangePopover,
+    DateRangeMenu,
     TranslocoPipe,
   ],
   host: {
@@ -130,30 +127,38 @@ export class UsageStatsPage {
   protected readonly rowHeight = ROW_HEIGHT_PX;
   protected readonly columns = signal(computeGridColumns(window.innerWidth));
 
-  protected readonly from = signal(toIsoDate(daysAgo(7)));
+  // trackedSince is not known until the set-status response lands, so the first request uses the
+  // widest span the endpoint accepts — identical rows for any channel younger than that.
+  protected readonly from = signal(allTimeStart(null));
   protected readonly to = signal(toIsoDate(new Date()));
   protected readonly sortKey = signal<SortKey>('usage');
   protected readonly sortDirection = signal<SortDirection>('desc');
 
-  // Which segment is lit; 'custom' opens the date-range popover instead of changing the dates.
-  // Must match the initial from()/to() pair above.
-  protected readonly rangePreset = signal<RangePreset>('7');
-  protected readonly isCustomRangeOpen = signal(false);
-  protected readonly presetOptions: SegmentedControlOption[] = [
-    { value: '0', labelKey: 'usageStats.presetToday' },
-    { value: '7', labelKey: 'usageStats.preset7Days' },
-    { value: '30', labelKey: 'usageStats.preset30Days' },
-    { value: 'custom', labelKey: 'usageStats.presetCustom' },
-  ];
+  // "All time" is the default because this page exists to answer "has this emote ever been used".
+  // A rolling 7-day window answered a different question and got it wrong twice over: it made a
+  // long-serving emote that had a quiet week look like a deletion candidate, and on a freshly
+  // joined channel it reached back before tracking started, so the very first thing a new user saw
+  // was the incomplete-data warning banner. Owned here rather than inside the menu so the page can
+  // name the range it is showing without reaching into a child; must match from()/to() above.
+  protected readonly rangePreset = signal<DateRangePreset>('all');
 
   protected readonly emotes = signal<EmoteUsageTotal[]>([]);
   protected readonly setStatus = signal<EmoteSetStatus | null>(null);
   protected readonly activeEmoteSetId = computed(() => this.setStatus()?.activeEmoteSetId || null);
   protected readonly trackedSince = computed(() => this.setStatus()?.trackedSince ?? null);
 
+  /** Date-only form, which is what the range menu and the vote-session ballot both speak. */
+  protected readonly trackedSinceDate = computed(() => this.trackedSince()?.slice(0, 10) ?? null);
+
   // The selected range reaches back further than we have been counting, so its leading part is
   // silently empty. Saying so is the difference between "this emote is dead" and "we weren't here".
   protected readonly rangeStartsBeforeTracking = computed(() => {
+    // "All time" means "everything we have", not a range someone chose that happens to start too
+    // early — warning about its own definition would fire on every default page load.
+    if (this.rangePreset() === 'all') {
+      return false;
+    }
+
     const trackedSince = this.trackedSince();
     if (!trackedSince) {
       return false;
@@ -198,7 +203,10 @@ export class UsageStatsPage {
 
   protected readonly rows = computed(() => chunkIntoRows(this.sortedEmotes(), this.columns()));
 
-  protected readonly emoteCountKey = computed(() => pluralKey(this.emotes().length, 'emoteCount'));
+  // Plural follows the number that is actually spelled first ("1 von 409 Emote", not "Emotes").
+  protected readonly emoteCountKey = computed(() =>
+    pluralKey(this.sortedEmotes().length, 'emoteCount'),
+  );
 
   protected readonly selection = new ListSelection(this.sortedEmotes, (emote) => emote.emoteId);
 
@@ -248,22 +256,6 @@ export class UsageStatsPage {
     this.load(this.channelName(), this.from(), this.to());
   }
 
-  protected onPresetChange(value: string): void {
-    this.rangePreset.set(value as RangePreset);
-    this.isCustomRangeOpen.set(value === 'custom');
-    if (value !== 'custom') {
-      this.from.set(toIsoDate(daysAgo(Number(value))));
-      this.to.set(toIsoDate(new Date()));
-    }
-  }
-
-  // Clicking the already-selected "custom" segment reopens the popover after it was dismissed.
-  protected onPresetReselected(value: string): void {
-    if (value === 'custom') {
-      this.isCustomRangeOpen.set(true);
-    }
-  }
-
   protected toggleSort(key: SortKey): void {
     if (this.sortKey() === key) {
       this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
@@ -297,6 +289,19 @@ export class UsageStatsPage {
 
   protected isUnderObservation(emote: EmoteUsageTotal): boolean {
     return isUnderObservation(emote.firstSeenAt, new Date());
+  }
+
+  /** Whole days the emote has been in the set; floored at 0 so a clock skew cannot read as "-1". */
+  protected observationDays(emote: EmoteUsageTotal): number {
+    return Math.max(daysInSet(emote.firstSeenAt, new Date()) ?? 0, 0);
+  }
+
+  // Day zero gets its own wording: "seit 0 Tagen" is not a sentence anyone writes.
+  protected observationLabelKey(emote: EmoteUsageTotal): string {
+    const days = this.observationDays(emote);
+    return days === 0
+      ? 'usageStats.observationToday'
+      : pluralKey(days, 'usageStats.observationAge');
   }
 
   protected formatDate(iso: string | null): string {
@@ -335,7 +340,12 @@ export class UsageStatsPage {
     const data: CreateVoteSessionDialogData = {
       channelName: this.channelName(),
       emoteIds,
-      usageFromDate: this.from(),
+      // The dialog turns this into the session's "count usage from" prefill, so it has to be a date
+      // a human would recognise. On the "all time" default from() may be the endpoint's widest
+      // accepted span, which would claim the session counts from a year back on a channel tracked
+      // for a fortnight — the tracking start says the same thing without the false precision.
+      usageFromDate:
+        this.rangePreset() === 'all' ? (this.trackedSinceDate() ?? this.from()) : this.from(),
     };
     this.dialog
       .open<VoteSessionSummary | undefined>(CreateVoteSessionDialog, {
@@ -447,8 +457,17 @@ export class UsageStatsPage {
       },
       // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
       // /api/ call in the app.
-      error: () => {
-        this.errorMessage.set('usageStats.errors.loadFailed');
+      //
+      // The endpoint's own error codes beat the blanket "could not load" this used to show: a
+      // hand-typed custom range wider than the API's 366-day guard came back as range_too_large and
+      // was rendered as a generic failure, which reads as "the server is broken" rather than "your
+      // range is too wide". The generic key stays as the fallback for a body-less failure.
+      error: (error: unknown) => {
+        this.errorMessage.set(
+          error instanceof HttpErrorResponse
+            ? apiErrorTranslationKey(error)
+            : 'usageStats.errors.loadFailed',
+        );
         if (!options.silent) {
           this.isLoading.set(false);
         }

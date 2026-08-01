@@ -90,9 +90,15 @@
     }
   },
   "dateRange": {
+    "label": "Range",
+    "menuLabel": "Choose time range",
+    "presetToday": "Today",
+    "preset7Days": "7 days",
+    "preset30Days": "30 days",
+    "presetAll": "All time",
+    "presetCustom": "Custom range …",
     "from": "From",
-    "to": "To",
-    "editRange": "Edit custom range"
+    "to": "To"
   },
   "datetimePicker": {
     "placeholder": "Now (default)",
@@ -155,7 +161,13 @@
     "monitoring": {
       "title": "Monitoring",
       "refresh": "Refresh",
-      "refreshTitle": "Reload worker status",
+      "refreshTitle": "Reload all monitoring data — needed while the live stream is disconnected",
+      "live": {
+        "open": "Live",
+        "connecting": "Connecting…",
+        "closed": "Live stream disconnected",
+        "idle": "Live stream idle"
+      },
       "noSnapshot": "The worker has not published a status. It is either not running, or its health publish is failing.",
       "status": {
         "connected": "Connected",
@@ -366,11 +378,6 @@
     "title": "Emote usage",
     "reloadTitle": "Reload usage data",
     "refresh": "Refresh",
-    "presetToday": "Today",
-    "preset7Days": "7 days",
-    "preset30Days": "30 days",
-    "presetCustom": "Custom",
-    "presetGroupLabel": "Time range",
     "dateRangeTo": "to",
     "usageLabel": "uses",
     "sortByUsage": "Usage",
@@ -379,7 +386,11 @@
     "neverUsed": "never used",
     "trackedSince": "We have been counting for this channel since {{ date }}.",
     "rangeBeforeTracking": "The selected range starts before {{ date }} — we counted nothing for this channel before then. For the earlier part the numbers aren't incomplete, they don't exist.",
-    "observationBadge": "New",
+    "observationToday": "New · today",
+    "observationAge": {
+      "one": "New · {{ days }} day",
+      "other": "New · {{ days }} days"
+    },
     "hideObserved": "Hide new",
     "hideObservedTitle": "Emotes added less than 14 days ago haven't had a fair chance yet — they are not deletion candidates.",
     "trend": {

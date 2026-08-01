@@ -90,9 +90,15 @@
     }
   },
   "dateRange": {
+    "label": "Zeitraum",
+    "menuLabel": "Zeitraum wählen",
+    "presetToday": "Heute",
+    "preset7Days": "7 Tage",
+    "preset30Days": "30 Tage",
+    "presetAll": "Seit Beginn",
+    "presetCustom": "Eigener Zeitraum …",
     "from": "Von",
-    "to": "Bis",
-    "editRange": "Eigenen Zeitraum bearbeiten"
+    "to": "Bis"
   },
   "datetimePicker": {
     "placeholder": "Jetzt (Standard)",
@@ -155,7 +161,13 @@
     "monitoring": {
       "title": "Monitoring",
       "refresh": "Aktualisieren",
-      "refreshTitle": "Worker-Status neu laden",
+      "refreshTitle": "Alle Monitoring-Daten neu laden — nötig, wenn der Live-Stream getrennt ist",
+      "live": {
+        "open": "Live",
+        "connecting": "Verbindet…",
+        "closed": "Live-Stream getrennt",
+        "idle": "Live-Stream inaktiv"
+      },
       "noSnapshot": "Der Worker hat aktuell keinen Status veröffentlicht. Entweder läuft er nicht, oder sein Health-Publish schlägt fehl.",
       "status": {
         "connected": "Verbunden",
@@ -366,11 +378,6 @@
     "title": "Emote-Nutzung",
     "reloadTitle": "Nutzungsdaten neu laden",
     "refresh": "Aktualisieren",
-    "presetToday": "Heute",
-    "preset7Days": "7 Tage",
-    "preset30Days": "30 Tage",
-    "presetCustom": "Eigener",
-    "presetGroupLabel": "Zeitraum",
     "dateRangeTo": "bis",
     "usageLabel": "Nutzung",
     "sortByUsage": "Nutzung",
@@ -379,7 +386,11 @@
     "neverUsed": "nie benutzt",
     "trackedSince": "Wir zählen für diesen Channel seit dem {{ date }}.",
     "rangeBeforeTracking": "Der gewählte Zeitraum beginnt vor dem {{ date }} — davor haben wir für diesen Channel nichts gezählt. Die Zahlen sind für den früheren Teil nicht unvollständig, sondern gar nicht vorhanden.",
-    "observationBadge": "Neu",
+    "observationToday": "Neu · heute",
+    "observationAge": {
+      "one": "Neu · {{ days }} Tag",
+      "other": "Neu · {{ days }} Tage"
+    },
     "hideObserved": "Neue ausblenden",
     "hideObservedTitle": "Emotes, die seit weniger als 14 Tagen im Set sind, hatten noch keine faire Chance — sie sind keine Löschkandidaten.",
     "trend": {

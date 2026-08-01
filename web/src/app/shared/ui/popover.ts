@@ -1,0 +1,72 @@
+import { Component, ElementRef, computed, inject, input, output } from '@angular/core';
+
+/**
+ * Marker attribute the host puts on the `position: relative` wrapper that contains both the trigger
+ * and the popover. Clicks inside that wrapper never count as outside-clicks, which is what keeps the
+ * very click that opened the panel from closing it again in the same dispatch.
+ */
+export const POPOVER_ANCHOR_ATTRIBUTE = 'data-popover-anchor';
+
+/**
+ * Non-modal dropdown panel. The one place the "relative wrapper + absolute panel + document-click +
+ * Escape" construction lives — it had been hand-rolled three times (custom-range popover, datetime
+ * picker, shell disclosure) with three slightly different dismiss rules and only two of the three
+ * guarding against overflowing a 360 px viewport.
+ *
+ * Deliberately not a CDK overlay: these panels open out of a sticky filter toolbar and must inherit
+ * its stacking context (design doc §8.5), which a container appended to `<body>` cannot. Modal
+ * surfaces stay `@angular/cdk/dialog`'s job (§7) — this primitive is for the non-modal case and
+ * carries no focus trap.
+ *
+ * Contract with the host: rendered = open. The panel never hides itself; it emits `closed` (outside
+ * click, Escape) and the host owns the visibility signal. The host also owns focus return — the
+ * panel does not know which element opened it. Bring your own padding: the panel is padding-free so
+ * full-bleed rows (menus) and padded forms can both live in it.
+ */
+@Component({
+  selector: 'app-popover',
+  host: {
+    '(document:click)': 'onDocumentClick($event)',
+    '(document:keydown.escape)': 'onEscape()',
+  },
+  template: `
+    <div role="dialog" [attr.aria-label]="ariaLabel()" [class]="panelClass()">
+      <ng-content />
+    </div>
+  `,
+})
+export class Popover {
+  readonly ariaLabel = input('');
+  /** Which edge the panel lines up with its anchor — `end` for triggers near the right viewport edge. */
+  readonly align = input<'start' | 'end'>('start');
+  readonly width = input('w-64');
+
+  readonly closed = output<void>();
+
+  private readonly elementRef = inject(ElementRef<HTMLElement>);
+
+  // z-30 inside the filter toolbar's z-20 sticky context — sanctioned by design doc §8.5 (dropdowns
+  // opening out of a sticky bar inherit its context). max-w keeps the panel inside a 360 px viewport
+  // whatever the anchor's position; without it a right-ish anchor pushes the page into horizontal
+  // overflow, which the UI audit gates on.
+  protected readonly panelClass = computed(
+    () =>
+      'absolute top-full z-30 mt-1 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border ' +
+      'border-slate-700 bg-slate-900 shadow-xl ' +
+      (this.align() === 'end' ? 'right-0 ' : 'left-0 ') +
+      this.width(),
+  );
+
+  protected onDocumentClick(event: Event): void {
+    const anchor =
+      this.elementRef.nativeElement.closest(`[${POPOVER_ANCHOR_ATTRIBUTE}]`) ??
+      this.elementRef.nativeElement;
+    if (!anchor.contains(event.target as Node)) {
+      this.closed.emit();
+    }
+  }
+
+  protected onEscape(): void {
+    this.closed.emit();
+  }
+}

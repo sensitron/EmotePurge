@@ -267,6 +267,12 @@ interface Scenario {
   slug: string;
   path: string;
   setup: (page: Page) => Promise<void>;
+  /**
+   * Runs after the page has settled, for states that only exist once something is opened. Popovers
+   * were invisible to this harness until it had this hook — an overflowing dropdown panel is
+   * exactly the kind of locale-dependent break the mobile viewport is here to catch.
+   */
+  afterLoad?: (page: Page) => Promise<void>;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -467,6 +473,22 @@ const SCENARIOS: Scenario[] = [
       await authedShell(page);
       await channelWorkspace(page);
       await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+    },
+  },
+  {
+    // The date-range menu open on its custom entry: the widest the panel ever gets, and the state
+    // its trigger-less predecessor never had a screenshot of.
+    slug: 'usage-stats-range-menu',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+    },
+    afterLoad: async (page) => {
+      // Locale-independent handles: the label is translated, these are not.
+      await page.locator('[aria-haspopup="dialog"]').first().click();
+      await page.getByRole('radio').last().click();
     },
   },
   {
@@ -677,6 +699,10 @@ for (const vp of VIEWPORTS) {
       await page.goto(sc.path);
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(400);
+      if (sc.afterLoad) {
+        await sc.afterLoad(page);
+        await page.waitForTimeout(200);
+      }
 
       const base = `${sc.slug}--${vp.name}--${locale}`;
       await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: true });
