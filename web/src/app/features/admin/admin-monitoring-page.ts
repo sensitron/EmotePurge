@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, inject, viewChild } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { TranslocoPipe } from '@jsverse/transloco';
 
@@ -10,6 +10,7 @@ import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
 import { liveEvents } from '../../core/live/live-reload';
+import { LiveStatus, LiveUpdateService } from '../../core/live/live-update.service';
 import { Button } from '../../shared/ui/button';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
@@ -22,6 +23,13 @@ const STATUS_TONES: Record<SevenTvConnectionStatus, StatusBadgeTone> = {
   disconnected: 'red',
   unknown: 'slate',
   disabled: 'slate',
+};
+
+const LIVE_TONES: Record<LiveStatus, StatusBadgeTone> = {
+  idle: 'slate',
+  connecting: 'amber',
+  open: 'emerald',
+  closed: 'red',
 };
 
 /** Shown when a value is absent — an older worker's snapshot simply lacks the newer detail fields. */
@@ -40,15 +48,26 @@ const NO_VALUE = '—';
     <div class="flex flex-col gap-4">
       <header class="flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-lg font-semibold">{{ 'admin.monitoring.title' | transloco }}</h2>
-        <button
-          type="button"
-          appButton="outline"
-          [disabled]="isLoading()"
-          (click)="reload()"
-          [title]="'admin.monitoring.refreshTitle' | transloco"
-        >
-          {{ 'admin.monitoring.refresh' | transloco }}
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- The page updates itself from the admin SSE stream, so the button next to this badge
+               needs an explanation for why it is still there: when the stream is closed (revoked
+               session, 503 over the stream limit, a proxy that eats text/event-stream) nothing
+               refetches on its own — LiveUpdateService has no polling fallback by design, and this
+               is the page an admin opens to find out. The badge says which of the two states the
+               page is in instead of leaving the button looking vestigial. -->
+          <app-status-badge [tone]="liveTone()">
+            {{ 'admin.monitoring.live.' + liveStatus() | transloco }}
+          </app-status-badge>
+          <button
+            type="button"
+            appButton="outline"
+            [disabled]="isLoading()"
+            (click)="reload()"
+            [title]="'admin.monitoring.refreshTitle' | transloco"
+          >
+            {{ 'admin.monitoring.refresh' | transloco }}
+          </button>
+        </div>
       </header>
 
       @if (errorMessage(); as error) {
@@ -223,12 +242,24 @@ const NO_VALUE = '—';
 export class AdminMonitoringPage {
   private readonly adminService = inject(AdminService);
   private readonly languageService = inject(LanguageService);
+  private readonly liveUpdateService = inject(LiveUpdateService);
+
+  // The roster lives in its own card on its own endpoint and its own cadence, so refreshing it is
+  // its own call — the refresh button used to reload the health snapshot only, which left the one
+  // card an admin comes here for (which channels is the worker actually in?) reachable by nothing
+  // but the 60 s worker.roster push.
+  private readonly rosterCard = viewChild(AdminRosterCard);
 
   // No defaultValue: "no snapshot yet" and "an all-zero snapshot" must not look alike, so the
   // template branches on undefined instead of rendering a fabricated empty one.
   private readonly healthResource = rxResource({
     stream: () => this.adminService.getHealth(),
   });
+
+  // Service-wide, so with two concurrent streams the last writer wins — harmless here because both
+  // subscriptions on this page point at the same endpoint and therefore share a fate.
+  protected readonly liveStatus = this.liveUpdateService.status;
+  protected readonly liveTone = computed<StatusBadgeTone>(() => LIVE_TONES[this.liveStatus()]);
 
   // value() throws once the resource is in its error state, so it is only ever read behind
   // hasValue() — the error banner below renders from error() instead.
@@ -294,8 +325,11 @@ export class AdminMonitoringPage {
     );
   }
 
+  // Undefined while the first load still shows the skeleton — the roster card renders inside the
+  // health branch, so there is nothing to reload yet and nothing to do about it.
   protected reload(): void {
     this.healthResource.reload();
+    this.rosterCard()?.reload();
   }
 
   protected toneFor(status: SevenTvConnectionStatus | WorkerConnectionStatus): StatusBadgeTone {
