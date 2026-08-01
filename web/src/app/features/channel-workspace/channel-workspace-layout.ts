@@ -6,22 +6,26 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
+import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 
 @Component({
   selector: 'app-channel-workspace-layout',
-  imports: [Button, NoticeBanner, RouterLink, RouterLinkActive, RouterOutlet, TranslocoPipe],
+  imports: [
+    BackLink,
+    Button,
+    NoticeBanner,
+    RouterLink,
+    RouterLinkActive,
+    RouterOutlet,
+    TranslocoPipe,
+  ],
   template: `
     <div>
       <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <a
-          routerLink="/"
-          class="rounded-md border border-purple-700 px-3 py-1.5 text-sm whitespace-nowrap text-purple-400 transition hover:bg-purple-950"
-        >
-          ← {{ 'channelWorkspace.backToOverview' | transloco }}
-        </a>
+        <app-back-link link="/" [label]="'nav.overview' | transloco" />
         <!-- On narrow viewports the title takes its own full-width line below the buttons instead
              of being squeezed to an ellipsis between them; from md: it sits inline as before. -->
         <h1

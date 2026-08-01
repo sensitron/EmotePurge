@@ -432,6 +432,99 @@ export async function mockActiveEmoteSet(
   );
 }
 
+export interface MockVoteSession {
+  id: number;
+  title: string;
+  isActive?: boolean;
+  allowedVoterRoles?: number;
+  startedAt?: string;
+  endedAt?: string | null;
+  emoteCount?: number | null;
+  hideResultsUntilEnd?: boolean;
+}
+
+/**
+ * GET /api/channels/{channelName}/vote-sessions — the session list. Matched by an exact pathname
+ * predicate rather than a glob: the request carries `?page=…` (whose `?` a glob would read as a
+ * wildcard), and a trailing `**` would also swallow the `/{sessionId}/results` sub-route below.
+ */
+export async function mockVoteSessionList(
+  page: Page,
+  channelName: string,
+  sessions: MockVoteSession[],
+): Promise<void> {
+  const path = `/api/channels/${channelName}/vote-sessions`;
+  await page.route(
+    (url) => url.pathname === path,
+    (route) => {
+      if (route.request().method() !== 'GET') {
+        return route.fallback();
+      }
+      return fulfillJson(route, 200, {
+        items: sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          allowedVoterRoles: session.allowedVoterRoles ?? 1,
+          isActive: session.isActive ?? true,
+          startedAt: session.startedAt ?? '2026-07-31T12:00:00Z',
+          endedAt: session.endedAt ?? null,
+          emoteCount: session.emoteCount ?? null,
+          hideResultsUntilEnd: session.hideResultsUntilEnd ?? false,
+        })),
+        page: 1,
+        pageSize: 20,
+        totalCount: sessions.length,
+        totalPages: sessions.length === 0 ? 0 : 1,
+      });
+    },
+  );
+}
+
+export interface MockVoteSessionEmote {
+  emoteId: string;
+  emoteName: string;
+  sevenTvEmoteId?: string;
+  imageUrl?: string;
+  totalUseCount?: number | null;
+  keepVotes?: number | null;
+  deleteVotes?: number | null;
+  score?: number | null;
+  isArchived?: boolean;
+  myVote?: 1 | 2 | null;
+}
+
+/** GET /api/channels/{channelName}/vote-sessions/{sessionId}/results — the detail page's data. */
+export async function mockVoteSessionResults(
+  page: Page,
+  channelName: string,
+  session: MockVoteSession,
+  emotes: MockVoteSessionEmote[],
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/vote-sessions/${session.id}/results`, (route) =>
+    fulfillJson(route, 200, {
+      sessionId: session.id,
+      title: session.title,
+      isActive: session.isActive ?? true,
+      startedAt: session.startedAt ?? '2026-07-31T12:00:00Z',
+      endedAt: session.endedAt ?? null,
+      voterCount: 3,
+      hideResultsUntilEnd: session.hideResultsUntilEnd ?? false,
+      emotes: emotes.map((emote) => ({
+        emoteId: emote.emoteId,
+        emoteName: emote.emoteName,
+        sevenTvEmoteId: emote.sevenTvEmoteId ?? `7tv-${emote.emoteId}`,
+        imageUrl: emote.imageUrl ?? 'https://cdn.7tv.app/emote/1/1x.webp',
+        totalUseCount: emote.totalUseCount ?? 10,
+        keepVotes: emote.keepVotes ?? 2,
+        deleteVotes: emote.deleteVotes ?? 1,
+        score: emote.score ?? 1,
+        isArchived: emote.isArchived ?? false,
+        myVote: emote.myVote ?? null,
+      })),
+    }),
+  );
+}
+
 export interface LiveEventFrame {
   type: string;
   channel?: string;

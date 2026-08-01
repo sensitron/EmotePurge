@@ -239,6 +239,16 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Die Fokus-Outline bleibt bewusst outset** (globaler `:focus-visible`-Ring, §10) — sie ist transient und darf an den Randspalten nicht abgeschnitten werden. Genau deshalb steht in `styles.css` weiterhin `contain: layout style` statt CDKs `contain: content` auf `.cdk-virtual-scroll-content-wrapper`: Paint-Containment würde sie kappen. Diese Regel nicht „aufräumen".
 - **Referenz:** `web/src/styles.css` (`.app-sticky-bar`, CDK-Containment-Block), `web/src/app/features/admin/admin-audit-log-page.ts` (Toolbar), `web/src/app/features/shell/app-shell.ts` (Header), `usage-stats-page.html` + `vote-session-detail-page.html` (Selektionsring).
 
+### 8.6 Rücknavigation (hierarchischer Up-Link)
+
+- **Was gilt:** Jede Seite, die kein Wurzelknoten ist, trägt oben links genau **einen** Up-Link auf ihren Elternknoten der *Informations*-Hierarchie — als Primitive `<app-back-link [link] [label] />` (`shared/ui/back-link.ts`), nie als handgebauter Anker und nie als `history.back()`.
+- **Warum kein Verlaufs-Zurück:** Die tiefen Seiten werden regelmäßig per Deep-Link betreten und überspringen dabei ihre Liste — eine Vote-Session wird direkt nach dem Anlegen aus den Usage-Stats geöffnet, außerdem aus My-Votings und aus dem Admin-Bereich. Der Browser-Verlauf zeigt dort also gerade *nicht* nach oben; ein „Zurück" wäre sachlich falsch. Zielgenaue Up-Links sind überall konstruierbar, weil `paramsInheritanceStrategy: 'always'` (`app.config.ts`) jeder Kindroute `channelName` und `sessionId` mitgibt.
+- **Warum kein Breadcrumb:** NN/g empfiehlt Breadcrumbs ab drei Ebenen — hier bildet aber die Tab-Leiste (§8.1) die Ebenen 2/3 bereits dauerhaft ab, und nur *eine* Seite (`vote-sessions/:sessionId`) liegt überhaupt auf Ebene 4. Ein Breadcrumb hätte die Tabs verdoppelt und als vierte Leiste den Höhen-Vertrag aus §8.5 gebrochen. Der Up-Link scrollt bewusst mit dem Inhalt weg, ist also keine Sticky-Ebene.
+- **Wo er steht:** als erstes Element der Seite, in einer Zeile mit deren Überschrift (`flex flex-wrap items-center gap-x-4 gap-y-2`) — so wie es `ChannelWorkspaceLayout` vorgibt. Auf einer Detailseite steht er **außerhalb** des Lade-`@if`, damit der Ausweg auch beim Laden und nach einem Fehler existiert. Seiten unterhalb eines Layouts mit Up-Link (Usage-Stats, Vote-Session-Liste) bekommen **keinen zweiten** — sie erben den des Layouts.
+- **Label:** der Eigenname des Ziels, nicht „Zurück" — und wo das Ziel bereits einen Key hat, **derselbe** Key (die Vote-Session-Detailseite beschriftet ihren Up-Link mit `channelWorkspace.tabs.voting`, dem Namen des Tabs, auf dem sie landet). Generische Ziele stehen unter `nav.*`.
+- **Barrierefreiheit:** echter `<a routerLink>` (in neuem Tab öffenbar, kein `<button (click)="navigate()">`), der Pfeil `←` ist `aria-hidden` und damit dekorativ, der zugängliche Name wird in der Primitive auf `nav.backTo` („Zurück zu {{target}}") verbreitert — enthält den sichtbaren Text und erfüllt damit WCAG 2.5.3. Fokus über den globalen `:focus-visible`-Ring.
+- **Referenz:** `web/src/app/shared/ui/back-link.ts` (+ `back-link.spec.ts`); Verwendung `channel-workspace-layout.ts`, `admin-layout.ts`, `my-votings-page.ts`, `vote-session-detail-page.html`; Flow-Test `web/e2e/back-navigation.e2e.spec.ts`.
+
 ## 9. i18n-Pflichten
 
 - **Was gilt:**

@@ -1,4 +1,14 @@
 <div class="flex flex-col gap-6">
+  <!-- Up-link, not history-back: this page is routinely deep-linked past the list — from
+       usage-stats right after creating a session, from My-Votings and from the admin area — so the
+       browser's previous page is usually not the list (design doc §8.6). Outside the @if, so the
+       way out also exists while loading and after an error. Label reuses the tab's own key: the
+       up-link names its destination exactly as the destination names itself. -->
+  <app-back-link
+    [link]="['/channels', channelName(), 'vote-sessions']"
+    [label]="'channelWorkspace.tabs.voting' | transloco"
+  />
+
   @if (results(); as session) {
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div>

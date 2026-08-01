@@ -9,7 +9,7 @@ import { PagedResult } from '../../core/models/paged-result.model';
 import { MyVoteSession } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { Pager } from '../../shared/pagination/pager';
-import { Button } from '../../shared/ui/button';
+import { BackLink } from '../../shared/ui/back-link';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
@@ -25,10 +25,24 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
 
 @Component({
   selector: 'app-my-votings-page',
-  imports: [Button, EmptyState, NoticeBanner, RouterLink, Pager, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [
+    BackLink,
+    EmptyState,
+    NoticeBanner,
+    RouterLink,
+    Pager,
+    SkeletonRows,
+    StatusBadge,
+    TranslocoPipe,
+  ],
   template: `
     <div class="flex flex-col gap-6">
-      <h2 class="text-2xl font-bold tracking-tight">{{ 'shell.myVotings' | transloco }}</h2>
+      <!-- Sibling of the overview, not a child of it — but still a leaf the user has to get out
+           of, and it had a way back only while empty (design doc §8.6). -->
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <app-back-link link="/" [label]="'nav.overview' | transloco" />
+        <h2 class="text-2xl font-bold tracking-tight">{{ 'shell.myVotings' | transloco }}</h2>
+      </div>
 
       @if (errorMessage(); as message) {
         <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
@@ -37,13 +51,13 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
       @if (isLoading()) {
         <app-skeleton-rows [count]="4" />
       } @else if (sessions().length === 0 && !errorMessage()) {
+        <!-- No CTA back to the overview any more: the up-link above is always there now, and the
+             empty state repeating it was the duplicate myVotings.goToOverview key. -->
         <app-empty-state
           icon="🗳️"
           [title]="'myVotings.noSessions' | transloco"
           [description]="'myVotings.noSessionsHint' | transloco"
-        >
-          <a routerLink="/" appButton="neutral">{{ 'myVotings.goToOverview' | transloco }}</a>
-        </app-empty-state>
+        />
       } @else {
         <ul class="flex flex-col gap-2">
           @for (session of sessions(); track session.sessionId) {

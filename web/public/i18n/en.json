@@ -130,7 +130,6 @@
     "notTrackedYet": "Not tracked yet — a mod has to add the bot first."
   },
   "channelWorkspace": {
-    "backToOverview": "Overview",
     "leaveChannel": "Leave channel",
     "rejoinChannel": "Reactivate bot",
     "botInactiveNotice": "The bot is currently inactive for this channel and is not collecting new chat data. Everything collected so far is kept.",
@@ -377,8 +376,11 @@
   },
   "myVotings": {
     "noSessions": "You haven't voted in any session yet.",
-    "noSessionsHint": "You'll find voting sessions in the channels where you're a viewer, mod or broadcaster.",
-    "goToOverview": "Go to overview"
+    "noSessionsHint": "You'll find voting sessions in the channels where you're a viewer, mod or broadcaster."
+  },
+  "nav": {
+    "backTo": "Back to {{target}}",
+    "overview": "Overview"
   },
   "common": {
     "cancel": "Cancel",

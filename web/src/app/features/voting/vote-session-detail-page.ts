@@ -21,6 +21,7 @@ import {
 } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
@@ -58,6 +59,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
 @Component({
   selector: 'app-vote-session-detail-page',
   imports: [
+    BackLink,
     Button,
     EmptyState,
     NoticeBanner,
