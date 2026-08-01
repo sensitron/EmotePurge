@@ -1,8 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject } from '@angular/core';
-import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { filter } from 'rxjs';
 
 import { AdminService } from '../../core/admin/admin.service';
 import { SevenTvConnectionStatus, WorkerConnectionStatus } from '../../core/admin/admin.model';
@@ -10,7 +9,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
-import { LiveUpdateService } from '../../core/live/live-update.service';
+import { liveEvents } from '../../core/live/live-reload';
 import { Button } from '../../shared/ui/button';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
@@ -199,7 +198,6 @@ const NO_VALUE = '—';
 export class AdminMonitoringPage {
   private readonly adminService = inject(AdminService);
   private readonly languageService = inject(LanguageService);
-  private readonly liveUpdateService = inject(LiveUpdateService);
 
   // No defaultValue: "no snapshot yet" and "an all-zero snapshot" must not look alike, so the
   // template branches on undefined instead of rendering a fabricated empty one.
@@ -247,13 +245,9 @@ export class AdminMonitoringPage {
   constructor() {
     // No debounce: WorkerHealthPublisher writes its snapshot on a ~20 s cadence, so this can never
     // fire faster than the refetch it triggers. The URL is constant, so no toObservable indirection.
-    this.liveUpdateService
-      .stream(ADMIN_LIVE_URL)
-      .pipe(
-        filter((event) => event.type === LIVE_EVENT_TYPES.workerHealth),
-        takeUntilDestroyed(),
-      )
-      .subscribe(() => this.healthResource.reload());
+    liveEvents(ADMIN_LIVE_URL, [LIVE_EVENT_TYPES.workerHealth]).subscribe(() =>
+      this.healthResource.reload(),
+    );
   }
 
   protected reload(): void {

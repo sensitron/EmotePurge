@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — `liveEvents()`/`liveReload()` statt handgebauter SSE-Pipelines auf jeder Seite
+
+**Betrifft:** `web/src/app/core/live/live-reload.ts` (neu) · `web/src/app/core/live/live-reload.spec.ts` (neu) · `web/src/app/features/{usage-stats/usage-stats-page,voting/vote-session-detail-page,admin/admin-channels-page,admin/admin-monitoring-page}.ts` · `web/.claude/CLAUDE.md`
+
+**Vier Seiten bauten dieselbe Kette von Hand**, zwei davon inklusive eines identischen Kniffs mit fast wortgleichem Kommentar: `toObservable(url) → switchMap(stream) → filter → tap → debounceTime → takeUntilDestroyed`. Der Kniff war ein mutables Feld `syncSeenSinceReload`, das über das Debounce-Fenster hinweg merkte, ob ein `channel.synced` unter den zusammengefassten Events war — nötig, weil `LiveUpdateService.stream()` **cold** ist und ein zweites Abonnement eine zweite `EventSource` geöffnet hätte. Dass diese Begründung an zwei Stellen fast identisch dastand, war der eigentliche Befund: nicht die Zeilen waren dupliziert, sondern die Erklärung.
+
+**`liveReload()` gibt deshalb den *Satz der gesehenen Event-Typen* zurück, nicht bloß ein Signal „jetzt neu laden".** Damit ist der Flag-Trick ersatzlos verschwunden — der Aufrufer fragt `seen.has(LIVE_EVENT_TYPES.channelSynced)` und erfährt genau das, wofür vorher ein Feld quer durch die Klasse lief. Der Satz wird pro Emission frisch kopiert und geleert; ein Test pinnt genau das, weil ein durchgereichter Satz sonst nach dem ersten Sync für immer `channelSynced` meldet und die Seiten bei *jedem* Flush die aktive Set-ID nachladen würden.
+
+**Zwei Funktionen, nicht eine — der erste Anlauf mit nur `liveReload()` war ein Fehlgriff.** `admin-channels-page` braucht das **einzelne** Event, weil sie aus dessen `channel` entscheidet, welche Zeile ihren Hinweis von „eingereiht" auf „abgeschlossen" hochstuft; ein zusammengefasster Burst wirft genau diese Information weg. Der Versuch, das trotzdem durch `liveReload` zu pressen, endete bei einem `filter`-Prädikat mit Seiteneffekten und `return false` — schlechter lesbar als der Zustand vorher. Deshalb jetzt `liveEvents(url, accept)` für Einzelevents und `liveReload(url, {accept, debounceMs})` darauf aufgebaut. Wo die Abstraktion nicht passt, ist die richtige Antwort eine zweite Form, nicht ein verbogener Aufruf.
+
+**Beide nehmen `string | Signal<string>`** — die channel-gebundenen Seiten geben ein Signal herein und bekommen den `switchMap` samt Abbau der alten Verbindung geschenkt, die Admin-Seiten geben die konstante URL herein und zahlen keine `toObservable`-Indirektion. Beide holen sich ihren eigenen `DestroyRef` und wenden `takeUntilDestroyed()` selbst an; Aufrufer müssen daher aus einem Injection-Kontext heraus aufrufen, was durch Feld-Initialisierer oder Konstruktor ohnehin gegeben ist.
+
+**Getestet mit dem `FakeEventSource` aus `live-update.service.spec.ts`** über `EVENT_SOURCE_FACTORY` — inklusive der Zusicherung, dass trotz Typ-Satz nur **eine** `EventSource` geöffnet wird, denn genau das war der Grund für den ursprünglichen Kniff.
+
+---
+
 ### 2026-08-01 — Eine Root-`README.md` für Menschen; `CLAUDE.md` bleibt die Regelliste
 
 **Betrifft:** `README.md` (neu) · `web/README.md` · `docs/Review-2026-07-29-Umsetzung.md` (S4-18)

@@ -1,11 +1,11 @@
 import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
-import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { Observable, filter } from 'rxjs';
+import { Observable } from 'rxjs';
 
 import { AdminChannel } from '../../core/admin/admin.model';
 import { AdminService } from '../../core/admin/admin.service';
@@ -15,7 +15,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
-import { LiveUpdateService } from '../../core/live/live-update.service';
+import { liveEvents } from '../../core/live/live-reload';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
@@ -232,7 +232,6 @@ export class AdminChannelsPage {
   private readonly dialog = inject(Dialog);
   private readonly languageService = inject(LanguageService);
   private readonly translocoService = inject(TranslocoService);
-  private readonly liveUpdateService = inject(LiveUpdateService);
 
   private readonly channelsResource = rxResource({
     stream: () => this.adminService.listChannels(),
@@ -292,18 +291,14 @@ export class AdminChannelsPage {
     // lastSyncedAtUtc), so reload unconditionally. If it is the channel this admin just resynced,
     // the hint stops guessing and states the fact — that is what replaces the setTimeout as the
     // source of truth. The timeout stays as the cleanup fallback for when no push ever arrives.
-    this.liveUpdateService
-      .stream(ADMIN_LIVE_URL)
-      .pipe(
-        filter((event) => event.type === LIVE_EVENT_TYPES.channelSynced),
-        takeUntilDestroyed(),
-      )
-      .subscribe((event) => {
-        this.channelsResource.reload();
-        if (event.channel && event.channel === this.resyncFeedback()) {
-          this.showResyncFeedback(event.channel, RESYNC_COMPLETED_KEY);
-        }
-      });
+    // liveEvents, not liveReload: the hint below needs the individual event's `channel`, which a
+    // merged burst would flatten away — and syncs are far too rare to burst in the first place.
+    liveEvents(ADMIN_LIVE_URL, [LIVE_EVENT_TYPES.channelSynced]).subscribe((event) => {
+      this.channelsResource.reload();
+      if (event.channel && event.channel === this.resyncFeedback()) {
+        this.showResyncFeedback(event.channel, RESYNC_COMPLETED_KEY);
+      }
+    });
   }
 
   protected reload(): void {

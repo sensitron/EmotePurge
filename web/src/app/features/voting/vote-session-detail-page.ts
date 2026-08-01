@@ -2,9 +2,9 @@ import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
-import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { Observable, debounceTime, filter, switchMap, tap } from 'rxjs';
+import { Observable } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
@@ -13,7 +13,7 @@ import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
 import { LIVE_EVENT_TYPES, LiveEvent, channelLiveUrl } from '../../core/live/live-event.model';
-import { LiveUpdateService } from '../../core/live/live-update.service';
+import { liveReload } from '../../core/live/live-reload';
 import {
   VoteSessionResult,
   VoteSessionResults,
@@ -84,10 +84,9 @@ export class VoteSessionDetailPage {
   private readonly authService = inject(AuthService);
   private readonly translocoService = inject(TranslocoService);
   private readonly languageService = inject(LanguageService);
-  private readonly liveUpdateService = inject(LiveUpdateService);
 
   // Lazy on purpose — reading the required channelName input during construction would throw
-  // NG0950; the computed is first evaluated inside the toObservable effect below.
+  // NG0950; the computed is first evaluated inside liveReload's toObservable effect.
   private readonly liveUrl = computed(() => channelLiveUrl(this.channelName()));
 
   protected readonly voteType = VoteType;
@@ -206,11 +205,6 @@ export class VoteSessionDetailPage {
     })),
   );
 
-  // Plain field, not a signal: nothing renders from it. Written by the live-stream tap() in the
-  // constructor and read once per debounce window — see there for why it is a flag and not a
-  // second subscription.
-  private syncSeenSinceReload = false;
-
   constructor() {
     // Deferred, not called directly — see the identical comment in VoteSessionListPage.
     effect(() => this.load());
@@ -221,28 +215,15 @@ export class VoteSessionDetailPage {
     // flush, and refetching it per event would triple the request volume.
     // No echo suppression — one's own vote already reloads through vote(), and the debounce merges
     // that with the push it caused; loadResults is idempotent either way.
-    toObservable(this.liveUrl)
-      .pipe(
-        switchMap((url) => this.liveUpdateService.stream(url)),
-        filter((event) => this.isRelevantLiveEvent(event)),
-        // Not a second stream() subscription for the sync side-load — stream() is cold, one
-        // EventSource per subscriber, so a flag carries "a sync was among the debounced events"
-        // across the debounce instead.
-        tap((event) => {
-          if (event.type === LIVE_EVENT_TYPES.channelSynced) {
-            this.syncSeenSinceReload = true;
-          }
-        }),
-        debounceTime(LIVE_RELOAD_DEBOUNCE_MS),
-        takeUntilDestroyed(),
-      )
-      .subscribe(() => {
-        this.loadResults({ freeze: false });
-        if (this.syncSeenSinceReload) {
-          this.syncSeenSinceReload = false;
-          this.loadActiveEmoteSetId();
-        }
-      });
+    liveReload(this.liveUrl, {
+      accept: (event) => this.isRelevantLiveEvent(event),
+      debounceMs: LIVE_RELOAD_DEBOUNCE_MS,
+    }).subscribe((seen) => {
+      this.loadResults({ freeze: false });
+      if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
+        this.loadActiveEmoteSetId();
+      }
+    });
   }
 
   protected onResize(): void {

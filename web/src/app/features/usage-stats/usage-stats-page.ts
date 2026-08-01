@@ -2,22 +2,10 @@ import { NgOptimizedImage } from '@angular/common';
 import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
-import { rxResource, takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
-import {
-  Subscription,
-  catchError,
-  debounceTime,
-  filter,
-  first,
-  map,
-  of,
-  switchMap,
-  take,
-  tap,
-  timer,
-} from 'rxjs';
+import { Subscription, catchError, first, map, of, switchMap, take, timer } from 'rxjs';
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
@@ -25,7 +13,7 @@ import { pluralKey } from '../../core/i18n/plural';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { CreateVoteSessionDialog, CreateVoteSessionDialogData } from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
-import { LiveUpdateService } from '../../core/live/live-update.service';
+import { liveReload } from '../../core/live/live-reload';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import { DateRangePopover } from '../../shared/datetime/date-range-popover';
@@ -94,7 +82,6 @@ export class UsageStatsPage {
 
   private readonly usageStatService = inject(UsageStatService);
   private readonly emoteAdminService = inject(EmoteAdminService);
-  private readonly liveUpdateService = inject(LiveUpdateService);
   private readonly channelService = inject(ChannelService);
   private readonly dialog = inject(Dialog);
   private readonly router = inject(Router);
@@ -111,8 +98,8 @@ export class UsageStatsPage {
   );
 
   // A computed, not a field read in the constructor: channelName is a required input and reading it
-  // during construction throws NG0950. computed() is lazy, so the first read happens inside the
-  // toObservable effect below, by which time the input is set.
+  // during construction throws NG0950. computed() is lazy, so the first read happens inside
+  // liveReload's toObservable effect, by which time the input is set.
   private readonly liveUrl = computed(() => channelLiveUrl(this.channelName()));
 
   protected readonly rowHeight = ROW_HEIGHT_PX;
@@ -179,11 +166,6 @@ export class UsageStatsPage {
     })),
   );
 
-  // Plain field, not a signal: nothing renders from it. Written by the live-stream tap() in the
-  // constructor and read once per debounce window — see there for why it is a flag and not a
-  // second subscription.
-  private syncSeenSinceReload = false;
-
   constructor() {
     effect(() => {
       this.load(this.channelName(), this.from(), this.to());
@@ -192,39 +174,22 @@ export class UsageStatsPage {
 
     // Live refresh after the worker's usage flush and after real emote-inventory changes
     // (`channel.synced` only fires when a sync actually changed something — add/remove on 7TV,
-    // set swap, mass delete). switchMap closes the previous channel's stream when the route
-    // parameter changes, so there is never more than one open connection per page.
+    // set swap, mass delete).
     // The reload is deliberately quiet: neither the selection nor the skeleton may move under a
     // user who did not ask for anything — this update arrives unrequested.
-    toObservable(this.liveUrl)
-      .pipe(
-        switchMap((url) => this.liveUpdateService.stream(url)),
-        filter(
-          (event) =>
-            event.type === LIVE_EVENT_TYPES.usageFlushed ||
-            event.type === LIVE_EVENT_TYPES.channelSynced,
-        ),
-        // Flag instead of a second stream() subscription (it is cold — one EventSource per
-        // subscriber): remembers across the debounce whether a sync was among the merged events,
-        // because only then can the active set id have moved.
-        tap((event) => {
-          if (event.type === LIVE_EVENT_TYPES.channelSynced) {
-            this.syncSeenSinceReload = true;
-          }
-        }),
-        debounceTime(LIVE_RELOAD_DEBOUNCE_MS),
-        takeUntilDestroyed(),
-      )
-      .subscribe(() => {
-        this.loadTotals(this.channelName(), this.from(), this.to(), {
-          preserveSelection: true,
-          silent: true,
-        });
-        if (this.syncSeenSinceReload) {
-          this.syncSeenSinceReload = false;
-          this.refreshActiveEmoteSetId();
-        }
+    liveReload(this.liveUrl, {
+      accept: [LIVE_EVENT_TYPES.usageFlushed, LIVE_EVENT_TYPES.channelSynced],
+      debounceMs: LIVE_RELOAD_DEBOUNCE_MS,
+    }).subscribe((seen) => {
+      this.loadTotals(this.channelName(), this.from(), this.to(), {
+        preserveSelection: true,
+        silent: true,
       });
+      // Only a sync can have moved the active set id.
+      if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
+        this.refreshActiveEmoteSetId();
+      }
+    });
   }
 
   protected updateColumns(): void {
