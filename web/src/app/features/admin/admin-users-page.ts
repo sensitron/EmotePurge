@@ -120,7 +120,9 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
               <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-400">
                 <span>{{ 'admin.users.id' | transloco: { id: row.twitchUserId } }}</span>
                 <span aria-hidden="true">·</span>
-                <span>{{ 'admin.users.lastLogin' | transloco: { date: row.lastLoginFormatted } }}</span>
+                <span>{{
+                  'admin.users.lastLogin' | transloco: { date: row.lastLoginFormatted }
+                }}</span>
                 @if (row.tokenExpiresFormatted; as expires) {
                   <span aria-hidden="true">·</span>
                   <span>{{ 'admin.users.tokenExpires' | transloco: { date: expires } }}</span>
@@ -138,7 +140,11 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
           }
         </ul>
 
-        <app-pager [page]="page()" [totalPages]="totalPages()" (pageChange)="onPageChange($event)" />
+        <app-pager
+          [page]="page()"
+          [totalPages]="totalPages()"
+          (pageChange)="onPageChange($event)"
+        />
       }
     </div>
   `,
@@ -200,7 +206,9 @@ export class AdminUsersPage {
       tokenExpiresFormatted: user.twitchAccessTokenExpiresAtUtc
         ? format(user.twitchAccessTokenExpiresAtUtc)
         : null,
-      sessionsRevokedFormatted: user.sessionsValidFromUtc ? format(user.sessionsValidFromUtc) : null,
+      sessionsRevokedFormatted: user.sessionsValidFromUtc
+        ? format(user.sessionsValidFromUtc)
+        : null,
     }));
   });
 

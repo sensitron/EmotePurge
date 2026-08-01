@@ -61,7 +61,8 @@ test.describe('global admin on /admin/users', () => {
 
     const revokeRequest = page.waitForRequest(
       (request) =>
-        request.method() === 'POST' && request.url().includes('/api/admin/users/4712/revoke-sessions'),
+        request.method() === 'POST' &&
+        request.url().includes('/api/admin/users/4712/revoke-sessions'),
     );
     const reloadRequest = page.waitForRequest(
       (request) => request.method() === 'GET' && request.url().includes('/api/admin/users?'),

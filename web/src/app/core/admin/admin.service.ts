@@ -63,7 +63,11 @@ export class AdminService {
   /** Every audited action, newest first. Paged rather than capped: retention is unbounded by
    *  decision, so this list only grows. Filter fields are sent only when non-blank, so an empty
    *  toolbar produces the same request (and cache key) as no toolbar at all. */
-  listAuditLog(page = 1, pageSize = 25, filter?: AuditLogFilter): Observable<PagedResult<AuditLogEntry>> {
+  listAuditLog(
+    page = 1,
+    pageSize = 25,
+    filter?: AuditLogFilter,
+  ): Observable<PagedResult<AuditLogEntry>> {
     const params: Record<string, string | number> = { page, pageSize };
     if (filter?.action) {
       params['action'] = filter.action;

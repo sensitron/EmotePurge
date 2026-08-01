@@ -9,7 +9,9 @@ test.describe('unauthenticated visitor', () => {
     await mockTwitchLoginRedirect(page);
   });
 
-  test('is redirected from the overview to /welcome and can trigger the Twitch login redirect', async ({ page }) => {
+  test('is redirected from the overview to /welcome and can trigger the Twitch login redirect', async ({
+    page,
+  }) => {
     await page.goto('/');
 
     // homeGuard sends anonymous visitors to the public marketing page, not straight to /login
@@ -23,7 +25,9 @@ test.describe('unauthenticated visitor', () => {
     await loginRequest;
   });
 
-  test('an authGuard-protected deep link stashes the return URL before redirecting to /login', async ({ page }) => {
+  test('an authGuard-protected deep link stashes the return URL before redirecting to /login', async ({
+    page,
+  }) => {
     await page.goto('/my-votings');
 
     await expect(page).toHaveURL(/\/login$/);

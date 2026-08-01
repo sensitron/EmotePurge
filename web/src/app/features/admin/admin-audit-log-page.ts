@@ -122,7 +122,16 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
  */
 @Component({
   selector: 'app-admin-audit-log-page',
-  imports: [Button, EmptyState, NoticeBanner, Pager, RouterLink, SegmentedControl, SkeletonRows, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    Pager,
+    RouterLink,
+    SegmentedControl,
+    SkeletonRows,
+    TranslocoPipe,
+  ],
   template: `
     <div class="flex flex-col gap-4">
       <header class="flex flex-wrap items-center justify-between gap-3">

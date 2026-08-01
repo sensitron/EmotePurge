@@ -23,10 +23,7 @@ import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { pluralKey } from '../../core/i18n/plural';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
-import {
-  CreateVoteSessionDialog,
-  CreateVoteSessionDialogData,
-} from './create-vote-session-dialog';
+import { CreateVoteSessionDialog, CreateVoteSessionDialogData } from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
 import { LiveUpdateService } from '../../core/live/live-update.service';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';

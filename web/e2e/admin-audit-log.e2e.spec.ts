@@ -41,7 +41,9 @@ test.describe('global admin on /admin/audit-log', () => {
     // The action string is never shown raw — every one of the seven has a label. Scoped to the
     // list rows because the filter toolbar's segments carry the same labels.
     await expect(page.getByRole('listitem').getByText('Channel gelöscht')).toBeVisible();
-    await expect(page.getByRole('listitem').getByText('Emotes als gelöscht markiert')).toBeVisible();
+    await expect(
+      page.getByRole('listitem').getByText('Emotes als gelöscht markiert'),
+    ).toBeVisible();
     await expect(page.getByRole('listitem').getByText('Abstimmung erstellt')).toBeVisible();
 
     // Actor and details come from the row itself; the channel is a link into its workspace.

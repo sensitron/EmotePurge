@@ -37,10 +37,7 @@ export class VoteSessionService {
 
   // Optional fields are omitted from the body rather than sent as undefined/false, so the server's
   // own defaults stay the single definition of "not specified" — see CreateVoteSessionRequest.
-  create(
-    channelName: string,
-    request: CreateVoteSessionRequest,
-  ): Observable<VoteSessionSummary> {
+  create(channelName: string, request: CreateVoteSessionRequest): Observable<VoteSessionSummary> {
     return this.http.post<VoteSessionSummary>(`/api/channels/${channelName}/vote-sessions`, {
       title: request.title,
       allowedVoterRoles: request.allowedVoterRoles,

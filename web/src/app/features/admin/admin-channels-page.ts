@@ -82,7 +82,9 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
           [formControl]="channelNameControl"
           [placeholder]="'admin.channels.joinPlaceholder' | transloco"
           [attr.aria-label]="'admin.channels.joinPlaceholder' | transloco"
-          [attr.aria-invalid]="channelNameControl.invalid && channelNameControl.touched ? 'true' : null"
+          [attr.aria-invalid]="
+            channelNameControl.invalid && channelNameControl.touched ? 'true' : null
+          "
           [attr.aria-describedby]="
             channelNameControl.invalid && channelNameControl.touched
               ? 'admin-join-channel-name-error'

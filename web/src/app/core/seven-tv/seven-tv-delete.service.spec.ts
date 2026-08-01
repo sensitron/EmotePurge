@@ -285,7 +285,9 @@ describe('SevenTvDeleteService', () => {
     it('backs off a bare HTTP 429 for a full window without mis-learning a pace from it', () => {
       service.startDelete('set-1', 'sensitron', [EMOTES[0]]);
 
-      httpMock.expectOne(GQL_ENDPOINT).flush(null, { status: 429, statusText: 'Too Many Requests' });
+      httpMock
+        .expectOne(GQL_ENDPOINT)
+        .flush(null, { status: 429, statusText: 'Too Many Requests' });
 
       expect(service.queue()[0].status).toBe('in-progress');
       expect(service.rateLimitPauseSeconds()).toBe(60);

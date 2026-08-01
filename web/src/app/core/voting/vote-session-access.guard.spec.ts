@@ -81,16 +81,14 @@ describe('voteSessionAccessGuard', () => {
     const resultPromise = firstValueFrom(runGuard('sensitron', '5'));
 
     httpMock.expectOne('/api/auth/me').flush(USER);
-    httpMock
-      .expectOne('/api/channels/sensitron/vote-sessions/5/results')
-      .flush({
-        sessionId: 5,
-        title: 't',
-        isActive: true,
-        startedAt: '',
-        endedAt: null,
-        emotes: [],
-      });
+    httpMock.expectOne('/api/channels/sensitron/vote-sessions/5/results').flush({
+      sessionId: 5,
+      title: 't',
+      isActive: true,
+      startedAt: '',
+      endedAt: null,
+      emotes: [],
+    });
 
     expect(await resultPromise).toBe(true);
   });

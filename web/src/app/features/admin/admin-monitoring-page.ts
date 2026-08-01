@@ -67,7 +67,9 @@ const NO_VALUE = '—';
         <!-- Twitch IRC -->
         <section class="app-card flex flex-col gap-3 p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h3 class="text-base font-semibold">{{ 'admin.monitoring.twitch.title' | transloco }}</h3>
+            <h3 class="text-base font-semibold">
+              {{ 'admin.monitoring.twitch.title' | transloco }}
+            </h3>
             <app-status-badge [tone]="toneFor(data.status)">
               {{ 'admin.monitoring.status.' + data.status | transloco }}
             </app-status-badge>
@@ -165,7 +167,9 @@ const NO_VALUE = '—';
         <!-- Batch flush -->
         <section class="app-card flex flex-col gap-3 p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h3 class="text-base font-semibold">{{ 'admin.monitoring.flush.title' | transloco }}</h3>
+            <h3 class="text-base font-semibold">
+              {{ 'admin.monitoring.flush.title' | transloco }}
+            </h3>
             <app-status-badge [tone]="hasFlushFailures() ? 'red' : 'emerald'">
               {{ 'admin.monitoring.flush.consecutiveFailures' | transloco }}:
               {{ formatNumber(data.flush.consecutiveFailures) }}

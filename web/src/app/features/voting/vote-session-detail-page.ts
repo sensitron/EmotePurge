@@ -339,7 +339,11 @@ export class VoteSessionDetailPage {
 
   // The tally in parentheses is dropped rather than shown as "(0)" or "(null)" when the server
   // withheld it — the tooltip is the one place a hidden number could still slip out.
-  private voteButtonTitle(emote: VoteSessionResult, labelKey: string, tally: number | null): string {
+  private voteButtonTitle(
+    emote: VoteSessionResult,
+    labelKey: string,
+    tally: number | null,
+  ): string {
     if (emote.isArchived) {
       return this.translocoService.translate('voting.detail.archivedVoteDisabled');
     }
