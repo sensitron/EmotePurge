@@ -121,6 +121,11 @@ internal sealed class SevenTvEmoteJsonDto
 
     // Alias/name as used within this specific emote set (not the emote's global base name).
     public string Name { get; set; } = string.Empty;
+
+    // When the emote was added to the set, Unix milliseconds. A property of the *set entry*, which
+    // is what makes it retroactively correct for emotes we have been tracking for months — unlike a
+    // "first time we saw it" stamp, which would only ever be right going forward.
+    public long Timestamp { get; set; }
     public SevenTvEmoteDataJsonDto? Data { get; set; }
 }
 

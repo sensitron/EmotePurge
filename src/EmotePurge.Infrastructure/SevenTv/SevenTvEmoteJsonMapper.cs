@@ -12,7 +12,14 @@ public static class SevenTvEmoteJsonMapper
     };
 
     internal static SevenTvEmote MapDto(SevenTvEmoteJsonDto dto) =>
-        new(dto.Id, dto.Name, BuildImageUrl(dto.Data?.Host));
+        new(dto.Id, dto.Name, BuildImageUrl(dto.Data?.Host), ToUtc(dto.Timestamp));
+
+    // Serves both the REST sync and the EventAPI dispatch parser, so a missing field is normal
+    // rather than exceptional: 0 covers "absent" and 7TV's own placeholder alike, and both read as
+    // "unknown". Never as the epoch — that would date every such emote to 1970 and let it look like
+    // the oldest thing in the set.
+    private static DateTime? ToUtc(long unixMilliseconds) =>
+        unixMilliseconds <= 0 ? null : DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds).UtcDateTime;
 
     private static string BuildImageUrl(SevenTvHostJsonDto? host)
     {

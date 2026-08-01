@@ -1,6 +1,9 @@
 namespace EmotePurge.Core.SevenTv;
 
-public record SevenTvEmote(string Id, string Name, string ImageUrl);
+// AddedToSetAt is when this emote entered the set, straight from the set entry's own timestamp.
+// Null when the payload carries none — the EventAPI dispatch path shares this record and has not
+// been proven to include it, so "unknown" must stay distinguishable from "just added".
+public record SevenTvEmote(string Id, string Name, string ImageUrl, DateTime? AddedToSetAt = null);
 
 // Capacity is the set's slot limit as 7TV reports it, null when the response omits it or reports 0.
 // Never assume 1000: 7TV subscribers get larger sets, so the number has to travel with the set
