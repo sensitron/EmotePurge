@@ -1,0 +1,14 @@
+# Build- und Tooling-Artefakte. node_modules ignoriert Prettier bereits selbst.
+/.angular
+/dist
+/coverage
+/test-results
+/.audit-out
+
+# Wird von npm erzeugt und verwaltet — Formatierung wäre reiner Diff-Lärm.
+/package-lock.json
+
+# Markdown bleibt repoweit handgepflegt: die Projektdoku liegt in docs/ und damit
+# außerhalb dieses Prettier-Scopes. Nur web/**/*.md zu formatieren würde die Doku
+# in zwei Formatierungswelten teilen.
+*.md

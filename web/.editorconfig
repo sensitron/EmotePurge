@@ -1,5 +1,6 @@
 # Editor configuration, see https://editorconfig.org
-root = true
+# Kein `root = true`: die Root-.editorconfig soll durchgreifen (u. a. end_of_line = lf),
+# diese Datei ergänzt nur die web/-spezifischen Regeln.
 
 [*]
 charset = utf-8

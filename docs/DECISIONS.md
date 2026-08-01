@@ -10,6 +10,26 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — Prettier für `web/`, `dotnet format` fürs Backend, kein CSharpier
+
+**Betrifft:** `web/package.json` · `web/.prettierignore` · `web/.editorconfig` · `.editorconfig` · alle 22 Dateien mit UTF-8-BOM (`src/EmotePurge.*/**.csproj`, `src/EmotePurge.Infrastructure/Migrations/**`) · `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md`
+
+**Anlass war eine externe Code-Sichtung, die fehlendes Formatter-Tooling monierte — der Vorwurf stimmt, seine vermutete Folge nicht.** Prettier lag seit jeher als devDependency in `web/package.json` und `.prettierrc` existierte, aber es gab kein `format`-Script, keine `.prettierignore` und keinen einzigen Format-Schritt in `publish.yml`. Werkzeuglos war der Bestand trotzdem konsistent: Der Trockenlauf fand **21 von ~130 Dateien** abweichend, `dotnet format --verify-no-changes` **0 handgeschriebene `.cs`** (die 9 Treffer waren generierte EF-Migrations). Dazu 146/146 file-scoped Namespaces, `var` mit genau einer Ausnahme, 97 private Felder ohne Konventionsverstoß, ein einziges `this.` im ganzen Backend — und das war ein Wort in einem Kommentar. Die Lücke war also eine Werkzeug-, keine Codelücke, und der gefürchtete „Sweep zerschießt `git blame`" entsprechend klein. Die vollständige Messung steht in [`Review-2026-08-01-Struktur-und-Wartbarkeit.md`](Review-2026-08-01-Struktur-und-Wartbarkeit.md).
+
+**`.prettierrc` bleibt unverändert, weil sie den Bestand bereits trifft.** `printWidth: 100` passt: nur 1,63 % der TS-/HTML-Zeilen sind länger, und diese Überlängen sind fast durchweg Tailwind-Klassenlisten, keine Logik. `singleQuote: true` deckt sich mit 506 zu 1 bei den Import-Statements, Prettiers Default für Trailing Commas mit 400 zu 4 im Bestand. Eine Config, die den Bestand *umschreibt* statt ihn zu beschreiben, hätte den Sweep ohne Gegenwert vervielfacht.
+
+**Der Prettier-Scope geht jetzt über ganz `web/`, nicht nur `web/src`** — sonst blieben `e2e/` (8 Dateien), `playwright.config.ts`, `angular.json` und die `tsconfig*.json` ungeprüft, also gerade die Dateien, die selten angefasst werden und deshalb am ehesten driften. **Markdown ist bewusst ausgenommen** (`*.md` in `.prettierignore`): Die Projektdoku liegt in `docs/` und damit außerhalb dieses Scopes, und nur `web/**/*.md` zu formatieren hätte die Dokumentation in zwei Formatierungswelten geteilt — die eine per CI erzwungen, die andere handgepflegt.
+
+**Kein CSharpier.** `dotnet format` ist im SDK enthalten, braucht kein `.config/dotnet-tools.json` und keine Versionspflege, und der handgeschriebene Bestand ist bereits zu 100 % konform. Ein zweiter Formatter mit eigener Meinung über Zeilenumbrüche hätte einen repoweiten C#-Sweep *erzeugt*, den es ohne ihn nicht gibt — Kosten ohne erkennbaren Nutzen. Aus demselben Grund gibt es keine `Directory.Build.props` und keine Analyzer-Pakete; die Entscheidung gegen StyleCop für die Member-Reihenfolge steht in ihrem eigenen Eintrag.
+
+**Die 22 UTF-8-BOMs sind weg, und zwar als Voraussetzung, nicht als Kosmetik.** `.editorconfig` fordert `charset = utf-8` (ohne BOM), 3 `.csproj` und 19 Dateien unter `Migrations/` trugen trotzdem eines — Visual Studio und das EF-Tooling schreiben so. Solange sie da waren, hätte ein `dotnet format --verify-no-changes`-Gate dauerhaft rot gestanden. Der Eingriff war byte-genau: 22 Dateien, je genau eine geänderte Zeile, nur die drei BOM-Bytes. `dotnet ef migrations add` wird künftig wieder BOM-behaftete Dateien erzeugen — das ist der bekannte Preis und der Grund, warum das Gate die Meldung sichtbar macht, statt sie zu unterdrücken.
+
+**Zusätzlich sind die Zeilenenden im Working Tree einmalig auf LF normalisiert worden, obwohl der Index längst LF hielt.** `.gitattributes` (`* text=auto eol=lf`) und `core.autocrlf=input` sorgen dafür, dass beim *Commit* normalisiert wird, nicht beim Checkout — vom EF-Tooling frisch geschriebene Dateien bleiben deshalb lokal CRLF, und `dotnet format` meldete für 17 Dateien `ENDOFLINE`, die im CI-Checkout gar nicht auftreten. Nachgewiesen per `git ls-files --eol`: 0 Dateien CRLF im Index, 17 nur im Working Tree. Ein Gate, dessen Ergebnis lokal und in CI auseinanderfällt, ist wertlos — deshalb die Angleichung. Am Commit-Inhalt ändert sie nichts.
+
+**`web/.editorconfig` hat sein `root = true` verloren.** Es kappte die Vererbung aus der Root-`.editorconfig`, sodass ausgerechnet `end_of_line = lf` unterhalb von `web/` nicht galt — also dort, wo die meisten Dateien liegen. Die Datei ergänzt jetzt nur noch die `web/`-spezifischen Regeln (2 Spaces, `quote_type = single`), statt einen zweiten, unvollständigen Regelsatz aufzumachen.
+
+---
+
 ### 2026-08-01 — Rücknavigation ist ein hierarchischer Up-Link, kein Verlaufs-Zurück und kein Breadcrumb
 
 **Betrifft:** `web/src/app/shared/ui/back-link.ts` · `web/src/app/shared/ui/back-link.spec.ts` · `web/src/app/features/channel-workspace/channel-workspace-layout.ts` · `web/src/app/features/admin/admin-layout.ts` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/features/voting/vote-session-detail-page.{html,ts}` · `web/public/i18n/{de,en}.json` · `web/e2e/back-navigation.e2e.spec.ts` · `web/e2e/support/mocks.ts` · `docs/UI-Designsprache.md` (§8.6)
