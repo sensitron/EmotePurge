@@ -10,6 +10,7 @@ import {
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { Observable } from 'rxjs';
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
@@ -183,46 +184,48 @@ export class VoteSessionListPage {
       });
   }
 
-  protected endSession(sessionId: number): void {
-    this.actionError.set(null);
-    this.voteSessionService.end(this.channelName(), sessionId).subscribe({
-      // In-place field change on a row that is already visible — no paging effect, so patching the
-      // loaded page locally is both correct and cheaper than a reload.
-      next: (updated) =>
-        this.sessionsResource.update((current) => ({
-          ...current,
-          items: current.items.map((session) => (session.id === updated.id ? updated : session)),
-        })),
-      error: (error: HttpErrorResponse) => this.handleError(error),
+  // Confirmed for the same reason as deleteSession, and more urgently: the detail page already
+  // asked before ending, while the list — where twenty rows sit one mis-click apart — did not, even
+  // though ending cannot be undone either.
+  protected endSession(session: VoteSessionSummary): void {
+    this.confirm(
+      this.translocoService.translate('voting.detail.endConfirm', { title: session.title }),
+      this.translocoService.translate('voting.list.end'),
+    ).subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.actionError.set(null);
+      this.voteSessionService.end(this.channelName(), session.id).subscribe({
+        // In-place field change on a row that is already visible — no paging effect, so patching the
+        // loaded page locally is both correct and cheaper than a reload.
+        next: (updated) =>
+          this.sessionsResource.update((current) => ({
+            ...current,
+            items: current.items.map((item) => (item.id === updated.id ? updated : item)),
+          })),
+        error: (error: HttpErrorResponse) => this.handleError(error),
+      });
     });
   }
 
   protected deleteSession(session: VoteSessionSummary): void {
     // Names the session in the confirmation dialog — with 20 sessions in the list, a mis-click one
     // row off had no way to notice before committing to an irreversible delete (all votes included).
-    const data: ConfirmDialogData = {
-      message: this.translocoService.translate('voting.list.deleteConfirm', {
-        title: session.title,
-      }),
-      confirmLabel: this.translocoService.translate('voting.list.delete'),
-    };
-    this.dialog
-      .open<boolean>(ConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      })
-      .closed.subscribe((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        this.actionError.set(null);
-        this.voteSessionService.delete(this.channelName(), session.id).subscribe({
-          // Reload rather than filter locally, for the same paging reason as createSession.
-          next: () => this.sessionsResource.reload(),
-          error: (error: HttpErrorResponse) => this.handleError(error),
-        });
+    this.confirm(
+      this.translocoService.translate('voting.list.deleteConfirm', { title: session.title }),
+      this.translocoService.translate('voting.list.delete'),
+    ).subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.actionError.set(null);
+      this.voteSessionService.delete(this.channelName(), session.id).subscribe({
+        // Reload rather than filter locally, for the same paging reason as createSession.
+        next: () => this.sessionsResource.reload(),
+        error: (error: HttpErrorResponse) => this.handleError(error),
       });
+    });
   }
 
   protected copyShareLink(sessionId: number): void {
@@ -241,6 +244,17 @@ export class VoteSessionListPage {
       () => setFeedback('copied'),
       () => setFeedback('error'),
     );
+  }
+
+  // Both irreversible row actions open the same dialog; only the wording differs. Emits `undefined`
+  // when the dialog was dismissed via Escape or backdrop, which callers treat as "not confirmed".
+  private confirm(message: string, confirmLabel: string): Observable<boolean | undefined> {
+    const data: ConfirmDialogData = { message, confirmLabel };
+    return this.dialog.open<boolean>(ConfirmDialog, {
+      data,
+      backdropClass: 'app-dialog-backdrop',
+      panelClass: 'app-dialog-panel',
+    }).closed;
   }
 
   // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every

@@ -178,25 +178,20 @@
                 </span>
               }
             }
-            @if (canManage() && session.isActive) {
-              <button
-                type="button"
-                appButton="neutral"
-                class="relative z-10"
-                (click)="endSession(session.id)"
-              >
-                {{ 'voting.list.end' | transloco }}
-              </button>
-            }
             @if (canManage()) {
-              <button
-                type="button"
-                appButton="danger"
-                class="relative z-10 ml-auto"
-                (click)="deleteSession(session)"
-              >
-                {{ 'voting.list.delete' | transloco }}
-              </button>
+              <!-- Both session-management actions as one right-aligned group: "copy link" is the
+                   harmless action and keeps the left edge, ending and deleting are the two that
+                   change the session and belong together at the opposite one. -->
+              <div class="relative z-10 ml-auto flex items-center gap-2">
+                @if (session.isActive) {
+                  <button type="button" appButton="neutral" (click)="endSession(session)">
+                    {{ 'voting.list.end' | transloco }}
+                  </button>
+                }
+                <button type="button" appButton="danger" (click)="deleteSession(session)">
+                  {{ 'voting.list.delete' | transloco }}
+                </button>
+              </div>
             }
           </div>
         </li>
