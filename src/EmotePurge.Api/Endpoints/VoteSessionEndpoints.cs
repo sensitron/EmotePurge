@@ -59,6 +59,8 @@ public static class VoteSessionEndpoints
             long sessionId,
             HttpContext httpContext,
             IVoteSessionService voteSessionService,
+            IRedisPublisher redisPublisher,
+            ILogger<Program> logger,
             CancellationToken ct) =>
         {
             var actor = httpContext.User.TryBuildAuditActor();
@@ -72,6 +74,12 @@ public static class VoteSessionEndpoints
             {
                 return Results.NotFound();
             }
+
+            // Same event a cast vote raises, and for a stronger reason: ending a session revokes
+            // everyone's ability to vote, and on a secret ballot it unseals the tallies. Voters
+            // sitting on the results page would otherwise keep looking at a session they believe
+            // is still open until they reload by hand.
+            await PublishVoteChangedAsync(redisPublisher, logger, channelName, sessionId);
 
             return Results.Ok(ToSummaryDto(session));
         })
