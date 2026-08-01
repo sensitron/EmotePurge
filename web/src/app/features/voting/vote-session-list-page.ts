@@ -34,6 +34,17 @@ function toLocalDateTimeInputValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// Whole-set sessions get a 30-day usage window by default: "count from now" made every session
+// start with all-zero usage context, which read as broken rather than as a fresh count. Midnight
+// local time, mirroring the prefill of the usage-stats create dialog. Clearing the field still
+// means "from now".
+function defaultStartedAt(): string {
+  const date = new Date();
+  date.setDate(date.getDate() - 30);
+  date.setHours(0, 0, 0, 0);
+  return toLocalDateTimeInputValue(date);
+}
+
 const EMPTY_PAGE: PagedResult<VoteSessionSummary> = {
   items: [],
   page: 1,
@@ -116,7 +127,7 @@ export class VoteSessionListPage {
     validators: [requiredTrimmed],
   });
   protected readonly selectedAudience = signal<'everyone' | 'subs' | 'mods'>('everyone');
-  protected readonly customStartedAt = signal('');
+  protected readonly customStartedAt = signal(defaultStartedAt());
   protected readonly maxStartedAt = toLocalDateTimeInputValue(new Date());
 
   protected readonly copyFeedback = signal<{
@@ -156,7 +167,7 @@ export class VoteSessionListPage {
           // on page 3 where it does not belong.
           this.sessionsResource.reload();
           this.titleControl.reset('');
-          this.customStartedAt.set('');
+          this.customStartedAt.set(defaultStartedAt());
         },
         error: (error: HttpErrorResponse) => this.handleError(error),
       });
