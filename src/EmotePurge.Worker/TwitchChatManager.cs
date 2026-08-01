@@ -30,7 +30,7 @@ public class TwitchChatManager(
     // This cannot cover TwitchLib's own rejoin after a reconnect, which happens inside the library
     // and bursts through all channels at full speed. Above ~20 channels that needs either sharding
     // across several clients or a verified bot account — see the scaling note in
-    // Review-2026-07-29-Umsetzung.md.
+    // docs/Review-2026-07-29-Umsetzung.md.
     private static readonly TimeSpan MinIntervalBetweenJoins = TimeSpan.FromMilliseconds(600);
 
     // Desired channels, not confirmed ones — the value records whether Twitch confirmed the JOIN.

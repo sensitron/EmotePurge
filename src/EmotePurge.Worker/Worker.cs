@@ -63,7 +63,7 @@ public class Worker(
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    // Boot-Recovery (Architectur.md Grundsatz 3)
+    // Boot-Recovery (docs/Architectur.md Grundsatz 3)
     private async Task RunBootRecoveryAsync(CancellationToken stoppingToken)
     {
         try

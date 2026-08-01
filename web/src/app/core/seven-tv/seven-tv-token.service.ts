@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 
 // sessionStorage, never localStorage — per Grundsatz 4 (Zero-Knowledge für Schreib-Tokens) in
-// Architectur.md: the token stays in this browser tab only, cleared on tab close, and is never
+// docs/Architectur.md: the token stays in this browser tab only, cleared on tab close, and is never
 // sent to our own backend, only ever attached to the direct 7tv.io GraphQL call.
 const TOKEN_STORAGE_KEY = 'ep_7tv_write_token';
 
