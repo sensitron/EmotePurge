@@ -414,6 +414,102 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SyncChannel_SetsFirstSeenAt_FromTheSetEntryTimestamp_OnInsert()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_insert", ("e1", "stable", false));
+        var addedAt = new DateTime(2026, 7, 20, 8, 30, 0, DateTimeKind.Utc);
+        var service = CreateRestService(
+            db, cache, channel, SetId,
+            LiveEmote("e1", "stable"),
+            new SevenTvEmote("e2", "fresh", SeededImageUrl("e2"), addedAt));
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Equal(addedAt, await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2")
+            .Select(e => e.FirstSeenAt).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_BackfillsFirstSeenAt_ForARowThatPredatesTheColumn()
+    {
+        // Taking the set entry's own timestamp rather than "when we first saw it" is what makes the
+        // date correct for emotes that have been in the set for months.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_backfill", ("e1", "stable", false));
+        var addedAt = new DateTime(2026, 2, 3, 17, 0, 0, DateTimeKind.Utc);
+        var service = CreateRestService(db, cache, channel, SetId, new SevenTvEmote("e1", "stable", SeededImageUrl("e1"), addedAt));
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Equal(addedAt, await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1")
+            .Select(e => e.FirstSeenAt).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_BackfillingFirstSeenAt_ReportsNoChanges()
+    {
+        // The expensive mistake of this feature: counted as an inventory change, the first resync
+        // after the deploy would publish channel.synced for every channel at once and make every
+        // open page in the app refetch — for a date nobody's list is sorted by.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_nochange", ("e1", "stable", false));
+        var service = CreateRestService(
+            db, cache, channel, SetId,
+            new SevenTvEmote("e1", "stable", SeededImageUrl("e1"), new DateTime(2026, 2, 3, 17, 0, 0, DateTimeKind.Utc)));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+    }
+
+    [Fact]
+    public async Task SyncChannel_MissingTimestamp_LeavesAKnownFirstSeenAtAlone()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_keep", ("e1", "stable", false));
+        var known = new DateTime(2026, 1, 9, 6, 0, 0, DateTimeKind.Utc);
+        await db.Emotes.Where(e => e.ChannelId == channel.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.FirstSeenAt, known));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "stable"));
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Equal(known, await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1")
+            .Select(e => e.FirstSeenAt).SingleAsync());
+    }
+
+    [Fact]
+    public async Task ApplyEmoteSetUpdate_NoOpDispatch_StaysNoChange_EvenWhenItCouldBackfill()
+    {
+        // The dispatch path decides NoChange vs Applied by asking the ChangeTracker, so it must not
+        // backfill at all — the periodic resync fills the same gap within a tick without turning a
+        // no-op dispatch into a live event for every open page.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_dispatch", ("e1", "stable", false));
+        var service = CreateService(db, cache);
+
+        var outcome = await service.ApplyEmoteSetUpdateAsync(
+            channel.ChannelName,
+            SetId,
+            Delta(updated: [new SevenTvEmote("e1", "stable", SeededImageUrl("e1"), new DateTime(2026, 2, 3, 17, 0, 0, DateTimeKind.Utc))]));
+
+        Assert.Equal(SevenTvDeltaOutcome.NoChange, outcome);
+        Assert.Null(await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1")
+            .Select(e => e.FirstSeenAt).SingleAsync());
+    }
+
+    [Fact]
     public async Task SyncChannel_ImplausibleEmptyLiveSet_DoesNotWriteCapacity()
     {
         // The empty-set guard returns before the set id is assigned, and the capacity has to share

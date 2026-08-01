@@ -13,6 +13,11 @@ public class Emote
     public string Name { get; set; } = string.Empty;
     public string ImageUrl { get; set; } = string.Empty;
     public bool IsArchived { get; set; }
+
+    // When the emote entered the channel's 7TV set, taken from the set entry's own timestamp rather
+    // than from when we first saw it — so it is correct for emotes that predate this column too.
+    // Null means 7TV did not report one; consumers must read that as "unknown", never as "new".
+    public DateTime? FirstSeenAt { get; set; }
     public DateTime LastSyncedAt { get; set; } = DateTime.UtcNow;
 
     public Channel Channel { get; set; } = null!;

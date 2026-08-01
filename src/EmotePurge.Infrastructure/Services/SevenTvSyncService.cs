@@ -147,12 +147,12 @@ public class SevenTvSyncService(
 
         foreach (var emote in delta.Pushed)
         {
-            UpsertEmote(channel.Id, existing, emote, preserveImageUrlWhenLiveEmpty: true);
+            UpsertEmote(channel.Id, existing, emote, fromDispatch: true);
         }
 
         foreach (var emote in delta.Updated)
         {
-            UpsertEmote(channel.Id, existing, emote, preserveImageUrlWhenLiveEmpty: true);
+            UpsertEmote(channel.Id, existing, emote, fromDispatch: true);
         }
 
         foreach (var pulledId in delta.PulledIds)
@@ -241,15 +241,36 @@ public class SevenTvSyncService(
         return changed;
     }
 
-    /// <summary>Returns true when the row was created or actually modified.</summary>
-    private bool UpsertEmote(string channelId, Dictionary<string, Emote> existing, SevenTvEmote live, bool preserveImageUrlWhenLiveEmpty = false)
+    /// <summary>
+    /// Returns true when the row was created or actually modified.
+    /// <para>
+    /// <paramref name="fromDispatch"/> marks the EventAPI delta path, whose payloads are less
+    /// complete and less trusted than a REST answer. Two behaviours hang off it, both about not
+    /// letting a thin payload destroy known state.
+    /// </para>
+    /// </summary>
+    private bool UpsertEmote(string channelId, Dictionary<string, Emote> existing, SevenTvEmote live, bool fromDispatch = false)
     {
         if (existing.TryGetValue(live.Id, out var emote))
         {
+            // Backfill for rows that predate the column, deliberately outside the change detection
+            // below: learning *when* an emote joined the set is not an inventory change. Counted as
+            // one, the first resync after the deploy would fire channel.synced for every channel at
+            // once and make every open page refetch.
+            //
+            // REST only, because ApplyEmoteSetUpdateAsync decides NoChange vs Applied by asking the
+            // ChangeTracker — a backfill there would turn a no-op dispatch into a live event. The
+            // periodic resync fills the same gap within a tick, so nothing is lost by waiting.
+            // Write-once regardless: overwriting a known date with null would lose it again.
+            if (!fromDispatch && emote.FirstSeenAt is null && live.AddedToSetAt is not null)
+            {
+                emote.FirstSeenAt = live.AddedToSetAt;
+            }
+
             // Dispatch payloads have not been proven to always carry the image-host block, so the
             // delta path never overwrites a known image URL with an empty one (the REST path keeps
             // its verbatim behaviour — there an empty URL is 7TV's authoritative answer).
-            var imageUrl = preserveImageUrlWhenLiveEmpty && live.ImageUrl.Length == 0 && emote.ImageUrl.Length > 0
+            var imageUrl = fromDispatch && live.ImageUrl.Length == 0 && emote.ImageUrl.Length > 0
                 ? emote.ImageUrl
                 : live.ImageUrl;
 
@@ -270,7 +291,8 @@ public class SevenTvSyncService(
             ChannelId = channelId,
             SevenTvEmoteId = live.Id,
             Name = live.Name,
-            ImageUrl = live.ImageUrl
+            ImageUrl = live.ImageUrl,
+            FirstSeenAt = live.AddedToSetAt
         };
         db.Emotes.Add(emote);
         existing[live.Id] = emote;
