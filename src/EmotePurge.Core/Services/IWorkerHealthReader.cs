@@ -37,7 +37,21 @@ public record WorkerHealthSnapshot(
     int? FlushConsecutiveFailures = null,
     DateTime? FlushLastSuccessUtc = null,
     int? FlushLastRowCount = null,
-    int? PendingEmoteCount = null);
+    int? PendingEmoteCount = null,
+    // Capacity context, appended 2026-08-01 so the admin page states ceilings instead of implying
+    // them. Same trailing-and-defaulted rule as above: an older worker's payload must still
+    // deserialize during a rolling deploy.
+    //
+    // The subscription limit is 7TV's own figure from the last Hello — the constant in the Api stays
+    // as the fallback for exactly the window where this is still null.
+    int? SevenTvSubscriptionLimit = null,
+    // The Api cannot read the worker's configuration, so the resync cadence has to travel with the
+    // snapshot. Without it "one REST request per channel per tick" is not a rate anyone can check.
+    int? SevenTvResyncIntervalSeconds = null,
+    // Both answer "how do I read the numbers above": counters that reset on restart mean something
+    // different in the first minute of a process than in its sixth hour.
+    DateTime? ProcessStartedUtc = null,
+    string? WorkerInstanceId = null);
 
 /// <summary>
 /// Reads the health snapshot the worker publishes. The API and the worker deliberately never talk

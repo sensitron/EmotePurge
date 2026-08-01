@@ -22,6 +22,13 @@ public interface ISevenTvEventClient
 
     void Unsubscribe(string channelName);
 
+    /// <summary>
+    /// The per-connection subscription limit 7TV stated in its last Hello, or null until the first
+    /// one arrives. Kept across disconnects on purpose: the admin bar needs a denominator, and the
+    /// last figure 7TV gave is a far better one than "unknown" every time the socket drops.
+    /// </summary>
+    int? SubscriptionLimit { get; }
+
     bool IsConnected { get; }
     DateTime? LastFrameReceivedUtc { get; }
     DateTime? LastDispatchReceivedUtc { get; }

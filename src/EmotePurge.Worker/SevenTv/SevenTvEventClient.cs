@@ -49,7 +49,11 @@ public class SevenTvEventClient(
     // Boot recovery has just fully synced every channel; the first session skips gap-filling.
     private bool _firstSession = true;
 
+    // Last value 7TV reported, deliberately never cleared — see the interface comment.
+    private volatile int _subscriptionLimit;
+
     public bool IsEnabled => _enabled;
+    public int? SubscriptionLimit => _subscriptionLimit > 0 ? _subscriptionLimit : null;
     public bool IsConnected => _isConnected;
     public DateTime? LastFrameReceivedUtc => ReadUtc(ref _lastFrameTicks);
     public DateTime? LastDispatchReceivedUtc => ReadUtc(ref _lastDispatchTicks);
@@ -259,6 +263,12 @@ public class SevenTvEventClient(
         }
 
         _isConnected = true;
+        if (subscriptionLimit > 0)
+        {
+            // Only ever overwritten by a newer stated limit, never zeroed by a Hello that omits it.
+            _subscriptionLimit = subscriptionLimit;
+        }
+
         logger.LogInformation(
             "7TV-EventAPI verbunden (Session {SessionId}, Heartbeat {Seconds}s, Subscription-Limit {Limit}).",
             sessionId, heartbeatIntervalMs / 1000, subscriptionLimit);

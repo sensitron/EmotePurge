@@ -22,10 +22,16 @@ public class WorkerHealthPublisher(
     SevenTvSubscriptionRegistry subscriptionRegistry,
     WorkerStats stats,
     IEmoteUsageCounter usageCounter,
+    WorkerIdentity identity,
+    IConfiguration configuration,
     IRedisPublisher redisPublisher,
     IConnectionMultiplexer redis) : BackgroundService
 {
     private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(20);
+
+    // Read the same way SevenTvPeriodicResyncWorker reads it, including the default, so the number
+    // the admin page shows is the one the resync loop actually paces itself by.
+    private readonly int _resyncIntervalSeconds = configuration.GetValue("SevenTv:ResyncIntervalSeconds", 60);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -60,7 +66,13 @@ public class WorkerHealthPublisher(
                     stats.ConsecutiveFlushFailures,
                     stats.LastFlushSuccessUtc,
                     stats.LastFlushRowCount,
-                    usageCounter.PendingEmoteCount),
+                    usageCounter.PendingEmoteCount,
+                    // Capacity context: what 7TV said the limit is, how often we ask its REST API,
+                    // and since when this process has been counting any of it.
+                    sevenTvEventClient.SubscriptionLimit,
+                    _resyncIntervalSeconds,
+                    identity.ProcessStartedUtc,
+                    identity.InstanceId),
                 JsonSerializerOptions.Web);
 
             await redis.GetDatabase().StringSetAsync(WorkerHealthKeys.TwitchConnection, payload, WorkerHealthKeys.Ttl);
