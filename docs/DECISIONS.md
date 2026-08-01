@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — Format und Lint sind ein CI-Gate, kein Pre-Commit-Hook
+
+**Betrifft:** `.github/workflows/publish.yml` · `CLAUDE.md` (Regel 18/19) · `docs/Review-2026-07-29-Umsetzung.md` (S4-16)
+
+**Werkzeuge, die niemand ausführt, sind Dekoration.** Prettier lag über Monate ungenutzt im Repo — genau deshalb wandern `format:check`, `lint` und `dotnet format --verify-no-changes` in die CI, und zwar in die **bestehenden** Jobs `test` und `test-web`. Ein neuer Workflow wäre unnötig: beide laufen bereits bei `pull_request` und gaten `publish` über `needs`.
+
+**Die Prüfschritte stehen vor den Tests, nicht dahinter.** Sie dauern Sekunden, während `test` Testcontainers hochzieht und `test-web` Chromium herunterlädt. Ein Formatierungsfehler soll nach einer halben Minute auffallen, nicht nach dem vollständigen E2E-Lauf.
+
+**Kein husky/lint-staged.** Das hätte zwei Dependencies, einen `prepare`-Hook und Reibung bei *jedem* Commit gekostet — für einen Bestand, der ohne jede Erzwingung bereits zu 87 % konform war und dessen Änderungen ohnehin durch dieselbe CI gehen. Der Hebel steht in keinem Verhältnis zum Preis; ein Hook lässt sich jederzeit nachrüsten, falls die CI-Rückmeldung sich als zu spät erweist.
+
+**Voraussetzung war, dass das Gate lokal dasselbe Ergebnis liefert wie in CI** — sonst wird es zum Ritual, das man mit `--no-verify` umgeht. Deshalb sind BOMs und Working-Tree-Zeilenenden vorher bereinigt worden (eigener Eintrag); `dotnet format --verify-no-changes` und `npm run format:check` laufen seitdem auf beiden Seiten mit Exit 0.
+
+**Damit ist der Format-/Lint-Teil von Befund S4-16 erledigt.** Offen bleiben dort Dependency-Scan, `npm audit`, NuGet-Cache und Dependabot — bewusst nicht mitgenommen, weil sie eine andere Frage beantworten (Lieferkette statt Stil) und eigene Entscheidungen brauchen.
+
+---
+
 ### 2026-08-01 — ESLint mit schmalem Regelsatz erzwingt die Member-Reihenfolge im Frontend
 
 **Betrifft:** `web/eslint.config.mjs` · `web/package.json` · `web/.claude/CLAUDE.md` · `web/src/app/features/{admin/admin-channels-page,channel-workspace/channel-workspace-layout,usage-stats/usage-stats-page,voting/vote-session-detail-page}.ts` · `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md`

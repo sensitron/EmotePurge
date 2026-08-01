@@ -35,6 +35,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      # Ahead of the tests on purpose: this takes ~30s and fails fast, while the test job below
+      # spins up Testcontainers. Reports formatting only — no analyzer opinions are configured.
+      - name: Verify formatting (dotnet format)
+        run: dotnet format EmotePurge.slnx --verify-no-changes
+
       # Testcontainers pulls postgres:16-alpine/redis:7.2-alpine and needs the Docker daemon
       # that ubuntu-latest runners already ship with.
       - name: Run tests
@@ -57,6 +62,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        working-directory: web
+
+      # Both run before the test steps: they take a few seconds each, so a formatting or member
+      # order slip fails the job immediately instead of after Chromium has been downloaded.
+      - name: Verify formatting (Prettier)
+        run: npm run format:check
+        working-directory: web
+
+      - name: Lint (ESLint)
+        run: npm run lint
         working-directory: web
 
       - name: Run unit tests (Vitest)
