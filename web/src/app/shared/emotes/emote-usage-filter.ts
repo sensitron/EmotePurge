@@ -1,10 +1,15 @@
 import { computed, signal } from '@angular/core';
 
+import { isUnderObservation } from './emote-context';
+
 interface FilterableEmote {
   emoteName: string;
   // null = usage withheld/unknown (non-manager voting view). Usage bounds never match null —
   // "unused" means a confirmed 0, not "no data".
   totalUseCount: number | null;
+  // Optional because the voting grid's rows do not carry it. Missing reads as "not under
+  // observation": a filter must never hide a row because data about it is absent.
+  firstSeenAt?: string | null;
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -31,11 +36,13 @@ export class EmoteUsageFilter<T extends FilterableEmote> {
   private readonly minCount = signal<number | null>(null);
   private readonly maxCount = signal<number | null>(null);
   private readonly nameFilter = signal('');
+  private readonly hideObserved = signal(false);
 
   readonly min = this.minCount.asReadonly();
   readonly max = this.maxCount.asReadonly();
   readonly nameQuery = this.nameFilter.asReadonly();
   readonly isUnusedActive = computed(() => this.minCount() === 0 && this.maxCount() === 0);
+  readonly isHideObservedActive = this.hideObserved.asReadonly();
 
   private readonly nameFilterRegex = computed(() => {
     const query = this.nameFilter();
@@ -45,14 +52,16 @@ export class EmoteUsageFilter<T extends FilterableEmote> {
   /** Called after every filter change — hosts typically use this to clear stale selections. */
   constructor(private readonly onChange: () => void = () => {}) {}
 
-  apply(items: readonly T[]): T[] {
+  apply(items: readonly T[], now: Date = new Date()): T[] {
     const min = this.minCount();
     const max = this.maxCount();
     const nameRegex = this.nameFilterRegex();
+    const hideObserved = this.hideObserved();
     return items.filter((item) => {
       if (min !== null && (item.totalUseCount === null || item.totalUseCount < min)) return false;
       if (max !== null && (item.totalUseCount === null || item.totalUseCount > max)) return false;
       if (nameRegex && !nameRegex.test(item.emoteName)) return false;
+      if (hideObserved && isUnderObservation(item.firstSeenAt ?? null, now)) return false;
       return true;
     });
   }
@@ -85,15 +94,32 @@ export class EmoteUsageFilter<T extends FilterableEmote> {
     this.onChange();
   }
 
+  /**
+   * Hides emotes still within their observation period. Deliberately its own toggle rather than a
+   * rule baked into the unused filter: silently dropping fresh emotes from the "0x" list would make
+   * the "x of y" count stop adding up and leave a moderator unable to find the emote they just
+   * added. Opting in is a different act from asking for unused emotes.
+   */
+  toggleHideObserved(): void {
+    this.hideObserved.update((active) => !active);
+    this.onChange();
+  }
+
   /** True whenever any filter would exclude items — the empty state uses this to offer a reset. */
   isAnyActive(): boolean {
-    return this.minCount() !== null || this.maxCount() !== null || this.nameFilter().trim() !== '';
+    return (
+      this.minCount() !== null ||
+      this.maxCount() !== null ||
+      this.nameFilter().trim() !== '' ||
+      this.hideObserved()
+    );
   }
 
   reset(): void {
     this.minCount.set(null);
     this.maxCount.set(null);
     this.nameFilter.set('');
+    this.hideObserved.set(false);
     this.onChange();
   }
 }

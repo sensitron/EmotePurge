@@ -10,6 +10,8 @@ import { Subscription, catchError, first, of, switchMap, take, timer } from 'rxj
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
+import { LanguageService } from '../../core/i18n/language.service';
+import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { CreateVoteSessionDialog, CreateVoteSessionDialogData } from './create-vote-session-dialog';
@@ -19,6 +21,7 @@ import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import { DateRangePopover } from '../../shared/datetime/date-range-popover';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import { UsageTrend, isUnderObservation, usageTrend } from '../../shared/emotes/emote-context';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
@@ -28,14 +31,22 @@ import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
+import { StatusBadge } from '../../shared/ui/status-badge';
 
 type SortDirection = 'asc' | 'desc';
+type SortKey = 'usage' | 'lastUsed';
 type RangePreset = '0' | '7' | '30' | 'custom';
 
 // Row height (px) fed to CdkVirtualScrollViewport — must match the fixed card height + row
 // wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same
-// height. Card h-28 (112) + row py-2 (16).
-const ROW_HEIGHT_PX = 128;
+// height. Card h-36 (144) + row py-2 (16). Grew from 112/128 when the card gained its "last used"
+// line; both numbers have to move together or the viewport drifts against the rendered rows.
+const ROW_HEIGHT_PX = 160;
+
+// Sorting a never-used emote needs a position, not a crash. It is the deadest thing in the list, so
+// it sorts as older than any real date: descending (most recent first) puts them at the very end,
+// ascending puts them at the front, and either way they stay together instead of scattering.
+const NEVER_USED_SORT_VALUE = Number.NEGATIVE_INFINITY;
 
 // Joining a channel does not fill it with emotes right away: POST /join only writes the channel row
 // and publishes JOIN to Redis, and the worker resolves the 7TV set a beat later. Since the overview
@@ -60,6 +71,15 @@ function daysAgo(days: number): Date {
   return date;
 }
 
+function sortableLastUsed(lastUsedDate: string | null): number {
+  if (!lastUsedDate) {
+    return NEVER_USED_SORT_VALUE;
+  }
+
+  const parsed = Date.parse(`${lastUsedDate}T00:00:00Z`);
+  return Number.isNaN(parsed) ? NEVER_USED_SORT_VALUE : parsed;
+}
+
 @Component({
   selector: 'app-usage-stats-page',
   imports: [
@@ -71,6 +91,7 @@ function daysAgo(days: number): Date {
     MassDeletePanel,
     EmoteCardHeader,
     SlotBudgetBar,
+    StatusBadge,
     SegmentedControl,
     DateRangePopover,
     TranslocoPipe,
@@ -86,6 +107,7 @@ export class UsageStatsPage {
   private readonly usageStatService = inject(UsageStatService);
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly channelService = inject(ChannelService);
+  private readonly languageService = inject(LanguageService);
   private readonly dialog = inject(Dialog);
   private readonly router = inject(Router);
 
@@ -110,6 +132,7 @@ export class UsageStatsPage {
 
   protected readonly from = signal(toIsoDate(daysAgo(7)));
   protected readonly to = signal(toIsoDate(new Date()));
+  protected readonly sortKey = signal<SortKey>('usage');
   protected readonly sortDirection = signal<SortDirection>('desc');
 
   // Which segment is lit; 'custom' opens the date-range popover instead of changing the dates.
@@ -126,6 +149,20 @@ export class UsageStatsPage {
   protected readonly emotes = signal<EmoteUsageTotal[]>([]);
   protected readonly setStatus = signal<EmoteSetStatus | null>(null);
   protected readonly activeEmoteSetId = computed(() => this.setStatus()?.activeEmoteSetId || null);
+  protected readonly trackedSince = computed(() => this.setStatus()?.trackedSince ?? null);
+
+  // The selected range reaches back further than we have been counting, so its leading part is
+  // silently empty. Saying so is the difference between "this emote is dead" and "we weren't here".
+  protected readonly rangeStartsBeforeTracking = computed(() => {
+    const trackedSince = this.trackedSince();
+    if (!trackedSince) {
+      return false;
+    }
+
+    const trackingStart = Date.parse(trackedSince);
+    const rangeStart = Date.parse(`${this.from()}T00:00:00Z`);
+    return !Number.isNaN(trackingStart) && !Number.isNaN(rangeStart) && rangeStart < trackingStart;
+  });
   protected readonly isLoading = signal(false);
   protected readonly skeletonCells = Array.from({ length: 12 }, (_, i) => i);
   protected readonly isAwaitingSync = signal(false);
@@ -143,11 +180,18 @@ export class UsageStatsPage {
   protected readonly filteredEmotes = computed(() => this.usageFilter.apply(this.emotes()));
 
   protected readonly sortedEmotes = computed(() => {
+    const key = this.sortKey();
+    const factor = this.sortDirection() === 'desc' ? -1 : 1;
+    const value = (emote: EmoteUsageTotal) =>
+      key === 'usage' ? emote.totalUseCount : sortableLastUsed(emote.lastUsedDate);
+
     const items = [...this.filteredEmotes()];
-    items.sort((a, b) =>
-      this.sortDirection() === 'desc'
-        ? b.totalUseCount - a.totalUseCount
-        : a.totalUseCount - b.totalUseCount,
+    // Name as the tiebreaker: "last used" collapses to a handful of distinct days, and without it
+    // equal-day emotes would reshuffle on every refetch.
+    items.sort(
+      (a, b) =>
+        factor * (value(a) - value(b)) ||
+        a.emoteName.localeCompare(b.emoteName, undefined, { sensitivity: 'base' }),
     );
     return items;
   });
@@ -220,8 +264,51 @@ export class UsageStatsPage {
     }
   }
 
-  protected toggleSort(): void {
-    this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
+  protected toggleSort(key: SortKey): void {
+    if (this.sortKey() === key) {
+      this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
+      return;
+    }
+
+    this.sortKey.set(key);
+    this.sortDirection.set('desc');
+    // A different sort key reorders the whole grid, and the selection carries shift-range anchors
+    // into that new order — keeping it would let the next shift-click sweep up rows the user never
+    // saw next to each other. Flipping the direction alone reverses a list they are still looking
+    // at, so that keeps the selection.
+    this.selection.clear();
+  }
+
+  protected trendFor(emote: EmoteUsageTotal): UsageTrend {
+    const trackedSince = this.trackedSince();
+    if (!trackedSince) {
+      return 'unknown';
+    }
+
+    return usageTrend({
+      totalUseCount: emote.totalUseCount,
+      previousWindowUseCount: emote.previousWindowUseCount,
+      firstSeenAt: emote.firstSeenAt,
+      windowStart: this.from(),
+      windowEnd: this.to(),
+      trackedSince,
+    });
+  }
+
+  protected isUnderObservation(emote: EmoteUsageTotal): boolean {
+    return isUnderObservation(emote.firstSeenAt, new Date());
+  }
+
+  protected formatDate(iso: string | null): string {
+    if (!iso) {
+      return '—';
+    }
+
+    // LOCALE_ID is bootstrap-time static and cannot follow a runtime language switch, so dates go
+    // through toLocale() — same as the admin pages.
+    return new Date(iso).toLocaleDateString(toLocale(this.languageService.lang()), {
+      dateStyle: 'medium',
+    });
   }
 
   protected onDeleted(deletedIds: string[]): void {

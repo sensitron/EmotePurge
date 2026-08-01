@@ -5,7 +5,10 @@ import { EmoteUsageFilter } from './emote-usage-filter';
 interface Row {
   emoteName: string;
   totalUseCount: number | null;
+  firstSeenAt?: string | null;
 }
+
+const NOW = new Date('2026-08-01T12:00:00Z');
 
 const ROWS: Row[] = [
   { emoteName: 'peepoHappy', totalUseCount: 0 },
@@ -82,5 +85,61 @@ describe('EmoteUsageFilter', () => {
     filter.toggleUnused();
     filter.setMinCount('0');
     expect(filter.apply(rows).map((row) => row.emoteName)).toEqual(['withData']);
+  });
+
+  it('toggleHideObserved() hides only emotes still inside their observation period', () => {
+    const rows: Row[] = [
+      { emoteName: 'established', totalUseCount: 0, firstSeenAt: '2026-01-01T00:00:00Z' },
+      { emoteName: 'justAdded', totalUseCount: 0, firstSeenAt: '2026-07-28T00:00:00Z' },
+    ];
+    const filter = new EmoteUsageFilter<Row>();
+
+    filter.toggleHideObserved();
+    expect(filter.isHideObservedActive()).toBe(true);
+    expect(filter.apply(rows, NOW).map((row) => row.emoteName)).toEqual(['established']);
+
+    filter.toggleHideObserved();
+    expect(filter.apply(rows, NOW)).toEqual(rows);
+  });
+
+  it('never hides an emote whose entry date is unknown', () => {
+    // Right after the column was introduced most rows have no date; hiding them would empty the
+    // grid for a filter the user reads as "hide the new ones".
+    const rows: Row[] = [
+      { emoteName: 'noDate', totalUseCount: 0 },
+      { emoteName: 'nullDate', totalUseCount: 0, firstSeenAt: null },
+    ];
+    const filter = new EmoteUsageFilter<Row>();
+
+    filter.toggleHideObserved();
+
+    expect(filter.apply(rows, NOW)).toEqual(rows);
+  });
+
+  it('counts the observation toggle as an active filter and clears it on reset', () => {
+    const filter = new EmoteUsageFilter<Row>();
+
+    filter.toggleHideObserved();
+    expect(filter.isAnyActive()).toBe(true);
+
+    filter.reset();
+    expect(filter.isHideObservedActive()).toBe(false);
+    expect(filter.isAnyActive()).toBe(false);
+  });
+
+  it('combines the observation toggle with the unused filter instead of overriding it', () => {
+    const rows: Row[] = [
+      { emoteName: 'oldUnused', totalUseCount: 0, firstSeenAt: '2026-01-01T00:00:00Z' },
+      { emoteName: 'newUnused', totalUseCount: 0, firstSeenAt: '2026-07-28T00:00:00Z' },
+      { emoteName: 'oldUsed', totalUseCount: 40, firstSeenAt: '2026-01-01T00:00:00Z' },
+    ];
+    const filter = new EmoteUsageFilter<Row>();
+
+    filter.toggleUnused();
+    // Fresh emotes stay visible in the plain unused list — the card badge explains them there.
+    expect(filter.apply(rows, NOW).map((row) => row.emoteName)).toEqual(['oldUnused', 'newUnused']);
+
+    filter.toggleHideObserved();
+    expect(filter.apply(rows, NOW).map((row) => row.emoteName)).toEqual(['oldUnused']);
   });
 });

@@ -34,8 +34,23 @@
         />
       }
     </div>
-    <button type="button" appButton="neutral" (click)="toggleSort()">
-      {{ 'usageStats.sortByUsage' | transloco }} ({{ sortDirection() === 'desc' ? '↓' : '↑' }})
+    <button
+      type="button"
+      appButton="neutral"
+      [attr.aria-pressed]="sortKey() === 'usage'"
+      (click)="toggleSort('usage')"
+    >
+      {{ 'usageStats.sortByUsage' | transloco
+      }}{{ sortKey() === 'usage' ? (sortDirection() === 'desc' ? ' ↓' : ' ↑') : '' }}
+    </button>
+    <button
+      type="button"
+      appButton="neutral"
+      [attr.aria-pressed]="sortKey() === 'lastUsed'"
+      (click)="toggleSort('lastUsed')"
+    >
+      {{ 'usageStats.sortByLastUsed' | transloco
+      }}{{ sortKey() === 'lastUsed' ? (sortDirection() === 'desc' ? ' ↓' : ' ↑') : '' }}
     </button>
     <input
       type="number"
@@ -79,7 +94,38 @@
     >
       {{ 'usageStats.showUnusedOnly' | transloco }}
     </button>
+    <!-- Orthogonal to the unused filter on purpose: a fresh emote necessarily has 0 uses, so
+         dropping it from that list silently would make the count line stop adding up and leave the
+         moderator unable to find the emote they just added. Opting out is a separate act. -->
+    <button
+      type="button"
+      class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
+      [class]="
+        usageFilter.isHideObservedActive()
+          ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
+          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+      "
+      [attr.aria-pressed]="usageFilter.isHideObservedActive()"
+      [title]="'usageStats.hideObservedTitle' | transloco"
+      (click)="usageFilter.toggleHideObserved()"
+    >
+      {{ 'usageStats.hideObserved' | transloco }}
+    </button>
   </div>
+
+  @if (trackedSince(); as since) {
+    <p class="text-xs text-slate-500">
+      {{ 'usageStats.trackedSince' | transloco: { date: formatDate(since) } }}
+    </p>
+    @if (rangeStartsBeforeTracking()) {
+      <!-- Named openly rather than hidden: on incomplete data nobody deletes anything, and a
+           silently empty leading stretch reads as "this emote is dead" instead of "we weren't
+           counting yet". -->
+      <app-notice-banner variant="warning">
+        {{ 'usageStats.rangeBeforeTracking' | transloco: { date: formatDate(since) } }}
+      </app-notice-banner>
+    }
+  }
 
   <p class="text-sm text-slate-400" role="status">
     {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
@@ -177,7 +223,7 @@
             tabindex="0"
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
-              'flex h-28 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              'flex h-36 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
               (selection.isSelected(emote)
                 ? 'inset-ring-2 inset-ring-purple-500 bg-purple-950/40'
                 : 'bg-slate-900')
@@ -188,7 +234,9 @@
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" />
-            <div class="flex h-10 shrink-0 items-center justify-center">
+            <!-- The observation badge overlays the image block instead of taking its own line, the
+                 same trick the voting grid uses for "no longer in the set". -->
+            <div class="relative flex h-10 shrink-0 items-center justify-center">
               <img
                 [ngSrc]="emote.imageUrl"
                 width="40"
@@ -196,13 +244,45 @@
                 alt=""
                 class="max-h-10 max-w-10 object-contain"
               />
+              @if (isUnderObservation(emote)) {
+                <div class="absolute inset-0 flex items-center justify-center">
+                  <app-status-badge tone="blue">{{
+                    'usageStats.observationBadge' | transloco
+                  }}</app-status-badge>
+                </div>
+              }
             </div>
             <span class="truncate text-sm font-medium text-slate-200"
               >{{ emote.totalUseCount }}x
               <span class="text-xs font-normal text-slate-400">{{
                 'usageStats.usageLabel' | transloco
-              }}</span></span
-            >
+              }}</span>
+              <!-- Suppressed entirely rather than rendered as "stable" when the comparison would be
+                   an artefact — a wrong direction is worse than none. -->
+              @if (trendFor(emote); as trend) {
+                @if (trend !== 'unknown') {
+                  <span
+                    [class]="
+                      'text-xs ' +
+                      (trend === 'rising'
+                        ? 'text-emerald-400'
+                        : trend === 'falling'
+                          ? 'text-amber-400'
+                          : 'text-slate-500')
+                    "
+                    [title]="'usageStats.trend.' + trend | transloco"
+                    >{{ trend === 'rising' ? '↗' : trend === 'falling' ? '↘' : '→' }}</span
+                  >
+                }
+              }
+            </span>
+            <span class="truncate text-xs text-slate-400">
+              @if (emote.lastUsedDate) {
+                {{ 'usageStats.lastUsed' | transloco: { date: formatDate(emote.lastUsedDate) } }}
+              } @else {
+                {{ 'usageStats.neverUsed' | transloco }}
+              }
+            </span>
           </div>
         }
       </div>

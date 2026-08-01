@@ -408,6 +408,9 @@ export interface MockEmoteUsage {
   sevenTvEmoteId: string;
   imageUrl: string;
   totalUseCount: number;
+  lastUsedDate?: string | null;
+  previousWindowUseCount?: number;
+  firstSeenAt?: string | null;
 }
 
 /** GET /api/channels/{channelName}/usage-stats/totals — the usage-stats page's actual data. */
@@ -417,7 +420,19 @@ export async function mockUsageTotals(
   emotes: MockEmoteUsage[],
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/usage-stats/totals**`, (route) =>
-    fulfillJson(route, 200, emotes),
+    fulfillJson(
+      route,
+      200,
+      emotes.map((emote) => ({
+        ...emote,
+        // Defaulted so existing specs keep describing only what they assert on. null firstSeenAt
+        // is the deliberate default: unknown never counts as under observation, so no spec grows a
+        // "New" badge it did not ask for.
+        lastUsedDate: emote.lastUsedDate ?? null,
+        previousWindowUseCount: emote.previousWindowUseCount ?? 0,
+        firstSeenAt: emote.firstSeenAt ?? null,
+      })),
+    ),
   );
 }
 
