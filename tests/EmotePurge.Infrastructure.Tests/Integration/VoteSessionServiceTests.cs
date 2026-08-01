@@ -127,6 +127,27 @@ public class VoteSessionServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task CreateAsync_PersistsHideResultsUntilEnd_DefaultingToVisible()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "hidecreate1");
+        var service = new VoteSessionService(db);
+
+        var (_, hidden) = await service.CreateAsync(
+            channel.ChannelName, "Geheim", AllowedRoles.Everyone, Actor, hideResultsUntilEnd: true);
+        var (_, open) = await service.CreateAsync(channel.ChannelName, "Offen", AllowedRoles.Everyone, Actor);
+
+        Assert.True(hidden!.HideResultsUntilEnd);
+        // Not passing the flag must keep producing the sessions every existing caller creates today.
+        Assert.False(open!.HideResultsUntilEnd);
+
+        // The secret ballot is a governance decision, so it has to be readable from the audit row.
+        var audit = await LoadAuditEntriesAsync(db, "hidecreate1");
+        Assert.True(ReadDetailBool(audit.Single(e => e.TargetId == hidden.Id.ToString()).DetailsJson, "hideResults"));
+        Assert.False(ReadDetailBool(audit.Single(e => e.TargetId == open.Id.ToString()).DetailsJson, "hideResults"));
+    }
+
+    [Fact]
     public async Task CreateAsync_WithEmptyEmoteIds_ReturnsEmoteIdsEmpty_AndWritesNothing()
     {
         await using var db = fixture.CreateDbContext();
@@ -283,6 +304,11 @@ public class VoteSessionServiceTests(PostgresFixture fixture)
     private static string? ReadDetail(string? detailsJson, string property)
     {
         return detailsJson is null ? null : JsonDocument.Parse(detailsJson).RootElement.GetProperty(property).GetString();
+    }
+
+    private static bool ReadDetailBool(string? detailsJson, string property)
+    {
+        return detailsJson is not null && JsonDocument.Parse(detailsJson).RootElement.GetProperty(property).GetBoolean();
     }
 
     private static async Task<IReadOnlyList<AuditLogEntry>> LoadAuditEntriesAsync(AppDbContext db, string channelName)

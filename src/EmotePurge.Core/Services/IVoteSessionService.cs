@@ -52,9 +52,12 @@ public interface IVoteSessionService
     // actor is audited together with the created session (same transaction).
     // emoteIds null = the session covers all non-archived channel emotes dynamically; a non-null
     // list becomes the session's fixed ballot (VoteSessionEmote rows, validated against the channel).
+    // hideResultsUntilEnd true = secret ballot: no tallies for non-managers until the session ends.
+    // Fixed at creation like the ballot — a flag a manager could flip mid-session would let them
+    // hide a result they dislike, or reveal one at the moment it suits them.
     Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
         string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null,
-        IReadOnlyList<string>? emoteIds = null, CancellationToken cancellationToken = default);
+        IReadOnlyList<string>? emoteIds = null, bool hideResultsUntilEnd = false, CancellationToken cancellationToken = default);
 
     // null = channel/session not found or session doesn't belong to that channel. Idempotent no-op if
     // already ended — and a no-op writes no audit entry, because nothing happened.

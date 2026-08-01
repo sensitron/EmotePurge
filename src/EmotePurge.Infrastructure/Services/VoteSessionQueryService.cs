@@ -14,13 +14,13 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         var sessions = await db.VoteSessions
             .Where(s => s.Channel.ChannelName == normalized)
             .OrderByDescending(s => s.StartedAt)
-            .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count })
+            .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count, s.HideResultsUntilEnd })
             .ToListAsync(cancellationToken);
 
         // 0 membership rows = dynamic "all emotes" session; the DTO reports that as null, not 0.
         return sessions
             .Select(s => new VoteSessionSummaryDto(
-                s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, s.EmoteCount == 0 ? null : s.EmoteCount))
+                s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, s.EmoteCount == 0 ? null : s.EmoteCount, s.HideResultsUntilEnd))
             .ToList();
     }
 
@@ -34,19 +34,19 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             .OrderByDescending(s => s.StartedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count })
+            .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count, s.HideResultsUntilEnd })
             .ToListAsync(cancellationToken);
 
         // 0 membership rows = dynamic "all emotes" session; the DTO reports that as null, not 0.
         var items = pageRows
             .Select(s => new VoteSessionSummaryDto(
-                s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, s.EmoteCount == 0 ? null : s.EmoteCount))
+                s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, s.EmoteCount == 0 ? null : s.EmoteCount, s.HideResultsUntilEnd))
             .ToList();
 
         return new PagedResult<VoteSessionSummaryDto>(items, page, pageSize, totalCount);
     }
 
-    public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, bool includeRawUsage = false, CancellationToken cancellationToken = default)
+    public async Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, bool viewerIsManager = false, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -55,6 +55,12 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         {
             return null;
         }
+
+        var includeRawUsage = viewerIsManager;
+        // Secret ballot, enforced server-side rather than hidden in the client. It lapses the moment
+        // the session ends — IsActive is the only "is it over" signal in this codebase, and EndAsync
+        // is therefore also the moment of the reveal, with no extra field or scheduler involved.
+        var includeTallies = viewerIsManager || !session.HideResultsUntilEnd || !session.IsActive;
 
         var subsetEmoteIds = await db.VoteSessionEmotes
             .Where(se => se.VoteSessionId == sessionId)
@@ -90,16 +96,19 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             : await usageStatQueryService.GetUsageTotalsAsync(normalized, from, to, cancellationToken);
         var usageByEmoteId = usageTotals.ToDictionary(u => u.EmoteId, u => u.TotalUseCount);
 
-        var voteTallies = await db.Votes
-            .Where(v => v.VoteSessionId == sessionId)
-            .GroupBy(v => v.EmoteId)
-            .Select(g => new
-            {
-                EmoteId = g.Key,
-                Keep = g.Count(v => v.Type == VoteType.Keep),
-                Delete = g.Count(v => v.Type == VoteType.Delete)
-            })
-            .ToDictionaryAsync(g => g.EmoteId, cancellationToken);
+        // Same as the usage totals above: not computed at all for a viewer who may not see them.
+        var voteTallies = !includeTallies
+            ? []
+            : await db.Votes
+                .Where(v => v.VoteSessionId == sessionId)
+                .GroupBy(v => v.EmoteId)
+                .Select(g => new
+                {
+                    EmoteId = g.Key,
+                    Keep = g.Count(v => v.Type == VoteType.Keep),
+                    Delete = g.Count(v => v.Type == VoteType.Delete)
+                })
+                .ToDictionaryAsync(g => g.EmoteId, cancellationToken);
 
         var voterCount = await db.Votes
             .Where(v => v.VoteSessionId == sessionId)
@@ -107,11 +116,12 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             .Distinct()
             .CountAsync(cancellationToken);
 
-        var results = candidateEmotes.Select(e =>
+        var rows = candidateEmotes.Select(e =>
         {
             var tally = voteTallies.GetValueOrDefault(e.Id);
-            var keep = tally?.Keep ?? 0;
-            var delete = tally?.Delete ?? 0;
+            // null = withheld (running secret ballot, non-manager), not "nobody voted for it".
+            int? keep = includeTallies ? tally?.Keep ?? 0 : null;
+            int? delete = includeTallies ? tally?.Delete ?? 0 : null;
             var myVote = myVotesByEmoteId.TryGetValue(e.Id, out var voteType) ? voteType : (VoteType?)null;
 
             // null = withheld (non-manager) or not computed: GetUsageTotalsAsync excludes archived
@@ -120,15 +130,25 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 
             return new VoteSessionResultDto(
                 e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, useCount, keep, delete, keep - delete, e.IsArchived, myVote);
-        })
-        // Delete candidates first: ascending net score, contested emotes before quiet ties, name as
-        // the stable fallback so equal rows don't reshuffle between loads.
-        .OrderBy(r => r.Score)
-        .ThenByDescending(r => r.KeepVotes + r.DeleteVotes)
-        .ThenBy(r => r.EmoteName, StringComparer.OrdinalIgnoreCase)
-        .ToList();
+        });
 
-        return new VoteSessionResultsDto(session.Id, session.Title, session.IsActive, session.StartedAt, session.EndedAt, voterCount, results);
+        // With the tallies withheld, the score ordering is the leak: the position of a row would spell
+        // out its ranking just as precisely as the numbers did. Name order carries no such signal — and
+        // it is what a voter working through a ballot wants anyway.
+        var results = includeTallies
+            // Delete candidates first: ascending net score, contested emotes before quiet ties, name as
+            // the stable fallback so equal rows don't reshuffle between loads.
+            ? rows.OrderBy(r => r.Score)
+                .ThenByDescending(r => r.KeepVotes + r.DeleteVotes)
+                .ThenBy(r => r.EmoteName, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : rows.OrderBy(r => r.EmoteName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(r => r.EmoteId, StringComparer.Ordinal)
+                .ToList();
+
+        return new VoteSessionResultsDto(
+            session.Id, session.Title, session.IsActive, session.StartedAt, session.EndedAt, voterCount,
+            session.HideResultsUntilEnd, results);
     }
 
     public async Task<PagedResult<MyVoteSessionDto>> ListMyVoteSessionsAsync(string voterTwitchUserId, int page, int pageSize, CancellationToken cancellationToken = default)

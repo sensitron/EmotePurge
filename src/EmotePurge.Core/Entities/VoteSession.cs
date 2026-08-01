@@ -17,6 +17,9 @@ public class VoteSession
     public string Title { get; set; } = string.Empty;
     public AllowedRoles AllowedVoterRoles { get; set; } = AllowedRoles.Everyone;
     public bool IsActive { get; set; } = true;
+    // Opt-in secret ballot: while the session is active, non-managers get no tallies at all (see
+    // IVoteSessionQueryService.GetResultsAsync). Fixed at creation, like the ballot itself.
+    public bool HideResultsUntilEnd { get; set; }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
 

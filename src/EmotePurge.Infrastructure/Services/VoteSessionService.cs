@@ -13,7 +13,7 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
 
     public async Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
         string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null,
-        IReadOnlyList<string>? emoteIds = null, CancellationToken cancellationToken = default)
+        IReadOnlyList<string>? emoteIds = null, bool hideResultsUntilEnd = false, CancellationToken cancellationToken = default)
     {
         // Validated here rather than in the endpoint: this is the layer that has tests, and it is the
         // one every future caller goes through. The endpoint only maps these results to error codes.
@@ -86,6 +86,7 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             ChannelId = channel.Id,
             Title = title.Trim(),
             AllowedVoterRoles = allowedVoterRoles,
+            HideResultsUntilEnd = hideResultsUntilEnd,
             StartedAt = startedAt ?? DateTime.UtcNow
         };
         // The only audited write in this file that cannot be a single SaveChanges: VoteSession.Id is
@@ -113,9 +114,11 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             channelName: channel.ChannelName,
             targetType: VoteSessionTargetType,
             targetId: session.Id.ToString(CultureInfo.InvariantCulture),
+            // hideResults rides along unconditionally: a secret ballot is a governance decision, and
+            // the audit row is the only place it is recorded as an act rather than as a session field.
             details: ballotEmoteIds is null
-                ? new { title = session.Title }
-                : (object)new { title = session.Title, emoteCount = ballotEmoteIds.Count });
+                ? new { title = session.Title, hideResults = session.HideResultsUntilEnd }
+                : (object)new { title = session.Title, emoteCount = ballotEmoteIds.Count, hideResults = session.HideResultsUntilEnd });
         await db.SaveChangesAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);

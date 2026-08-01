@@ -34,7 +34,8 @@ public static class VoteSessionEndpoints
             // Pure translation — the rules themselves live in VoteSessionService, which is the tested
             // layer and the one every non-HTTP caller goes through.
             var (result, session) = await voteSessionService.CreateAsync(
-                channelName, request.Title, request.AllowedVoterRoles, actor, request.StartedAt, request.EmoteIds, ct);
+                channelName, request.Title, request.AllowedVoterRoles, actor, request.StartedAt, request.EmoteIds,
+                request.HideResultsUntilEnd, ct);
 
             return result switch
             {
@@ -162,13 +163,13 @@ public static class VoteSessionEndpoints
             // now-guaranteed-present principal.
             var principal = httpContext.User.TryBuildTwitchPrincipal()!;
 
-            // Raw per-emote chat usage is management data: usage-stats/totals sits behind an access
-            // filter for exactly that reason, but this endpoint served the same numbers to anyone in a
-            // session's audience — and an Everyone session (the default) admits every logged-in user.
-            // The score (net keep − delete) does not involve usage at all, so withholding it (null,
-            // not 0) changes nothing about scores or ordering for non-managers.
-            var includeRawUsage = await channelAccessService.CanManageChannelAsync(principal, channelName, ct);
-            var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, principal.TwitchUserId, includeRawUsage, ct);
+            // One flag, two withholdings, both decided inside the read model (see GetResultsAsync):
+            // raw per-emote chat usage is management data, and a session created as a secret ballot
+            // shows no tallies to anyone else while it runs. CanManageChannelAsync is the same
+            // boundary that gates creating and ending a session, so the manager who set the flag
+            // keeps seeing through it.
+            var viewerIsManager = await channelAccessService.CanManageChannelAsync(principal, channelName, ct);
+            var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, principal.TwitchUserId, viewerIsManager, ct);
             return results is null ? Results.NotFound() : Results.Ok(results);
         })
         .AddEndpointFilter<VoteAudienceFilter>()
@@ -276,7 +277,7 @@ public static class VoteSessionEndpoints
     // dynamic "all emotes" session, reported as null.
     private static VoteSessionSummaryDto ToSummaryDto(VoteSession session) => new(
         session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt,
-        session.SessionEmotes.Count == 0 ? null : session.SessionEmotes.Count);
+        session.SessionEmotes.Count == 0 ? null : session.SessionEmotes.Count, session.HideResultsUntilEnd);
 
     /// <summary>
     /// Announces "the tally of this session changed" to everyone watching it. Deliberately without
@@ -312,5 +313,9 @@ public static class VoteSessionEndpoints
 
 // EmoteIds null = the session covers all non-archived channel emotes dynamically; a non-null list
 // becomes the session's fixed ballot (local emote guids, validated in VoteSessionService).
-internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles, DateTime? StartedAt = null, IReadOnlyList<string>? EmoteIds = null);
+// HideResultsUntilEnd defaults to false, so an existing client that never sends it keeps creating
+// open sessions.
+internal sealed record CreateVoteSessionRequest(
+    string Title, AllowedRoles AllowedVoterRoles, DateTime? StartedAt = null, IReadOnlyList<string>? EmoteIds = null,
+    bool HideResultsUntilEnd = false);
 internal sealed record CastVoteRequest(string EmoteId, VoteType Type);

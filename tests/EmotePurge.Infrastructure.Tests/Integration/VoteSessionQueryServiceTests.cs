@@ -49,7 +49,7 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task GetResultsAsync_ReportsUsage_OnlyWithIncludeRawUsage_NullOtherwise()
+    public async Task GetResultsAsync_ReportsUsage_OnlyForManagers_NullOtherwise()
     {
         await using var db = fixture.CreateDbContext();
         var channel = await SeedChannelAsync(db, "votenull1");
@@ -60,10 +60,10 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
 
         var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
 
-        var withheld = await service.GetResultsAsync(channel.ChannelName, session.Id, includeRawUsage: false);
+        var withheld = await service.GetResultsAsync(channel.ChannelName, session.Id, viewerIsManager: false);
         Assert.Null(Assert.Single(withheld!.Emotes).TotalUseCount);
 
-        var included = await service.GetResultsAsync(channel.ChannelName, session.Id, includeRawUsage: true);
+        var included = await service.GetResultsAsync(channel.ChannelName, session.Id, viewerIsManager: true);
         Assert.Equal(5, Assert.Single(included!.Emotes).TotalUseCount);
     }
 
@@ -100,7 +100,7 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
         await db.SaveChangesAsync();
 
         var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
-        var results = await service.GetResultsAsync(channel.ChannelName, session.Id, includeRawUsage: true);
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id, viewerIsManager: true);
 
         var result = Assert.Single(results!.Emotes);
         Assert.True(result.IsArchived);
@@ -165,6 +165,118 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
 
         var result = Assert.Single(results!.Emotes);
         Assert.Equal(VoteType.Keep, result.MyVote);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_HiddenActiveSession_WithholdsTalliesFromNonManager_AndOrdersByName()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votehide1");
+        // Seeded in an order that is neither alphabetical nor score order, so neither can pass by luck.
+        var doomed = await SeedEmoteAsync(db, channel.Id, "Zeta");
+        var loved = await SeedEmoteAsync(db, channel.Id, "Alpha");
+        var session = await SeedActiveSessionAsync(db, channel.Id, hideResultsUntilEnd: true);
+        var voter = await SeedUserAsync(db, "votehide1-voter");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = doomed.Id, UserId = voter.Id, Type = VoteType.Delete });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = loved.Id, UserId = voter.Id, Type = VoteType.Keep });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id, viewerTwitchUserId: voter.Id);
+
+        Assert.True(results!.HideResultsUntilEnd);
+        Assert.All(results.Emotes, r =>
+        {
+            Assert.Null(r.KeepVotes);
+            Assert.Null(r.DeleteVotes);
+            Assert.Null(r.Score);
+        });
+
+        // The whole point of the name ordering: by score, the deleted emote would come first.
+        Assert.Equal(new[] { loved.Id, doomed.Id }, results.Emotes.Select(r => r.EmoteId).ToArray());
+
+        // Own ballot and turnout are never part of the secret — only which way the votes went is.
+        Assert.Equal(VoteType.Delete, results.Emotes.Single(r => r.EmoteId == doomed.Id).MyVote);
+        Assert.Equal(1, results.VoterCount);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_HiddenActiveSession_ShowsTalliesToManager_InScoreOrder()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votehide2");
+        var doomed = await SeedEmoteAsync(db, channel.Id, "Zeta");
+        var loved = await SeedEmoteAsync(db, channel.Id, "Alpha");
+        var session = await SeedActiveSessionAsync(db, channel.Id, hideResultsUntilEnd: true);
+        var voter = await SeedUserAsync(db, "votehide2-voter");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = doomed.Id, UserId = voter.Id, Type = VoteType.Delete });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = loved.Id, UserId = voter.Id, Type = VoteType.Keep });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id, viewerIsManager: true);
+
+        Assert.Equal(-1, results!.Emotes.Single(r => r.EmoteId == doomed.Id).Score);
+        Assert.Equal(1, results.Emotes.Single(r => r.EmoteId == loved.Id).Score);
+        Assert.Equal(new[] { doomed.Id, loved.Id }, results.Emotes.Select(r => r.EmoteId).ToArray());
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_HiddenSession_RevealsTalliesToEveryone_OnceEnded()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votehide3");
+        var doomed = await SeedEmoteAsync(db, channel.Id, "Zeta");
+        await SeedEmoteAsync(db, channel.Id, "Alpha");
+        var session = await SeedActiveSessionAsync(db, channel.Id, hideResultsUntilEnd: true);
+        var voter = await SeedUserAsync(db, "votehide3-voter");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = doomed.Id, UserId = voter.Id, Type = VoteType.Delete });
+        session.IsActive = false;
+        session.EndedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id);
+
+        // The flag stays reported (the list still labels the session), but it no longer withholds.
+        Assert.True(results!.HideResultsUntilEnd);
+        Assert.Equal(-1, results.Emotes.Single(r => r.EmoteId == doomed.Id).Score);
+        Assert.Equal(1, results.Emotes.Single(r => r.EmoteId == doomed.Id).DeleteVotes);
+        Assert.Equal(doomed.Id, results.Emotes[0].EmoteId);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_OpenSession_ReportsTalliesToNonManager_AsBefore()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votehide4");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Emote");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var voter = await SeedUserAsync(db, "votehide4-voter");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emote.Id, UserId = voter.Id, Type = VoteType.Keep });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id);
+
+        Assert.False(results!.HideResultsUntilEnd);
+        Assert.Equal(1, Assert.Single(results.Emotes).KeepVotes);
+        Assert.Equal(0, results.Emotes[0].DeleteVotes);
+    }
+
+    [Fact]
+    public async Task ListSessionsPagedAsync_ReportsHideResultsUntilEnd()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votehide5");
+        var open = await SeedActiveSessionAsync(db, channel.Id, startedAt: DateTime.UtcNow.AddMinutes(-2));
+        var hidden = await SeedActiveSessionAsync(db, channel.Id, startedAt: DateTime.UtcNow.AddMinutes(-1), hideResultsUntilEnd: true);
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListSessionsPagedAsync(channel.ChannelName, page: 1, pageSize: 10);
+
+        Assert.True(page.Items.Single(i => i.Id == hidden.Id).HideResultsUntilEnd);
+        Assert.False(page.Items.Single(i => i.Id == open.Id).HideResultsUntilEnd);
     }
 
     [Fact]
@@ -379,7 +491,8 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
         return emote;
     }
 
-    private static async Task<VoteSession> SeedActiveSessionAsync(AppDbContext db, string channelId, DateTime? startedAt = null)
+    private static async Task<VoteSession> SeedActiveSessionAsync(
+        AppDbContext db, string channelId, DateTime? startedAt = null, bool hideResultsUntilEnd = false)
     {
         var session = new VoteSession
         {
@@ -387,6 +500,7 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
             Title = "Test Session",
             AllowedVoterRoles = AllowedRoles.Everyone,
             IsActive = true,
+            HideResultsUntilEnd = hideResultsUntilEnd,
             StartedAt = startedAt ?? DateTime.UtcNow
         };
         db.VoteSessions.Add(session);
