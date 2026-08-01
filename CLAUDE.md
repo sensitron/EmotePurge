@@ -2,7 +2,7 @@
 
 Schneller Einstieg für Claude Code. Zwei Dokumente daneben, beide verbindlich:
 
-- **[Architectur.md](Architectur.md)** — die vollständige Spezifikation (Module A–D, DB-Schema, Docker-Topologie, Kommunikationsfluss). **Bei Architektur-Fragen zuerst dort lesen.**
+- **[docs/Architectur.md](docs/Architectur.md)** — die vollständige Spezifikation (Module A–D, DB-Schema, Docker-Topologie, Kommunikationsfluss). **Bei Architektur-Fragen zuerst dort lesen.**
 - **[docs/DECISIONS.md](docs/DECISIONS.md)** — die vollständige Historie aller Architektur-/Infrastruktur-Entscheidungen, absteigend nach Datum, jeder Eintrag mit `**Betrifft:**`-Zeile. Durchsuchbar per `grep <dateiname> docs/DECISIONS.md`. **„Warum ist X so gebaut?"** steht dort, nicht hier.
 
 ## Projekt-Überblick
@@ -18,7 +18,7 @@ Emote Purge: plattformübergreifende Webanwendung zur Analyse, Community-Bewertu
 | **C** | Voting Engine: `VoteSession`/`Vote`, rollengesteuerte Abstimmung, Beliebtheits-Score aus normalisierter Chat-Nutzung + Keep/Delete-Votes | ✅ vollständig |
 | **D** | Angular-Frontend: Login, Übersicht, Usage-Stats-Grid, Voting-UI, 7TV-Mass-Delete-Engine, i18n (de/en), Pagination | ✅ vollständig |
 | **E** | Launch-Vorbereitung (Monitoring, Ressourcenlimits, Rechtstexte) | ⬜ offen |
-| **Review 2026-07-29** | 81 Befunde; Wellen A–C umgesetzt, D (Tests) und E (Infra & Launch) offen — s. [Review-2026-07-29-Umsetzung.md](Review-2026-07-29-Umsetzung.md) | 🟡 laufend |
+| **Review 2026-07-29** | 81 Befunde; Wellen A–C umgesetzt, D (Tests) und E (Infra & Launch) offen — s. [Review-2026-07-29-Umsetzung.md](docs/Review-2026-07-29-Umsetzung.md) | 🟡 laufend |
 
 ## Commands
 
@@ -164,6 +164,6 @@ Kein Bestandscode wird rückwirkend umgeschrieben.
 
 ## Bekannte offene Grenzen
 
-- **Twitchs JOIN-Limit ab ~20 getrackten Channels.** Eine nicht-verifizierte Verbindung darf 20 JOINs pro 10 Sekunden; TwitchLib drosselt JOINs überhaupt nicht. Unsere eigenen Join-Pfade sind auf 600 ms Abstand gedrosselt, TwitchLibs eigener Rejoin nach einem Reconnect nicht. Vor einem größeren Ausbau: verifizierter Bot-Account (2.000 JOINs/10 s) oder Sharding — Details in [Review-2026-07-29-Umsetzung.md](Review-2026-07-29-Umsetzung.md).
+- **Twitchs JOIN-Limit ab ~20 getrackten Channels.** Eine nicht-verifizierte Verbindung darf 20 JOINs pro 10 Sekunden; TwitchLib drosselt JOINs überhaupt nicht. Unsere eigenen Join-Pfade sind auf 600 ms Abstand gedrosselt, TwitchLibs eigener Rejoin nach einem Reconnect nicht. Vor einem größeren Ausbau: verifizierter Bot-Account (2.000 JOINs/10 s) oder Sharding — Details in [Review-2026-07-29-Umsetzung.md](docs/Review-2026-07-29-Umsetzung.md).
 - **Twitch-Token-Refresh ist in-process.** Seit 2026-07-30 werden Access Tokens serverseitig per Refresh-Token erneuert (lazy, Single-Flight — s. DECISIONS-Eintrag); der Lock ist aber ein In-Process-Semaphor: bei mehr als einer Api-Replica bräuchte es einen verteilten Lock. Idle gespeicherte Tokens werden zudem nicht stündlich validiert, nur benutzte.
 - **7TV-EventAPI-Grenzen.** `subscription_limit` ist 500 pro Verbindung (2 Subscriptions je Channel → Connection-Sharding nötig ab ~250 Channels; bisher nur eine 90-%-Warnung im Log). Kein Resume/Replay und ~1-h-Verbindungs-TTL — der periodische REST-Resync ist deshalb Pflicht, nicht Optimierung. Zustellqualität bei ~900er-Sets (HandOfBlood) ungemessen; 7TVs REST-Cache kann 10–30 min veraltet sein (SevenTV/SevenTV#81), das Mess-Log „archiviert <15 min altes Emote" in `ReconcileAsync` quantifiziert die Folgen. Details: [docs/Untersuchung-7TV-WebSocket-2026-07-30.md](docs/Untersuchung-7TV-WebSocket-2026-07-30.md).

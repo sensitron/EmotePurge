@@ -10,6 +10,18 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — Alle Projektdokumente liegen in `docs/`, im Root bleibt nur `CLAUDE.md`
+
+**Betrifft:** `Architectur.md` → `docs/Architectur.md` · `Review-2026-07-29.md` → `docs/Review-2026-07-29.md` · `Review-2026-07-29-Umsetzung.md` → `docs/Review-2026-07-29-Umsetzung.md` · `CLAUDE.md` · `docs/DECISIONS.md` · `src/EmotePurge.Core/Twitch/ITwitchHelixClient.cs` · `src/EmotePurge.Worker/{TwitchChatManager,Worker}.cs` · `web/src/app/core/seven-tv/seven-tv-token.service.ts`
+
+**Das Repo-Root hatte vier Markdown-Dateien, von denen nur eine dort hingehört.** `CLAUDE.md` muss im Root liegen, weil Claude Code sie dort erwartet; `Architectur.md` und die beiden Review-Dokumente vom 2026-07-29 lagen aus reiner Entstehungsgeschichte daneben, während `docs/` bereits sechs andere Projektdokumente hielt. Damit war aus dem Dateibaum nicht ablesbar, wo Projektdoku steht — die Antwort war „mal hier, mal dort".
+
+**Ab jetzt gilt: Projektdokumentation liegt in `docs/`, ohne Ausnahme.** Im Root verbleibt `CLAUDE.md` als Einstiegspunkt und verlinkt von dort die Spezifikation und dieses Log. `README.md`-Dateien bleiben, wo sie liegen (`web/`, `web/branding/`), weil ihr Ort dort selbst die Bedeutung trägt; ebenso `web/.claude/CLAUDE.md`.
+
+Verschoben wurde per `git mv`, damit die Historie durchgängig bleibt. Angepasst wurden alle relativen Markdown-Links (in `CLAUDE.md` nach `docs/…`, innerhalb von `docs/` auf Geschwister-Pfade ohne `docs/`-Präfix bzw. ohne `../`) sowie vier Pfad-Erwähnungen in Code-Kommentaren. Die `**Betrifft:**`-Zeilen älterer Einträge dieses Logs nennen weiterhin die alten Pfade — sie sind historischer Text und werden nicht rückwirkend umgeschrieben; der Dateiname bleibt greppbar.
+
+---
+
 ### 2026-08-01 — Mass-Delete taktet sich selbst: 7TVs Rate-Limit wird zur Laufzeit gelernt statt geraten
 
 **Betrifft:** `web/src/app/core/seven-tv/seven-tv-delete.service.ts` · `web/src/app/core/seven-tv/seven-tv-delete.service.spec.ts` · `web/src/app/shared/seven-tv/{mass-delete-panel,delete-progress-panel}.ts` · `web/public/i18n/{de,en}.json` · `Architectur.md`
@@ -22,7 +34,7 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 **Erkannt wird die Ablehnung im GraphQL-Body, nicht am HTTP-Status.** 7TV beantwortet eine rate-limitierte Mutation mit **HTTP 200**; `async_graphql`s `into_response` fasst den Status nicht an, der Guard-Fehler wird ein gewöhnlicher GraphQL-Error mit `extensions.code = "RATE_LIMIT_EXCEEDED"`, `extensions.status = 429` und den gespiegelten Headern unter `extensions.headers` ([`apps/api/src/http/error.rs`](https://github.com/SevenTV/SevenTV/blob/main/apps/api/src/http/error.rs), Werte als Strings). Der bisherige `error.status === 429`-Zweig war für GQL-Mutationen faktisch tot und griff nur beim globalen Bucket, der auf HTTP-Ebene geprüft wird — dieser Pfad bleibt erhalten, wartet mangels Zahlen aber blind ein volles 60-s-Fenster und darf ausdrücklich **keine** Taktung ableiten (aus „ein Request, dann blockiert" würde sonst eine Quote von 1/min gelernt).
 
-**Proaktives Pacing ist im Browser konstruktionsbedingt unmöglich, deshalb ist die Reaktion der einzige Weg.** Auf dem Erfolgspfad setzt 7TV die `x-ratelimit-emote_set_change-*`-Header zwar auf die Antwort, aber [`apps/api/src/http/mod.rs`](https://github.com/SevenTV/SevenTV/blob/main/apps/api/src/http/mod.rs) exponiert per CORS nur `x-access-token`, `x-request-id` und `x-auth-failure` — `remaining` ist für unser JS also unsichtbar, solange wir noch Budget haben. Sichtbar wird die Information erst im Fehlerfall, weil sie dort im JSON-Body steckt. Die Alternative — die 7TV-Calls über unsere Api zu proxyen, wo CORS nicht gilt — wurde verworfen: sie verlegt das 7TV-Schreib-Token vom `sessionStorage` auf unseren Server und bricht damit das Zero-Knowledge-Prinzip aus [`../Architectur.md`](../Architectur.md) für einen Gewinn, den der reaktive Weg weitgehend mitliefert.
+**Proaktives Pacing ist im Browser konstruktionsbedingt unmöglich, deshalb ist die Reaktion der einzige Weg.** Auf dem Erfolgspfad setzt 7TV die `x-ratelimit-emote_set_change-*`-Header zwar auf die Antwort, aber [`apps/api/src/http/mod.rs`](https://github.com/SevenTV/SevenTV/blob/main/apps/api/src/http/mod.rs) exponiert per CORS nur `x-access-token`, `x-request-id` und `x-auth-failure` — `remaining` ist für unser JS also unsichtbar, solange wir noch Budget haben. Sichtbar wird die Information erst im Fehlerfall, weil sie dort im JSON-Body steckt. Die Alternative — die 7TV-Calls über unsere Api zu proxyen, wo CORS nicht gilt — wurde verworfen: sie verlegt das 7TV-Schreib-Token vom `sessionStorage` auf unseren Server und bricht damit das Zero-Knowledge-Prinzip aus [`Architectur.md`](Architectur.md) für einen Gewinn, den der reaktive Weg weitgehend mitliefert.
 
 **Die Wartezeit ist sichtbar, sonst wirkt sie wie ein Absturz.** Eine bis zu 60 s stehende Fortschrittsanzeige ist von einem Hänger nicht zu unterscheiden, deshalb zählt `rateLimitPauseSeconds` im Delete-Panel sichtbar herunter; `cancel()` bricht die Pause mit ab. Jede Ablehnung schreibt zusätzlich `limit`, `used`, `reset`, die Zahl der Requests im Fenster und die neu berechnete Taktung nach `console.info`.
 
