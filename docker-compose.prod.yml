@@ -58,6 +58,9 @@ services:
       - Auth__Twitch__TokenEncryptionKey=${AUTH_TWITCH_TOKEN_ENCRYPTION_KEY}
       - Auth__Twitch__RedirectUri=https://emotepurge.app/api/auth/twitch/callback
       - Auth__Twitch__PostLoginRedirectUrl=/
+      # Comma-separated. Overrides the appsettings.json array — without this the admin area is
+      # reachable only by the login hardcoded there.
+      - Auth__AdminTwitchLogins=${ADMIN_TWITCH_LOGINS}
       # Ohne persistierten Schlüsselring erzeugt jeder Container-Neustart einen neuen und wirft alle
       # eingeloggten Nutzer heraus; mit zwei Api-Replicas würden Logins sporadisch fehlschlagen.
       - DataProtection__KeyPath=/keys

@@ -57,8 +57,24 @@ public class ChannelAccessService(
 
     public bool IsGlobalAdmin(TwitchPrincipalInfo principal)
     {
-        var adminLogins = configuration.GetSection("Auth:AdminTwitchLogins").Get<string[]>() ?? [];
-        return adminLogins.Any(login => string.Equals(login, principal.TwitchLogin, StringComparison.OrdinalIgnoreCase));
+        return GetAdminLogins(configuration)
+            .Any(login => string.Equals(login, principal.TwitchLogin, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Accepts both shapes on purpose, and the scalar one wins. A JSON array in appsettings.json
+    /// lands on the indexed keys <c>Auth:AdminTwitchLogins:0..</c>, while an environment variable
+    /// or user-secret can only ever set the plain key <c>Auth:AdminTwitchLogins</c>. Those are
+    /// different keys, so a naive Get&lt;string[]&gt;() would keep returning the appsettings array
+    /// and silently ignore the override — which is exactly how the allow-list ended up being
+    /// editable only by changing a file in the repo.
+    /// </summary>
+    private static string[] GetAdminLogins(IConfiguration configuration)
+    {
+        var scalar = configuration["Auth:AdminTwitchLogins"];
+        return string.IsNullOrWhiteSpace(scalar)
+            ? configuration.GetSection("Auth:AdminTwitchLogins").Get<string[]>() ?? []
+            : scalar.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     // Twitch permits renames and releases the old name again after a grace period. Deciding "is
