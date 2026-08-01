@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — Eine Root-`README.md` für Menschen; `CLAUDE.md` bleibt die Regelliste
+
+**Betrifft:** `README.md` (neu) · `web/README.md` · `docs/Review-2026-07-29-Umsetzung.md` (S4-18)
+
+**Das Repo hatte kein Dokument, das einen fremden Menschen zum Laufen bringt.** Einstieg war `CLAUDE.md` — dicht, präzise, aber ausdrücklich „Schneller Einstieg für Claude Code" und ohne README auf GitHub gar nicht auffindbar: dort sah man nur den Dateibaum. Das ist Befund **S4-18** aus Welle E und zugleich der Kern des Vorwurfs „kann das jemand anderes maintainen?" aus der Sichtung vom 2026-08-01. Die Antwort lautete: ja, aber erst ab Mittwoch.
+
+**Die Aufteilung ist bewusst: `README.md` erklärt den Weg von `git clone` bis „läuft", `CLAUDE.md` bleibt die Regelliste.** Keine Verdopplung — die README verweist auf die Regeln, statt sie zu wiederholen, und trägt stattdessen das, was vorher nirgends stand: die Twitch-App-Registrierung samt **beider** Redirect-URIs (`:5151` für `dotnet run`, `:8080` für Compose — wer nur eine einträgt, verliert genau eine Betriebsart), die `dotnet tool install --global dotnet-ef`-Zeile statt der Behauptung „ist installiert", `ADMIN_TWITCH_LOGINS` als Pflichtfeld, und der Satz, dass **Migrationen in keiner Umgebung automatisch laufen** — im Code steht kein einziges `MigrateAsync`, was ohne Hinweis in eine leere Datenbank führt.
+
+**Ein Abschnitt „Was beim ersten Beitrag überrascht" nimmt vier bewusste Eigenheiten vorweg**, statt sie den Neuen als Fehler erleben zu lassen: die Drei-Stellen-Zeremonie für eine neue Backend-Fähigkeit (Interface, Implementierung, DI-Zeile — die 22 Interfaces in `Core/Services/` werden nie gemockt, sie tragen die Schichtentrennung), Endpoints nur in `Endpoints/*.cs`, sprachneutrale Fehlercodes mit Pflicht-Eintrag in beiden Locale-Dateien, und dass praktisch kein Betriebsparameter zur Laufzeit konfigurierbar ist. Das Letzte ist keine Entschuldigung, sondern eine Warnung: ein Prod-Problem kostet hier Code-Änderung, Build und Deploy.
+
+**Es gibt bewusst keine Seed-Daten.** Ohne getrackten Channel und echten Chat-Verkehr sind alle Seiten leer, und das ist naturgemäß so: Nutzungszahlen entstehen aus mitgelesenem Chat. Ein Fixture würde eine Datenlage vortäuschen, deren Zustandekommen gerade das ist, was man beim Onboarding verstehen muss. Die README sagt das explizit, damit niemand nach dem fehlenden Seed-Skript sucht.
+
+**`web/README.md` wird ersetzt, nicht gelöscht** — der Eintrag „Alle Projektdokumente liegen in `docs/`" vom selben Tag hält fest, dass `README.md`-Dateien dort bleiben, wo ihr Ort selbst die Bedeutung trägt. Der bisherige Inhalt war allerdings die unveränderte Angular-CLI-Vorlage und **aktiv falsch**: Zeile 55 behauptete, das Projekt habe kein E2E-Framework, während Playwright samt sechs Specs konfiguriert ist. Sie enthält jetzt nur noch die `web/`-eigenen Kommandos und verweist fürs Setup nach oben.
+
+---
+
 ### 2026-08-01 — Format und Lint sind ein CI-Gate, kein Pre-Commit-Hook
 
 **Betrifft:** `.github/workflows/publish.yml` · `CLAUDE.md` (Regel 18/19) · `docs/Review-2026-07-29-Umsetzung.md` (S4-16)
