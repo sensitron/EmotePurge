@@ -13,7 +13,10 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 
         var sessions = await db.VoteSessions
             .Where(s => s.Channel.ChannelName == normalized)
-            .OrderByDescending(s => s.StartedAt)
+            // Id, not StartedAt: StartedAt is the start of the usage window and is freely
+            // backdatable (the create form prefills it 30 days back), so ordering by it buries a
+            // session created today under older ones. The identity column is the creation order.
+            .OrderByDescending(s => s.Id)
             .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count, s.HideResultsUntilEnd })
             .ToListAsync(cancellationToken);
 
@@ -31,7 +34,9 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
 
         var totalCount = await query.CountAsync(cancellationToken);
         var pageRows = await query
-            .OrderByDescending(s => s.StartedAt)
+            // Creation order, for the reason spelled out in ListSessionsAsync. Both methods must
+            // agree: managers page through here, everyone else through the unpaged sibling.
+            .OrderByDescending(s => s.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count, s.HideResultsUntilEnd })

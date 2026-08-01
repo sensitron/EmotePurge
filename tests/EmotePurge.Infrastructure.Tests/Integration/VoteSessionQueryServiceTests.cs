@@ -337,24 +337,27 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
         var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
         var page = await service.ListSessionsPagedAsync(channel.ChannelName, page: 1, pageSize: 10);
 
-        Assert.Equal(2, page.Items[0].EmoteCount); // subsetSession, newest first
+        Assert.Equal(2, page.Items[0].EmoteCount); // subsetSession, created last
         Assert.Null(page.Items.Single(i => i.Id == dynamicSession.Id).EmoteCount);
     }
 
     [Fact]
-    public async Task ListSessionsPagedAsync_OrdersByStartedAtDescending()
+    public async Task ListSessionsPagedAsync_OrdersByCreationOrderDescending()
     {
         await using var db = fixture.CreateDbContext();
         var channel = await SeedChannelAsync(db, "pagetest2");
         var now = DateTime.UtcNow;
-        var older = await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-10));
-        var newer = await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-1));
+        // Deliberately opposed to the creation order: StartedAt is the usage window, and the create
+        // form prefills it 30 days back, so the session created *last* routinely carries the
+        // *oldest* StartedAt. Ordering by StartedAt would put firstCreated on top — that was the bug.
+        var firstCreated = await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddMinutes(-1));
+        var lastCreated = await SeedActiveSessionAsync(db, channel.Id, startedAt: now.AddDays(-30));
 
         var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
         var page = await service.ListSessionsPagedAsync(channel.ChannelName, page: 1, pageSize: 10);
 
-        Assert.Equal(newer.Id, page.Items[0].Id);
-        Assert.Equal(older.Id, page.Items[1].Id);
+        Assert.Equal(lastCreated.Id, page.Items[0].Id);
+        Assert.Equal(firstCreated.Id, page.Items[1].Id);
     }
 
     [Fact]
