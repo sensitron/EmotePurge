@@ -88,6 +88,25 @@ public class ChannelAccessServiceAdminTests
         Assert.False(service.IsGlobalAdmin(Principal("alice")));
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsGlobalAdmin_FallsBackToTheArray_WhenTheScalarIsBlank(string configured)
+    {
+        // The exact production shape when ADMIN_TWITCH_LOGINS is missing from the stack's
+        // environment: docker compose still expands `Auth__AdminTwitchLogins=${...}` to an empty
+        // string, so the blank scalar sits *next to* the appsettings.json array. Forgetting the
+        // variable must therefore degrade to the previous behaviour, not lock every admin out.
+        var service = CreateService(new Dictionary<string, string?>
+        {
+            ["Auth:AdminTwitchLogins:0"] = "alice",
+            ["Auth:AdminTwitchLogins"] = configured,
+        });
+
+        Assert.True(service.IsGlobalAdmin(Principal("alice")));
+        Assert.False(service.IsGlobalAdmin(Principal("bob")));
+    }
+
     [Fact]
     public void IsGlobalAdmin_GrantsNothing_WhenNothingIsConfigured()
     {
