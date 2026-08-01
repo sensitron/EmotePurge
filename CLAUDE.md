@@ -17,8 +17,10 @@ Emote Purge: plattformübergreifende Webanwendung zur Analyse, Community-Bewertu
 | **B** | Twitch-OAuth-Login (Cookie-Session, kein JWT), Live-Rollenprüfung (Admin-Allowlist / Broadcaster / Live-Moderator / 7TV-Editor), serverseitig wirksames Logout | ✅ vollständig |
 | **C** | Voting Engine: `VoteSession`/`Vote`, rollengesteuerte Abstimmung, Beliebtheits-Score aus normalisierter Chat-Nutzung + Keep/Delete-Votes | ✅ vollständig |
 | **D** | Angular-Frontend: Login, Übersicht, Usage-Stats-Grid, Voting-UI, 7TV-Mass-Delete-Engine, i18n (de/en), Pagination | ✅ vollständig |
-| **E** | Launch-Vorbereitung (Monitoring, Ressourcenlimits, Rechtstexte) | ⬜ offen |
+| **Admin** | Globaler Admin-Bereich (`/admin/*`, Allowlist `Auth:AdminTwitchLogins`): Monitoring, Channel-Liste inkl. Resync/Purge, Nutzerliste inkl. Session-Revoke und Rollen-Cache-Invalidierung, Audit-Log (`AuditLogEntry`), eigener SSE-Stream | ✅ vollständig |
+| **E** | Launch-Vorbereitung: Ressourcenlimits, Container-Healthchecks (S3-35), Log-Aggregation/Alerting (S3-36), Rechtstexte | ⬜ offen — **Monitoring selbst ist gebaut** (Admin-Bereich + `GET /api/admin/health` + `WorkerHealthPublisher`); offen ist die Infrastruktur drumherum |
 | **Review 2026-07-29** | 81 Befunde; Wellen A–C umgesetzt, D (Tests) und E (Infra & Launch) offen — s. [Review-2026-07-29-Umsetzung.md](docs/Review-2026-07-29-Umsetzung.md) | 🟡 laufend |
+| **Review 2026-08-01** | Struktur, Formatter-Tooling, Fremd-Wartbarkeit — s. [Review-2026-08-01-Struktur-und-Wartbarkeit.md](docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md) | 🟡 laufend |
 
 ## Commands
 
@@ -158,7 +160,7 @@ Die Begründung zu jeder Regel steht in [docs/DECISIONS.md](docs/DECISIONS.md).
 Die Sprachmischung im Bestand ist historisch gewachsen und uneinheitlich. Ab sofort gilt für **neuen** Code:
 
 - Bezeichner, Typen und öffentliche APIs: englisch.
-- Kommentare in neuem Code: englisch. Der Bestand in `EmotePurge.Worker` ist überwiegend deutsch und bleibt es — nur nicht fortführen.
+- Kommentare in neuem Code: englisch. Auch der Worker ist inzwischen überwiegend englisch (Messung 2026-08-01: 291 zu 31 von 420 Kommentarzeilen) — die frühere Aussage „Bestand im Worker ist überwiegend deutsch" stammt aus Welle A und ist durch die Umbauten seither überholt. Verbliebene deutsche Kommentare bleiben stehen, werden aber nicht fortgeführt; gemischtsprachige Dateien wie `ITwitchChatManager.cs` sind Altlast, kein Muster.
 - Log- und `throw`-Messages: deutsch.
 - Projektdokumentation deutsch, Commit-Messages englisch.
 
