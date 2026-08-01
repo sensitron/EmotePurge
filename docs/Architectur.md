@@ -115,13 +115,57 @@ Publizierende Stellen je Event-Typ (Stand 2026-08-01):
 
 - Twitch-Rollen werden nicht persistent in PostgreSQL gespeichert.
 - Beim Vote-Request prüft das Backend die Rollen des Users live via Twitch Helix API.
-- Ergebnisse werden für 5–15 Minuten in Redis gecacht, um Rate-Limits zu schonen.
+- Ergebnisse werden in Redis gecacht (`Auth:ModCheckCacheTtlMinutes`, Default **10 Minuten**), um Rate-Limits zu schonen.
+
+#### B.3 Rollen und Autorisierungsfilter — die verbindliche Übersicht
+
+Es gibt **keine** `Role`-Spalte und kein Rollen-Enum. „Rolle" heißt hier: eine von vier Prüfmethoden schlägt an. Autorisierung läuft ausschließlich über `IEndpointFilter`-Klassen in `src/EmotePurge.Api/Auth/`, nie über ASP.NET-Core-Policies (Regel 6).
+
+**Die vier Rollenquellen** (`Infrastructure/Services/ChannelAccessService.cs`):
+
+| Rolle | Woher | Besonderheit |
+|---|---|---|
+| **Global Admin** | Config `Auth:AdminTwitchLogins` (kommagetrennter Skalar aus Env/User-Secret **schlägt** das JSON-Array aus `appsettings.json`) | channel-unabhängig |
+| **Broadcaster** | `Channel.TwitchChannelId` gegen `principal.TwitchUserId` | Login-Vergleich nur als Fallback, solange die ID nie aufgelöst wurde. Stimmt der Login, aber nicht die ID → **abgelehnt plus Warnung im Log**: Twitch gibt Namen nach einem Rename wieder frei |
+| **Moderator** | Helix `GetModeratedChannelLogins`, über `IModRoleCache` | positiv wie negativ gecacht; ein `/unmod` wirkt bis zu 10 Minuten verzögert |
+| **7TV-Editor** | 7TVs `editor_of`-Beziehung | **nur** Lesezugriff auf Usage-Stats plus `sync-deleted`, nie Channel-Management |
+
+**Präzedenz:** `CanManageChannelAsync` = Admin → Broadcaster → Moderator. `CanViewUsageStatsAsync` = *genau das* plus 7TV-Editor. Damit gilt strikt `CanManageChannelAsync ⊂ CanViewUsageStatsAsync`; der einzige Unterschied ist der Editor.
+
+**Die fünf Filter:**
+
+| Filter | Lässt durch | Ablehnung |
+|---|---|---|
+| `GlobalAdminAuthorizationFilter` | nur Admin | 401 ohne Principal, sonst 403 |
+| `ChannelManagementAuthorizationFilter` | Admin, Broadcaster, Moderator | 400 `invalid_channel_name` · 401 · 403 |
+| `UsageStatsAccessAuthorizationFilter` | + 7TV-Editor | wie oben |
+| `VoteEligibilityFilter` (Stimmabgabe) | Admin/Broadcaster/Mod **immer**, sonst nach `AllowedRoles` | 404 `vote_session_not_found` · **409 `vote_session_ended`** · 403 |
+| `VoteAudienceFilter` (Ergebnisse ansehen) | dieselbe Rollenlogik | 404 · 403 — **kein 409**: beendete Sessions bleiben für ihre Zielgruppe sichtbar |
+
+`ChannelNameValidationFilter` liegt in `Validation/`, nicht `Auth/`: er prüft nur das Format (`^[a-z0-9_]{4,25}$` nach `ChannelName.Normalize`) und greift ausschließlich, wenn die Route überhaupt ein `channelName` trägt.
+
+**Zuordnung Endpoint → Filter** (33 Endpoints; Gruppenfilter sind aufgelöst):
+
+| Gruppe | Filter der Gruppe | Abweichungen einzelner Endpoints |
+|---|---|---|
+| `/api/channels` | Auth + ChannelNameValidation | `GET /{name}`, `POST /{name}/join`, `DELETE /{name}` → zusätzlich ChannelManagement · **`DELETE /{name}/purge` → GlobalAdmin** (einziger Admin-Endpoint außerhalb `/api/admin`) · `GET /{name}/permissions` und `GET /mine` → **bewusst ohne** Autorisierungsfilter |
+| `/api/channels/{name}/emotes` | Auth + ChannelNameValidation + **UsageStatsAccess** + `ExternalApi` | `POST /sync-deleted` nutzt `Bookkeeping` statt `ExternalApi` — der einzige Endpoint der App mit dieser Policy |
+| `/api/channels/{name}/usage-stats` | Auth + ChannelNameValidation + UsageStatsAccess + `ExternalApi` | — |
+| `/api/channels/{name}/vote-sessions` | Auth + ChannelNameValidation | `POST`, `POST /{id}/end`, `DELETE /{id}` → ChannelManagement · `GET /{id}/results` → VoteAudience · `POST`/`DELETE .../votes` → VoteEligibility · `GET` (Liste) → **kein Filter**, gefiltert pro Session im Handler |
+| `/api/admin` | Auth + **GlobalAdmin** | kein Rate-Limit (bewusst) und **kein `ChannelNameValidationFilter`** — `POST /channels/{name}/resync` liefert deshalb kein 400 bei ungültigem Namen |
+| `/api/auth` | keine | `login`, `callback`, `logout` sind öffentlich; `logout` bewusst, damit eine abgelaufene Session ihr Cookie noch löschen kann |
+
+**Authentifiziert, aber für jeden Eingeloggten offen** — das ist Absicht, nicht Lücke: `GET /{name}/permissions` (meldet selbst, was der Aufrufer dürfte), `GET /channels/mine`, `GET /vote-sessions/mine`, `GET /auth/me`, die Vote-Session-Liste (pro Zeile im Handler gefiltert) und `GET /{name}/live` (SSE-Events sind reine „etwas hat sich geändert"-Pings ohne Nutzdaten).
+
+**Öffentlich ohne Login:** `GET /api/worker/health` — bewusst, mit minimalem Payload. Die Frage, ob er das bleiben soll, ist offener Befund **Z1** aus Welle E.
+
+**`AllowedRoles` in der Praxis:** `Everyone` (1) kurzschließt sofort. `Subs` (2) löst einen Helix-Sub-Check aus. `Mods` (8) und `Broadcaster` (16) werden **nie explizit ausgewertet** — sie sind bereits durch den `CanManageChannelAsync`-Kurzschluss abgedeckt, der Managern unabhängig von den Flags Stimmrecht gibt. **`VIPs` (4) ist definiert, aber unbenutzbar**: die Session-Erstellung lehnt es mit `vips_not_supported` ab, weil Twitch keinen Endpoint hat, über den ein Nutzer den eigenen VIP-Status melden kann.
 
 ### Modul C: Voting Engine & Netto-Vote-Score
 
 - Voting-Ort: Das Voting findet ausschließlich im Web-Dashboard statt (nicht im Chat).
 - Parallele Sessions: Erlaubt flexible Votings (z. B. "Monats-Aufräumaktion Juli").
-- Zielgruppen-Einschränkung (`AllowedRoles`): Festlegbar, wer abstimmen darf (Alle, Subs, VIPs, Mods).
+- Zielgruppen-Einschränkung (`AllowedRoles`, `[Flags]`): Festlegbar, wer abstimmen darf — `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
 - **Emote-Subset pro Session (seit 2026-08-01):** Der Ersteller kann der Session einen expliziten Wahlzettel mitgeben (`VoteSessionEmote`-Join-Tabelle, `emoteIds` beim Erstellen). Ohne Auswahl deckt die Session dynamisch alle nicht-archivierten Channel-Emotes ab (Bestandsverhalten, keine Join-Rows). Ein kuratierter Wahlzettel ist ab Erstellung fix; fliegt ein Mitglied mid-session aus dem 7TV-Set, bleibt es mit Badge sichtbar (Votes erhalten), weitere Votes darauf sind gesperrt.
 - Der Score (seit 2026-08-01, vorher `f(Chat-Nutzung) + (Keep − Delete)`):
 
@@ -157,13 +201,50 @@ mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
 - **Stabiler Fehlercode-Vertrag:** Die Api liefert bei Fehlern ausschließlich sprachneutrale Codes (`{ errorCode = "..." }`), nie fertigen Text — übersetzt wird genau einmal im Frontend. Kette: `src/EmotePurge.Api/Validation/ApiErrorCodes.cs` (Konstanten) → `web/src/app/core/i18n/api-error.ts` (`apiErrorTranslationKey`, mappt `errorCode` auf einen `errors.api.<code>`-Übersetzungsschlüssel, mit Status-Code-Fallback für Antworten ohne Body, z. B. ein blankes `Forbid()`) → `errors.api.*`-Einträge in beiden Locale-Dateien. Der Vertrag lebt bewusst manuell synchron in diesen drei Stellen (kein Generator); `web/src/app/core/i18n/api-error.spec.ts` gleicht die bekannten Codes gegen beide Locale-Dateien ab.
 - **Pagination:** `PagedResult<T>` (`src/EmotePurge.Core/Services/PagedResult.cs`, `record` mit `Items`/`Page`/`PageSize`/`TotalCount`/berechnetem `TotalPages`) als generisches Paging-Envelope für Listen-Endpoints (u. a. Vote-Session-Listen). `web/src/app/shared/pagination/pager.ts` (`Pager`-Komponente) rendert Vor/Zurück + „Seite X von Y" darüber, wiederverwendet auf allen paginierten Listenseiten.
 
+### Modul Admin: Globaler Admin-Bereich
+
+Kein Teil der ursprünglichen Spezifikation, aber umfangsmäßig ein eigenes Modul: ein vertikaler Schnitt von der Entität bis zur Seite, erreichbar unter `/admin/*` hinter dem `adminGuard`. Zugang regelt ausschließlich die Allowlist `Auth:AdminTwitchLogins` — channel-unabhängig, keine Twitch-Rolle.
+
+**Acht Endpoints**, alle in der Gruppe `/api/admin` hinter `GlobalAdminAuthorizationFilter`:
+
+| Endpoint | Zweck |
+|---|---|
+| `GET /health` | Worker-Health-Snapshot, die authentifizierte Schwester des öffentlichen `/api/worker/health` |
+| `GET /live` | eigener SSE-Stream (implementiert in `LiveEndpoints.OpenAdminAsync`, registriert in `AdminEndpoints` — nur so erbt er den Admin-Filter der Gruppe) |
+| `GET /channels` | alle getrackten Channels samt Aggregaten (Emote-, Vote-Session-Zahlen) |
+| `POST /channels/{name}/resync` | 7TV-Vollsync für einen Channel anstoßen |
+| `GET /users` | alle Nutzer mit abgeleitetem Token-Status |
+| `POST /users/{id}/revoke-sessions` | setzt `User.SessionsValidFromUtc` — invalidiert bestehende Cookies serverseitig |
+| `POST /users/{id}/invalidate-role-cache` | löscht die `modcheck:`/`subcheck:`/`7tveditor:`-Keys des Nutzers aus Redis, ohne die 10-Minuten-TTL abzuwarten |
+| `GET /audit-log` | paginierte Historie privilegierter Aktionen |
+
+**Audit-Log.** Jede privilegierte Aktion schreibt eine `AuditLogEntry`-Zeile mit Akteur, `Action` (eine der zehn `AuditActions`-Konstanten), optionalem Channel-Bezug, Ziel und freiem `DetailsJson`. Protokolliert werden Channel-Join/-Leave/-Purge, Vote-Session-Erstellung/-Beendigung/-Löschung, `emotes.syncDeleted`, Session-Revoke, Channel-Resync und Rollen-Cache-Invalidierung.
+
+**`DELETE /api/channels/{name}/purge` ist der einzige Admin-Endpoint außerhalb der Gruppe** und trägt seinen `GlobalAdminAuthorizationFilter` einzeln. Er löscht den Channel samt Kaskade (Emotes, Usage-Stats, Vote-Sessions) und liegt bewusst **nicht** hinter `ChannelManagementAuthorizationFilter`: dessen Moderator-Zweig hängt an einem bis zu 10 Minuten alten Cache, und ein frisch entmoderierter Nutzer dürfte damit noch einen ganzen Channel vernichten.
+
+**Zwei bekannte Abweichungen:** Die `/api/admin`-Gruppe registriert **kein** `RequireRateLimiting` (bewusst — Admins sind eine geschlossene, kleine Menge) und **keinen** `ChannelNameValidationFilter`. Letzteres heißt: `POST /channels/{name}/resync` antwortet bei einem formal ungültigen Channel-Namen nicht mit `400 invalid_channel_name` wie überall sonst, sondern läuft in den normalen Nicht-gefunden-Pfad.
+
 ## 5. Datenbankmodell (Entity Framework Core Schema)
 
 > **Abweichung von der urspr. Spezifikation (`Emote`):** Die 7TV-ObjectID ist **nicht** mehr der Primary Key, sondern liegt in `SevenTvEmoteId`. Grund: Ein 7TV-Emote kann gleichzeitig in mehreren Channels aktiv sein; da `Emote` aber pro Channel eine eigene Zeile ist (`ChannelId`-Spalte), hätte die 7TV-ID als globaler PK bei geteilten Emotes zu einer Primary-Key-Kollision geführt. Stattdessen ist `Id` ein interner Guid-PK, und ein Unique-Index auf `(ChannelId, SevenTvEmoteId)` stellt die Eindeutigkeit pro Channel sicher. `UsageStat.EmoteId` referenziert diesen internen PK.
 >
 > Zusätzlich hat `UsageStat` einen Unique-Index auf `(EmoteId, Date)`, damit der 30-Sekunden-Batch-Flush pro Emote und Tag genau eine aggregierte Zeile pflegt statt vieler Einzelzeilen. `Date` ist als `DateOnly`/Postgres `date` typisiert (nicht `DateTime`/`timestamptz`) — macht den "UTC-Kalendertag"-Charakter der Spalte typsicher statt nur per Kommentar, und der Index trägt `UseCount` als Include-Spalte, damit Zeitraum-Summenabfragen (`SUM(UseCount) WHERE Date BETWEEN from AND to`) als Index-Only-Scan laufen. Diese Tages-Granularität ist bewusst die Grundlage für flexible Dashboard-Zeiträume (Tag/Woche/Monat/Custom) — ein Zeitraum ist einfach eine Summe über die passenden Tages-Zeilen, keine feinere Granularität oder Rollup-Tabelle nötig (siehe CLAUDE.md-Entscheidungslog).
 >
-> **Alle sechs Entitäten sind implementiert:** `Channel`, `Emote`, `UsageStat`, `User`, `VoteSession`, `Vote` (plus `AllowedRoles`/`VoteType` als Enums) liegen vollständig unter `src/EmotePurge.Core/Entities/` und sind über Migrationen angewendet — der bis 2026-07-25 gültige Stand ("nur Modul 1 implementiert") ist überholt. Zusätzlich liegt dort `ChannelName.cs` — keine Entität, sondern eine statische Normalisierungs-Hilfsklasse (`Normalize(string) => value.Trim().ToLowerInvariant()`), die die stille Invariante "`Channel.ChannelName` ist in der DB immer lowercase/getrimmt" an einer Stelle festhält.
+> **Alle acht Entitäten sind implementiert:** `Channel`, `Emote`, `UsageStat`, `User`, `VoteSession`, `VoteSessionEmote`, `Vote`, `AuditLogEntry` (plus `AllowedRoles`/`VoteType` als Enums und `AuditActions` als Konstantenklasse) liegen vollständig unter `src/EmotePurge.Core/Entities/` und sind über Migrationen angewendet — der bis 2026-07-25 gültige Stand ("nur Modul 1 implementiert") ist überholt. Zusätzlich liegt dort `ChannelName.cs` — keine Entität, sondern eine statische Normalisierungs-Hilfsklasse (`Normalize(string) => value.Trim().ToLowerInvariant()`), die die stille Invariante "`Channel.ChannelName` ist in der DB immer lowercase/getrimmt" an einer Stelle festhält.
+>
+> **`VoteSessionEmote`** (Migration `20260801005055`) ist die Membership-Zeile des expliziten Stimmzettels: `(VoteSessionId, EmoteId)` als zusammengesetzter Schlüssel. Die Semantik ist bewusst asymmetrisch — eine Session **ohne** solche Zeilen deckt dynamisch alle nicht-archivierten Channel-Emotes ab (das Verhalten vor dem Subset-Redesign und zugleich der „ganzes Set"-Modus), eine Session **mit** Zeilen hat einen bei der Erstellung festgelegten Stimmzettel, der danach nie mehr bearbeitet wird. `EmoteId` ist wie bei `Vote` der interne `Emote`-Guid, nicht die 7TV-ID.
+>
+> **`AuditLogEntry`** (Migrationen `20260731101655` und `20260731134345` für den `ChannelName`-Index) protokolliert privilegierte Aktionen: `OccurredAtUtc`, `ActorTwitchUserId`/`ActorLogin`, `Action` (einer der zehn Werte aus `AuditActions`, z. B. `channel.purge`, `voteSession.delete`, `user.revokeSessions`), optional `ChannelName`, `TargetType`/`TargetId` und ein freies `DetailsJson`.
+>
+> **Spalten, die später dazukamen und leicht übersehen werden:**
+>
+> | Entität | Spalte | Migration | Zweck |
+> |---|---|---|---|
+> | `VoteSession` | `HideResultsUntilEnd` | `20260801120155` | Secret Ballot — Tallies werden bis zum Sitzungsende serverseitig zurückgehalten, nicht nur im Frontend ausgeblendet |
+> | `User` | `TwitchRefreshToken`, `TwitchAccessToken`, `TwitchAccessTokenExpiresAtUtc`, `TwitchTokenScopes` | `20260730160215` | serverseitiger Token-Refresh; die beiden Token-Spalten liegen **verschlüsselt** (`AesGcmTokenCipher`, Schlüssel aus `Auth:Twitch:TokenEncryptionKey`) |
+> | `User` | `SessionsValidFromUtc` | `20260729222651` | serverseitig wirksames Logout / Session-Revoke: ältere Cookies gelten als ungültig |
+>
+> `AllowedRoles` ist ein `[Flags]`-Enum mit **fünf** Werten: `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
 >
 > **Zweite Abweichung (`Channel.TwitchChannelId`):** ist `string?` (nullable) statt non-nullable — da die Spalte einen Unique-Index hat, hätte ein non-nullable Default (`""`) beim zweiten angelegten Channel einen Unique-Constraint-Verstoß ausgelöst (leerer String zählt für Unique-Indizes, NULL nicht). Bleibt `null`, bis sie aufgelöst werden kann. Wird inzwischen (Modul A.3) beim Channel-Join über 7TVs GraphQL-Nutzersuche befüllt, nicht erst durch das künftige Modul B (Twitch-OAuth) — siehe Modul-A.3-Abschnitt.
 

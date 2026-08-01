@@ -12,7 +12,7 @@ Schwesterdokument: [`Review-2026-07-29-Umsetzung.md`](Review-2026-07-29-Umsetzun
 | **1** | Formatter-Tooling und Reformat-Sweep | ✅ **abgeschlossen** (2026-08-01) — TL-1, TL-3, TL-4 |
 | **2** | Member-Ordnung Frontend (ESLint) + Backend (Konvention) | ✅ **abgeschlossen** (2026-08-01) — ST-1, ST-2 |
 | **3** | CI-Gate für Format und Lint | ✅ **abgeschlossen** (2026-08-01) — TL-2 |
-| **4** | Onboarding-Blocker und Doku-Drift | ⬜ offen |
+| **4** | Onboarding-Blocker und Doku-Drift | ✅ **abgeschlossen** (2026-08-01) — WB-1 bis WB-6, WB-9 |
 | **5** | Code-Duplikate und Kleinkram | ⬜ offen |
 
 ---
