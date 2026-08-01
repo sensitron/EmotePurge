@@ -1,0 +1,11 @@
+# Commits, die ausschließlich Formatierung ändern und deshalb bei `git blame`
+# übersprungen gehören. GitHub wertet diese Datei automatisch aus.
+#
+# Lokal einmalig aktivieren:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style(web): apply prettier across the workspace
+f17112982aecf5588e81f83453f2f82745fcbd36
+
+# chore: strip UTF-8 BOMs and normalize line endings
+49a3339fc5d183d07241fb5e3e2fee7beaee719f
