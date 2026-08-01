@@ -153,8 +153,16 @@ export class VoteSessionDetailPage {
   protected readonly showLowParticipation = computed(
     () => this.voterCount() > 0 && this.voterCount() < LOW_PARTICIPATION_THRESHOLD,
   );
+  // The caveat stays visible after the session ends — that is where it matters most, since the
+  // final numbers are what the mass-delete acts on. Only the wording switches: "bisher"/"so far"
+  // promises votes that may still come in, which is no longer true once voting is closed.
   protected readonly lowParticipationKey = computed(() =>
-    pluralKey(this.voterCount(), 'voting.detail.lowParticipation'),
+    pluralKey(
+      this.voterCount(),
+      this.results()?.isActive
+        ? 'voting.detail.lowParticipation'
+        : 'voting.detail.lowParticipationEnded',
+    ),
   );
 
   protected readonly showFilterToolbar = computed(

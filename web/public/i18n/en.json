@@ -375,6 +375,10 @@
         "one": "Only 1 person has voted so far — the result isn't a community verdict yet.",
         "other": "Only {{count}} people have voted so far — the result isn't a community verdict yet."
       },
+      "lowParticipationEnded": {
+        "one": "Only 1 person voted — the result isn't a community verdict.",
+        "other": "Only {{count}} people voted — the result isn't a community verdict."
+      },
       "errors": {
         "loadFailed": "Couldn't load the voting session.",
         "forbidden": "You're not allowed to vote in this session (wrong role)."

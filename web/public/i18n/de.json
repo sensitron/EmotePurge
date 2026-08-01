@@ -375,6 +375,10 @@
         "one": "Bisher hat erst 1 Person abgestimmt — das Ergebnis ist noch kein Community-Urteil.",
         "other": "Bisher haben erst {{count}} Personen abgestimmt — das Ergebnis ist noch kein Community-Urteil."
       },
+      "lowParticipationEnded": {
+        "one": "Es hat nur 1 Person abgestimmt — das Ergebnis ist kein Community-Urteil.",
+        "other": "Es haben nur {{count}} Personen abgestimmt — das Ergebnis ist kein Community-Urteil."
+      },
       "errors": {
         "loadFailed": "Abstimmung konnte nicht geladen werden.",
         "forbidden": "Du darfst in dieser Abstimmung nicht mitvoten (falsche Rolle für diese Session)."
