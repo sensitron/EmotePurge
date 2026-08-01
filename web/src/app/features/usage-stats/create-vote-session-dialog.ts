@@ -38,8 +38,8 @@ export interface CreateVoteSessionDialogData {
 }
 
 /**
- * "Zur Abstimmung stellen" from a usage-stats selection: the same three fields as the inline
- * create form on the voting list page (deliberately duplicated — the form is three existing
+ * "Zur Abstimmung stellen" from a usage-stats selection: the same four fields as the inline
+ * create form on the voting list page (deliberately duplicated — the form is four existing
  * primitives, and a shared building block would couple the two features for less code than it
  * saves), plus the fixed ballot from the selection. Closes with the created session on success.
  */
@@ -110,6 +110,21 @@ export interface CreateVoteSessionDialogData {
           {{ 'voting.create.startPrefillHint' | transloco }}
         </span>
       </label>
+      <div class="flex flex-col gap-1 text-sm text-slate-300">
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="checkbox"
+            class="h-4 w-4 accent-purple-600"
+            [checked]="hideResultsUntilEnd()"
+            (change)="hideResultsUntilEnd.set($any($event.target).checked)"
+            aria-describedby="create-vote-session-hide-results-hint"
+          />
+          {{ 'voting.list.hideResultsLabel' | transloco }}
+        </label>
+        <span id="create-vote-session-hide-results-hint" class="text-xs text-slate-500">
+          {{ 'voting.list.hideResultsHint' | transloco }}
+        </span>
+      </div>
       @if (errorMessage(); as message) {
         <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
       }
@@ -149,6 +164,8 @@ export class CreateVoteSessionDialog {
   // clearing it falls back to "count from now", same as the inline form on the voting list.
   protected readonly customStartedAt = signal(`${this.data.usageFromDate}T00:00`);
   protected readonly maxStartedAt = toLocalDateTimeInputValue(new Date());
+  // Secret ballot, off by default and fixed once the session exists — see CreateVoteSessionRequest.
+  protected readonly hideResultsUntilEnd = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
   protected readonly isSubmitting = signal(false);
 
@@ -170,13 +187,13 @@ export class CreateVoteSessionDialog {
     this.errorMessage.set(null);
     this.isSubmitting.set(true);
     this.voteSessionService
-      .create(
-        this.data.channelName,
-        this.titleControl.value.trim(),
-        roles,
+      .create(this.data.channelName, {
+        title: this.titleControl.value.trim(),
+        allowedVoterRoles: roles,
         startedAt,
-        this.data.emoteIds,
-      )
+        emoteIds: this.data.emoteIds,
+        hideResultsUntilEnd: this.hideResultsUntilEnd(),
+      })
       .subscribe({
         next: (session) => this.dialogRef.close(session),
         error: (error: HttpErrorResponse) => {

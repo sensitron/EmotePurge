@@ -84,6 +84,18 @@
     {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}
   </p>
 
+  @if (talliesWithheld()) {
+    <!-- The reason the cards carry no numbers. info, not warning: nothing is broken or degraded,
+         this is how the session was set up (design doc §4.4). -->
+    <app-notice-banner variant="info">
+      {{ 'voting.detail.resultsHiddenNotice' | transloco }}
+    </app-notice-banner>
+  } @else if (showManagerHiddenNotice()) {
+    <app-notice-banner variant="info">
+      {{ 'voting.detail.resultsHiddenManagerNotice' | transloco }}
+    </app-notice-banner>
+  }
+
   @if (showLowParticipation()) {
     <!-- info, not warning: thin participation is a caveat for reading the numbers, nothing is
          degraded — and role="status" keeps it silent for screen readers (design doc §4.4). -->
@@ -193,9 +205,17 @@
                   >{{ emote.totalUseCount }}x {{ 'usageStats.usageLabel' | transloco }}</span
                 >
               }
-              <span class="truncate text-xs text-slate-400"
-                >{{ 'voting.detail.scoreLabel' | transloco }} {{ formatScore(emote.score) }}</span
-              >
+              <!-- The line stays occupied either way: dropping it on a hidden session would change
+                   the card height the ROW_HEIGHT_PX arithmetic budgets for. -->
+              @if (emote.score !== null) {
+                <span class="truncate text-xs text-slate-400"
+                  >{{ 'voting.detail.scoreLabel' | transloco }} {{ formatScore(emote.score) }}</span
+                >
+              } @else {
+                <span class="truncate text-xs text-slate-500 italic">{{
+                  'voting.detail.resultsHiddenShort' | transloco
+                }}</span>
+              }
             </div>
             <!-- Below sm the buttons sit side by side, icon-centred without label — two stacked
                  full-width rows made the mobile card taller than the desktop one. gap-4 keeps the
@@ -235,7 +255,11 @@
                 <span class="hidden truncate sm:inline">{{
                   'voting.detail.keepLabel' | transloco
                 }}</span>
-                <span class="font-medium sm:ml-auto">{{ emote.keepVotes }}</span>
+                <!-- Omitted rather than dashed out on a hidden session: a placeholder in the tally
+                     slot reads like a value, and the banner above already gives the reason. -->
+                @if (emote.keepVotes !== null) {
+                  <span class="font-medium sm:ml-auto">{{ emote.keepVotes }}</span>
+                }
               </button>
               <button
                 type="button"
@@ -267,7 +291,9 @@
                 <span class="hidden truncate sm:inline">{{
                   'voting.detail.deleteLabel' | transloco
                 }}</span>
-                <span class="font-medium sm:ml-auto">{{ emote.deleteVotes }}</span>
+                @if (emote.deleteVotes !== null) {
+                  <span class="font-medium sm:ml-auto">{{ emote.deleteVotes }}</span>
+                }
               </button>
             </div>
           </div>

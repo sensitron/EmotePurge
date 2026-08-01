@@ -109,6 +109,8 @@ function voteSummaries(count: number) {
     endedAt: i < 3 ? null : '2026-07-10T12:00:00Z',
     // Mixed ballot scopes: curated subsets and whole-set (null) sessions side by side.
     emoteCount: i % 3 === 0 ? null : 10 + i,
+    // Second card carries the "hidden" badge next to the active one — the widest badge row.
+    hideResultsUntilEnd: i === 1,
   }));
 }
 
@@ -119,10 +121,15 @@ interface VoteResultsOptions {
   withArchived?: boolean;
   voterCount?: number;
   count?: number;
+  // A running secret-ballot session. 'voter' is what the server sends to non-managers: all three
+  // tally fields null, so the cards render the "Ergebnis verborgen" line and the vote buttons lose
+  // their counts. 'manager' keeps the numbers — the flag is set, but this viewer sees through it.
+  hidden?: 'voter' | 'manager';
 }
 
 function voteResults(sessionId: number, isActive: boolean, options: VoteResultsOptions = {}) {
-  const { withUsage = true, withArchived = false, voterCount = 25, count = 12 } = options;
+  const { withUsage = true, withArchived = false, voterCount = 25, count = 12, hidden } = options;
+  const talliesWithheld = hidden === 'voter';
   return {
     sessionId,
     title:
@@ -131,13 +138,14 @@ function voteResults(sessionId: number, isActive: boolean, options: VoteResultsO
     startedAt: '2026-07-01T12:00:00Z',
     endedAt: isActive ? null : '2026-07-10T12:00:00Z',
     voterCount,
-    // Backend order: ascending net score, delete candidates first.
+    hideResultsUntilEnd: hidden !== undefined,
+    // Backend order: ascending net score, delete candidates first (name order when withheld).
     emotes: usageEmotes(count).map((e, i) => ({
       ...e,
       totalUseCount: withUsage ? e.totalUseCount : null,
-      keepVotes: 2 + i * 4,
-      deleteVotes: 40 - i * 3,
-      score: -38 + i * 7,
+      keepVotes: talliesWithheld ? null : 2 + i * 4,
+      deleteVotes: talliesWithheld ? null : 40 - i * 3,
+      score: talliesWithheld ? null : -38 + i * 7,
       isArchived: withArchived && i < 2,
       myVote: i % 3 === 0 ? 1 : i % 3 === 1 ? 2 : null,
     })),
@@ -538,6 +546,28 @@ const SCENARIOS: Scenario[] = [
       await authedShell(page);
       await channelWorkspace(page, { canManage: false });
       await mockVoteResults(page, 5, true, { withUsage: false });
+    },
+  },
+  {
+    // Running secret ballot as a voter sees it: no tallies on the cards, the info banner naming
+    // the reason, own votes still marked. The h-44 card contract has to survive the swapped
+    // score line and the vote buttons losing their counts.
+    slug: 'vote-detail-hidden-voter',
+    path: '/channels/sensitron/vote-sessions/5',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page, { canManage: false });
+      await mockVoteResults(page, 5, true, { withUsage: false, hidden: 'voter' });
+    },
+  },
+  {
+    // Same session as a manager: numbers visible, plus the banner saying the voters can't see them.
+    slug: 'vote-detail-hidden-manager',
+    path: '/channels/sensitron/vote-sessions/5',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockVoteResults(page, 5, true, { hidden: 'manager' });
     },
   },
   {

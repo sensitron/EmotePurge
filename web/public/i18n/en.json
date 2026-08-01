@@ -319,12 +319,17 @@
   "voting": {
     "list": {
       "createTitle": "Create a new voting session",
+      "wholeSetHint": "The whole emote set of this channel goes on the ballot — nothing is preselected here.",
+      "wholeSetHintLink": "Want to put only certain emotes up for a vote?",
       "titlePlaceholder": "Title, e.g. July cleanup round",
       "titleRequired": "Title must not be empty.",
       "audienceEveryone": "Everyone",
       "audienceSubs": "Subs",
       "audienceMods": "Mods/Broadcaster",
       "startCountingLabel": "Count chat usage from (empty = from now)",
+      "hideResultsLabel": "Only show results after the session ends",
+      "hideResultsHint": "While the session runs, the community sees no vote counts — only the mod team does. Once it ends, everyone sees everything. Can't be changed afterwards.",
+      "hiddenBadge": "Hidden",
       "create": "Create",
       "noSessions": "No voting sessions for this channel yet.",
       "noSessionsManagerHint": "Create the first session above — the community then votes keep-or-delete per emote.",
@@ -357,6 +362,9 @@
       "retractVote": "Retract vote",
       "archivedBadge": "No longer in the set",
       "archivedVoteDisabled": "No longer in the 7TV set — voting for this emote is closed.",
+      "resultsHiddenShort": "Result hidden",
+      "resultsHiddenNotice": "This session's vote counts are only shown once it has ended. You can still see your own vote and change it at any time.",
+      "resultsHiddenManagerNotice": "Hidden session: you see the running tallies as part of the mod team, the voters don't. They become visible to everyone once the session ends.",
       "lowParticipation": {
         "one": "Only 1 person has voted so far — the result isn't a community verdict yet.",
         "other": "Only {{count}} people have voted so far — the result isn't a community verdict yet."

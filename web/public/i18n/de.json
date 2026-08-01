@@ -319,12 +319,17 @@
   "voting": {
     "list": {
       "createTitle": "Neue Abstimmung erstellen",
+      "wholeSetHint": "Zur Wahl steht das ganze Emote-Set des Channels — hier wird nichts vorausgewählt.",
+      "wholeSetHintLink": "Nur bestimmte Emotes zur Wahl stellen?",
       "titlePlaceholder": "Titel, z.B. Monats-Aufräumaktion Juli",
       "titleRequired": "Titel darf nicht leer sein.",
       "audienceEveryone": "Alle",
       "audienceSubs": "Subs",
       "audienceMods": "Mods/Streamer",
       "startCountingLabel": "Chat-Nutzung zählen ab (leer = ab jetzt)",
+      "hideResultsLabel": "Ergebnisse erst nach Ende zeigen",
+      "hideResultsHint": "Während die Abstimmung läuft, sieht die Community keine Stimmenzahlen — nur das Mod-Team. Nach dem Beenden sehen alle alles. Nachträglich nicht änderbar.",
+      "hiddenBadge": "Verdeckt",
       "create": "Erstellen",
       "noSessions": "Noch keine Abstimmungen für diesen Channel.",
       "noSessionsManagerHint": "Erstelle oben die erste Abstimmung — die Community stimmt dann pro Emote über Behalten oder Löschen ab.",
@@ -357,6 +362,9 @@
       "retractVote": "Vote zurücknehmen",
       "archivedBadge": "Nicht mehr im Set",
       "archivedVoteDisabled": "Nicht mehr im 7TV-Set — Abstimmung für dieses Emote geschlossen.",
+      "resultsHiddenShort": "Ergebnis verborgen",
+      "resultsHiddenNotice": "Die Stimmenzahlen dieser Abstimmung werden erst nach ihrem Ende angezeigt. Deine eigene Stimme siehst du weiterhin und kannst sie jederzeit ändern.",
+      "resultsHiddenManagerNotice": "Verdeckte Abstimmung: Du siehst die Zwischenstände als Teil des Mod-Teams, die Voter sehen sie nicht. Nach dem Beenden werden sie für alle sichtbar.",
       "lowParticipation": {
         "one": "Bisher hat erst 1 Person abgestimmt — das Ergebnis ist noch kein Community-Urteil.",
         "other": "Bisher haben erst {{count}} Personen abgestimmt — das Ergebnis ist noch kein Community-Urteil."

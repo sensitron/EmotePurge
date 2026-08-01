@@ -69,7 +69,10 @@ describe('VoteSessionService', () => {
 
   it('create POSTs title/allowedVoterRoles, omitting startedAt when not given', () => {
     service
-      .create('sensitron', 'Cleanup round 1', AllowedRoles.Everyone | AllowedRoles.Mods)
+      .create('sensitron', {
+        title: 'Cleanup round 1',
+        allowedVoterRoles: AllowedRoles.Everyone | AllowedRoles.Mods,
+      })
       .subscribe();
 
     const req = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
@@ -83,7 +86,11 @@ describe('VoteSessionService', () => {
 
   it('create includes startedAt when given', () => {
     service
-      .create('sensitron', 'Cleanup round 1', AllowedRoles.Everyone, '2026-08-01T00:00:00Z')
+      .create('sensitron', {
+        title: 'Cleanup round 1',
+        allowedVoterRoles: AllowedRoles.Everyone,
+        startedAt: '2026-08-01T00:00:00Z',
+      })
       .subscribe();
 
     const req = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
@@ -97,7 +104,11 @@ describe('VoteSessionService', () => {
 
   it('create includes emoteIds when a ballot is given, omitting them when empty', () => {
     service
-      .create('sensitron', 'Curated round', AllowedRoles.Everyone, undefined, ['e-1', 'e-2'])
+      .create('sensitron', {
+        title: 'Curated round',
+        allowedVoterRoles: AllowedRoles.Everyone,
+        emoteIds: ['e-1', 'e-2'],
+      })
       .subscribe();
 
     const withBallot = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
@@ -110,7 +121,13 @@ describe('VoteSessionService', () => {
 
     // An empty array must not travel — the server treats an explicit empty ballot as an error,
     // while an absent field means "all emotes".
-    service.create('sensitron', 'All emotes', AllowedRoles.Everyone, undefined, []).subscribe();
+    service
+      .create('sensitron', {
+        title: 'All emotes',
+        allowedVoterRoles: AllowedRoles.Everyone,
+        emoteIds: [],
+      })
+      .subscribe();
 
     const withoutBallot = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
     expect(withoutBallot.request.body).toEqual({
@@ -118,6 +135,40 @@ describe('VoteSessionService', () => {
       allowedVoterRoles: AllowedRoles.Everyone,
     });
     withoutBallot.flush({});
+  });
+
+  it('create sends hideResultsUntilEnd only when the secret ballot is opted into', () => {
+    service
+      .create('sensitron', {
+        title: 'Secret round',
+        allowedVoterRoles: AllowedRoles.Everyone,
+        hideResultsUntilEnd: true,
+      })
+      .subscribe();
+
+    const hidden = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
+    expect(hidden.request.body).toEqual({
+      title: 'Secret round',
+      allowedVoterRoles: AllowedRoles.Everyone,
+      hideResultsUntilEnd: true,
+    });
+    hidden.flush({});
+
+    // false is the server's own default — sending it would only widen the contract.
+    service
+      .create('sensitron', {
+        title: 'Open round',
+        allowedVoterRoles: AllowedRoles.Everyone,
+        hideResultsUntilEnd: false,
+      })
+      .subscribe();
+
+    const open = httpMock.expectOne('/api/channels/sensitron/vote-sessions');
+    expect(open.request.body).toEqual({
+      title: 'Open round',
+      allowedVoterRoles: AllowedRoles.Everyone,
+    });
+    open.flush({});
   });
 
   it('end POSTs to the /end sub-route', () => {

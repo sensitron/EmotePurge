@@ -129,6 +129,8 @@ export class VoteSessionListPage {
   protected readonly selectedAudience = signal<'everyone' | 'subs' | 'mods'>('everyone');
   protected readonly customStartedAt = signal(defaultStartedAt());
   protected readonly maxStartedAt = toLocalDateTimeInputValue(new Date());
+  // Secret ballot, off by default and fixed once the session exists — see CreateVoteSessionRequest.
+  protected readonly hideResultsUntilEnd = signal(false);
 
   protected readonly copyFeedback = signal<{
     sessionId: number;
@@ -159,7 +161,12 @@ export class VoteSessionListPage {
 
     this.actionError.set(null);
     this.voteSessionService
-      .create(this.channelName(), this.titleControl.value.trim(), roles, startedAt)
+      .create(this.channelName(), {
+        title: this.titleControl.value.trim(),
+        allowedVoterRoles: roles,
+        startedAt,
+        hideResultsUntilEnd: this.hideResultsUntilEnd(),
+      })
       .subscribe({
         next: () => {
           // Reloads instead of prepending locally: a new session shifts the paging, and the old
@@ -168,6 +175,7 @@ export class VoteSessionListPage {
           this.sessionsResource.reload();
           this.titleControl.reset('');
           this.customStartedAt.set(defaultStartedAt());
+          this.hideResultsUntilEnd.set(false);
         },
         error: (error: HttpErrorResponse) => this.handleError(error),
       });

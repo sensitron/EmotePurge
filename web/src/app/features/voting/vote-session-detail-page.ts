@@ -115,6 +115,20 @@ export class VoteSessionDetailPage {
   // entry point on this page — the usage-stats grid keeps it for them.
   protected readonly canSelectForDelete = this.hasUsageData;
 
+  // Same data-presence-as-permission reading as hasUsageData: the server nulls the tallies of a
+  // running secret-ballot session for everyone it does not consider a manager.
+  protected readonly talliesWithheld = computed(() =>
+    (this.results()?.emotes ?? []).some((emote) => emote.keepVotes === null),
+  );
+
+  // The mirror image: the session is a secret ballot and still running, but this viewer sees
+  // through it. Worth saying out loud — otherwise a manager has no way to tell that the numbers on
+  // their screen are not the numbers the voters are looking at.
+  protected readonly showManagerHiddenNotice = computed(() => {
+    const results = this.results();
+    return !!results && results.hideResultsUntilEnd && results.isActive && !this.talliesWithheld();
+  });
+
   protected readonly voterCount = computed(() => this.results()?.voterCount ?? 0);
   protected readonly showLowParticipation = computed(
     () => this.voterCount() > 0 && this.voterCount() < LOW_PARTICIPATION_THRESHOLD,
@@ -128,8 +142,10 @@ export class VoteSessionDetailPage {
   );
 
   // Freezes the card order (by emote id) across post-vote reloads, since the backend sorts by
-  // score descending — without this, voting an emote's score down to the bottom instantly yanks
-  // its card to the end of the list while the user is still looking at it.
+  // score — without this, voting an emote's score down to the bottom instantly yanks its card to
+  // the end of the list while the user is still looking at it. On a secret ballot the server sends
+  // name order instead (score order would leak the ranking), and freezing that is equally right:
+  // the reveal then happens through the numbers appearing, not through the cards jumping.
   protected readonly orderedEmoteIds = signal<string[] | null>(null);
 
   protected readonly orderedEmotes = computed(() => {
@@ -287,10 +303,13 @@ export class VoteSessionDetailPage {
   }
 
   // Full, untruncated stats wording as a tooltip — the visible lines may still ellipsize on narrow
-  // cards. Omits the usage half when the server withheld it, so the tooltip never states a number
-  // the card deliberately doesn't have.
+  // cards. Omits whichever half the server withheld, so the tooltip never states a number the card
+  // deliberately doesn't have.
   protected statsTitle(emote: VoteSessionResult): string {
-    const score = `${this.translocoService.translate('voting.detail.scoreLabel')} ${this.formatScore(emote.score)}`;
+    const score =
+      emote.score === null
+        ? this.translocoService.translate('voting.detail.resultsHiddenShort')
+        : `${this.translocoService.translate('voting.detail.scoreLabel')} ${this.formatScore(emote.score)}`;
     if (emote.totalUseCount === null) {
       return score;
     }
@@ -299,23 +318,31 @@ export class VoteSessionDetailPage {
   }
 
   protected keepButtonTitle(emote: VoteSessionResult): string {
-    if (emote.isArchived) {
-      return this.translocoService.translate('voting.detail.archivedVoteDisabled');
-    }
-    const labelKey =
-      emote.myVote === VoteType.Keep ? 'voting.detail.retractVote' : 'voting.detail.keepAriaLabel';
-    return `${this.translocoService.translate(labelKey)} (${emote.keepVotes})`;
+    return this.voteButtonTitle(
+      emote,
+      emote.myVote === VoteType.Keep ? 'voting.detail.retractVote' : 'voting.detail.keepAriaLabel',
+      emote.keepVotes,
+    );
   }
 
   protected deleteButtonTitle(emote: VoteSessionResult): string {
+    return this.voteButtonTitle(
+      emote,
+      emote.myVote === VoteType.Delete
+        ? 'voting.detail.retractVote'
+        : 'voting.detail.deleteAriaLabel',
+      emote.deleteVotes,
+    );
+  }
+
+  // The tally in parentheses is dropped rather than shown as "(0)" or "(null)" when the server
+  // withheld it — the tooltip is the one place a hidden number could still slip out.
+  private voteButtonTitle(emote: VoteSessionResult, labelKey: string, tally: number | null): string {
     if (emote.isArchived) {
       return this.translocoService.translate('voting.detail.archivedVoteDisabled');
     }
-    const labelKey =
-      emote.myVote === VoteType.Delete
-        ? 'voting.detail.retractVote'
-        : 'voting.detail.deleteAriaLabel';
-    return `${this.translocoService.translate(labelKey)} (${emote.deleteVotes})`;
+    const label = this.translocoService.translate(labelKey);
+    return tally === null ? label : `${label} (${tally})`;
   }
 
   private load(options: { freeze: boolean } = { freeze: true }): void {

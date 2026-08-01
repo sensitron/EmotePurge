@@ -4,8 +4,8 @@ import { Observable } from 'rxjs';
 
 import { PagedResult } from '../models/paged-result.model';
 import {
-  AllowedRoles,
   CastVoteResult,
+  CreateVoteSessionRequest,
   MyVoteSession,
   VoteSessionResults,
   VoteSessionSummary,
@@ -35,20 +35,18 @@ export class VoteSessionService {
     });
   }
 
-  // emoteIds omitted = the session covers all non-archived channel emotes dynamically; a non-empty
-  // list becomes the session's fixed ballot (local emote ids from the results/usage models).
+  // Optional fields are omitted from the body rather than sent as undefined/false, so the server's
+  // own defaults stay the single definition of "not specified" — see CreateVoteSessionRequest.
   create(
     channelName: string,
-    title: string,
-    allowedVoterRoles: AllowedRoles,
-    startedAt?: string,
-    emoteIds?: string[],
+    request: CreateVoteSessionRequest,
   ): Observable<VoteSessionSummary> {
     return this.http.post<VoteSessionSummary>(`/api/channels/${channelName}/vote-sessions`, {
-      title,
-      allowedVoterRoles,
-      ...(startedAt ? { startedAt } : {}),
-      ...(emoteIds?.length ? { emoteIds } : {}),
+      title: request.title,
+      allowedVoterRoles: request.allowedVoterRoles,
+      ...(request.startedAt ? { startedAt: request.startedAt } : {}),
+      ...(request.emoteIds?.length ? { emoteIds: request.emoteIds } : {}),
+      ...(request.hideResultsUntilEnd ? { hideResultsUntilEnd: true } : {}),
     });
   }
 

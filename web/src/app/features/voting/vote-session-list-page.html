@@ -1,7 +1,18 @@
 <div class="flex flex-col gap-6">
   @if (canManage()) {
     <section class="app-card p-5">
-      <h2 class="mb-3 text-lg font-semibold">{{ 'voting.list.createTitle' | transloco }}</h2>
+      <h2 class="text-lg font-semibold">{{ 'voting.list.createTitle' | transloco }}</h2>
+      <!-- The counterpart of the dialog's "{{count}} emotes selected" line: this entry point has no
+           selection at all, and nothing else on the form said which emotes end up on the ballot. -->
+      <p class="mt-1 mb-3 text-sm text-slate-400">
+        {{ 'voting.list.wholeSetHint' | transloco }}
+        <a
+          [routerLink]="['/channels', channelName(), 'usage-stats']"
+          class="text-slate-300 underline-offset-2 hover:text-purple-300 hover:underline"
+        >
+          {{ 'voting.list.wholeSetHintLink' | transloco }}
+        </a>
+      </p>
       <div class="flex flex-col gap-3">
         <input
           id="vote-session-title"
@@ -56,6 +67,21 @@
           {{ 'voting.list.startCountingLabel' | transloco }}
           <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
         </label>
+        <div class="flex flex-col gap-1 text-sm text-slate-300">
+          <label class="flex items-center gap-2 py-1">
+            <input
+              type="checkbox"
+              class="h-4 w-4 accent-purple-600"
+              [checked]="hideResultsUntilEnd()"
+              (change)="hideResultsUntilEnd.set($any($event.target).checked)"
+              [attr.aria-describedby]="'vote-session-hide-results-hint'"
+            />
+            {{ 'voting.list.hideResultsLabel' | transloco }}
+          </label>
+          <span id="vote-session-hide-results-hint" class="text-xs text-slate-500">
+            {{ 'voting.list.hideResultsHint' | transloco }}
+          </span>
+        </div>
         <button
           type="button"
           appButton="primary"
@@ -106,6 +132,13 @@
                     : ('voting.list.emoteCountSome' | transloco: { count: session.emoteCount })
                 }}
               </span>
+              <!-- Only while it runs: once ended, the session hides nothing anymore and the badge
+                   would just repeat history. -->
+              @if (session.hideResultsUntilEnd && session.isActive) {
+                <app-status-badge tone="blue">
+                  {{ 'voting.list.hiddenBadge' | transloco }}
+                </app-status-badge>
+              }
               <app-status-badge [tone]="session.isActive ? 'emerald' : 'slate'">
                 {{
                   (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
