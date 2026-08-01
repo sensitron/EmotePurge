@@ -95,11 +95,13 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         var to = DateOnly.FromDateTime(session.EndedAt ?? DateTime.UtcNow);
 
         // Usage is manager-only context now and no part of the score, so the totals query can be
-        // skipped entirely for everyone else.
-        var usageTotals = !includeRawUsage || candidateEmotes.Count == 0
-            ? []
-            : await usageStatQueryService.GetUsageTotalsAsync(normalized, from, to, cancellationToken);
-        var usageByEmoteId = usageTotals.ToDictionary(u => u.EmoteId, u => u.TotalUseCount);
+        // skipped entirely for everyone else. Scoped to the ballot rather than to the channel: a
+        // subset session may hold twenty emotes out of a thousand, and asking for the channel's
+        // totals meant zero-filling all thousand only to discard the rest here.
+        var usageByEmoteId = !includeRawUsage || candidateEmotes.Count == 0
+            ? new Dictionary<string, int>()
+            : await usageStatQueryService.GetTotalsByEmoteIdsAsync(
+                candidateEmotes.Select(e => e.Id).ToList(), from, to, cancellationToken);
 
         // Same as the usage totals above: not computed at all for a viewer who may not see them.
         var voteTallies = !includeTallies

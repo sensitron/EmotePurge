@@ -18,7 +18,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<EmoteUsageTotalDto>> GetUsageTotalsAsync(
+    public async Task<IReadOnlyList<EmoteUsageContextDto>> GetUsageContextAsync(
         string channelName, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
     {
         if (from > to)
@@ -37,7 +37,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         // candidates in a usage-stats UI just because they still have historical UsageStat rows.
         var channelEmotes = await db.Emotes
             .Where(e => e.Channel.ChannelName == normalized && !e.IsArchived)
-            .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl })
+            .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, e.FirstSeenAt })
             .ToListAsync(cancellationToken);
 
         if (channelEmotes.Count == 0)
@@ -47,17 +47,67 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
 
         var emoteIds = channelEmotes.Select(e => e.Id).ToList();
 
-        var totalsByEmoteId = await db.UsageStats
-            .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
+        // Both range bounds are inclusive, so the window is one day longer than the difference —
+        // and the preceding window has to be exactly as long for the two sums to be comparable.
+        var windowLength = to.DayNumber - from.DayNumber + 1;
+        var previousFrom = from.AddDays(-windowLength);
+
+        // One pass, three aggregates, all served by the covering index (EmoteId, Date) INCLUDE
+        // (UseCount) as an index-only scan. Deliberately unbounded in time: the max is the emote's
+        // last use ever, and clipping it to the range would make it a restatement of the total.
+        var aggregates = await db.UsageStats
+            .Where(u => emoteIds.Contains(u.EmoteId))
             .GroupBy(u => u.EmoteId)
-            .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount) })
-            .ToDictionaryAsync(g => g.EmoteId, g => g.TotalUseCount, cancellationToken);
+            .Select(g => new
+            {
+                EmoteId = g.Key,
+                TotalUseCount = g.Sum(u => u.Date >= from && u.Date <= to ? u.UseCount : 0),
+                PreviousWindowUseCount = g.Sum(u => u.Date >= previousFrom && u.Date < from ? u.UseCount : 0),
+                LastUsedDate = g.Max(u => (DateOnly?)u.Date)
+            })
+            .ToDictionaryAsync(g => g.EmoteId, cancellationToken);
 
         // Zero-filled for every active emote (not just ones with a UsageStat row already) —
         // an unused-but-active emote must still be findable/selectable in a usage-stats UI.
         return channelEmotes
-            .Select(e => new EmoteUsageTotalDto(e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, totalsByEmoteId.GetValueOrDefault(e.Id, 0)))
+            .Select(e =>
+            {
+                var aggregate = aggregates.GetValueOrDefault(e.Id);
+                return new EmoteUsageContextDto(
+                    e.Id,
+                    e.Name,
+                    e.SevenTvEmoteId,
+                    e.ImageUrl,
+                    aggregate?.TotalUseCount ?? 0,
+                    aggregate?.LastUsedDate,
+                    aggregate?.PreviousWindowUseCount ?? 0,
+                    e.FirstSeenAt);
+            })
             .OrderByDescending(t => t.TotalUseCount)
             .ToList();
+    }
+
+    public async Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(
+        IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        if (from > to)
+        {
+            throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
+        }
+
+        if (emoteIds.Count == 0)
+        {
+            return new Dictionary<string, int>();
+        }
+
+        // Materialized list rather than the caller's collection: the same rule-10 reason as above,
+        // the grouped query has to stay scoped to a single table.
+        var ids = emoteIds.ToList();
+
+        return await db.UsageStats
+            .Where(u => ids.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
+            .GroupBy(u => u.EmoteId)
+            .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount) })
+            .ToDictionaryAsync(g => g.EmoteId, g => g.TotalUseCount, cancellationToken);
     }
 }

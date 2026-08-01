@@ -52,7 +52,7 @@ public static class UsageStatsEndpoints
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays });
             }
 
-            var totals = await usageStatQueryService.GetUsageTotalsAsync(channelName, fromDate, toDate, ct);
+            var totals = await usageStatQueryService.GetUsageContextAsync(channelName, fromDate, toDate, ct);
             return Results.Ok(totals);
         });
     }
