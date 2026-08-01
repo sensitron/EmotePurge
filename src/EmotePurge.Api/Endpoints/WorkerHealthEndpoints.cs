@@ -1,3 +1,4 @@
+using EmotePurge.Api.Health;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 

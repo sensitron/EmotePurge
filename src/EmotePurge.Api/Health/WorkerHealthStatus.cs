@@ -1,6 +1,6 @@
 using EmotePurge.Core.Services;
 
-namespace EmotePurge.Api.Endpoints;
+namespace EmotePurge.Api.Health;
 
 /// <summary>
 /// Everything derived from a <see cref="WorkerHealthSnapshot"/>: the two status strings and the

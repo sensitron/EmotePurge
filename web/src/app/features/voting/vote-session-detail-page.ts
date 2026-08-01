@@ -46,7 +46,7 @@ const ROW_HEIGHT_PX = 192;
 // Votes from other people arrive one by one. Half a second is short enough to feel live and long
 // enough that a moderator clicking through ten emotes produces one refetch, not ten. The same
 // window also collapses a `usage.flushed` that lands next to a vote into a single refetch.
-const LIVE_RELOAD_DEBOUNCE_MS = 500;
+const VOTE_RELOAD_DEBOUNCE_MS = 500;
 
 // Below this many distinct voters the results view carries a "thin participation" notice — a
 // handful of votes reads like a community verdict once it's sorted and scored, and it isn't one.
@@ -217,7 +217,7 @@ export class VoteSessionDetailPage {
     // that with the push it caused; loadResults is idempotent either way.
     liveReload(this.liveUrl, {
       accept: (event) => this.isRelevantLiveEvent(event),
-      debounceMs: LIVE_RELOAD_DEBOUNCE_MS,
+      debounceMs: VOTE_RELOAD_DEBOUNCE_MS,
     }).subscribe((seen) => {
       this.loadResults({ freeze: false });
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {

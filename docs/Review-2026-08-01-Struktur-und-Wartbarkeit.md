@@ -13,7 +13,7 @@ Schwesterdokument: [`Review-2026-07-29-Umsetzung.md`](Review-2026-07-29-Umsetzun
 | **2** | Member-Ordnung Frontend (ESLint) + Backend (Konvention) | ✅ **abgeschlossen** (2026-08-01) — ST-1, ST-2 |
 | **3** | CI-Gate für Format und Lint | ✅ **abgeschlossen** (2026-08-01) — TL-2 |
 | **4** | Onboarding-Blocker und Doku-Drift | ✅ **abgeschlossen** (2026-08-01) — WB-1 bis WB-6, WB-9 |
-| **5** | Code-Duplikate und Kleinkram | ⬜ offen |
+| **5** | Code-Duplikate und Kleinkram | ✅ **abgeschlossen** (2026-08-01) — WB-7, WB-8, WB-10, WB-11 (teilweise), ST-3, ST-4, ST-6; ST-7 zurückgezogen |
 
 ---
 
@@ -208,7 +208,10 @@ Das ist die tückischste Sorte Duplikat: Die Abstraktion **existiert**, wird abe
 ### Niedrig
 
 **WB-11 — Konstanten-Duplikate mit widersprüchlichen Werten** · 30 min · O
-`LIVE_RELOAD_DEBOUNCE_MS` ist **1000** in `usage-stats-page.ts:64`, aber **500** in `vote-session-detail-page.ts:49` — gleicher Name, verschiedener Wert, keine gemeinsame Quelle. `ROW_HEIGHT_PX` ist 128 vs. 192 (sachlich korrekt, aber die Namensgleichheit suggeriert dieselbe Größe). `PAGE_SIZE = 25` steht in `admin-audit-log-page.ts:21` und `admin-users-page.ts:22`; `RESYNC_FEEDBACK_MS`/`ROLE_CACHE_FEEDBACK_MS` sind derselbe Wert unter zwei Namen.
+`LIVE_RELOAD_DEBOUNCE_MS` ist **1000** in `usage-stats-page.ts`, aber **500** in `vote-session-detail-page.ts` — gleicher Name, verschiedener Wert, keine gemeinsame Quelle. `ROW_HEIGHT_PX` ist 128 vs. 192 (sachlich korrekt, aber die Namensgleichheit suggeriert dieselbe Größe). `PAGE_SIZE = 25` steht in `admin-audit-log-page.ts:21` und `admin-users-page.ts:22`; `RESYNC_FEEDBACK_MS`/`ROLE_CACHE_FEEDBACK_MS` sind derselbe Wert unter zwei Namen.
+
+**Umgesetzt wurde nur der Debounce-Teil**, und zwar durch **Umbenennen statt Zusammenführen**: `USAGE_RELOAD_DEBOUNCE_MS` (1000, getaktet auf den 30-Sekunden-Flush des Workers) und `VOTE_RELOAD_DEBOUNCE_MS` (500, getaktet auf einzeln eintrudelnde Stimmen). Die Werte *sollen* auseinandergehen — gefährlich war der gemeinsame Name, zumal beide jetzt in denselben `liveReload()`-Aufruf fließen.
+**Bewusst nicht zusammengeführt: `PAGE_SIZE` und die 4000-ms-Feedback-Timeouts.** Zwei Admin-Listen, die beide 25 Zeilen zeigen, teilen keine Anforderung — sie stimmen zufällig überein. Eine gemeinsame Konstante hätte falsche Kopplung erzeugt: wer die eine Seite umstellt, hätte still die andere mitverändert. Gleiches gilt für die Feedback-Dauern. Falls daraus eine echte Regel werden soll (etwa „lokale Rückmeldung 2 s, entfernte 4 s"), gehört sie in `docs/UI-Designsprache.md` und nicht als geteilte Konstante zwischen zwei Feature-Dateien.
 
 **ST-3 — Regel 12 verletzt: vier Dateien in `core/` ohne Spec** · 1 h · E
 `core/auth/home.guard.ts` (der einzige Guard ohne Spec — `auth`, `admin`, `vote-session-access`, `usage-stats-access` haben alle einen), `core/i18n/language.service.ts`, `core/i18n/locale.ts`, `core/i18n/plural.ts`. Die 19 fehlenden Specs unter `shared/ui|seven-tv|datetime` sind dagegen **regelkonform** — Komponententests sind laut Regel 12 bewusst ausgenommen.
@@ -222,8 +225,8 @@ Das ist die tückischste Sorte Duplikat: Die Abstraktion **existiert**, wird abe
 **ST-6 — Drei ASP.NET-Template-Rauschkommentare** · 5 min · G
 `src/EmotePurge.Api/Program.cs:19,21,135` („Add services to the container.", „Learn more about configuring OpenAPI…", „Configure the HTTP request pipeline."). Die einzigen Kommentare im Repo, die ersatzlos gelöscht gehören.
 
-**ST-7 — Drei ungenutzte Type-Exports** · 5 min · E
-`ButtonVariant`, `ButtonSize` (`shared/ui/button.ts`), `NoticeVariant` (`shared/ui/notice-banner.ts`) — außerhalb ihrer Deklarationsdatei nirgends importiert.
+**ST-7 — ~~Drei ungenutzte Type-Exports~~ · zurückgezogen**
+`ButtonVariant`, `ButtonSize` (`shared/ui/button.ts`) und `NoticeVariant` (`shared/ui/notice-banner.ts`) werden bei der Umsetzung **innerhalb** ihrer Datei benutzt — jeweils als Schlüsseltyp der `Record`-Klassenmap und als Typ des `input()`. Ungenutzt ist allein das `export`-Schlüsselwort, und das ist für die Input-Typen einer Shared-UI-Primitive legitime API-Fläche. Der ursprüngliche Befund („nirgends importiert") war korrekt gemessen, aber falsch interpretiert. Keine Änderung.
 
 ### Beobachtet, aber kein Befund
 

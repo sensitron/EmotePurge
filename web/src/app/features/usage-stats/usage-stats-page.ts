@@ -46,7 +46,7 @@ const SYNC_POLL_MAX_ATTEMPTS = 15;
 // The worker flushes chat usage in 30-second batches, so pushes arrive in bursts rather than
 // continuously. One second of debounce merges a burst (several channels' flushes land in the same
 // tick) into a single refetch without making the update feel delayed.
-const LIVE_RELOAD_DEBOUNCE_MS = 1000;
+const USAGE_RELOAD_DEBOUNCE_MS = 1000;
 
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -179,7 +179,7 @@ export class UsageStatsPage {
     // user who did not ask for anything — this update arrives unrequested.
     liveReload(this.liveUrl, {
       accept: [LIVE_EVENT_TYPES.usageFlushed, LIVE_EVENT_TYPES.channelSynced],
-      debounceMs: LIVE_RELOAD_DEBOUNCE_MS,
+      debounceMs: USAGE_RELOAD_DEBOUNCE_MS,
     }).subscribe((seen) => {
       this.loadTotals(this.channelName(), this.from(), this.to(), {
         preserveSelection: true,

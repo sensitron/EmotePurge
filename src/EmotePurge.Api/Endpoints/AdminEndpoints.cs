@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.Health;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;

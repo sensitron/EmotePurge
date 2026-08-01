@@ -26,7 +26,7 @@ const SEVEN_TV_GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 // limited (see onRateLimited). Deliberately kept aggressive: 7TV's actual quota for the
 // `emote_set_change` bucket lives in their database, not in their open-source tree, so the only way
 // to learn it is to reach it once. The backoff below makes that safe.
-const DELETE_DELAY_MS = 275;
+export const DELETE_DELAY_MS = 275;
 const MAX_AUTOMATIC_SYNC_RETRIES = 2;
 
 /** 7TV's rate-limit bucket guarding every emote-set mutation, one ticket per call.

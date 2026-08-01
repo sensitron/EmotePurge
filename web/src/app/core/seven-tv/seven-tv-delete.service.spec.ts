@@ -5,7 +5,7 @@ import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
 import { firstValueFrom } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DeleteQueueEmote, SevenTvDeleteService } from './seven-tv-delete.service';
+import { DELETE_DELAY_MS, DeleteQueueEmote, SevenTvDeleteService } from './seven-tv-delete.service';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
 // Only the keys this service actually translates — not the full app translation file.
@@ -45,7 +45,6 @@ function rateLimitResponse(resetSeconds: number, limit: number | null = 100) {
 
 const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 const SYNC_ENDPOINT = '/api/channels/sensitron/emotes/sync-deleted';
-const DELETE_DELAY_MS = 275;
 
 const EMOTES: DeleteQueueEmote[] = [
   { emoteId: 'internal-1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
