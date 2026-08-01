@@ -107,6 +107,11 @@ internal sealed class SevenTvUserRestUserDto
 internal sealed class SevenTvEmoteSetJsonDto
 {
     public string Id { get; set; } = string.Empty;
+
+    // Slot limit of the set. Present in the response we already fetch (verified live 2026-08-01);
+    // emote_count is deliberately not read — it is emotes.Length of this same payload, so it can
+    // never tell us anything the list itself doesn't.
+    public int Capacity { get; set; }
     public List<SevenTvEmoteJsonDto> Emotes { get; set; } = [];
 }
 

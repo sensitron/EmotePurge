@@ -83,7 +83,12 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             // the account lives under user.id (verified live 2026-07-30).
             var sevenTvUserId = string.IsNullOrEmpty(dto.User?.Id) ? null : dto.User.Id;
 
-            return new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes));
+            // 0 reads as "not reported", not as "no slots" — an absent field and a genuine zero are
+            // indistinguishable here, and treating either as a capacity of zero would make the UI
+            // claim the set is full.
+            var capacity = dto.EmoteSet.Capacity > 0 ? dto.EmoteSet.Capacity : (int?)null;
+
+            return new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

@@ -2,7 +2,10 @@ namespace EmotePurge.Core.SevenTv;
 
 public record SevenTvEmote(string Id, string Name, string ImageUrl);
 
-public record SevenTvEmoteSet(string Id, IReadOnlyList<SevenTvEmote> Emotes);
+// Capacity is the set's slot limit as 7TV reports it, null when the response omits it or reports 0.
+// Never assume 1000: 7TV subscribers get larger sets, so the number has to travel with the set
+// instead of being hard-coded anywhere downstream.
+public record SevenTvEmoteSet(string Id, IReadOnlyList<SevenTvEmote> Emotes, int? Capacity = null);
 
 // The channel's currently active set plus the 7TV account behind the Twitch connection, resolved
 // together from one users/twitch/{id} REST call. The account id is what the EventAPI's user.*
