@@ -18,6 +18,7 @@ export const LIVE_EVENT_TYPES = {
   voteChanged: 'vote.changed',
   channelSynced: 'channel.synced',
   workerHealth: 'worker.health',
+  workerRoster: 'worker.roster',
   /** Heartbeat, swallowed by LiveUpdateService — never reaches a consumer. */
   ping: 'ping',
 } as const;

@@ -8,8 +8,10 @@ import {
   MockChannel,
   installLiveStub,
   mockActiveEmoteSet,
+  mockAdminChannelDetail,
   mockAdminChannelList,
   mockAdminHealth,
+  mockAdminRoster,
   mockAdminUsers,
   mockAuditLog,
   mockAuthMe,
@@ -331,6 +333,7 @@ const SCENARIOS: Scenario[] = [
     setup: async (page) => {
       await adminShell(page);
       await mockAdminHealth(page);
+      await mockAdminRoster(page);
     },
   },
   {
@@ -345,6 +348,34 @@ const SCENARIOS: Scenario[] = [
         sevenTv: { status: 'disconnected', connected: false, unacknowledgedCount: 3 },
         flush: { consecutiveFailures: 5, pendingEmoteCount: 1843 },
       });
+      // The roster's own degraded shape: deficits on both transports, so the card renders its
+      // banners and deficit lists rather than the all-green layout.
+      await mockAdminRoster(page, {
+        trackedChannelCount: 24,
+        missingFromIrc: ['sensitron', 'olaf_olaf_son'],
+        missingFromSevenTv: ['sensitron'],
+      });
+    },
+  },
+  {
+    slug: 'admin-channel-detail',
+    path: '/admin/channels/handofblood',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAdminChannelDetail(
+        page,
+        {
+          channelName: 'handofblood',
+          twitchChannelId: '4711',
+          emoteCount: 903,
+          archivedEmoteCount: 17,
+          lastSyncedAtUtc: '2026-08-01T11:59:00Z',
+          lastInventoryChangeUtc: '2026-05-01T09:00:00Z',
+          activeEmoteSetId: '01HSET',
+          activeEmoteSetCapacity: 1000,
+        },
+        { channel: null },
+      );
     },
   },
   {

@@ -167,7 +167,8 @@
       "twitch": {
         "title": "Twitch-IRC",
         "lastMessage": "Letzte Chat-Nachricht",
-        "connectAttempt": "Letzter Verbindungsversuch"
+        "connectAttempt": "Letzter Verbindungsversuch",
+        "processStarted": "Worker läuft seit"
       },
       "sevenTv": {
         "title": "7TV-EventAPI",
@@ -176,7 +177,9 @@
         "channels": "Abonnierte Channels",
         "unacknowledged": "Unbestätigt",
         "lastFrame": "Letztes Frame",
-        "lastDispatch": "Letzter Dispatch"
+        "lastDispatch": "Letzter Dispatch",
+        "restRate": "REST-Resync-Last",
+        "restRateValue": "{{requests}} Requests je {{seconds}} s (≈ {{perSecond}}/s)"
       },
       "flush": {
         "title": "Batch-Flush",
@@ -185,6 +188,31 @@
         "lastRowCount": "Zuletzt geschriebene Zeilen",
         "pending": "Gepufferte Emotes"
       }
+    },
+    "roster": {
+      "title": "Channel-Roster",
+      "status": {
+        "complete": "Vollständig",
+        "incomplete": "Lückenhaft",
+        "starting": "Startet",
+        "stale": "Veraltet",
+        "unavailable": "Nicht verfügbar",
+        "unknown": "Unbekannt"
+      },
+      "noSnapshot": "Der Worker hat aktuell kein Roster veröffentlicht. Entweder läuft er nicht, oder sein Roster-Publish schlägt fehl.",
+      "bootRecovery": "Der Worker startet gerade neu und tritt den Channels noch bei. Fehlende Channels sind bis dahin normal.",
+      "stale": "Das Roster ist {{seconds}} s alt — der Worker hat länger als erwartet nichts veröffentlicht.",
+      "truncated": "Der Worker hat die Liste gekürzt: nicht alle Channels sind in diesem Snapshot enthalten.",
+      "tracked": "Channels laut Datenbank",
+      "ircConfirmed": "IRC-Join bestätigt",
+      "sevenTvAcknowledged": "7TV-Subscription bestätigt",
+      "worker": "Worker-Instanz",
+      "joinBudget": "Unser Join-Budget",
+      "joinBudgetHint": "Selbst gesetzt: TwitchLib rejoint nach einem Reconnect ungedrosselt, oberhalb dieser Zahl reißt ein einzelner Reconnect Twitchs Fenster von 20 JOINs je 10 s.",
+      "twitchLimitHint": "Twitchs eigenes Limit liegt bei {{limit}} gleichzeitig gejointen Chatrooms je Account (seit 2024-05-15, dev.twitch.tv/docs/chat).",
+      "missingIrc": "{{count}} Channel ohne bestätigten IRC-Join:",
+      "missingSevenTv": "{{count}} Channel ohne bestätigte 7TV-Subscription:",
+      "unknownToDatabase": "{{count}} Channel im Worker, die die Datenbank nicht mehr als aktiv führt:"
     },
     "channels": {
       "title": "Channel-Verwaltung",
@@ -218,6 +246,53 @@
         "message": "„{{channel}}“ wird samt seiner gesamten Historie gelöscht: {{emotes}} Emotes, alle zugehörigen Nutzungsstatistiken, {{voteSessions}} Vote-Sessions und sämtliche darin abgegebenen Stimmen.\n\nDas lässt sich nicht rückgängig machen. „Verlassen“ genügt, wenn der Bot nur aufhören soll mitzuzählen.",
         "inputLabel": "Channel-Name zur Bestätigung",
         "confirm": "Endgültig löschen"
+      }
+    },
+    "channelDetail": {
+      "back": "Channel-Verwaltung",
+      "refresh": "Aktualisieren",
+      "openWorkspace": "Zum Channel",
+      "openWorkspaceTitle": "Nutzungsstatistiken dieses Channels öffnen",
+      "verdict": {
+        "notJoined": "Der Bot ist diesem Channel nicht beigetreten — es wird nichts mitgezählt, und das ist so gewollt, solange niemand „Beitreten“ geklickt hat.",
+        "absentFromWorker": "Der Worker kennt diesen Channel nicht. Es wird aktuell nichts mitgezählt, obwohl die Datenbank ihn als aktiv führt.",
+        "degraded": "Der Worker kennt den Channel, aber mindestens eine Verbindung ist unbestätigt — die Zahlen dieses Channels sind womöglich unvollständig.",
+        "emoteSetMismatch": "Der Worker hört auf ein anderes Emote-Set als das, das die Datenbank als aktiv führt. Änderungen kommen erst mit dem nächsten REST-Resync an."
+      },
+      "database": {
+        "title": "Datenbank",
+        "lastSync": "Letzter erfolgreicher Sync",
+        "lastInventoryChange": "Letzte Inventaränderung",
+        "emotes": "Emotes",
+        "emoteSet": "Aktives Emote-Set",
+        "capacity": "Slot-Kapazität",
+        "trackedSince": "Getrackt seit",
+        "twitchId": "Twitch-ID"
+      },
+      "worker": {
+        "title": "Worker",
+        "status": {
+          "healthy": "Verbunden",
+          "degraded": "Eingeschränkt",
+          "absent": "Nicht im Roster",
+          "starting": "Startet",
+          "unavailable": "Nicht verfügbar",
+          "unknown": "Unbekannt"
+        },
+        "noSnapshot": "Der Worker hat aktuell kein Roster veröffentlicht.",
+        "notInRoster": "Der Worker hat ein Roster veröffentlicht, dieser Channel steht aber nicht darin — es wird nichts mitgezählt.",
+        "ircJoin": "IRC-Join",
+        "lastMessage": "Letzte Nachricht in diesem Channel",
+        "emoteSetSubscription": "Emote-Set-Subscription",
+        "userSubscription": "User-Subscription",
+        "emoteSet": "Abonniertes Emote-Set",
+        "emoteSetMismatch": "Das abonnierte Set weicht vom aktiven Set der Datenbank ab — Live-Deltas laufen ins Leere, bis der nächste Resync das korrigiert.",
+        "confirmed": "bestätigt",
+        "unconfirmed": "unbestätigt",
+        "acknowledged": "bestätigt",
+        "pending": "ausstehend",
+        "noUserSubscription": "keine (7TV-User-ID nicht aufgelöst)",
+        "snapshotAge": "Roster-Snapshot ist {{seconds}} s alt."
       }
     },
     "users": {

@@ -119,8 +119,11 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
           @for (channel of channels(); track channel.channelName) {
             <li class="app-card app-card-interactive relative flex flex-col gap-2 px-4 py-3">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <!-- The stretched link goes to the admin drilldown, not to the channel workspace:
+                     from this list the next question is almost always "what is wrong with it", and
+                     the workspace stays one deliberate click away inside the drilldown. -->
                 <a
-                  [routerLink]="['/channels', channel.channelName, 'usage-stats']"
+                  [routerLink]="['/admin/channels', channel.channelName]"
                   class="app-card-link max-w-full truncate font-medium text-slate-100"
                 >
                   #{{ channel.channelName }}

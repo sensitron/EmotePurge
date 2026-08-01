@@ -16,9 +16,13 @@ export interface SevenTvHealth {
   desiredChannelCount: number | null;
   desiredSubscriptionCount: number | null;
   unacknowledgedCount: number | null;
-  /** 7TV's per-connection `subscription_limit` (500), sent along so the utilization bar's
+  /** 7TV's per-connection `subscription_limit`, taken from the last Hello frame when the worker has
+   *  seen one and falling back to the documented 500 otherwise — so the utilization bar's
    *  denominator isn't hard-coded a second time here. */
   subscriptionLimit: number;
+  /** How often the worker runs its full REST resync. Not a quota but a divisor: it is what turns
+   *  "one request per channel" into a rate the page can state instead of imply. */
+  resyncIntervalSeconds: number | null;
 }
 
 export interface FlushHealth {
@@ -43,6 +47,14 @@ export interface AdminHealth {
   secondsSinceLastMessage: number | null;
   sevenTv: SevenTvHealth;
   flush: FlushHealth;
+  worker: WorkerIdentity;
+}
+
+/** Which worker process wrote the snapshot, and since when it has been running. Counters reset on
+ *  restart, so "0 failures" means something different in the first minute than after six hours. */
+export interface WorkerIdentity {
+  instanceId: string | null;
+  processStartedUtc: string | null;
 }
 
 /**
@@ -59,9 +71,96 @@ export interface AdminChannel {
   archivedEmoteCount: number;
   activeVoteSessionCount: number;
   voteSessionCount: number;
-  /** Newest `Emote.LastSyncedAt` of the channel; null when it has no emotes at all — which is a
-   *  different statement than "synced a long time ago" and stays visible as such. */
+  /** When a full 7TV REST sync last completed, changed or not. This is the number that answers "is
+   *  the sync running at all"; null means none has completed since the column exists. */
   lastSyncedAtUtc: string | null;
+  /** When the emote inventory last actually moved. Deliberately separate from `lastSyncedAtUtc`: a
+   *  healthy channel whose set nobody edits has a fresh sync and an ancient inventory change, and
+   *  showing only the latter made that look like a stalled bot. Null when it has no emotes at all. */
+  lastInventoryChangeUtc: string | null;
+  /** Null when the channel has never synced — the server maps its empty-string default to null so
+   *  the UI never renders a nameless set that exists. */
+  activeEmoteSetId: string | null;
+  activeEmoteSetCapacity: number | null;
+  trackingResumedAt: string | null;
+}
+
+/**
+ * One channel as the worker itself currently sees it, from the roster snapshot it publishes to
+ * Redis. This is the worker's in-memory truth, not the database's — comparing the two is the whole
+ * point, so never merge the two shapes.
+ */
+export interface RosterChannel {
+  channelName: string;
+  ircJoinConfirmed: boolean;
+  lastMessageUtc: string | null;
+  /** Null means the worker holds no 7TV subscription intent for this channel at all. */
+  sevenTvEmoteSetId: string | null;
+  sevenTvEmoteSetAcknowledged: boolean;
+  /** Null means no user subscription is desired, so `sevenTvUserAcknowledged: false` is a statement
+   *  about nothing rather than a pending acknowledgement. */
+  sevenTvUserId: string | null;
+  sevenTvUserAcknowledged: boolean;
+}
+
+/** The ceilings the roster reports against. Two numbers on the Twitch side on purpose: one is
+ *  Twitch's rule, the other is ours — the UI labels each with its provenance. */
+export interface RosterCeilings {
+  twitchConcurrentChannelLimit: number;
+  twitchJoinBudgetChannels: number;
+}
+
+/**
+ * GET /api/admin/roster — the worker's roster compared against the channels the database considers
+ * active. Its own endpoint rather than more fields on /health, which every open monitoring page
+ * refetches three times as often.
+ *
+ * Every field except `snapshotAvailable`, `trackedChannelCount` and `ceilings` is optional: when the
+ * Redis key expired there is nothing to report, and inventing zeros would read as "the worker is up
+ * and has joined nothing".
+ */
+export interface AdminRoster {
+  snapshotAvailable: boolean;
+  trackedChannelCount: number;
+  ceilings: RosterCeilings;
+  generatedAtUtc?: string;
+  /** Staleness as a number, derived server-side — the TTL only ever says "gone", this says
+   *  "present, and two minutes old". */
+  ageSeconds?: number;
+  workerInstanceId?: string;
+  processStartedUtc?: string;
+  /** False means the worker is still rejoining after a restart and every deficit below is expected.
+   *  Without it a redeploy reads as a total outage for about a minute. */
+  bootRecoveryCompleted?: boolean;
+  truncated?: boolean;
+  rosterChannelCount?: number;
+  ircConfirmedCount?: number;
+  sevenTvAcknowledgedCount?: number;
+  /** Capped lists with their untruncated totals alongside — a short list standing in silently for a
+   *  long one would read as "almost fine" on the page where that matters most. */
+  missingFromIrc?: string[];
+  missingFromIrcTotal?: number;
+  missingFromSevenTv?: string[];
+  missingFromSevenTvTotal?: number;
+  /** The other direction: the worker holds a channel the database no longer considers active — what
+   *  a leave that never reached the worker looks like. */
+  unknownToDatabase?: string[];
+  unknownToDatabaseTotal?: number;
+}
+
+/** GET /api/admin/channels/{channelName} — the database row and the worker's view of it, side by
+ *  side rather than merged, so a disagreement between them is visible instead of resolved. */
+export interface AdminChannelDetail {
+  channel: AdminChannel;
+  roster: {
+    available: boolean;
+    ageSeconds: number | null;
+    bootRecoveryCompleted: boolean | null;
+    workerInstanceId: string | null;
+    /** Null while `available` is true is the finding, not a gap: the worker published a roster and
+     *  this channel is not in it. */
+    channel: RosterChannel | null;
+  };
 }
 
 /**

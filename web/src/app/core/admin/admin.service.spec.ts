@@ -3,7 +3,14 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { AdminChannel, AdminHealth, AdminUser, AuditLogEntry } from './admin.model';
+import {
+  AdminChannel,
+  AdminChannelDetail,
+  AdminHealth,
+  AdminRoster,
+  AdminUser,
+  AuditLogEntry,
+} from './admin.model';
 import { AdminService } from './admin.service';
 import { PagedResult } from '../models/paged-result.model';
 
@@ -43,12 +50,17 @@ describe('AdminService', () => {
         desiredSubscriptionCount: 14,
         unacknowledgedCount: 0,
         subscriptionLimit: 500,
+        resyncIntervalSeconds: 60,
       },
       flush: {
         consecutiveFailures: 0,
         lastSuccessUtc: '2026-07-31T11:59:30Z',
         lastRowCount: 42,
         pendingEmoteCount: 3,
+      },
+      worker: {
+        instanceId: 'a1b2c3d4',
+        processStartedUtc: '2026-07-31T09:00:00Z',
       },
     };
 
@@ -87,6 +99,7 @@ describe('AdminService', () => {
         desiredSubscriptionCount: null,
         unacknowledgedCount: null,
         subscriptionLimit: 500,
+        resyncIntervalSeconds: null,
       },
       flush: {
         consecutiveFailures: null,
@@ -94,11 +107,96 @@ describe('AdminService', () => {
         lastRowCount: null,
         pendingEmoteCount: null,
       },
+      worker: {
+        instanceId: null,
+        processStartedUtc: null,
+      },
     });
 
     expect(result?.snapshotAvailable).toBe(false);
     expect(result?.status).toBe('unknown');
     expect(result?.sevenTv.subscriptionLimit).toBe(500);
+  });
+
+  it('getRoster GETs /api/admin/roster', () => {
+    let result: AdminRoster | undefined;
+    service.getRoster().subscribe((r) => (result = r));
+
+    const req = httpMock.expectOne('/api/admin/roster');
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      snapshotAvailable: true,
+      trackedChannelCount: 3,
+      ceilings: { twitchConcurrentChannelLimit: 100, twitchJoinBudgetChannels: 20 },
+      generatedAtUtc: '2026-08-01T12:00:00Z',
+      ageSeconds: 12,
+      bootRecoveryCompleted: true,
+      truncated: false,
+      rosterChannelCount: 3,
+      ircConfirmedCount: 2,
+      sevenTvAcknowledgedCount: 3,
+      missingFromIrc: ['sensitron'],
+      missingFromIrcTotal: 1,
+    });
+
+    expect(result?.ircConfirmedCount).toBe(2);
+    expect(result?.missingFromIrc).toEqual(['sensitron']);
+    expect(result?.ceilings.twitchJoinBudgetChannels).toBe(20);
+  });
+
+  it('getRoster passes a snapshot-less response through without inventing zeros', () => {
+    // The key expired or the worker never started. Counts stay absent rather than becoming 0 —
+    // "the worker is gone" and "the worker is up and has joined nothing" are opposite diagnoses.
+    let result: AdminRoster | undefined;
+    service.getRoster().subscribe((r) => (result = r));
+
+    httpMock.expectOne('/api/admin/roster').flush({
+      snapshotAvailable: false,
+      trackedChannelCount: 3,
+      ceilings: { twitchConcurrentChannelLimit: 100, twitchJoinBudgetChannels: 20 },
+    });
+
+    expect(result?.snapshotAvailable).toBe(false);
+    expect(result?.ircConfirmedCount).toBeUndefined();
+    expect(result?.trackedChannelCount).toBe(3);
+  });
+
+  it('getChannel GETs the encoded drilldown route', () => {
+    let result: AdminChannelDetail | undefined;
+    service.getChannel('HandOf Blood').subscribe((r) => (result = r));
+
+    const req = httpMock.expectOne('/api/admin/channels/HandOf%20Blood');
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      channel: {
+        channelName: 'handofblood',
+        twitchChannelId: '4711',
+        isBotActive: true,
+        createdAt: '2026-01-01T00:00:00Z',
+        emoteCount: 903,
+        archivedEmoteCount: 17,
+        activeVoteSessionCount: 1,
+        voteSessionCount: 4,
+        lastSyncedAtUtc: '2026-08-01T11:59:00Z',
+        lastInventoryChangeUtc: '2026-05-01T09:00:00Z',
+        activeEmoteSetId: '01HSET',
+        activeEmoteSetCapacity: 1000,
+        trackingResumedAt: null,
+      },
+      roster: {
+        available: true,
+        ageSeconds: 30,
+        bootRecoveryCompleted: true,
+        workerInstanceId: 'a1b2c3d4',
+        channel: null,
+      },
+    });
+
+    // available: true with channel: null is the finding — the worker published a roster and this
+    // channel is not in it. The service must not smooth that into "roster unavailable".
+    expect(result?.roster.available).toBe(true);
+    expect(result?.roster.channel).toBeNull();
+    expect(result?.channel.lastSyncedAtUtc).not.toBe(result?.channel.lastInventoryChangeUtc);
   });
 
   it('listChannels GETs /api/admin/channels', () => {
@@ -112,7 +210,11 @@ describe('AdminService', () => {
         archivedEmoteCount: 17,
         activeVoteSessionCount: 1,
         voteSessionCount: 4,
-        lastSyncedAtUtc: '2026-07-31T11:00:00Z',
+        lastSyncedAtUtc: '2026-07-31T11:55:00Z',
+        lastInventoryChangeUtc: '2026-07-31T11:00:00Z',
+        activeEmoteSetId: '01HSET',
+        activeEmoteSetCapacity: 1000,
+        trackingResumedAt: null,
       },
     ];
 
@@ -143,6 +245,10 @@ describe('AdminService', () => {
         activeVoteSessionCount: 0,
         voteSessionCount: 0,
         lastSyncedAtUtc: null,
+        lastInventoryChangeUtc: null,
+        activeEmoteSetId: null,
+        activeEmoteSetCapacity: null,
+        trackingResumedAt: null,
       },
     ]);
 

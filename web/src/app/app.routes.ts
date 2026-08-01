@@ -51,6 +51,15 @@ export const routes: Routes = [
               import('./features/admin/admin-channels-page').then((m) => m.AdminChannelsPage),
           },
           {
+            // Support drilldown for one channel. Sibling of the list rather than nested under the
+            // channel workspace: it is an admin view of the worker's state, not a channel page.
+            path: 'channels/:channelName',
+            loadComponent: () =>
+              import('./features/admin/admin-channel-detail-page').then(
+                (m) => m.AdminChannelDetailPage,
+              ),
+          },
+          {
             path: 'users',
             loadComponent: () =>
               import('./features/admin/admin-users-page').then((m) => m.AdminUsersPage),

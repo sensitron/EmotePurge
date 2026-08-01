@@ -14,6 +14,7 @@ import { Button } from '../../shared/ui/button';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
+import { AdminRosterCard } from './admin-roster-card';
 
 const STATUS_TONES: Record<SevenTvConnectionStatus, StatusBadgeTone> = {
   connected: 'emerald',
@@ -34,7 +35,7 @@ const NO_VALUE = '—';
  */
 @Component({
   selector: 'app-admin-monitoring-page',
-  imports: [Button, NoticeBanner, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [AdminRosterCard, Button, NoticeBanner, SkeletonRows, StatusBadge, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-4">
       <header class="flex flex-wrap items-center justify-between gap-3">
@@ -86,8 +87,20 @@ const NO_VALUE = '—';
               </dt>
               <dd class="text-slate-200">{{ formatDateTime(data.connectAttemptedUtc) }}</dd>
             </div>
+            <div class="flex justify-between gap-4 sm:block">
+              <dt class="text-slate-400">
+                {{ 'admin.monitoring.twitch.processStarted' | transloco }}
+              </dt>
+              <!-- Every counter on this page resets with the process, so its start time is what
+                   makes "0 failures" readable at all. -->
+              <dd class="text-slate-200">{{ formatDateTime(data.worker.processStartedUtc) }}</dd>
+            </div>
           </dl>
         </section>
+
+        <!-- Roster: the worker's channels against the database's. Its own card because it is fed by
+             its own endpoint on its own cadence (see AdminRosterCard). -->
+        <app-admin-roster-card />
 
         <!-- 7TV EventAPI -->
         <section class="app-card flex flex-col gap-3 p-4">
@@ -160,6 +173,18 @@ const NO_VALUE = '—';
               </dt>
               <dd class="text-slate-200">{{ formatDateTime(data.sevenTv.lastDispatchUtc) }}</dd>
             </div>
+            @if (restRequestRate(); as rate) {
+              <div class="flex justify-between gap-4 sm:block">
+                <dt class="text-slate-400">
+                  {{ 'admin.monitoring.sevenTv.restRate' | transloco }}
+                </dt>
+                <!-- Deliberately not a utilization bar: 7TV publishes no REST quota, so there is no
+                     honest denominator. A rate is what we actually know. -->
+                <dd class="text-slate-200">
+                  {{ 'admin.monitoring.sevenTv.restRateValue' | transloco: rate }}
+                </dd>
+              </div>
+            }
           </dl>
         </section>
 
@@ -232,6 +257,25 @@ export class AdminMonitoringPage {
       return 0;
     }
     return Math.min(100, (sevenTv.desiredSubscriptionCount / sevenTv.subscriptionLimit) * 100);
+  });
+
+  /**
+   * The periodic resync issues one 7TV REST call per tracked channel per tick, so the load we put on
+   * a third party is a rate, not a share of a quota — 7TV publishes no limit to divide by. Null
+   * until both figures are known; a fabricated interval would state a rate we never measured.
+   */
+  protected readonly restRequestRate = computed(() => {
+    const sevenTv = this.health()?.sevenTv;
+    const channels = sevenTv?.desiredChannelCount;
+    const intervalSeconds = sevenTv?.resyncIntervalSeconds;
+    if (!channels || !intervalSeconds) {
+      return null;
+    }
+    return {
+      requests: channels,
+      seconds: intervalSeconds,
+      perSecond: (channels / intervalSeconds).toFixed(2),
+    };
   });
 
   protected readonly hasUnacknowledged = computed(

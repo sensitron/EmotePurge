@@ -3,7 +3,15 @@ import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { PagedResult } from '../models/paged-result.model';
-import { AdminChannel, AdminHealth, AdminUser, AuditLogEntry, AuditLogFilter } from './admin.model';
+import {
+  AdminChannel,
+  AdminChannelDetail,
+  AdminHealth,
+  AdminRoster,
+  AdminUser,
+  AuditLogEntry,
+  AuditLogFilter,
+} from './admin.model';
 
 /**
  * The /api/admin/* client. Every endpoint here is global-admin-only server-side
@@ -21,6 +29,21 @@ export class AdminService {
    *  since the overview's admin section (GET /api/channels) was removed. */
   listChannels(): Observable<AdminChannel[]> {
     return this.http.get<AdminChannel[]>('/api/admin/channels');
+  }
+
+  /** The worker's per-channel roster next to the channels the database considers active. Separate
+   *  from getHealth() because the roster is published on a 60 s cadence, a third of the health
+   *  snapshot's — folding it in would refetch it twice for nothing. */
+  getRoster(): Observable<AdminRoster> {
+    return this.http.get<AdminRoster>('/api/admin/roster');
+  }
+
+  /** One channel's database row plus what the worker currently believes about it — the support
+   *  drilldown behind "why isn't my channel syncing?". */
+  getChannel(channelName: string): Observable<AdminChannelDetail> {
+    return this.http.get<AdminChannelDetail>(
+      `/api/admin/channels/${encodeURIComponent(channelName)}`,
+    );
   }
 
   /** Asks the worker to re-read the channel's 7TV emote set right now instead of waiting for the

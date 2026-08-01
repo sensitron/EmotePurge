@@ -93,6 +93,7 @@ export async function mockAdminHealth(
         desiredSubscriptionCount: 14,
         unacknowledgedCount: 0,
         subscriptionLimit: 500,
+        resyncIntervalSeconds: 60,
         ...sevenTv,
       },
       flush: {
@@ -102,6 +103,52 @@ export async function mockAdminHealth(
         pendingEmoteCount: 3,
         ...flush,
       },
+      worker: {
+        instanceId: 'a1b2c3d4',
+        processStartedUtc: '2026-07-31T09:00:00Z',
+      },
+    }),
+  );
+}
+
+export interface MockAdminRoster {
+  snapshotAvailable?: boolean;
+  trackedChannelCount?: number;
+  bootRecoveryCompleted?: boolean;
+  ircConfirmedCount?: number;
+  sevenTvAcknowledgedCount?: number;
+  ageSeconds?: number;
+  missingFromIrc?: string[];
+  missingFromSevenTv?: string[];
+}
+
+/** GET /api/admin/roster — the monitoring page's roster card. Defaults to a complete roster; the
+ *  interesting cases are the deficit ones, which a test states explicitly. */
+export async function mockAdminRoster(page: Page, overrides: MockAdminRoster = {}): Promise<void> {
+  const tracked = overrides.trackedChannelCount ?? 3;
+  const missingFromIrc = overrides.missingFromIrc ?? [];
+  const missingFromSevenTv = overrides.missingFromSevenTv ?? [];
+  await page.route('**/api/admin/roster', (route) =>
+    fulfillJson(route, 200, {
+      snapshotAvailable: overrides.snapshotAvailable ?? true,
+      trackedChannelCount: tracked,
+      ceilings: { twitchConcurrentChannelLimit: 100, twitchJoinBudgetChannels: 20 },
+      generatedAtUtc: '2026-08-01T12:00:00Z',
+      ageSeconds: overrides.ageSeconds ?? 12,
+      workerInstanceId: 'a1b2c3d4',
+      processStartedUtc: '2026-08-01T09:00:00Z',
+      bootRecoveryCompleted: overrides.bootRecoveryCompleted ?? true,
+      truncated: false,
+      rosterChannelCount: tracked,
+      ircConfirmedCount: overrides.ircConfirmedCount ?? tracked - missingFromIrc.length,
+      sevenTvAcknowledgedCount:
+        overrides.sevenTvAcknowledgedCount ?? tracked - missingFromSevenTv.length,
+      missingFromIrc,
+      missingFromIrcTotal: missingFromIrc.length,
+      missingFromSevenTv,
+      missingFromSevenTvTotal: missingFromSevenTv.length,
+      unknownToDatabase: [],
+      unknownToDatabaseTotal: 0,
     }),
   );
 }
@@ -156,6 +203,9 @@ export interface MockAdminChannel {
   activeVoteSessionCount?: number;
   voteSessionCount?: number;
   lastSyncedAtUtc?: string | null;
+  lastInventoryChangeUtc?: string | null;
+  activeEmoteSetId?: string | null;
+  activeEmoteSetCapacity?: number | null;
 }
 
 /**
@@ -180,8 +230,73 @@ export async function mockAdminChannelList(
         activeVoteSessionCount: c.activeVoteSessionCount ?? 0,
         voteSessionCount: c.voteSessionCount ?? 0,
         lastSyncedAtUtc: c.lastSyncedAtUtc ?? null,
+        lastInventoryChangeUtc: c.lastInventoryChangeUtc ?? null,
+        activeEmoteSetId: c.activeEmoteSetId ?? null,
+        activeEmoteSetCapacity: c.activeEmoteSetCapacity ?? null,
+        trackingResumedAt: null,
       })),
     ),
+  );
+}
+
+/**
+ * GET /api/admin/channels/{channelName} — the support drilldown. Registered after
+ * mockAdminChannelList so it wins for the longer path (Playwright matches handlers in reverse
+ * registration order); the list's own pattern does not match this sub-route anyway.
+ */
+export async function mockAdminChannelDetail(
+  page: Page,
+  channel: MockAdminChannel,
+  roster: {
+    available?: boolean;
+    bootRecoveryCompleted?: boolean;
+    channel?: {
+      ircJoinConfirmed?: boolean;
+      lastMessageUtc?: string | null;
+      sevenTvEmoteSetId?: string | null;
+      sevenTvEmoteSetAcknowledged?: boolean;
+      sevenTvUserId?: string | null;
+      sevenTvUserAcknowledged?: boolean;
+    } | null;
+  } = {},
+): Promise<void> {
+  const rosterChannel = roster.channel === null ? null : (roster.channel ?? {});
+  await page.route(`**/api/admin/channels/${channel.channelName}`, (route) =>
+    fulfillJson(route, 200, {
+      channel: {
+        channelName: channel.channelName,
+        twitchChannelId: channel.twitchChannelId ?? null,
+        isBotActive: channel.isBotActive ?? true,
+        createdAt: channel.createdAt ?? '2026-01-01T00:00:00Z',
+        emoteCount: channel.emoteCount ?? 0,
+        archivedEmoteCount: channel.archivedEmoteCount ?? 0,
+        activeVoteSessionCount: channel.activeVoteSessionCount ?? 0,
+        voteSessionCount: channel.voteSessionCount ?? 0,
+        lastSyncedAtUtc: channel.lastSyncedAtUtc ?? null,
+        lastInventoryChangeUtc: channel.lastInventoryChangeUtc ?? null,
+        activeEmoteSetId: channel.activeEmoteSetId ?? null,
+        activeEmoteSetCapacity: channel.activeEmoteSetCapacity ?? null,
+        trackingResumedAt: null,
+      },
+      roster: {
+        available: roster.available ?? true,
+        ageSeconds: 12,
+        bootRecoveryCompleted: roster.bootRecoveryCompleted ?? true,
+        workerInstanceId: 'a1b2c3d4',
+        channel:
+          rosterChannel === null
+            ? null
+            : {
+                channelName: channel.channelName,
+                ircJoinConfirmed: rosterChannel.ircJoinConfirmed ?? true,
+                lastMessageUtc: rosterChannel.lastMessageUtc ?? '2026-08-01T11:59:00Z',
+                sevenTvEmoteSetId: rosterChannel.sevenTvEmoteSetId ?? '01HSET',
+                sevenTvEmoteSetAcknowledged: rosterChannel.sevenTvEmoteSetAcknowledged ?? true,
+                sevenTvUserId: rosterChannel.sevenTvUserId ?? '01HUSER',
+                sevenTvUserAcknowledged: rosterChannel.sevenTvUserAcknowledged ?? true,
+              },
+      },
+    }),
   );
 }
 

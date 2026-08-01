@@ -4,6 +4,7 @@ import {
   AUTH_USER,
   emitLive,
   installLiveStub,
+  mockAdminChannelDetail,
   mockAdminChannelList,
   mockAuthMe,
   mockChannelResync,
@@ -46,6 +47,43 @@ test.describe('global admin on /admin/channels', () => {
     // The inactive channel offers "Beitreten", the active one "Verlassen".
     await expect(page.getByRole('button', { name: 'Beitreten' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Verlassen' })).toBeVisible();
+  });
+
+  test('the row links into the support drilldown, which names the worker-side gap', async ({
+    page,
+  }) => {
+    await mockAdminChannelList(page, [{ channelName: 'handofblood', emoteCount: 903 }]);
+    // The interesting case, and the reason this page exists: the database row looks entirely
+    // healthy while the worker does not have the channel at all.
+    await mockAdminChannelDetail(
+      page,
+      {
+        channelName: 'handofblood',
+        emoteCount: 903,
+        archivedEmoteCount: 17,
+        lastSyncedAtUtc: '2026-08-01T11:59:00Z',
+        lastInventoryChangeUtc: '2026-05-01T09:00:00Z',
+      },
+      { channel: null },
+    );
+
+    await page.goto('/admin/channels');
+    await page.getByRole('link', { name: '#handofblood' }).click();
+
+    // The stretched link now goes here rather than to the channel workspace — from this list the
+    // next question is "what is wrong with it", not "show me its emotes".
+    await expect(page).toHaveURL('/admin/channels/handofblood');
+    await expect(page.getByText('Der Worker kennt diesen Channel nicht.')).toBeVisible();
+    // Both timestamps are shown, and they differ: that pairing is what stops a healthy channel
+    // nobody edits from reading as a stalled bot.
+    await expect(page.getByText('Letzter erfolgreicher Sync')).toBeVisible();
+    await expect(page.getByText('Letzte Inventaränderung')).toBeVisible();
+
+    // The workspace stays reachable, demoted to a secondary action inside the drilldown.
+    await expect(page.getByRole('link', { name: 'Zum Channel' })).toHaveAttribute(
+      'href',
+      '/channels/handofblood/usage-stats',
+    );
   });
 
   test('resync is offered on the active channel only, and POSTs with a transient confirmation', async ({
