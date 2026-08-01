@@ -106,7 +106,7 @@ Diese Punkte sind hier festgehalten, damit die Bewertung kalibriert bleibt und n
 4. **Kommentare erklären Vorfälle mit Datum, nicht Syntax.** `ReconnectPolicy.cs:18`: „Every rule in here comes from a production outage (2026-07-26 twice, 2026-07-27)". `Program.cs:209` nennt Symptom und Datum eines Prod-Vorfalls. Nach Rausch-Kommentaren musste aktiv *gesucht* werden; gefunden wurden im Wesentlichen drei ASP.NET-Template-Zeilen.
 5. **60 `catch`-Blöcke, kein einziger leerer.** Die 9 ohne Logging sind alle typisiert und am Ort begründet.
 6. **Schichtentreue hält:** 0 Importe von `core/` nach `features/`/`shared/`, 0 Cross-Feature-Importe, 0 `MapGet/MapPost` außerhalb von `Endpoints/`.
-7. **Tests laufen gegen echte Infrastruktur und echte Wire-Formate** (Testcontainers; `SevenTvDispatchParserTests` gegen live aufgezeichnete 7TV-Frames). Gemessen am 2026-08-01: **210 Backend-Tests** (`[Fact]`/`[Theory]` über 25 Dateien), **165 Vitest-Unit-Tests** (22 Dateien) und **24 Playwright-E2E-Tests** — zusammen 399.
+7. **Tests laufen gegen echte Infrastruktur und echte Wire-Formate** (Testcontainers; `SevenTvDispatchParserTests` gegen live aufgezeichnete 7TV-Frames). Gemessen am 2026-08-01 (tatsächlich ausgeführte Fälle, nicht Attribute): **233 Backend-Tests** (199 Infrastructure + 34 Worker, aus 210 `[Fact]`/`[Theory]` über 25 Dateien), **165 Vitest-Unit-Tests** (22 Dateien) und **24 Playwright-E2E-Tests** — zusammen 422.
 8. **Die Doku widerruft sich selbst, wenn sie sich geirrt hat** — `Architectur.md:96` nimmt die frühere Behauptung „7TV ist nachweislich unzuverlässig" ausdrücklich zurück und benennt die zwei eigenen Implementierungsfehler.
 
 ### Wo es klemmt

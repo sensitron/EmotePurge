@@ -22,29 +22,6 @@ public sealed class WorkerStats
     private DateTime? _lastFlushSuccessUtc;
     private int? _lastFlushRowCount;
 
-    /// <param name="rows">Number of emote counters written by the flush that just succeeded.</param>
-    public void RecordFlushSuccess(int rows, DateTime nowUtc)
-    {
-        lock (_lock)
-        {
-            _consecutiveFlushFailures = 0;
-            _lastFlushSuccessUtc = nowUtc;
-            _lastFlushRowCount = rows;
-        }
-    }
-
-    /// <summary>
-    /// Returns the resulting streak length, so the caller can branch on it without a second read
-    /// that another thread could have moved in between.
-    /// </summary>
-    public int RecordFlushFailure()
-    {
-        lock (_lock)
-        {
-            return ++_consecutiveFlushFailures;
-        }
-    }
-
     public int ConsecutiveFlushFailures
     {
         get
@@ -75,6 +52,29 @@ public sealed class WorkerStats
             {
                 return _lastFlushRowCount;
             }
+        }
+    }
+
+    /// <param name="rows">Number of emote counters written by the flush that just succeeded.</param>
+    public void RecordFlushSuccess(int rows, DateTime nowUtc)
+    {
+        lock (_lock)
+        {
+            _consecutiveFlushFailures = 0;
+            _lastFlushSuccessUtc = nowUtc;
+            _lastFlushRowCount = rows;
+        }
+    }
+
+    /// <summary>
+    /// Returns the resulting streak length, so the caller can branch on it without a second read
+    /// that another thread could have moved in between.
+    /// </summary>
+    public int RecordFlushFailure()
+    {
+        lock (_lock)
+        {
+            return ++_consecutiveFlushFailures;
         }
     }
 }

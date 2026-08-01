@@ -24,6 +24,42 @@ public sealed class SevenTvSubscriptionRegistry
     private readonly Dictionary<string, SevenTvSubscriptionTarget> _desiredByChannel = new(StringComparer.Ordinal);
     private readonly HashSet<SevenTvSubscription> _acknowledged = [];
 
+    public IReadOnlyList<string> DesiredChannels
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _desiredByChannel.Keys];
+            }
+        }
+    }
+
+    public int DesiredSubscriptionCount => BuildDesiredSubscriptions().Count;
+
+    /// <summary>Desired subscriptions the current session has not acknowledged (yet).</summary>
+    public int UnacknowledgedCount
+    {
+        get
+        {
+            lock (_lock)
+            {
+                var desired = new HashSet<SevenTvSubscription>();
+                foreach (var target in _desiredByChannel.Values)
+                {
+                    desired.Add(new SevenTvSubscription(EmoteSetSubscriptionType, target.EmoteSetId));
+                    if (target.SevenTvUserId is { Length: > 0 } userId)
+                    {
+                        desired.Add(new SevenTvSubscription(UserSubscriptionType, userId));
+                    }
+                }
+
+                desired.ExceptWith(_acknowledged);
+                return desired.Count;
+            }
+        }
+    }
+
     /// <summary>Records the channel's desired target. Returns true when this changed anything.</summary>
     public bool SetDesired(string channelName, string emoteSetId, string? sevenTvUserId)
     {
@@ -113,42 +149,6 @@ public sealed class SevenTvSubscriptionRegistry
         lock (_lock)
         {
             _acknowledged.Clear();
-        }
-    }
-
-    public IReadOnlyList<string> DesiredChannels
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return [.. _desiredByChannel.Keys];
-            }
-        }
-    }
-
-    public int DesiredSubscriptionCount => BuildDesiredSubscriptions().Count;
-
-    /// <summary>Desired subscriptions the current session has not acknowledged (yet).</summary>
-    public int UnacknowledgedCount
-    {
-        get
-        {
-            lock (_lock)
-            {
-                var desired = new HashSet<SevenTvSubscription>();
-                foreach (var target in _desiredByChannel.Values)
-                {
-                    desired.Add(new SevenTvSubscription(EmoteSetSubscriptionType, target.EmoteSetId));
-                    if (target.SevenTvUserId is { Length: > 0 } userId)
-                    {
-                        desired.Add(new SevenTvSubscription(UserSubscriptionType, userId));
-                    }
-                }
-
-                desired.ExceptWith(_acknowledged);
-                return desired.Count;
-            }
         }
     }
 }

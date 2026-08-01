@@ -38,7 +38,6 @@ public class TwitchChatManager(
     // and EnsureJoinedAsync).
     private readonly ConcurrentDictionary<string, bool> _desiredChannels = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _joinGate = new(1, 1);
-    private DateTime _lastJoinIssuedUtc = DateTime.MinValue;
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
 
     // Decides reconnect vs. recreate vs. wait, and owns the two counters that decision rests on.
@@ -50,27 +49,13 @@ public class TwitchChatManager(
     private long _lastMessageReceivedUtcTicks;
     private long _connectAttemptedUtcTicks;
     private int _joinsIssuedForCurrentClient;
+    private DateTime _lastJoinIssuedUtc = DateTime.MinValue;
 
     public bool IsConnected => _isConnected;
 
     public DateTime? LastMessageReceivedUtc => ReadTimestamp(ref _lastMessageReceivedUtcTicks);
 
     public DateTime? ConnectAttemptedUtc => ReadTimestamp(ref _connectAttemptedUtcTicks);
-
-    private static TwitchClient CreateClient(ILoggerFactory loggerFactory) => new(
-        client: new WebSocketClient(
-            // Verified against TwitchLib.Communication 2.0.1 (commit d1904be): a null policy
-            // defaults to ReconnectionPolicy(3_000, maxAttempts: 10), and Reset(isReconnect: true)
-            // returns early *without* clearing _attemptsMade. Those 10 attempts are therefore a
-            // budget for the client instance's entire lifetime, not per reconnect. Once spent,
-            // OpenPrivateAsync skips its connect loop entirely and raises "Fatal network error."
-            // forever, and TwitchLib's own ConnectionWatchDog breaks out of its monitor loop for
-            // good — exactly the "fails at the 10th reconnect, in two independent environments"
-            // outage. The parameterless policy has maxAttempts == null, so AreAttemptsComplete()
-            // is never true: unlimited attempts with a 3s -> 30s backoff.
-            new ClientOptions(new ReconnectionPolicy()),
-            loggerFactory.CreateLogger<WebSocketClient>()),
-        loggerFactory: loggerFactory);
 
     public void Initialize()
     {
@@ -432,12 +417,6 @@ public class TwitchChatManager(
         }
     }
 
-    private static DateTime? ReadTimestamp(ref long ticksField)
-    {
-        var ticks = Interlocked.Read(ref ticksField);
-        return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
-    }
-
     private Task OnJoinedChannel(object? sender, OnJoinedChannelArgs e)
     {
         // Only a confirmed join stops EnsureJoinedAsync from retrying it every minute. TryUpdate
@@ -479,5 +458,26 @@ public class TwitchChatManager(
         }
 
         return Task.CompletedTask;
+    }
+
+    private static TwitchClient CreateClient(ILoggerFactory loggerFactory) => new(
+        client: new WebSocketClient(
+            // Verified against TwitchLib.Communication 2.0.1 (commit d1904be): a null policy
+            // defaults to ReconnectionPolicy(3_000, maxAttempts: 10), and Reset(isReconnect: true)
+            // returns early *without* clearing _attemptsMade. Those 10 attempts are therefore a
+            // budget for the client instance's entire lifetime, not per reconnect. Once spent,
+            // OpenPrivateAsync skips its connect loop entirely and raises "Fatal network error."
+            // forever, and TwitchLib's own ConnectionWatchDog breaks out of its monitor loop for
+            // good — exactly the "fails at the 10th reconnect, in two independent environments"
+            // outage. The parameterless policy has maxAttempts == null, so AreAttemptsComplete()
+            // is never true: unlimited attempts with a 3s -> 30s backoff.
+            new ClientOptions(new ReconnectionPolicy()),
+            loggerFactory.CreateLogger<WebSocketClient>()),
+        loggerFactory: loggerFactory);
+
+    private static DateTime? ReadTimestamp(ref long ticksField)
+    {
+        var ticks = Interlocked.Read(ref ticksField);
+        return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
     }
 }

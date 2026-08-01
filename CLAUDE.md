@@ -150,6 +150,8 @@ Die Begründung zu jeder Regel steht in [docs/DECISIONS.md](docs/DECISIONS.md).
 15. **Nach Code-Änderungen an `Api`/`Worker` vor jedem `docker compose up -d <service>`-Test entweder `--build` mitgeben oder vorher `docker compose build <service>` laufen lassen** — `up` allein reused ein vorhandenes, potenziell uraltes Image klaglos.
 16. **Backend-Features vor dem Commit live gegen echte Postgres-/Redis-/Twitch-/7TV-Zugänge verifizieren**, nicht nur `dotnet build`.
 17. **Twitch-Client-Secrets nie ins Repo**: lokal `dotnet user-secrets` im `EmotePurge.Api`-Projekt, im Container `.env` (gitignored, Platzhalter in `.env.example`).
+18. **Formatierung ist Werkzeugsache, nicht Geschmackssache**: `npm --prefix web run format` (Prettier) und `dotnet format EmotePurge.slnx`. Die CI prüft beides plus `npm --prefix web run lint`. Repoweite Reformatierungen kommen in einen eigenen `style:`-Commit, der **nichts anderes** enthält, und wandern in `.git-blame-ignore-revs`.
+19. **Member-Reihenfolge in C#-Klassen**: `const`/`static readonly` → `readonly` Felder → veränderliche Felder → öffentliche Properties → öffentliche Methoden → private Methoden → `private static` Helper; verschachtelte Typen ans Klassenende. Kein StyleCop — das ist Review-Disziplin, nicht erzwungen (Begründung im Entscheidungslog). Die Angular-Entsprechung steht in [`web/.claude/CLAUDE.md`](web/.claude/CLAUDE.md) und wird dort per ESLint teilweise erzwungen.
 
 ## Sprache
 

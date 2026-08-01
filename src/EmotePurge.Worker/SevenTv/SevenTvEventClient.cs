@@ -178,8 +178,6 @@ public class SevenTvEventClient(
         return EvaluateClose(socket, established);
     }
 
-    private readonly record struct MessageOutcome(int? HeartbeatTimeoutMs = null, SevenTvSessionEndReason? EndReason = null);
-
     private async Task<MessageOutcome> HandleMessageAsync(string json, CancellationToken ct)
     {
         JsonDocument doc;
@@ -575,4 +573,10 @@ public class SevenTvEventClient(
         root.TryGetProperty("d", out var d) ? Truncate(d.GetRawText()) : "-";
 
     private static string Truncate(string raw) => raw.Length <= 500 ? raw : raw[..500] + "…";
+
+    /// <summary>What a single received frame told us: a new heartbeat interval, a reason to end the
+    /// session, or neither.</summary>
+    private readonly record struct MessageOutcome(
+        int? HeartbeatTimeoutMs = null,
+        SevenTvSessionEndReason? EndReason = null);
 }
