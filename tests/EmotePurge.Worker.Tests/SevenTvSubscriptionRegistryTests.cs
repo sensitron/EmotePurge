@@ -32,6 +32,68 @@ public class SevenTvSubscriptionRegistryTests
     }
 
     [Fact]
+    public void GetChannelStates_ReportsOneRowPerChannel_WithAcknowledgements()
+    {
+        var registry = new SevenTvSubscriptionRegistry();
+        registry.SetDesired("sensitron", SetA, UserA);
+        registry.SetDesired("olaf_olaf_son", SetB, UserB);
+        registry.MarkAcknowledged(SevenTvSubscriptionRegistry.EmoteSetSubscriptionType, SetA);
+        registry.MarkAcknowledged(SevenTvSubscriptionRegistry.UserSubscriptionType, UserA);
+
+        var states = registry.GetChannelStates();
+
+        Assert.Equal(2, states.Count);
+        var acked = Assert.Single(states, s => s.ChannelName == "sensitron");
+        Assert.True(acked.EmoteSetAcknowledged);
+        Assert.True(acked.UserAcknowledged);
+
+        var pending = Assert.Single(states, s => s.ChannelName == "olaf_olaf_son");
+        Assert.False(pending.EmoteSetAcknowledged);
+        Assert.False(pending.UserAcknowledged);
+    }
+
+    [Fact]
+    public void GetChannelStates_SharedSet_ReportsBothChannelsAcknowledged()
+    {
+        // One subscription covers both channels, so neither is missing anything — reporting the
+        // second as unacknowledged would invent a deficit that no resubscribe could ever close.
+        var registry = new SevenTvSubscriptionRegistry();
+        registry.SetDesired("sensitron", SetA, UserA);
+        registry.SetDesired("olaf_olaf_son", SetA, UserB);
+        registry.MarkAcknowledged(SevenTvSubscriptionRegistry.EmoteSetSubscriptionType, SetA);
+
+        Assert.All(registry.GetChannelStates(), s => Assert.True(s.EmoteSetAcknowledged));
+    }
+
+    [Fact]
+    public void GetChannelStates_WithoutAUserId_ReportsNoUserSubscription()
+    {
+        // A channel whose 7TV user id was never resolved desires no user subscription at all.
+        // UserAcknowledged is false, but SevenTvUserId being null is what says "nothing pending" —
+        // otherwise the roster shows a permanently outstanding acknowledgement.
+        var registry = new SevenTvSubscriptionRegistry();
+        registry.SetDesired("sensitron", SetA, sevenTvUserId: null);
+
+        var state = Assert.Single(registry.GetChannelStates());
+        Assert.Null(state.SevenTvUserId);
+        Assert.False(state.UserAcknowledged);
+    }
+
+    [Fact]
+    public void GetChannelStates_AfterResetAcknowledgements_ReportsEverythingPendingAgain()
+    {
+        // Every Hello resets acknowledgements before resubscribing; the roster has to follow, or a
+        // reconnect that silently failed to resubscribe keeps reading as healthy.
+        var registry = new SevenTvSubscriptionRegistry();
+        registry.SetDesired("sensitron", SetA, UserA);
+        registry.MarkAcknowledged(SevenTvSubscriptionRegistry.EmoteSetSubscriptionType, SetA);
+        registry.ResetAcknowledgements();
+
+        var state = Assert.Single(registry.GetChannelStates());
+        Assert.False(state.EmoteSetAcknowledged);
+    }
+
+    [Fact]
     public void BuildDesiredSubscriptions_SharedSet_YieldsOneSetSubscription()
     {
         // Two channels sharing one active set is a real, live-observed configuration; the socket

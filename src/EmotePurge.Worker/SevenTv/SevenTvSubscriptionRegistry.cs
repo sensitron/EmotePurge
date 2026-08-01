@@ -8,6 +8,19 @@ public readonly record struct SevenTvSubscription(string Type, string ObjectId);
 public readonly record struct SevenTvSubscriptionTarget(string EmoteSetId, string? SevenTvUserId);
 
 /// <summary>
+/// What one channel wants from the EventAPI and what the current session has confirmed. The user
+/// subscription is optional by nature — a channel whose 7TV user id was never resolved desires only
+/// the emote-set subscription, and reporting that as "not acknowledged yet" would invent a pending
+/// state that will never resolve. <paramref name="SevenTvUserId"/> being null is what says so.
+/// </summary>
+public readonly record struct SevenTvChannelSubscriptionState(
+    string ChannelName,
+    string EmoteSetId,
+    bool EmoteSetAcknowledged,
+    string? SevenTvUserId,
+    bool UserAcknowledged);
+
+/// <summary>
 /// The desired 7TV EventAPI subscription state, per channel. Desired-state-first (the review's
 /// S2-3 lesson from lost Twitch joins): callers record intent here before any frame is sent, the
 /// event client converges the live socket towards this state after every Hello, and acknowledgements
@@ -105,6 +118,33 @@ public sealed class SevenTvSubscriptionRegistry
             }
 
             return [.. subscriptions];
+        }
+    }
+
+    /// <summary>
+    /// Per-channel desired-vs-acknowledged state for the admin roster. One row per channel even
+    /// when two channels share an emote set: they then both read as acknowledged off the single
+    /// subscription that covers them, which is the truth — neither is missing anything.
+    /// </summary>
+    public IReadOnlyList<SevenTvChannelSubscriptionState> GetChannelStates()
+    {
+        lock (_lock)
+        {
+            var states = new List<SevenTvChannelSubscriptionState>(_desiredByChannel.Count);
+            foreach (var (channelName, target) in _desiredByChannel)
+            {
+                var userId = target.SevenTvUserId is { Length: > 0 } id ? id : null;
+                states.Add(new SevenTvChannelSubscriptionState(
+                    channelName,
+                    target.EmoteSetId,
+                    _acknowledged.Contains(new SevenTvSubscription(EmoteSetSubscriptionType, target.EmoteSetId)),
+                    userId,
+                    userId is not null &&
+                    _acknowledged.Contains(new SevenTvSubscription(UserSubscriptionType, userId))));
+            }
+
+            states.Sort(static (left, right) => string.CompareOrdinal(left.ChannelName, right.ChannelName));
+            return states;
         }
     }
 
