@@ -417,9 +417,11 @@
     "syncFailed": "Die Emotes sind bei 7TV gelöscht, aber EmotePurge konnte es nicht vermerken. Normalerweise zieht sich das innerhalb einer Minute von selbst nach.",
     "syncRetry": "Erneut melden",
     "syncRetrySucceeded": "Rückmeldung erfolgreich nachgeholt.",
+    "rateLimitPaused": "7TV-Rate-Limit erreicht — es geht in {{ seconds }} s automatisch weiter.",
     "errors": {
       "tokenInvalid": "Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.",
       "rateLimited": "Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.",
+      "rateLimitedGaveUp": "7TV-Rate-Limit auch nach mehreren Wartezyklen aktiv — Emote übersprungen.",
       "networkError": "Keine Verbindung zu 7TV möglich (Netzwerkfehler).",
       "genericStatus": "7TV-Fehler (Status {{ status }})."
     }

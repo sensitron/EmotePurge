@@ -16,9 +16,32 @@ const DE_TRANSLATIONS = {
       rateLimited: 'Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.',
       networkError: 'Keine Verbindung zu 7TV möglich (Netzwerkfehler).',
       genericStatus: '7TV-Fehler (Status {{ status }}).',
+      rateLimitedGaveUp:
+        '7TV-Rate-Limit auch nach mehreren Wartezyklen aktiv — Emote übersprungen.',
     },
   },
 };
+
+/** 7TV rejects a rate-limited mutation with HTTP 200 and the details inside `errors[0].extensions`
+ *  — the response headers themselves are not CORS-exposed, so this payload is all a browser gets. */
+function rateLimitResponse(resetSeconds: number, limit: number | null = 100) {
+  const headers: Record<string, string> = {
+    'x-ratelimit-emote_set_change-remaining': '0',
+    'x-ratelimit-emote_set_change-reset': String(resetSeconds),
+    'x-ratelimit-emote_set_change-used': '101',
+  };
+  if (limit !== null) {
+    headers['x-ratelimit-emote_set_change-limit'] = String(limit);
+  }
+  return {
+    errors: [
+      {
+        message: 'RATE_LIMIT_EXCEEDED rate limit exceeded',
+        extensions: { code: 'RATE_LIMIT_EXCEEDED', status: 429, headers },
+      },
+    ],
+  };
+}
 
 const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 const SYNC_ENDPOINT = '/api/channels/sensitron/emotes/sync-deleted';
@@ -37,6 +60,9 @@ describe('SevenTvDeleteService', () => {
   beforeEach(async () => {
     sessionStorage.clear();
     vi.useFakeTimers();
+    // The service reports every run's measured rate here — silenced so the suite stays readable,
+    // asserted in the measurement test below.
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
     TestBed.configureTestingModule({
       imports: [
         TranslocoTestingModule.forRoot({
@@ -59,6 +85,7 @@ describe('SevenTvDeleteService', () => {
   afterEach(() => {
     httpMock.verify();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   // Drives one emote all the way through the 7TV queue and returns the closing sync-deleted request,
@@ -196,6 +223,138 @@ describe('SevenTvDeleteService', () => {
     const syncReq = httpMock.expectOne('/api/channels/sensitron/emotes/sync-deleted');
     expect(syncReq.request.body).toEqual({ emoteIds: ['internal-2'] });
     syncReq.flush({ archivedCount: 1, notFoundIds: [] });
+  });
+
+  describe('7TV rate limiting', () => {
+    it('waits out the reported reset and retries the same emote instead of failing it', () => {
+      service.startDelete('set-1', 'sensitron', [EMOTES[0]]);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush(rateLimitResponse(30));
+
+      // Still in flight, not burnt — and the pause is visible rather than looking like a hang.
+      expect(service.queue()[0].status).toBe('in-progress');
+      expect(service.rateLimitPauseSeconds()).toBe(31);
+      httpMock.expectNone(GQL_ENDPOINT);
+
+      vi.advanceTimersByTime(30_500);
+
+      const retryReq = httpMock.expectOne(GQL_ENDPOINT);
+      expect(retryReq.request.body.variables).toEqual({ setId: 'set-1', emoteId: '7tv-1' });
+      retryReq.flush({});
+
+      expect(service.queue()[0].status).toBe('done');
+      expect(service.rateLimitPauseSeconds()).toBeNull();
+
+      vi.advanceTimersByTime(330);
+      httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 1, notFoundIds: [] });
+    });
+
+    it('re-paces the rest of the run from the reported quota', () => {
+      service.startDelete('set-1', 'sensitron', EMOTES);
+
+      // limit 100 over a window of 0ms elapsed + 30s remaining => 300ms/request, +10% margin => 330ms.
+      httpMock.expectOne(GQL_ENDPOINT).flush(rateLimitResponse(30, 100));
+      vi.advanceTimersByTime(30_500);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+
+      // The original 275ms pace is no longer in effect.
+      vi.advanceTimersByTime(275);
+      httpMock.expectNone(GQL_ENDPOINT);
+
+      vi.advanceTimersByTime(55);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+
+      vi.advanceTimersByTime(330);
+      httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 2, notFoundIds: [] });
+    });
+
+    it('gives up on an emote after the retries are exhausted, without stalling the queue', () => {
+      service.startDelete('set-1', 'sensitron', [EMOTES[0]]);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush(rateLimitResponse(1));
+      for (let attempt = 0; attempt < 5; attempt++) {
+        vi.advanceTimersByTime(1500);
+        httpMock.expectOne(GQL_ENDPOINT).flush(rateLimitResponse(1));
+      }
+
+      expect(service.queue()[0].status).toBe('failed');
+      expect(service.queue()[0].errorMessage).toContain('übersprungen');
+      expect(service.rateLimitPauseSeconds()).toBeNull();
+    });
+
+    it('backs off a bare HTTP 429 for a full window without mis-learning a pace from it', () => {
+      service.startDelete('set-1', 'sensitron', [EMOTES[0]]);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush(null, { status: 429, statusText: 'Too Many Requests' });
+
+      expect(service.queue()[0].status).toBe('in-progress');
+      expect(service.rateLimitPauseSeconds()).toBe(60);
+
+      vi.advanceTimersByTime(60_000);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+
+      expect(service.queue()[0].status).toBe('done');
+      // A headerless rejection carries no quota, so the starting pace must survive it.
+      vi.advanceTimersByTime(DELETE_DELAY_MS);
+      httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 1, notFoundIds: [] });
+    });
+
+    it('reports the achieved rate at the end of a run — the only way we learn 7TVs real quota', () => {
+      service.startDelete('set-1', 'sensitron', EMOTES);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(DELETE_DELAY_MS);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(DELETE_DELAY_MS);
+      httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 2, notFoundIds: [] });
+
+      expect(console.info).toHaveBeenCalledWith(
+        '[EmotePurge] 7TV mass delete finished',
+        expect.objectContaining({
+          requested: 2,
+          succeeded: 2,
+          requestsSent: 2,
+          // Both requests fall inside one 60s span, so the busiest window holds both.
+          peakRequestsPer60s: 2,
+          rateLimitHits: 0,
+        }),
+      );
+    });
+
+    it('counts only the busiest 60s span, not the whole run', () => {
+      service.startDelete('set-1', 'sensitron', EMOTES);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(DELETE_DELAY_MS);
+
+      // A 90s rate-limit pause pushes the retry more than a minute past the first two requests.
+      httpMock.expectOne(GQL_ENDPOINT).flush(rateLimitResponse(90));
+      vi.advanceTimersByTime(90_500);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+
+      // Re-paced to (275ms elapsed + 90s reset) / 100 * 1.1 ≈ 993ms.
+      vi.advanceTimersByTime(993);
+      httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 2, notFoundIds: [] });
+
+      expect(console.info).toHaveBeenCalledWith(
+        '[EmotePurge] 7TV mass delete finished',
+        expect.objectContaining({ requestsSent: 3, peakRequestsPer60s: 2, rateLimitHits: 1 }),
+      );
+    });
+
+    it('cancel() during a rate-limit pause stops the run and clears the countdown', () => {
+      service.startDelete('set-1', 'sensitron', EMOTES);
+      httpMock.expectOne(GQL_ENDPOINT).flush(rateLimitResponse(30));
+
+      service.cancel();
+
+      expect(service.isRunning()).toBe(false);
+      expect(service.rateLimitPauseSeconds()).toBeNull();
+      expect(service.queue().map((i) => i.status)).toEqual(['cancelled', 'cancelled']);
+
+      vi.advanceTimersByTime(60_000);
+      httpMock.expectNone(GQL_ENDPOINT);
+    });
   });
 
   it('clears the stored token and reports a friendly message on 401', () => {

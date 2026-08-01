@@ -31,6 +31,13 @@ import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-d
         <div class="h-full bg-purple-500 transition-all" [style.width.%]="progressPercent()"></div>
       </div>
 
+      <!-- Without this the bar just stops for up to a minute, which reads as a crash. -->
+      @if (rateLimitPauseSeconds() !== null) {
+        <p class="mt-2 text-sm text-amber-300">
+          {{ 'massDelete.rateLimitPaused' | transloco: { seconds: rateLimitPauseSeconds() } }}
+        </p>
+      }
+
       @if (failedItems().length > 0) {
         <ul class="mt-3 space-y-1 text-sm text-red-400" role="alert">
           @for (item of failedItems(); track item.emoteId) {
@@ -64,6 +71,8 @@ export class DeleteProgressPanel {
   readonly items = input.required<DeleteQueueItem[]>();
   readonly isRunning = input.required<boolean>();
   readonly syncReport = input.required<SyncReportState>();
+  /** Seconds left on a 7TV rate-limit pause, null while running normally. */
+  readonly rateLimitPauseSeconds = input<number | null>(null);
   readonly cancelled = output<void>();
   readonly dismissed = output<void>();
   readonly syncRetryRequested = output<void>();

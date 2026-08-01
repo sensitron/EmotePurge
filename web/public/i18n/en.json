@@ -417,9 +417,11 @@
     "syncFailed": "The emotes were deleted on 7TV, but EmotePurge could not record it. This usually resolves itself within a minute.",
     "syncRetry": "Report again",
     "syncRetrySucceeded": "Reported back successfully.",
+    "rateLimitPaused": "7TV rate limit reached — resuming automatically in {{ seconds }}s.",
     "errors": {
       "tokenInvalid": "Token invalid or expired — please enter a new 7TV token.",
       "rateLimited": "Too many requests to 7TV (rate limit) — try again later.",
+      "rateLimitedGaveUp": "7TV rate limit still active after several waits — emote skipped.",
       "networkError": "Couldn't connect to 7TV (network error).",
       "genericStatus": "7TV error (status {{ status }})."
     }

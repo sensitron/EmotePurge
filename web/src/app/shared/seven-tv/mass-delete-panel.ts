@@ -60,6 +60,7 @@ export interface DeletableEmote {
           [items]="deleteService.queue()"
           [isRunning]="deleteService.isRunning()"
           [syncReport]="deleteService.syncReport()"
+          [rateLimitPauseSeconds]="deleteService.rateLimitPauseSeconds()"
           (cancelled)="deleteService.cancel()"
           (dismissed)="deleteService.reset()"
           (syncRetryRequested)="deleteService.retrySyncReport()"
