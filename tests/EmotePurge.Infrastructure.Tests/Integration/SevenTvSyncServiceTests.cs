@@ -27,6 +27,25 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     private static SevenTvSyncService CreateService(Persistence.AppDbContext db, EmoteMatchCache cache) =>
         new(db, Substitute.For<ISevenTvApiClient>(), cache, new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
 
+    // The REST answer a seeded channel would get back unchanged — same set, same emotes, same
+    // image urls, so a sync over it is a true no-op.
+    private static SevenTvSyncService CreateRestService(
+        Persistence.AppDbContext db,
+        EmoteMatchCache cache,
+        Channel channel,
+        string emoteSetId,
+        params SevenTvEmote[] liveEmotes)
+    {
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
+            .Returns(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(emoteSetId, liveEmotes)));
+        return new SevenTvSyncService(db, apiClient, cache, new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+    }
+
+    private static string SeededImageUrl(string sevenTvId) => $"https://cdn.7tv.app/emote/{sevenTvId}/2x.webp";
+
+    private static SevenTvEmote LiveEmote(string sevenTvId, string name) => new(sevenTvId, name, SeededImageUrl(sevenTvId));
+
     private async Task<Channel> SeedChannelAsync(Persistence.AppDbContext db, string name, params (string SevenTvId, string Name, bool Archived)[] emotes)
     {
         // Channels.TwitchChannelId carries a unique index — derive it from the (unique) test
@@ -40,7 +59,7 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
                 ChannelId = channel.Id,
                 SevenTvEmoteId = sevenTvId,
                 Name = emoteName,
-                ImageUrl = $"https://cdn.7tv.app/emote/{sevenTvId}/2x.webp",
+                ImageUrl = SeededImageUrl(sevenTvId),
                 IsArchived = archived
             });
         }
@@ -242,5 +261,88 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         Assert.NotNull(result);
         Assert.Equal(SetId, result.EmoteSetId);
         Assert.Equal("7tv-user-77", result.SevenTvUserId);
+    }
+
+    // HasChanges is what keeps the unattended sync paths (periodic resync every 60s, EventAPI
+    // follow-ups, boot recovery) from publishing channel.synced on every tick — a false positive
+    // would make every open page refetch on a timer.
+    [Fact]
+    public async Task SyncChannel_NoOpResync_ReportsNoChanges()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_noop", ("e1", "stable", false));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "stable"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+    }
+
+    [Fact]
+    public async Task SyncChannel_NewEmote_ReportsChange()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_change_new", ("e1", "stable", false));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "stable"), LiveEmote("e2", "fresh"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.True(result.HasChanges);
+        Assert.True(await db.Emotes.AnyAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2"));
+    }
+
+    [Fact]
+    public async Task SyncChannel_EmoteMissingFromLiveSet_ArchivesAndReportsChange()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_change_gone", ("e1", "stays", false), ("e2", "goes", false));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "stays"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.True(result.HasChanges);
+        Assert.True(await db.Emotes.Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2")
+            .Select(e => e.IsArchived).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_SwitchedActiveSetWithIdenticalEmotes_ReportsChange()
+    {
+        // The emote rows stay byte-identical, but which set the channel runs is itself state the
+        // UI shows (and the mass-delete panel needs) — so it counts as a change.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_change_setswitch", ("e1", "stable", false));
+        const string OtherSetId = "1111e0f0aa1234567890abcd";
+        var service = CreateRestService(db, cache, channel, OtherSetId, LiveEmote("e1", "stable"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.Equal(OtherSetId, result.EmoteSetId);
+        Assert.True(result.HasChanges);
+    }
+
+    [Fact]
+    public async Task SyncChannel_ImplausibleEmptyLiveSet_ReportsNoChanges()
+    {
+        // The guard skips the write entirely; reporting a change would publish an event for a sync
+        // that deliberately did nothing.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_change_emptyguard", ("e1", "stable", false));
+        var service = CreateRestService(db, cache, channel, SetId);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+        Assert.False(await db.Emotes.Where(e => e.ChannelId == channel.Id).Select(e => e.IsArchived).SingleAsync());
     }
 }

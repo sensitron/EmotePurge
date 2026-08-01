@@ -26,6 +26,8 @@ public class EmoteServiceTests(PostgresFixture fixture)
         var result = await service.MarkDeletedAsync("syncdeletetest_a", [emote.Id], Actor);
 
         Assert.Equal(1, result.ArchivedCount);
+        // Drives the channel.synced live event in the endpoint: this call really changed state.
+        Assert.Equal(1, result.NewlyArchivedCount);
         Assert.Empty(result.NotFoundIds);
         Assert.True(await db.Emotes.Where(e => e.Id == emote.Id).Select(e => e.IsArchived).SingleAsync());
     }
@@ -49,6 +51,8 @@ public class EmoteServiceTests(PostgresFixture fixture)
 
         Assert.Equal(1, result.ArchivedCount);
         Assert.Empty(result.NotFoundIds);
+        // Goal state was already reached, so nothing was written — no live event, no audit row.
+        Assert.Equal(0, result.NewlyArchivedCount);
     }
 
     [Fact]
@@ -66,6 +70,7 @@ public class EmoteServiceTests(PostgresFixture fixture)
         var result = await service.MarkDeletedAsync("syncdeletetest_c", [foreignEmote.Id, "does-not-exist"], Actor);
 
         Assert.Equal(0, result.ArchivedCount);
+        Assert.Equal(0, result.NewlyArchivedCount);
         Assert.Equal(2, result.NotFoundIds.Count);
         // The foreign channel's emote stays untouched.
         Assert.False(await db.Emotes.Where(e => e.Id == foreignEmote.Id).Select(e => e.IsArchived).SingleAsync());

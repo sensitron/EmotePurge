@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Infrastructure.SevenTv;
@@ -21,6 +22,7 @@ public class SevenTvEventClient(
     ILogger<SevenTvEventClient> logger,
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory,
+    IRedisPublisher redisPublisher,
     SevenTvSubscriptionRegistry registry) : ISevenTvEventClient
 {
     private static readonly Uri EventApiUri = new("wss://events.7tv.io/v3");
@@ -367,6 +369,12 @@ public class SevenTvEventClient(
 
             switch (outcome)
             {
+                case SevenTvDeltaOutcome.Applied:
+                    // The one outcome that persisted a write — everything else changed nothing and
+                    // must stay silent (open pages would refetch for nothing).
+                    await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
+                    break;
+
                 case SevenTvDeltaOutcome.SetNotActive:
                 case SevenTvDeltaOutcome.ImplausibleSkipped:
                     // Outside the gate by design — see the interface remark on ApplyEmoteSetUpdateAsync.
@@ -415,7 +423,11 @@ public class SevenTvEventClient(
         }
     }
 
-    /// <summary>Full REST resync of one channel; never throws (logged and swallowed).</summary>
+    /// <summary>
+    /// Full REST resync of one channel; never throws (logged and swallowed). Publishes
+    /// <c>channel.synced</c> whenever the resync really changed something — every caller here is
+    /// unattended (dispatch follow-up, set switch, reconnect gap-fill), so a no-op stays silent.
+    /// </summary>
     private async Task<SevenTvSyncResult?> ResyncChannelAsync(string channelName, bool adoptResult, CancellationToken ct)
     {
         try
@@ -426,6 +438,11 @@ public class SevenTvEventClient(
             if (adoptResult && result is not null)
             {
                 EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
+            }
+
+            if (result is { HasChanges: true })
+            {
+                await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
             }
 
             return result;

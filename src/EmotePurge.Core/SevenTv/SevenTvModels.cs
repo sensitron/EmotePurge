@@ -11,8 +11,11 @@ public record SevenTvEmoteSet(string Id, IReadOnlyList<SevenTvEmote> Emotes);
 public record SevenTvChannelState(string? SevenTvUserId, SevenTvEmoteSet EmoteSet);
 
 // What a full channel sync resolved. Callers use the set id for logging and the pair to keep an
-// EventAPI subscription registry converged after every sync.
-public record SevenTvSyncResult(string EmoteSetId, string? SevenTvUserId);
+// EventAPI subscription registry converged after every sync. HasChanges reports whether the sync
+// actually altered the channel's emote inventory (added/archived/unarchived/renamed emote, or a
+// switched active set) — the unattended sync paths publish their channel.synced live event only
+// then, so a no-op resync stays silent.
+public record SevenTvSyncResult(string EmoteSetId, string? SevenTvUserId, bool HasChanges);
 
 // One emote_set.update dispatch from the EventAPI, reduced to the three change kinds the wire
 // actually carries. Property names deliberately mirror the wire fields (pushed/pulled/updated):

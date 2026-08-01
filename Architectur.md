@@ -59,6 +59,17 @@
 
 **Rückkanal (Live-Updates, seit 2026-07-31):** Worker und Api publizieren dünne Benachrichtigungs-Events (`{type, channel, sessionId?}` — nie Daten) auf den Redis-Kanal `live:events` (Vertrag: `Core/Messaging/LiveEvents.cs`). Die Api ist dafür erstmals selbst Redis-Subscriber: `RedisLiveEventStream` (Infrastructure, Singleton, Lazy-Subscribe beim ersten Client) fächert die Events an offene **Server-Sent-Events**-Verbindungen auf (`GET /api/channels/{name}/live`, `GET /api/admin/live` — natives `TypedResults.ServerSentEvents`, kein SignalR). Der Browser refetcht daraufhin über die normalen REST-Endpoints (Notify-and-Refetch). Da jede Api-Replica selbst subscribed, funktioniert der Mechanismus ohne Backplane und ohne Sticky Sessions auch mit mehreren Replicas. Begründungen und Betriebsvertrag (Heartbeat 15 s, 10-min-Verbindungscap, Verbindungs-Limits statt Rate-Limit, Proxy-Anforderungen) im DECISIONS-Eintrag vom 2026-07-31.
 
+Publizierende Stellen je Event-Typ (Stand 2026-08-01):
+
+| Event | Publisher |
+|---|---|
+| `usage.flushed` | Worker: `UsageFlushWorker` nach erfolgreichem Flush |
+| `vote.changed` | Api: `VoteSessionEndpoints` (Success-Arme von Vote-POST/DELETE) |
+| `channel.synced` | Worker: `Worker` (JOIN-/RESYNC-Kommando **unconditional**, Boot-Recovery nur bei Änderung), `SevenTvPeriodicResyncWorker` und `SevenTvEventClient` (Delta + Follow-up-/Gap-Fill-Resyncs) **nur bei Änderung** · Api: `EmoteEndpoints` `POST .../emotes/sync-deleted`, wenn ≥1 Emote neu archiviert wurde |
+| `worker.health` | Worker: `WorkerHealthPublisher` |
+
+„Nur bei Änderung" heißt: `SevenTvSyncResult.HasChanges` bzw. `SevenTvDeltaOutcome.Applied` — s. DECISIONS-Eintrag vom 2026-08-01.
+
 ---
 
 ## 4. Modul-Spezifikationen

@@ -61,18 +61,23 @@ public class SevenTvSyncService(
                 logger.LogWarning(
                     "7TV meldet 0 aktive Emotes für {Channel}, obwohl bisher {Count} bekannt waren — Sync übersprungen.",
                     normalized, knownActiveEmotes);
-                return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId);
+                return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId, HasChanges: false);
             }
         }
+
+        // Read before the assignment below: a switched active set is a content change of its own,
+        // even when the two sets happen to hold identical emotes. A first-time TwitchChannelId
+        // backfill deliberately does not count — it changes no emote the UI could show.
+        var emoteSetSwitched = channel.ActiveEmoteSetId != emoteSet.Id;
 
         channel.TwitchChannelId ??= twitchUserId;
         channel.ActiveEmoteSetId = emoteSet.Id;
 
-        await ReconcileAsync(channel.Id, emoteSet.Emotes, cancellationToken);
+        var inventoryChanged = await ReconcileAsync(channel.Id, emoteSet.Emotes, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await RefreshMatchCacheAsync(channel, cancellationToken);
 
-        return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId);
+        return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId, emoteSetSwitched || inventoryChanged);
     }
 
     public async Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
@@ -192,17 +197,19 @@ public class SevenTvSyncService(
         emoteMatchCache.ReplaceChannel(channel.ChannelName, emoteNameToId);
     }
 
-    private async Task ReconcileAsync(string channelId, IReadOnlyList<SevenTvEmote> liveEmotes, CancellationToken cancellationToken)
+    /// <summary>Returns true when at least one emote row was added, archived or altered.</summary>
+    private async Task<bool> ReconcileAsync(string channelId, IReadOnlyList<SevenTvEmote> liveEmotes, CancellationToken cancellationToken)
     {
         var existing = await db.Emotes
             .Where(e => e.ChannelId == channelId)
             .ToDictionaryAsync(e => e.SevenTvEmoteId, cancellationToken);
 
         var liveIds = liveEmotes.Select(e => e.Id).ToHashSet();
+        var changed = false;
 
         foreach (var emote in liveEmotes)
         {
-            UpsertEmote(channelId, existing, emote);
+            changed |= UpsertEmote(channelId, existing, emote);
         }
 
         foreach (var (sevenTvEmoteId, emote) in existing)
@@ -222,11 +229,15 @@ public class SevenTvSyncService(
                 }
 
                 emote.IsArchived = true;
+                changed = true;
             }
         }
+
+        return changed;
     }
 
-    private void UpsertEmote(string channelId, Dictionary<string, Emote> existing, SevenTvEmote live, bool preserveImageUrlWhenLiveEmpty = false)
+    /// <summary>Returns true when the row was created or actually modified.</summary>
+    private bool UpsertEmote(string channelId, Dictionary<string, Emote> existing, SevenTvEmote live, bool preserveImageUrlWhenLiveEmpty = false)
     {
         if (existing.TryGetValue(live.Id, out var emote))
         {
@@ -243,19 +254,21 @@ public class SevenTvSyncService(
                 emote.ImageUrl = imageUrl;
                 emote.IsArchived = false;
                 emote.LastSyncedAt = DateTime.UtcNow;
+                return true;
             }
+
+            return false;
         }
-        else
+
+        emote = new Emote
         {
-            emote = new Emote
-            {
-                ChannelId = channelId,
-                SevenTvEmoteId = live.Id,
-                Name = live.Name,
-                ImageUrl = live.ImageUrl
-            };
-            db.Emotes.Add(emote);
-            existing[live.Id] = emote;
-        }
+            ChannelId = channelId,
+            SevenTvEmoteId = live.Id,
+            Name = live.Name,
+            ImageUrl = live.ImageUrl
+        };
+        db.Emotes.Add(emote);
+        existing[live.Id] = emote;
+        return true;
     }
 }

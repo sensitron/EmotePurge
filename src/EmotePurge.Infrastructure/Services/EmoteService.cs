@@ -14,7 +14,7 @@ public class EmoteService(AppDbContext db) : IEmoteService
         var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
         if (channel is null)
         {
-            return new SyncDeletedResultDto(0, emoteIds);
+            return new SyncDeletedResultDto(0, emoteIds, 0);
         }
 
         // Already-archived rows are matched on purpose: with the EventAPI live sync enabled, the
@@ -49,6 +49,6 @@ public class EmoteService(AppDbContext db) : IEmoteService
         var foundIds = emotes.Select(e => e.Id).ToHashSet();
         var notFoundIds = emoteIds.Where(id => !foundIds.Contains(id)).ToList();
 
-        return new SyncDeletedResultDto(emotes.Count, notFoundIds);
+        return new SyncDeletedResultDto(emotes.Count, notFoundIds, newlyArchived.Count);
     }
 }

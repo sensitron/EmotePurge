@@ -108,10 +108,11 @@ public class Worker(
     }
 
     /// <param name="publishCompletion">
-    /// Announces the finished sync as a live event. Only set for the two user-triggered paths (a
-    /// JOIN and an admin RESYNC), where somebody is waiting in front of a screen — boot recovery and
-    /// the periodic resync run unattended and would just make every open admin page reload on a
-    /// timer.
+    /// Announces the finished sync as a live event even when it changed nothing. Only set for the
+    /// two user-triggered paths (a JOIN and an admin RESYNC), where somebody is waiting in front of
+    /// a screen and the event doubles as "done" feedback. Unattended paths (boot recovery here, the
+    /// periodic resync, the EventAPI follow-ups) leave it off and publish only on a real change:
+    /// a per-minute no-op resync must not make every open page refetch on a timer.
     /// </param>
     private async Task SyncSevenTvAsync(string channelName, CancellationToken ct, bool publishCompletion = false)
     {
@@ -126,21 +127,9 @@ public class Worker(
             // converges the socket towards the registry after every Hello.
             sevenTvEventClient.EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
 
-            if (publishCompletion)
+            if (publishCompletion || result.HasChanges)
             {
-                try
-                {
-                    await redisPublisher.PublishAsync(
-                        LiveEvents.Channel,
-                        new LiveEvent(LiveEvents.ChannelSynced, ChannelName.Normalize(channelName)).Serialize(),
-                        ct);
-                }
-                catch (Exception ex)
-                {
-                    // The sync itself is done and persisted; a failed notification must not turn it
-                    // into a failed command (boot recovery would otherwise log it as a failure).
-                    logger.LogWarning(ex, "Live-Event '{Type}' für {Channel} konnte nicht veröffentlicht werden.", LiveEvents.ChannelSynced, channelName);
-                }
+                await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
             }
         }
     }

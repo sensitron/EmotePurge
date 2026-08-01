@@ -1,5 +1,7 @@
 using EmotePurge.Api.Auth;
 using EmotePurge.Api.Validation;
+using EmotePurge.Core.Entities;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 
 namespace EmotePurge.Api.Endpoints;
@@ -26,6 +28,8 @@ public static class EmoteEndpoints
             SyncDeletedRequest request,
             HttpContext httpContext,
             IEmoteService emoteService,
+            IRedisPublisher redisPublisher,
+            ILogger<Program> logger,
             CancellationToken ct) =>
         {
             if (request.EmoteIds is null || request.EmoteIds.Count == 0)
@@ -40,6 +44,11 @@ public static class EmoteEndpoints
             }
 
             var result = await emoteService.MarkDeletedAsync(channelName, request.EmoteIds, actor, ct);
+            if (result.NewlyArchivedCount > 0)
+            {
+                await PublishChannelSyncedAsync(redisPublisher, logger, channelName);
+            }
+
             return Results.Ok(new { archivedCount = result.ArchivedCount, notFoundIds = result.NotFoundIds });
         })
         // Overrides the group's strict policy: this is the one call that must never be dropped. The
@@ -74,6 +83,39 @@ public static class EmoteEndpoints
                 ? Results.NotFound()
                 : Results.Ok(new { activeEmoteSetId = channel.ActiveEmoteSetId });
         });
+    }
+
+    /// <summary>
+    /// Announces "this channel's emote inventory changed" — the same event the worker's sync paths
+    /// publish, because the effect on every open page is identical: emotes that are gone from 7TV
+    /// are now archived here too. Published only when this call actually archived something (the
+    /// live sync often got there first, and a no-op must not make everyone refetch).
+    /// <para>
+    /// In the endpoint rather than in EmoteService, exactly like the vote event: the notification
+    /// belongs to the request that caused it, and IRedisPublisher in a handler is explicitly
+    /// allowed by rule 4. Failure is logged and swallowed — the archiving is committed and the
+    /// response must not change because Redis hiccuped.
+    /// </para>
+    /// </summary>
+    private static async Task PublishChannelSyncedAsync(
+        IRedisPublisher redisPublisher,
+        ILogger logger,
+        string channelName)
+    {
+        try
+        {
+            // No request token on purpose: the write is committed, so a client that hung up right
+            // after the delete must not cost every *other* viewer their update.
+            await redisPublisher.PublishAsync(
+                LiveEvents.Channel,
+                new LiveEvent(LiveEvents.ChannelSynced, ChannelName.Normalize(channelName)).Serialize());
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex, "Live-Event '{Type}' für {Channel} konnte nicht veröffentlicht werden.",
+                LiveEvents.ChannelSynced, channelName);
+        }
     }
 }
 

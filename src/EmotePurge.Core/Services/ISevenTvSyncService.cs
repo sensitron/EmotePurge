@@ -7,7 +7,9 @@ public interface ISevenTvSyncService
     /// <summary>
     /// Resolves and fully reconciles a channel's active 7TV emote set against Postgres.
     /// Returns the resolved set id plus the channel's 7TV account id (for EventAPI subscriptions),
-    /// or null if the channel has no 7TV account/emote set.
+    /// or null if the channel has no 7TV account/emote set. <see cref="SevenTvSyncResult.HasChanges"/>
+    /// tells the caller whether anything actually changed, so unattended callers can stay silent on
+    /// a no-op resync.
     /// </summary>
     Task<SevenTvSyncResult?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default);
 
@@ -19,6 +21,11 @@ public interface ISevenTvSyncService
     /// non-empty channel (implausible; see the empty-set guard in SyncChannelAsync).
     /// Callers — not this method — run the follow-up full resync those outcomes ask for:
     /// SyncChannelAsync takes the same non-reentrant gate and would deadlock if called from here.
+    /// <para>
+    /// <see cref="SevenTvDeltaOutcome.Applied"/> is the "something really changed" signal (it is
+    /// returned only after a persisted write) — that is what makes the caller publish
+    /// <c>channel.synced</c>; every other outcome wrote nothing.
+    /// </para>
     /// </summary>
     Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
         string channelName,

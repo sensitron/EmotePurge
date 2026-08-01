@@ -1,3 +1,4 @@
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Worker.SevenTv;
@@ -17,6 +18,7 @@ public class SevenTvPeriodicResyncWorker(
     ITwitchChatManager twitchChatManager,
     BootRecoveryGate bootRecoveryGate,
     ISevenTvEventClient sevenTvEventClient,
+    IRedisPublisher redisPublisher,
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory) : BackgroundService
 {
@@ -73,6 +75,14 @@ public class SevenTvPeriodicResyncWorker(
                         // EnsureJoinedAsync above: idempotent, and the only path that picks up
                         // set/account switches the event stream missed.
                         sevenTvEventClient.EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
+
+                        // Only on a real change: this loop runs every minute for every channel, so
+                        // an unconditional publish would refetch every open page on a timer. What
+                        // it does catch is everything the EventAPI missed (no resume/replay).
+                        if (result.HasChanges)
+                        {
+                            await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
+                        }
                     }
                 }
                 catch (Exception ex)
