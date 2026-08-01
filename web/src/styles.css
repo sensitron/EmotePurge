@@ -143,9 +143,11 @@
    got this via .cdk-virtual-scrollable — the scrollWindow variant has to say it itself.
 
    contain: CDK's `contain: content` includes paint containment, which clips anything a card
-   paints outside its box — the 2px selection ring and the focus outline of the first/last grid
-   column were cut off once the row wrapper lost its horizontal padding. Layout/style containment
-   keeps the isolation without the clipping; only ~2 rendered rows exist at any time anyway. */
+   paints outside its box — the focus outline of the first/last grid column was cut off once the
+   row wrapper lost its horizontal padding. Layout/style containment keeps the isolation without
+   the clipping; only ~2 rendered rows exist at any time anyway. The selection ring used to be
+   clipped here too, but is drawn INSIDE the card since the inset-ring change (design doc §8.5) —
+   the transient focus outline is the only thing still painting past the content-box edge. */
 cdk-virtual-scroll-viewport[scrollWindow] {
   overflow-anchor: none;
 }

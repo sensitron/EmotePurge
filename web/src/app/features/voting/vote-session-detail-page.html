@@ -166,7 +166,7 @@
               'flex h-44 flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition ' +
               (canSelectForDelete() ? 'cursor-pointer hover:bg-slate-800/70 ' : '') +
               (selection.isSelected(emote)
-                ? 'ring-2 ring-purple-500 bg-purple-950/40'
+                ? 'inset-ring-2 inset-ring-purple-500 bg-purple-950/40'
                 : 'bg-slate-900')
             "
             (click)="onCardActivate(emote, $event)"

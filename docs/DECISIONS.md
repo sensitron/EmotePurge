@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — Selektionszustände malen inset: `inset-ring-2` statt `ring-2` auf den Emote-Karten
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.html` · `web/src/app/features/voting/vote-session-detail-page.html` · `web/src/styles.css` · `docs/UI-Designsprache.md` (§8.5)
+
+**Selektierte Emote-Karten ließen links und rechts von den Sticky-Leisten je ~2 px Farbe durchschimmern.** Ursache ist eine Kette, die für sich genommen jeweils richtig ist: Scroll-Container und Sticky-Leisten sind beide exakt die Content-Box von `<main class="mx-auto max-w-5xl px-4 py-8">`; der `*cdkVirtualFor`-Zeilen-Wrapper hat nur `py-2`, also liegen die Karten der ersten und letzten Grid-Spalte bündig an deren Kante; und `ring-2` ist ein **outset** box-shadow, malt also 2 px *außerhalb* der Border-Box. `.app-sticky-bar` hat weder `max-width` noch horizontales Padding — ihr Hintergrundkasten endet an derselben Kante. An genau diesen 2 px lag damit gar kein Hintergrund. Abgeschnitten hätte das früher CDKs Paint-Containment, das aber bewusst auf `contain: layout style` reduziert worden war, weil `contain: content` Ring *und* Fokus-Outline der Randspalten kappte.
+
+**Gewählt wurde `inset-ring-2 inset-ring-purple-500`, also die Ursache statt der Wirkung.** Der Ring wird damit innerhalb der Border-Box gezeichnet (`box-shadow: inset 0 0 0 2px`) und ist an allen vier Kanten gleich dick, bei jeder Spaltenzahl und auf beiden Seiten identisch. Die Alternativen wurden verworfen: die Sticky-Leiste per Pseudo-Element über die Content-Box hinaus zu ziehen hätte den Randeffekt nur **verdeckt** und jede künftige Leiste mitziehen lassen; horizontales Padding am Zeilen-Wrapper mit kompensierendem negativem Margin am Viewport verschiebt dasselbe Problem in eine Rechnung, die bei jeder Layout-Änderung neu stimmen muss; und eine `outline`-Variante mit `outline-offset: -2px` kollidiert direkt mit dem globalen `:focus-visible`-Ring — die Karten sind `tabindex="0"`, eine fokussierte selektierte Karte hätte ihre Selektionsanzeige an die Fokus-Outline verloren.
+
+**Wichtig für Tailwind v4: `ring-inset` gibt es dort nicht mehr**, die Utility heißt `inset-ring-*`. Verifiziert wurde nicht nur der Build, sondern das erzeugte CSS: `.inset-ring-2{--tw-inset-ring-shadow: inset 0 0 0 2px …}`.
+
+**Die Fokus-Outline bleibt bewusst outset und damit der einzige verbliebene Grund für die Containment-Lockerung.** Sie ist transient (nur bei Tastaturfokus) und darf an den Randspalten nicht abgeschnitten werden — der Kommentar am CDK-Block in `styles.css` ist entsprechend nachgezogen, damit die Regel bei der nächsten Aufräumrunde nicht als Altlast gelesen wird. Das transluzente Durchschimmern *innerhalb* der Leisten bleibt unverändert gewollt (§8.5).
+
+---
+
 ### 2026-08-01 — Alle Projektdokumente liegen in `docs/`, im Root bleibt nur `CLAUDE.md`
 
 **Betrifft:** `Architectur.md` → `docs/Architectur.md` · `Review-2026-07-29.md` → `docs/Review-2026-07-29.md` · `Review-2026-07-29-Umsetzung.md` → `docs/Review-2026-07-29-Umsetzung.md` · `CLAUDE.md` · `docs/DECISIONS.md` · `src/EmotePurge.Core/Twitch/ITwitchHelixClient.cs` · `src/EmotePurge.Worker/{TwitchChatManager,Worker}.cs` · `web/src/app/core/seven-tv/seven-tv-token.service.ts`
