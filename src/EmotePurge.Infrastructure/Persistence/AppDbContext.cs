@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UsageStat> UsageStats => Set<UsageStat>();
     public DbSet<User> Users => Set<User>();
     public DbSet<VoteSession> VoteSessions => Set<VoteSession>();
+    public DbSet<VoteSessionEmote> VoteSessionEmotes => Set<VoteSessionEmote>();
     public DbSet<Vote> Votes => Set<Vote>();
     public DbSet<AuditLogEntry> AuditLogEntries => Set<AuditLogEntry>();
 
@@ -59,6 +60,24 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(s => s.Channel)
                 .WithMany()
                 .HasForeignKey(s => s.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<VoteSessionEmote>(entity =>
+        {
+            // Pure join table, so the natural key is the primary key — no surrogate id.
+            entity.HasKey(se => new { se.VoteSessionId, se.EmoteId });
+
+            entity.HasOne(se => se.VoteSession)
+                .WithMany(s => s.SessionEmotes)
+                .HasForeignKey(se => se.VoteSessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Cascade like Vote→Emote: emotes are only soft-archived today, so this fires solely on
+            // a hard delete, where dangling ballot rows would be meaningless anyway.
+            entity.HasOne(se => se.Emote)
+                .WithMany()
+                .HasForeignKey(se => se.EmoteId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

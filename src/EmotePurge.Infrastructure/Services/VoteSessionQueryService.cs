@@ -11,11 +11,17 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        return await db.VoteSessions
+        var sessions = await db.VoteSessions
             .Where(s => s.Channel.ChannelName == normalized)
             .OrderByDescending(s => s.StartedAt)
-            .Select(s => new VoteSessionSummaryDto(s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt))
+            .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count })
             .ToListAsync(cancellationToken);
+
+        // 0 membership rows = dynamic "all emotes" session; the DTO reports that as null, not 0.
+        return sessions
+            .Select(s => new VoteSessionSummaryDto(
+                s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, s.EmoteCount == 0 ? null : s.EmoteCount))
+            .ToList();
     }
 
     public async Task<PagedResult<VoteSessionSummaryDto>> ListSessionsPagedAsync(string channelName, int page, int pageSize, CancellationToken cancellationToken = default)
@@ -24,12 +30,18 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         var query = db.VoteSessions.Where(s => s.Channel.ChannelName == normalized);
 
         var totalCount = await query.CountAsync(cancellationToken);
-        var items = await query
+        var pageRows = await query
             .OrderByDescending(s => s.StartedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(s => new VoteSessionSummaryDto(s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt))
+            .Select(s => new { s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, EmoteCount = s.SessionEmotes.Count })
             .ToListAsync(cancellationToken);
+
+        // 0 membership rows = dynamic "all emotes" session; the DTO reports that as null, not 0.
+        var items = pageRows
+            .Select(s => new VoteSessionSummaryDto(
+                s.Id, s.Title, s.AllowedVoterRoles, s.IsActive, s.StartedAt, s.EndedAt, s.EmoteCount == 0 ? null : s.EmoteCount))
+            .ToList();
 
         return new PagedResult<VoteSessionSummaryDto>(items, page, pageSize, totalCount);
     }
@@ -44,10 +56,23 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             return null;
         }
 
-        var activeEmotes = await db.Emotes
-            .Where(e => e.ChannelId == channel.Id && !e.IsArchived)
-            .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl })
+        var subsetEmoteIds = await db.VoteSessionEmotes
+            .Where(se => se.VoteSessionId == sessionId)
+            .Select(se => se.EmoteId)
             .ToListAsync(cancellationToken);
+
+        // No membership rows = dynamic "all emotes" session: archived emotes vanish from the results,
+        // exactly as before the subset feature. An explicit ballot keeps its archived members visible
+        // (badged in the UI, voting on them closed) so a curated list never loses entries silently.
+        var candidateEmotes = subsetEmoteIds.Count == 0
+            ? await db.Emotes
+                .Where(e => e.ChannelId == channel.Id && !e.IsArchived)
+                .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, e.IsArchived })
+                .ToListAsync(cancellationToken)
+            : await db.Emotes
+                .Where(e => e.ChannelId == channel.Id && subsetEmoteIds.Contains(e.Id))
+                .Select(e => new { e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, e.IsArchived })
+                .ToListAsync(cancellationToken);
 
         var myVotesByEmoteId = viewerTwitchUserId is null
             ? new Dictionary<string, VoteType>()
@@ -58,7 +83,9 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
         var from = DateOnly.FromDateTime(session.StartedAt);
         var to = DateOnly.FromDateTime(session.EndedAt ?? DateTime.UtcNow);
 
-        var usageTotals = activeEmotes.Count == 0
+        // Usage is manager-only context now and no part of the score, so the totals query can be
+        // skipped entirely for everyone else.
+        var usageTotals = !includeRawUsage || candidateEmotes.Count == 0
             ? []
             : await usageStatQueryService.GetUsageTotalsAsync(normalized, from, to, cancellationToken);
         var usageByEmoteId = usageTotals.ToDictionary(u => u.EmoteId, u => u.TotalUseCount);
@@ -74,29 +101,34 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
             })
             .ToDictionaryAsync(g => g.EmoteId, cancellationToken);
 
-        var useCounts = activeEmotes.Select(e => usageByEmoteId.GetValueOrDefault(e.Id, 0)).ToList();
-        var min = useCounts.Count == 0 ? 0 : useCounts.Min();
-        var max = useCounts.Count == 0 ? 0 : useCounts.Max();
+        var voterCount = await db.Votes
+            .Where(v => v.VoteSessionId == sessionId)
+            .Select(v => v.UserId)
+            .Distinct()
+            .CountAsync(cancellationToken);
 
-        var results = activeEmotes.Select(e =>
+        var results = candidateEmotes.Select(e =>
         {
-            var useCount = usageByEmoteId.GetValueOrDefault(e.Id, 0);
-            var normalizedUsage = max == min ? 0d : (useCount - min) / (double)(max - min) * 100d;
             var tally = voteTallies.GetValueOrDefault(e.Id);
             var keep = tally?.Keep ?? 0;
             var delete = tally?.Delete ?? 0;
-            var score = normalizedUsage + (keep - delete);
             var myVote = myVotesByEmoteId.TryGetValue(e.Id, out var voteType) ? voteType : (VoteType?)null;
 
-            // Normalisation and score still use the real useCount — only the reported figure is
-            // withheld, so a non-manager sees identical ranking without the absolute numbers.
+            // null = withheld (non-manager) or not computed: GetUsageTotalsAsync excludes archived
+            // emotes, and reporting a fabricated 0 for an archived ballot member would just be wrong.
+            int? useCount = includeRawUsage && !e.IsArchived ? usageByEmoteId.GetValueOrDefault(e.Id, 0) : null;
+
             return new VoteSessionResultDto(
-                e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, includeRawUsage ? useCount : 0, normalizedUsage, keep, delete, score, myVote);
+                e.Id, e.Name, e.SevenTvEmoteId, e.ImageUrl, useCount, keep, delete, keep - delete, e.IsArchived, myVote);
         })
-        .OrderByDescending(r => r.Score)
+        // Delete candidates first: ascending net score, contested emotes before quiet ties, name as
+        // the stable fallback so equal rows don't reshuffle between loads.
+        .OrderBy(r => r.Score)
+        .ThenByDescending(r => r.KeepVotes + r.DeleteVotes)
+        .ThenBy(r => r.EmoteName, StringComparer.OrdinalIgnoreCase)
         .ToList();
 
-        return new VoteSessionResultsDto(session.Id, session.Title, session.IsActive, session.StartedAt, session.EndedAt, results);
+        return new VoteSessionResultsDto(session.Id, session.Title, session.IsActive, session.StartedAt, session.EndedAt, voterCount, results);
     }
 
     public async Task<PagedResult<MyVoteSessionDto>> ListMyVoteSessionsAsync(string voterTwitchUserId, int page, int pageSize, CancellationToken cancellationToken = default)

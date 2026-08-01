@@ -106,6 +106,127 @@ public class VoteSessionServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task CreateAsync_WithEmoteIds_PersistsDedupedBallotRows()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "ballotcreate1");
+        var emoteA = await SeedEmoteAsync(db, channel.Id, "EmoteA");
+        var emoteB = await SeedEmoteAsync(db, channel.Id, "EmoteB");
+        var service = new VoteSessionService(db);
+
+        // Duplicate and whitespace-padded ids collapse to one clean row each.
+        var (result, session) = await service.CreateAsync(
+            channel.ChannelName, "Kuratiert", AllowedRoles.Everyone, Actor,
+            emoteIds: [emoteA.Id, $" {emoteA.Id} ", emoteB.Id]);
+
+        Assert.Equal(CreateVoteSessionResult.Success, result);
+        var ballot = await db.VoteSessionEmotes.Where(se => se.VoteSessionId == session!.Id).ToListAsync();
+        Assert.Equal(2, ballot.Count);
+        Assert.Contains(ballot, se => se.EmoteId == emoteA.Id);
+        Assert.Contains(ballot, se => se.EmoteId == emoteB.Id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithEmptyEmoteIds_ReturnsEmoteIdsEmpty_AndWritesNothing()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "ballotcreate2");
+        var service = new VoteSessionService(db);
+
+        // An explicit empty ballot (here: whitespace-only ids) is an error, not "all emotes".
+        var (result, session) = await service.CreateAsync(
+            channel.ChannelName, "Leer", AllowedRoles.Everyone, Actor, emoteIds: ["   ", ""]);
+
+        Assert.Equal(CreateVoteSessionResult.EmoteIdsEmpty, result);
+        Assert.Null(session);
+        Assert.Empty(await LoadAuditEntriesAsync(db, "ballotcreate2"));
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithForeignUnknownOrArchivedEmoteId_ReturnsEmoteIdsInvalid()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "ballotcreate3");
+        var otherChannel = await SeedChannelAsync(db, "ballotcreate3-other");
+        var own = await SeedEmoteAsync(db, channel.Id, "Own");
+        var foreign = await SeedEmoteAsync(db, otherChannel.Id, "Foreign");
+        var archived = await SeedEmoteAsync(db, channel.Id, "Archived");
+        archived.IsArchived = true;
+        await db.SaveChangesAsync();
+        var service = new VoteSessionService(db);
+
+        var (foreignResult, _) = await service.CreateAsync(
+            channel.ChannelName, "Fremd", AllowedRoles.Everyone, Actor, emoteIds: [own.Id, foreign.Id]);
+        Assert.Equal(CreateVoteSessionResult.EmoteIdsInvalid, foreignResult);
+
+        var (unknownResult, _) = await service.CreateAsync(
+            channel.ChannelName, "Unbekannt", AllowedRoles.Everyone, Actor, emoteIds: [own.Id, Guid.NewGuid().ToString()]);
+        Assert.Equal(CreateVoteSessionResult.EmoteIdsInvalid, unknownResult);
+
+        var (archivedResult, _) = await service.CreateAsync(
+            channel.ChannelName, "Archiviert", AllowedRoles.Everyone, Actor, emoteIds: [own.Id, archived.Id]);
+        Assert.Equal(CreateVoteSessionResult.EmoteIdsInvalid, archivedResult);
+
+        Assert.Empty(await LoadAuditEntriesAsync(db, "ballotcreate3"));
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_SubsetSession_AllowsBallotMembers_RejectsOutsiders()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "ballotcast1");
+        var onBallot = await SeedEmoteAsync(db, channel.Id, "OnBallot");
+        var offBallot = await SeedEmoteAsync(db, channel.Id, "OffBallot");
+        var voter = await SeedUserAsync(db, "ballotcast1-voter");
+        var service = new VoteSessionService(db);
+        var (_, session) = await service.CreateAsync(
+            channel.ChannelName, "Kuratiert", AllowedRoles.Everyone, Actor, emoteIds: [onBallot.Id]);
+
+        var (onResult, vote) = await service.CastVoteAsync(channel.ChannelName, session!.Id, onBallot.Id, voter.Id, VoteType.Keep);
+        Assert.Equal(VoteCastResult.Success, onResult);
+        Assert.NotNull(vote);
+
+        // Off-ballot emote is a perfectly valid channel emote — but this session doesn't cover it.
+        var (offResult, _) = await service.CastVoteAsync(channel.ChannelName, session.Id, offBallot.Id, voter.Id, VoteType.Delete);
+        Assert.Equal(VoteCastResult.EmoteNotEligible, offResult);
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_OnArchivedEmote_ReturnsEmoteNotEligible_EvenOnItsOwnBallot()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "ballotcast2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "SoonGone");
+        var voter = await SeedUserAsync(db, "ballotcast2-voter");
+        var service = new VoteSessionService(db);
+        var (_, session) = await service.CreateAsync(
+            channel.ChannelName, "Kuratiert", AllowedRoles.Everyone, Actor, emoteIds: [emote.Id]);
+
+        // Archived mid-session: stays visible in the results (badged), but voting on it is closed.
+        emote.IsArchived = true;
+        await db.SaveChangesAsync();
+
+        var (result, _) = await service.CastVoteAsync(channel.ChannelName, session!.Id, emote.Id, voter.Id, VoteType.Delete);
+        Assert.Equal(VoteCastResult.EmoteNotEligible, result);
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_DynamicSession_StillAllowsAnyActiveChannelEmote()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "ballotcast3");
+        var emote = await SeedEmoteAsync(db, channel.Id, "AnyEmote");
+        var voter = await SeedUserAsync(db, "ballotcast3-voter");
+        var service = new VoteSessionService(db);
+        var (_, session) = await service.CreateAsync(channel.ChannelName, "Alle", AllowedRoles.Everyone, Actor);
+
+        var (result, vote) = await service.CastVoteAsync(channel.ChannelName, session!.Id, emote.Id, voter.Id, VoteType.Keep);
+
+        Assert.Equal(VoteCastResult.Success, result);
+        Assert.NotNull(vote);
+    }
+
+    [Fact]
     public async Task EndAsync_WritesAuditEntry_Once_EvenWhenCalledTwice()
     {
         // Ending an already-ended session is an idempotent no-op by contract, and a no-op is not an

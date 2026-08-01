@@ -13,48 +13,140 @@ namespace EmotePurge.Infrastructure.Tests.Integration;
 public class VoteSessionQueryServiceTests(PostgresFixture fixture)
 {
     [Fact]
-    public async Task GetResultsAsync_ComputesScore_FromNormalizedUsageAndVoteDelta()
+    public async Task GetResultsAsync_ComputesNetScore_AndOrdersDeleteCandidatesFirst()
     {
         await using var db = fixture.CreateDbContext();
-        var channel = await SeedChannelAsync(db, "votetest1");
-        var popular = await SeedEmoteAsync(db, channel.Id, "Popular");
-        var unused = await SeedEmoteAsync(db, channel.Id, "Unused");
+        var channel = await SeedChannelAsync(db, "votenet1");
+        var contested = await SeedEmoteAsync(db, channel.Id, "Contested");
+        var doomed = await SeedEmoteAsync(db, channel.Id, "Doomed");
+        var quiet = await SeedEmoteAsync(db, channel.Id, "Quiet");
+        var loved = await SeedEmoteAsync(db, channel.Id, "Loved");
         var session = await SeedActiveSessionAsync(db, channel.Id);
-        var voter = await SeedUserAsync(db, "voter-1");
+        var voterA = await SeedUserAsync(db, "votenet1-a");
+        var voterB = await SeedUserAsync(db, "votenet1-b");
 
-        db.UsageStats.Add(new UsageStat { EmoteId = popular.Id, Date = DateOnly.FromDateTime(DateTime.UtcNow), UseCount = 100 });
-        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = popular.Id, UserId = voter.Id, Type = VoteType.Delete });
+        // Usage must no longer influence the score — give the doomed emote plenty of it.
+        db.UsageStats.Add(new UsageStat { EmoteId = doomed.Id, Date = DateOnly.FromDateTime(DateTime.UtcNow), UseCount = 100 });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = doomed.Id, UserId = voterA.Id, Type = VoteType.Delete });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = doomed.Id, UserId = voterB.Id, Type = VoteType.Delete });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = contested.Id, UserId = voterA.Id, Type = VoteType.Keep });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = contested.Id, UserId = voterB.Id, Type = VoteType.Delete });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = loved.Id, UserId = voterA.Id, Type = VoteType.Keep });
         await db.SaveChangesAsync();
 
         var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
         var results = await service.GetResultsAsync(channel.ChannelName, session.Id);
 
         Assert.NotNull(results);
-        var popularResult = results!.Emotes.Single(r => r.EmoteId == popular.Id);
-        var unusedResult = results.Emotes.Single(r => r.EmoteId == unused.Id);
+        var doomedResult = results!.Emotes.Single(r => r.EmoteId == doomed.Id);
+        Assert.Equal(-2, doomedResult.Score);
+        Assert.Equal(2, doomedResult.DeleteVotes);
 
-        // popular has the only usage → normalized to 100, unused stays at the min (0).
-        Assert.Equal(100d, popularResult.NormalizedUsageScore);
-        Assert.Equal(0d, unusedResult.NormalizedUsageScore);
-        Assert.Equal(1, popularResult.DeleteVotes);
-        Assert.Equal(99d, popularResult.Score); // 100 (usage) - 1 (delete vote)
-        Assert.True(popularResult.Score > unusedResult.Score);
+        // Ascending net score; the 0-score tie is broken by total votes (contested before quiet).
+        Assert.Equal(
+            new[] { doomed.Id, contested.Id, quiet.Id, loved.Id },
+            results.Emotes.Select(r => r.EmoteId).ToArray());
     }
 
     [Fact]
-    public async Task GetResultsAsync_MaxEqualsMin_NormalizesAllToZero_InsteadOfDividingByZero()
+    public async Task GetResultsAsync_ReportsUsage_OnlyWithIncludeRawUsage_NullOtherwise()
     {
         await using var db = fixture.CreateDbContext();
-        var channel = await SeedChannelAsync(db, "votetest2");
-        await SeedEmoteAsync(db, channel.Id, "A");
-        await SeedEmoteAsync(db, channel.Id, "B");
+        var channel = await SeedChannelAsync(db, "votenull1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Emote");
         var session = await SeedActiveSessionAsync(db, channel.Id);
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = DateOnly.FromDateTime(DateTime.UtcNow), UseCount = 5 });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+
+        var withheld = await service.GetResultsAsync(channel.ChannelName, session.Id, includeRawUsage: false);
+        Assert.Null(Assert.Single(withheld!.Emotes).TotalUseCount);
+
+        var included = await service.GetResultsAsync(channel.ChannelName, session.Id, includeRawUsage: true);
+        Assert.Equal(5, Assert.Single(included!.Emotes).TotalUseCount);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_SubsetSession_ReturnsOnlyBallotMembers()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votesubset1");
+        var onBallot = await SeedEmoteAsync(db, channel.Id, "OnBallot");
+        var alsoOnBallot = await SeedEmoteAsync(db, channel.Id, "AlsoOnBallot");
+        await SeedEmoteAsync(db, channel.Id, "NotOnBallot");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        await SeedBallotAsync(db, session.Id, onBallot.Id, alsoOnBallot.Id);
 
         var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
         var results = await service.GetResultsAsync(channel.ChannelName, session.Id);
 
-        Assert.NotNull(results);
-        Assert.All(results!.Emotes, r => Assert.Equal(0d, r.NormalizedUsageScore));
+        Assert.Equal(2, results!.Emotes.Count);
+        Assert.Contains(results.Emotes, r => r.EmoteId == onBallot.Id);
+        Assert.Contains(results.Emotes, r => r.EmoteId == alsoOnBallot.Id);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_SubsetSession_KeepsArchivedMemberVisible_WithVotes_ButNoUsage()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votesubset2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "SoonGone");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        await SeedBallotAsync(db, session.Id, emote.Id);
+        var voter = await SeedUserAsync(db, "votesubset2-voter");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emote.Id, UserId = voter.Id, Type = VoteType.Delete });
+        emote.IsArchived = true;
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id, includeRawUsage: true);
+
+        var result = Assert.Single(results!.Emotes);
+        Assert.True(result.IsArchived);
+        Assert.Equal(1, result.DeleteVotes);
+        // Usage totals are not computed for archived emotes — null even for managers, never a fake 0.
+        Assert.Null(result.TotalUseCount);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_DynamicSession_StillExcludesArchivedEmotes()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votesubset3");
+        var active = await SeedEmoteAsync(db, channel.Id, "Active");
+        var archived = await SeedEmoteAsync(db, channel.Id, "Archived");
+        archived.IsArchived = true;
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id);
+
+        var result = Assert.Single(results!.Emotes);
+        Assert.Equal(active.Id, result.EmoteId);
+        Assert.False(result.IsArchived);
+    }
+
+    [Fact]
+    public async Task GetResultsAsync_CountsDistinctVoters_NotVotes()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "votecount1");
+        var emoteA = await SeedEmoteAsync(db, channel.Id, "EmoteA");
+        var emoteB = await SeedEmoteAsync(db, channel.Id, "EmoteB");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var busyVoter = await SeedUserAsync(db, "votecount1-busy");
+        var casualVoter = await SeedUserAsync(db, "votecount1-casual");
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emoteA.Id, UserId = busyVoter.Id, Type = VoteType.Keep });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emoteB.Id, UserId = busyVoter.Id, Type = VoteType.Delete });
+        db.Votes.Add(new Vote { VoteSessionId = session.Id, EmoteId = emoteA.Id, UserId = casualVoter.Id, Type = VoteType.Keep });
+        await db.SaveChangesAsync();
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var results = await service.GetResultsAsync(channel.ChannelName, session.Id);
+
+        Assert.Equal(2, results!.VoterCount);
     }
 
     [Fact]
@@ -117,6 +209,24 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
 
         var secondPage = await service.ListSessionsPagedAsync(channel.ChannelName, page: 2, pageSize: 2);
         Assert.Single(secondPage.Items);
+    }
+
+    [Fact]
+    public async Task ListSessionsPagedAsync_ReportsEmoteCount_NullForDynamicSessions()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "pagetest3");
+        var emoteA = await SeedEmoteAsync(db, channel.Id, "EmoteA");
+        var emoteB = await SeedEmoteAsync(db, channel.Id, "EmoteB");
+        var dynamicSession = await SeedActiveSessionAsync(db, channel.Id, startedAt: DateTime.UtcNow.AddMinutes(-2));
+        var subsetSession = await SeedActiveSessionAsync(db, channel.Id, startedAt: DateTime.UtcNow.AddMinutes(-1));
+        await SeedBallotAsync(db, subsetSession.Id, emoteA.Id, emoteB.Id);
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+        var page = await service.ListSessionsPagedAsync(channel.ChannelName, page: 1, pageSize: 10);
+
+        Assert.Equal(2, page.Items[0].EmoteCount); // subsetSession, newest first
+        Assert.Null(page.Items.Single(i => i.Id == dynamicSession.Id).EmoteCount);
     }
 
     [Fact]
@@ -290,5 +400,11 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
         db.Users.Add(user);
         await db.SaveChangesAsync();
         return user;
+    }
+
+    private static async Task SeedBallotAsync(AppDbContext db, long sessionId, params string[] emoteIds)
+    {
+        db.VoteSessionEmotes.AddRange(emoteIds.Select(id => new VoteSessionEmote { VoteSessionId = sessionId, EmoteId = id }));
+        await db.SaveChangesAsync();
     }
 }

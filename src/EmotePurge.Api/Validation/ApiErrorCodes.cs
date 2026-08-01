@@ -11,6 +11,7 @@ internal static class ApiErrorCodes
     public const string InvalidChannelName = "invalid_channel_name";
     public const string InvalidChannelOrSessionId = "invalid_channel_or_session_id";
     public const string EmoteIdsEmpty = "emote_ids_empty";
+    public const string EmoteIdsInvalid = "emote_ids_invalid";
     public const string InvalidDateFormat = "invalid_date_format";
     public const string FromAfterTo = "from_after_to";
     public const string RangeTooLarge = "range_too_large";

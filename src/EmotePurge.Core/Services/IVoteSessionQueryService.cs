@@ -2,13 +2,20 @@ using EmotePurge.Core.Entities;
 
 namespace EmotePurge.Core.Services;
 
-public record VoteSessionSummaryDto(long Id, string Title, AllowedRoles AllowedVoterRoles, bool IsActive, DateTime StartedAt, DateTime? EndedAt);
+// EmoteCount: size of the session's explicit ballot; null = dynamic "all emotes" session.
+public record VoteSessionSummaryDto(long Id, string Title, AllowedRoles AllowedVoterRoles, bool IsActive, DateTime StartedAt, DateTime? EndedAt, int? EmoteCount);
 
+// TotalUseCount is manager-only context (null for everyone else — and for archived subset emotes,
+// whose usage totals are no longer computed). Score = KeepVotes - DeleteVotes; chat usage is
+// deliberately not part of it, managers already spent the usage data when curating the ballot.
+// IsArchived marks a subset emote that left the 7TV set mid-session: it stays listed with its
+// votes, but casting further votes on it is rejected.
 public record VoteSessionResultDto(
-    string EmoteId, string EmoteName, string SevenTvEmoteId, string ImageUrl, int TotalUseCount, double NormalizedUsageScore,
-    int KeepVotes, int DeleteVotes, double Score, VoteType? MyVote);
+    string EmoteId, string EmoteName, string SevenTvEmoteId, string ImageUrl, int? TotalUseCount,
+    int KeepVotes, int DeleteVotes, int Score, bool IsArchived, VoteType? MyVote);
 
-public record VoteSessionResultsDto(long SessionId, string Title, bool IsActive, DateTime StartedAt, DateTime? EndedAt, IReadOnlyList<VoteSessionResultDto> Emotes);
+// VoterCount = distinct voters across the whole session, so thin results can be labeled as such.
+public record VoteSessionResultsDto(long SessionId, string Title, bool IsActive, DateTime StartedAt, DateTime? EndedAt, int VoterCount, IReadOnlyList<VoteSessionResultDto> Emotes);
 
 // A session the given voter has cast at least one vote in, ever — regardless of whether it's since
 // ended. LastVotedAt is the max UpdatedAt across that voter's votes in the session, used to order
@@ -30,10 +37,10 @@ public interface IVoteSessionQueryService
     // viewerTwitchUserId is optional at this service layer (kept nullable for testability), but the
     // Api endpoint always supplies it now — VoteAudienceFilter guarantees an authenticated viewer
     // before this is called, so each result row's MyVote reflects that viewer's own vote.
-    // includeRawUsage gates TotalUseCount only: false reports 0 per emote, while NormalizedUsageScore,
-    // Score and the ordering stay exactly the same. Raw per-emote chat usage is management data (the
-    // usage-stats endpoints are access-filtered for that reason), and a session's audience can include
-    // every logged-in user.
+    // includeRawUsage gates TotalUseCount only: false reports null per emote (data absent, not
+    // "used 0 times"), while Score and the ordering stay exactly the same. Raw per-emote chat usage
+    // is management data (the usage-stats endpoints are access-filtered for that reason), and a
+    // session's audience can include every logged-in user.
     Task<VoteSessionResultsDto?> GetResultsAsync(string channelName, long sessionId, string? viewerTwitchUserId = null, bool includeRawUsage = false, CancellationToken cancellationToken = default);
 
     // Cross-channel "My Votings": every session the given voter has ever voted in, across all

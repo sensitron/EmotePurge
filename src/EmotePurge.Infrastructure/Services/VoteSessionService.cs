@@ -12,7 +12,8 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
     private const string VoteSessionTargetType = "voteSession";
 
     public async Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
-        string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null, CancellationToken cancellationToken = default)
+        string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null,
+        IReadOnlyList<string>? emoteIds = null, CancellationToken cancellationToken = default)
     {
         // Validated here rather than in the endpoint: this is the layer that has tests, and it is the
         // one every future caller goes through. The endpoint only maps these results to error codes.
@@ -46,10 +47,38 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             }
         }
 
+        // null = dynamic "all emotes" session. An explicit empty list is rejected rather than
+        // silently reinterpreted as "all" — the caller clearly meant to curate and lost the list.
+        List<string>? ballotEmoteIds = null;
+        if (emoteIds is not null)
+        {
+            ballotEmoteIds = emoteIds
+                .Select(id => id.Trim())
+                .Where(id => id.Length > 0)
+                .Distinct()
+                .ToList();
+            if (ballotEmoteIds.Count == 0)
+            {
+                return (CreateVoteSessionResult.EmoteIdsEmpty, null);
+            }
+        }
+
         var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             return (CreateVoteSessionResult.ChannelNotFound, null);
+        }
+
+        if (ballotEmoteIds is not null)
+        {
+            // All-or-nothing: one unknown, foreign or already-archived id rejects the whole create
+            // instead of silently shrinking the ballot the manager thought they submitted.
+            var eligibleCount = await db.Emotes.CountAsync(
+                e => ballotEmoteIds.Contains(e.Id) && e.ChannelId == channel.Id && !e.IsArchived, cancellationToken);
+            if (eligibleCount != ballotEmoteIds.Count)
+            {
+                return (CreateVoteSessionResult.EmoteIdsInvalid, null);
+            }
         }
 
         var session = new VoteSession
@@ -68,13 +97,25 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
         db.VoteSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
 
+        if (ballotEmoteIds is not null)
+        {
+            // Needs the generated session id, hence after the first save but inside the transaction.
+            db.VoteSessionEmotes.AddRange(ballotEmoteIds.Select(id => new VoteSessionEmote
+            {
+                VoteSessionId = session.Id,
+                EmoteId = id
+            }));
+        }
+
         db.AddAuditEntry(
             actor,
             AuditActions.VoteSessionCreate,
             channelName: channel.ChannelName,
             targetType: VoteSessionTargetType,
             targetId: session.Id.ToString(CultureInfo.InvariantCulture),
-            details: new { title = session.Title });
+            details: ballotEmoteIds is null
+                ? new { title = session.Title }
+                : (object)new { title = session.Title, emoteCount = ballotEmoteIds.Count });
         await db.SaveChangesAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -89,6 +130,10 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
         {
             return null;
         }
+
+        // The endpoint derives the summary's EmoteCount from this collection; without the explicit
+        // load an ended subset session would misreport itself as a whole-set session.
+        await db.Entry(session).Collection(s => s.SessionEmotes).LoadAsync(cancellationToken);
 
         // Ending an already-ended session is a no-op by contract, and a no-op is not an event — so
         // the audit entry sits inside this branch rather than beside it.
@@ -128,11 +173,26 @@ public class VoteSessionService(AppDbContext db) : IVoteSessionService
             return (VoteCastResult.SessionEnded, null);
         }
 
+        // Archived emotes are never votable — in a subset session they stay visible in the results
+        // (badged), but their voting is closed.
         var emoteExists = await db.Emotes.AnyAsync(
             e => e.Id == emoteId && e.ChannelId == channel.Id && !e.IsArchived, cancellationToken);
         if (!emoteExists)
         {
             return (VoteCastResult.EmoteNotEligible, null);
+        }
+
+        // A session with membership rows is a fixed ballot; one without covers the whole channel set.
+        var sessionHasBallot = await db.VoteSessionEmotes.AnyAsync(
+            se => se.VoteSessionId == sessionId, cancellationToken);
+        if (sessionHasBallot)
+        {
+            var isOnBallot = await db.VoteSessionEmotes.AnyAsync(
+                se => se.VoteSessionId == sessionId && se.EmoteId == emoteId, cancellationToken);
+            if (!isOnBallot)
+            {
+                return (VoteCastResult.EmoteNotEligible, null);
+            }
         }
 
         var vote = await db.Votes.SingleOrDefaultAsync(

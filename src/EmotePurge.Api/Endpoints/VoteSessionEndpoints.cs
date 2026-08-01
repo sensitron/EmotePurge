@@ -34,12 +34,11 @@ public static class VoteSessionEndpoints
             // Pure translation — the rules themselves live in VoteSessionService, which is the tested
             // layer and the one every non-HTTP caller goes through.
             var (result, session) = await voteSessionService.CreateAsync(
-                channelName, request.Title, request.AllowedVoterRoles, actor, request.StartedAt, ct);
+                channelName, request.Title, request.AllowedVoterRoles, actor, request.StartedAt, request.EmoteIds, ct);
 
             return result switch
             {
-                CreateVoteSessionResult.Success => Results.Ok(new VoteSessionSummaryDto(
-                    session!.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt)),
+                CreateVoteSessionResult.Success => Results.Ok(ToSummaryDto(session!)),
                 CreateVoteSessionResult.ChannelNotFound => Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotJoined }),
                 CreateVoteSessionResult.TitleEmpty => Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionTitleEmpty }),
                 CreateVoteSessionResult.RolesEmpty => Results.BadRequest(new { errorCode = ApiErrorCodes.VoteSessionRolesEmpty }),
@@ -47,6 +46,8 @@ public static class VoteSessionEndpoints
                 CreateVoteSessionResult.StartedAtInFuture => Results.BadRequest(new { errorCode = ApiErrorCodes.StartedAtInFuture }),
                 CreateVoteSessionResult.StartedAtTooFarBack => Results.BadRequest(
                     new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays = VoteSessionLimits.MaxBackdateDays }),
+                CreateVoteSessionResult.EmoteIdsEmpty => Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty }),
+                CreateVoteSessionResult.EmoteIdsInvalid => Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsInvalid }),
                 _ => Results.Problem()
             };
         })
@@ -71,7 +72,7 @@ public static class VoteSessionEndpoints
                 return Results.NotFound();
             }
 
-            return Results.Ok(new VoteSessionSummaryDto(session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt));
+            return Results.Ok(ToSummaryDto(session));
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
@@ -164,8 +165,8 @@ public static class VoteSessionEndpoints
             // Raw per-emote chat usage is management data: usage-stats/totals sits behind an access
             // filter for exactly that reason, but this endpoint served the same numbers to anyone in a
             // session's audience — and an Everyone session (the default) admits every logged-in user.
-            // The score itself does not need them: NormalizedUsageScore is delivered separately, and
-            // both it and the ordering stay unchanged.
+            // The score (net keep − delete) does not involve usage at all, so withholding it (null,
+            // not 0) changes nothing about scores or ordering for non-managers.
             var includeRawUsage = await channelAccessService.CanManageChannelAsync(principal, channelName, ct);
             var results = await voteSessionQueryService.GetResultsAsync(channelName, sessionId, principal.TwitchUserId, includeRawUsage, ct);
             return results is null ? Results.NotFound() : Results.Ok(results);
@@ -270,6 +271,13 @@ public static class VoteSessionEndpoints
         .RequireAuthorization();
     }
 
+    // Maps a tracked VoteSession to its summary. Relies on the SessionEmotes collection being
+    // populated (relationship fixup after create, explicit load in EndAsync) — 0 rows means a
+    // dynamic "all emotes" session, reported as null.
+    private static VoteSessionSummaryDto ToSummaryDto(VoteSession session) => new(
+        session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt, session.EndedAt,
+        session.SessionEmotes.Count == 0 ? null : session.SessionEmotes.Count);
+
     /// <summary>
     /// Announces "the tally of this session changed" to everyone watching it. Deliberately without
     /// any voter identity and without the new tally: who voted how is exactly what the vote UI must
@@ -302,5 +310,7 @@ public static class VoteSessionEndpoints
     }
 }
 
-internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles, DateTime? StartedAt = null);
+// EmoteIds null = the session covers all non-archived channel emotes dynamically; a non-null list
+// becomes the session's fixed ballot (local emote guids, validated in VoteSessionService).
+internal sealed record CreateVoteSessionRequest(string Title, AllowedRoles AllowedVoterRoles, DateTime? StartedAt = null, IReadOnlyList<string>? EmoteIds = null);
 internal sealed record CastVoteRequest(string EmoteId, VoteType Type);

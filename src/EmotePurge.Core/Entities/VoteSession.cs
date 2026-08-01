@@ -22,4 +22,6 @@ public class VoteSession
 
     public Channel Channel { get; set; } = null!;
     public ICollection<Vote> Votes { get; set; } = new List<Vote>();
+    // Empty = dynamic "all non-archived channel emotes"; non-empty = fixed explicit ballot.
+    public ICollection<VoteSessionEmote> SessionEmotes { get; set; } = new List<VoteSessionEmote>();
 }

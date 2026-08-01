@@ -27,7 +27,12 @@ public enum CreateVoteSessionResult
     RolesEmpty,
     VipsNotSupported,
     StartedAtInFuture,
-    StartedAtTooFarBack
+    StartedAtTooFarBack,
+    // emoteIds was provided but is empty after trimming/deduplication. null means "all emotes" and
+    // is valid; an explicit empty list is rejected instead of being silently reinterpreted as "all".
+    EmoteIdsEmpty,
+    // At least one provided id is unknown, belongs to another channel, or is already archived.
+    EmoteIdsInvalid
 }
 
 public static class VoteSessionLimits
@@ -45,8 +50,11 @@ public interface IVoteSessionService
 {
     // The service validates; the endpoint maps the result to a status code. startedAt null = now.
     // actor is audited together with the created session (same transaction).
+    // emoteIds null = the session covers all non-archived channel emotes dynamically; a non-null
+    // list becomes the session's fixed ballot (VoteSessionEmote rows, validated against the channel).
     Task<(CreateVoteSessionResult Result, VoteSession? Session)> CreateAsync(
-        string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null, CancellationToken cancellationToken = default);
+        string channelName, string title, AllowedRoles allowedVoterRoles, AuditActor actor, DateTime? startedAt = null,
+        IReadOnlyList<string>? emoteIds = null, CancellationToken cancellationToken = default);
 
     // null = channel/session not found or session doesn't belong to that channel. Idempotent no-op if
     // already ended — and a no-op writes no audit entry, because nothing happened.
