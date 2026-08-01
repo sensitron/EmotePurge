@@ -12,7 +12,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             channel = new Channel { ChannelName = normalized, IsBotActive = true };
@@ -38,7 +38,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             return false;
@@ -66,7 +66,7 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             return false;
@@ -88,15 +88,14 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
 
     public async Task<Channel?> GetByNameAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var normalized = ChannelName.Normalize(channelName);
-        return await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        return await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
     }
 
     public async Task<ChannelResyncResult> TriggerResyncAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
         if (channel is null)
         {
             return ChannelResyncResult.NotFound;

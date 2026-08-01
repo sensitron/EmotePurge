@@ -23,7 +23,7 @@ public class SevenTvSyncService(
         // unique index — see ChannelSyncGate.
         using var gate = await channelSyncGate.AcquireAsync(normalized, cancellationToken);
 
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             logger.LogWarning("SyncChannelAsync: {Channel} nicht in Postgres gefunden.", normalized);
@@ -94,7 +94,7 @@ public class SevenTvSyncService(
         var normalized = ChannelName.Normalize(channelName);
         using var gate = await channelSyncGate.AcquireAsync(normalized, cancellationToken);
 
-        var channel = await db.Channels.SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             logger.LogWarning("ApplyEmoteSetUpdateAsync: {Channel} nicht in Postgres gefunden.", normalized);

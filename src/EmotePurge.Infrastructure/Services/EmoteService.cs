@@ -11,7 +11,7 @@ public class EmoteService(AppDbContext db) : IEmoteService
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.AsNoTracking().SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
         if (channel is null)
         {
             return new SyncDeletedResultDto(0, emoteIds, 0);

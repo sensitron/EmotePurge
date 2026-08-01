@@ -26,8 +26,7 @@ public class EmoteSetOwnershipService(
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.Channels.AsNoTracking()
-            .SingleOrDefaultAsync(c => c.ChannelName == normalized, cancellationToken);
+        var channel = await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
 
         if (channel is null || channel.TwitchChannelId is null || string.IsNullOrEmpty(channel.ActiveEmoteSetId))
         {
