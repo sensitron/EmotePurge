@@ -5,10 +5,11 @@ import { Component, DestroyRef, computed, effect, inject, input, signal } from '
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { Subscription, catchError, first, map, of, switchMap, take, timer } from 'rxjs';
+import { Subscription, catchError, first, of, switchMap, take, timer } from 'rxjs';
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { pluralKey } from '../../core/i18n/plural';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { CreateVoteSessionDialog, CreateVoteSessionDialogData } from './create-vote-session-dialog';
@@ -19,6 +20,7 @@ import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import { DateRangePopover } from '../../shared/datetime/date-range-popover';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
+import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
@@ -68,6 +70,7 @@ function daysAgo(days: number): Date {
     NgOptimizedImage,
     MassDeletePanel,
     EmoteCardHeader,
+    SlotBudgetBar,
     SegmentedControl,
     DateRangePopover,
     TranslocoPipe,
@@ -121,7 +124,8 @@ export class UsageStatsPage {
   ];
 
   protected readonly emotes = signal<EmoteUsageTotal[]>([]);
-  protected readonly activeEmoteSetId = signal<string | null>(null);
+  protected readonly setStatus = signal<EmoteSetStatus | null>(null);
+  protected readonly activeEmoteSetId = computed(() => this.setStatus()?.activeEmoteSetId || null);
   protected readonly isLoading = signal(false);
   protected readonly skeletonCells = Array.from({ length: 12 }, (_, i) => i);
   protected readonly isAwaitingSync = signal(false);
@@ -185,9 +189,9 @@ export class UsageStatsPage {
         preserveSelection: true,
         silent: true,
       });
-      // Only a sync can have moved the active set id.
+      // Only a sync can have moved the active set id, its capacity or the occupied-slot count.
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
-        this.refreshActiveEmoteSetId();
+        this.refreshSetStatus();
       }
     });
   }
@@ -222,6 +226,14 @@ export class UsageStatsPage {
 
   protected onDeleted(deletedIds: string[]): void {
     this.emotes.update((items) => items.filter((item) => !deletedIds.includes(item.emoteId)));
+    // Freed slots are shown right away rather than waiting for the channel.synced round trip the
+    // bookkeeping call triggers — the emptied bar is the feedback the delete was run for. The
+    // refetch that follows a moment later confirms or corrects it.
+    this.setStatus.update((status) =>
+      status
+        ? { ...status, occupiedSlots: Math.max(status.occupiedSlots - deletedIds.length, 0) }
+        : status,
+    );
     this.selection.clear();
   }
 
@@ -260,12 +272,12 @@ export class UsageStatsPage {
     this.refresh();
   }
 
-  // Quiet counterpart to the set-id fetch in load(): no sync-poll, and a failed refetch keeps the
-  // current value — this runs unrequested, so it must never take the mass-delete panel away over
-  // a transient error.
-  private refreshActiveEmoteSetId(): void {
-    this.emoteAdminService.getActiveEmoteSetId(this.channelName()).subscribe({
-      next: (result) => this.activeEmoteSetId.set(result.activeEmoteSetId),
+  // Quiet counterpart to the set-status fetch in load(): no sync-poll, and a failed refetch keeps
+  // the current value — this runs unrequested, so it must never take the mass-delete panel away
+  // over a transient error.
+  private refreshSetStatus(): void {
+    this.emoteAdminService.getSetStatus(this.channelName()).subscribe({
+      next: (status) => this.setStatus.set(status),
       error: () => undefined,
     });
   }
@@ -277,17 +289,17 @@ export class UsageStatsPage {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    this.emoteAdminService.getActiveEmoteSetId(channelName).subscribe({
-      next: (result) => {
-        this.activeEmoteSetId.set(result.activeEmoteSetId);
+    this.emoteAdminService.getSetStatus(channelName).subscribe({
+      next: (status) => {
+        this.setStatus.set(status);
         // An empty id means SevenTvSyncService has not completed a run for this channel yet. It is
         // the only thing that tells "sync still pending" apart from "channel genuinely has no
         // emotes" — an empty totals response looks identical in both cases.
-        if (!result.activeEmoteSetId) {
+        if (!status.activeEmoteSetId) {
           this.awaitSync(channelName, from, to);
         }
       },
-      error: () => this.activeEmoteSetId.set(null),
+      error: () => this.setStatus.set(null),
     });
 
     this.loadTotals(channelName, from, to);
@@ -304,20 +316,17 @@ export class UsageStatsPage {
         // whole polling stream on the first hiccup and end the wait. Inside, one failed tick just
         // counts as "still empty" and the next tick tries again.
         switchMap(() =>
-          this.emoteAdminService
-            .getActiveEmoteSetId(channelName)
-            .pipe(catchError(() => of({ activeEmoteSetId: '' }))),
+          this.emoteAdminService.getSetStatus(channelName).pipe(catchError(() => of(null))),
         ),
-        map((result) => result.activeEmoteSetId),
         take(SYNC_POLL_MAX_ATTEMPTS),
-        // Completes on the first non-empty id; if the attempts run out first, the default '' arrives
-        // instead, so the subscriber always runs exactly once and never errors.
-        first((setId) => setId.length > 0, ''),
+        // Completes on the first status carrying a set id; if the attempts run out first, the
+        // default null arrives instead, so the subscriber always runs exactly once and never errors.
+        first((status) => !!status?.activeEmoteSetId, null),
       )
-      .subscribe((setId) => {
+      .subscribe((status) => {
         this.isAwaitingSync.set(false);
-        if (setId) {
-          this.activeEmoteSetId.set(setId);
+        if (status?.activeEmoteSetId) {
+          this.setStatus.set(status);
           this.loadTotals(channelName, from, to);
         }
       });

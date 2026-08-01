@@ -421,14 +421,23 @@ export async function mockUsageTotals(
   );
 }
 
-/** GET /api/channels/{channelName}/emotes/active-set — needed for the mass-delete panel to render. */
+/**
+ * GET /api/channels/{channelName}/emotes/active-set — needed for the mass-delete panel to render,
+ * and the source of the slot-budget bar above the grid.
+ */
 export async function mockActiveEmoteSet(
   page: Page,
   channelName: string,
   activeEmoteSetId = 'set-1',
+  status: { capacity?: number | null; occupiedSlots?: number; trackedSince?: string } = {},
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/emotes/active-set`, (route) =>
-    fulfillJson(route, 200, { activeEmoteSetId }),
+    fulfillJson(route, 200, {
+      activeEmoteSetId,
+      capacity: status.capacity ?? 1000,
+      occupiedSlots: status.occupiedSlots ?? 3,
+      trackedSince: status.trackedSince ?? '2026-06-12T09:14:00Z',
+    }),
   );
 }
 

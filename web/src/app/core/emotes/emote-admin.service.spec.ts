@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { EmoteAdminService } from './emote-admin.service';
+import { EmoteSetStatus } from './emote-set-status.model';
 
 describe('EmoteAdminService', () => {
   let service: EmoteAdminService;
@@ -43,11 +44,24 @@ describe('EmoteAdminService', () => {
     });
   });
 
-  it('getActiveEmoteSetId GETs the active-set endpoint', () => {
-    service.getActiveEmoteSetId('sensitron').subscribe();
+  it('getSetStatus GETs the active-set endpoint', () => {
+    let status: EmoteSetStatus | undefined;
+    service.getSetStatus('sensitron').subscribe((value) => (status = value));
 
     const req = httpMock.expectOne('/api/channels/sensitron/emotes/active-set');
     expect(req.request.method).toBe('GET');
-    req.flush({ activeEmoteSetId: 'set-1' });
+    req.flush({
+      activeEmoteSetId: 'set-1',
+      capacity: 1000,
+      occupiedSlots: 847,
+      trackedSince: '2026-06-12T09:14:00Z',
+    });
+
+    expect(status).toEqual({
+      activeEmoteSetId: 'set-1',
+      capacity: 1000,
+      occupiedSlots: 847,
+      trackedSince: '2026-06-12T09:14:00Z',
+    });
   });
 });

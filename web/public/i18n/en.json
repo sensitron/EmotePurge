@@ -311,6 +311,11 @@
     "noMatches": "No emotes match the current filters.",
     "resetFilters": "Reset filters",
     "createVoteSession": "Put up for vote ({{count}})",
+    "slots": {
+      "occupied": "{{ occupied }} of {{ capacity }} slots taken",
+      "afterDelete": "after deleting: {{ projected }}",
+      "barLabel": "Emote set utilization"
+    },
     "errors": {
       "loadFailed": "Couldn't load usage data."
     }

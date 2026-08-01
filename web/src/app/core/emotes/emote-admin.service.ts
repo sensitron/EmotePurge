@@ -2,6 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { EmoteSetStatus } from './emote-set-status.model';
+
 export interface SyncDeletedResult {
   archivedCount: number;
   notFoundIds: string[];
@@ -34,10 +36,9 @@ export class EmoteAdminService {
   }
 
   /** Deliberately separate from ChannelService.getStatus (management-only): a 7TV editor without
-   *  Twitch-mod status must still see this to render the mass-delete panel's "Löschen" button. */
-  getActiveEmoteSetId(channelName: string): Observable<{ activeEmoteSetId: string }> {
-    return this.http.get<{ activeEmoteSetId: string }>(
-      `/api/channels/${channelName}/emotes/active-set`,
-    );
+   *  Twitch-mod status must still see this to render the mass-delete panel's "Löschen" button.
+   *  Carries the slot budget and the tracking start too — same audience, same page, one request. */
+  getSetStatus(channelName: string): Observable<EmoteSetStatus> {
+    return this.http.get<EmoteSetStatus>(`/api/channels/${channelName}/emotes/active-set`);
   }
 }

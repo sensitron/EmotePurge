@@ -311,6 +311,11 @@
     "noMatches": "Keine Emotes passen zu den aktuellen Filtern.",
     "resetFilters": "Filter zurücksetzen",
     "createVoteSession": "Zur Abstimmung stellen ({{count}})",
+    "slots": {
+      "occupied": "{{ occupied }} von {{ capacity }} Slots belegt",
+      "afterDelete": "nach dem Löschen: {{ projected }}",
+      "barLabel": "Auslastung des Emote-Sets"
+    },
     "errors": {
       "loadFailed": "Nutzungsdaten konnten nicht geladen werden."
     }

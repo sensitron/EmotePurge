@@ -85,6 +85,16 @@
     {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
   </p>
 
+  <!-- Deliberately not sticky: the top-24 chain (shell header h-14 + workspace tabs h-10) is a
+       layout contract, and pinning a third bar would push every filter toolbar in the app down. -->
+  @if (setStatus(); as status) {
+    <app-slot-budget-bar
+      [capacity]="status.capacity"
+      [occupied]="status.occupiedSlots"
+      [pendingRemoval]="selection.selectedKeys().length"
+    />
+  }
+
   <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up as a
        curated vote-session ballot. Count in the label + disabled at zero, mirroring the delete
        button's conventions; managers only (the endpoint would 403 a 7TV editor). -->
