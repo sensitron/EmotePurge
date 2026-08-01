@@ -280,6 +280,22 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetResultsAsync_ReportsTheSessionAudience_ToEveryViewer()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "voteaud1");
+        var session = await SeedActiveSessionAsync(
+            db, channel.Id, allowedVoterRoles: AllowedRoles.Mods | AllowedRoles.Broadcaster);
+
+        var service = new VoteSessionQueryService(db, new UsageStatQueryService(db));
+
+        // Not manager-gated: the audience describes the session, and the detail page badges it for
+        // whoever got past VoteAudienceFilter.
+        var asVoter = await service.GetResultsAsync(channel.ChannelName, session.Id, viewerIsManager: false);
+        Assert.Equal(AllowedRoles.Mods | AllowedRoles.Broadcaster, asVoter!.AllowedVoterRoles);
+    }
+
+    [Fact]
     public async Task GetResultsAsync_ReturnsNull_ForUnknownSession()
     {
         await using var db = fixture.CreateDbContext();
@@ -495,13 +511,14 @@ public class VoteSessionQueryServiceTests(PostgresFixture fixture)
     }
 
     private static async Task<VoteSession> SeedActiveSessionAsync(
-        AppDbContext db, string channelId, DateTime? startedAt = null, bool hideResultsUntilEnd = false)
+        AppDbContext db, string channelId, DateTime? startedAt = null, bool hideResultsUntilEnd = false,
+        AllowedRoles allowedVoterRoles = AllowedRoles.Everyone)
     {
         var session = new VoteSession
         {
             ChannelId = channelId,
             Title = "Test Session",
-            AllowedVoterRoles = AllowedRoles.Everyone,
+            AllowedVoterRoles = allowedVoterRoles,
             IsActive = true,
             HideResultsUntilEnd = hideResultsUntilEnd,
             StartedAt = startedAt ?? DateTime.UtcNow

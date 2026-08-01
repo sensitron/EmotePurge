@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — Die Zielgruppe einer Abstimmung wird angezeigt, nicht nur beim Erstellen abgefragt
+
+**Betrifft:** `src/EmotePurge.Core/Services/IVoteSessionQueryService.cs` · `src/EmotePurge.Infrastructure/Services/VoteSessionQueryService.cs` · `web/src/app/core/voting/vote-audience.ts` (neu) · `web/src/app/shared/voting/vote-audience-badge.ts` (neu) · `web/src/app/features/voting/{vote-session-list-page,vote-session-detail-page}.{ts,html}` · `web/public/i18n/{de,en}.json`
+
+**`AllowedVoterRoles` war eine Schreib-nur-Angabe.** Die Rollen werden beim Erstellen gesetzt, sind danach unveränderlich — und tauchten in der gesamten Oberfläche nur im Erstellen-Formular auf. `VoteSessionSummaryDto` lieferte sie zwar mit, die Liste rendert sie aber nie; `VoteSessionResultsDto` führte sie gar nicht. Ein Mod, der eine laufende oder beendete Abstimmung ansah, konnte nicht mehr feststellen, ob sie an alle, nur an Subs oder nur ans Mod-Team gerichtet war. Genau das entscheidet aber, wie das Ergebnis zu lesen ist: 12 Stimmen aus dem Mod-Team sind etwas anderes als 12 Stimmen aus dem ganzen Chat.
+
+**Die Zielgruppe geht an jeden Betrachter, nicht nur an Manager** — dieselbe Begründung wie bei `HideResultsUntilEnd`: sie beschreibt die *Session*, nicht die Rechte des Betrachters, und wer die Detailseite überhaupt sieht, ist ohnehin durch `VoteAudienceFilter` gekommen. `VoteSessionResultsDto` bekommt das Feld deshalb ungefiltert, an derselben Position wie im Summary-DTO.
+
+**Die Flags-Maske wird im Frontend auf vier Fälle reduziert** (`voteAudience()`, rein und getestet): `everyone` · `subs` · `mods` · `restricted`. `Everyone` gewinnt über jedes andere Flag, weil `VoteEligibilityService` serverseitig genau so entscheidet — das Flag wird zuerst geprüft und lässt durch, bevor irgendeine andere Rolle betrachtet wird. Die Erstellen-Pfade erzeugen nur `Everyone`, `Subs` oder `Mods | Broadcaster`; die API nimmt aber die rohe Maske entgegen, und alles andere (Mischmasken, `VIPs`, leere Maske) fällt bewusst auf `restricted` statt als einer der drei Fälle falsch beschriftet zu werden.
+
+**Tone-Wahl:** offene Abstimmung → `slate` (der unauffällige Normalfall), eingeschränkte → `blue`. Das ist keine Umdeutung der Rollen-Tabelle in [UI-Designsprache.md](UI-Designsprache.md) §4.3, sondern dieselbe Lesart, die der „Verdeckt"-Badge in derselben Zeile schon verwendet: `blue` = bemerkenswerte Eigenschaft dieser Session. Der Badge steht **unbedingt**, auch bei beendeten Sessions — anders als „Verdeckt", das nach dem Ende nichts mehr verbirgt und deshalb verschwindet.
+
+---
+
 ### 2026-08-01 — `liveEvents()`/`liveReload()` statt handgebauter SSE-Pipelines auf jeder Seite
 
 **Betrifft:** `web/src/app/core/live/live-reload.ts` (neu) · `web/src/app/core/live/live-reload.spec.ts` (neu) · `web/src/app/features/{usage-stats/usage-stats-page,voting/vote-session-detail-page,admin/admin-channels-page,admin/admin-monitoring-page}.ts` · `web/.claude/CLAUDE.md`

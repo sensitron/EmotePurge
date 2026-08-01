@@ -23,9 +23,13 @@ public record VoteSessionResultDto(
 
 // VoterCount = distinct voters across the whole session, so thin results can be labeled as such.
 // It stays visible on a secret ballot: turnout says nothing about which way the votes went.
+// AllowedVoterRoles is reported here for the same reason it is in the summary: the audience is fixed
+// at creation and was previously visible only in the create form, so nobody could tell afterwards
+// whom a session had been addressed to. Like HideResultsUntilEnd it describes the session, not the
+// viewer's rights, and goes to every viewer.
 public record VoteSessionResultsDto(
-    long SessionId, string Title, bool IsActive, DateTime StartedAt, DateTime? EndedAt, int VoterCount,
-    bool HideResultsUntilEnd, IReadOnlyList<VoteSessionResultDto> Emotes);
+    long SessionId, string Title, AllowedRoles AllowedVoterRoles, bool IsActive, DateTime StartedAt,
+    DateTime? EndedAt, int VoterCount, bool HideResultsUntilEnd, IReadOnlyList<VoteSessionResultDto> Emotes);
 
 // A session the given voter has cast at least one vote in, ever — regardless of whether it's since
 // ended. LastVotedAt is the max UpdatedAt across that voter's votes in the session, used to order

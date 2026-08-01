@@ -152,8 +152,8 @@ public class VoteSessionQueryService(AppDbContext db, IUsageStatQueryService usa
                 .ToList();
 
         return new VoteSessionResultsDto(
-            session.Id, session.Title, session.IsActive, session.StartedAt, session.EndedAt, voterCount,
-            session.HideResultsUntilEnd, results);
+            session.Id, session.Title, session.AllowedVoterRoles, session.IsActive, session.StartedAt,
+            session.EndedAt, voterCount, session.HideResultsUntilEnd, results);
     }
 
     public async Task<PagedResult<MyVoteSessionDto>> ListMyVoteSessionsAsync(string voterTwitchUserId, int page, int pageSize, CancellationToken cancellationToken = default)
