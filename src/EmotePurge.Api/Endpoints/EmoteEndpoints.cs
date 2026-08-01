@@ -72,16 +72,15 @@ public static class EmoteEndpoints
         // since it also backs the join-status/leave-button check): the mass-delete panel needs the
         // active set id to render its "Löschen" button, and 7TV editors — who can legitimately delete
         // via 7TV's own permission system — must be able to see it despite not being allowed to manage
-        // the channel at all.
+        // the channel at all. The slot budget and the tracking start ride along on this same call for
+        // exactly that reason: both are for the same audience, and both pages already fetch this.
         group.MapGet("/active-set", async (
             string channelName,
-            IChannelService channelService,
+            IEmoteSetStatusService emoteSetStatusService,
             CancellationToken ct) =>
         {
-            var channel = await channelService.GetByNameAsync(channelName, ct);
-            return channel is null
-                ? Results.NotFound()
-                : Results.Ok(new { activeEmoteSetId = channel.ActiveEmoteSetId });
+            var status = await emoteSetStatusService.GetAsync(channelName, ct);
+            return status is null ? Results.NotFound() : Results.Ok(status);
         });
     }
 

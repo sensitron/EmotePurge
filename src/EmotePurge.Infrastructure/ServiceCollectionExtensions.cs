@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
         services.AddScoped<IEmoteService, EmoteService>();
         services.AddScoped<IEmoteSetOwnershipService, EmoteSetOwnershipService>();
+        services.AddScoped<IEmoteSetStatusService, EmoteSetStatusService>();
 
         services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
         services.AddScoped<IUsageStatFlushService, UsageStatFlushService>();
