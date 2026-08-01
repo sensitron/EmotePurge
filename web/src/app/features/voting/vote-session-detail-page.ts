@@ -206,6 +206,11 @@ export class VoteSessionDetailPage {
     })),
   );
 
+  // Plain field, not a signal: nothing renders from it. Written by the live-stream tap() in the
+  // constructor and read once per debounce window — see there for why it is a flag and not a
+  // second subscription.
+  private syncSeenSinceReload = false;
+
   constructor() {
     // Deferred, not called directly — see the identical comment in VoteSessionListPage.
     effect(() => this.load());
@@ -238,34 +243,6 @@ export class VoteSessionDetailPage {
           this.loadActiveEmoteSetId();
         }
       });
-  }
-
-  // See the tap() above — plain field, not a signal: nothing renders from it.
-  private syncSeenSinceReload = false;
-
-  /**
-   * `vote.changed` is per session and must match this one. `usage.flushed` is channel-scoped and
-   * carries no session id — the stream is already this channel's, so its arrival alone is the
-   * signal. Usage no longer feeds the score, but the flush event stays subscribed: managers see
-   * the raw usage figures as context on every card (and filter on them), and chat usage only
-   * moves on the worker's 30 s batch flush — without the refetch those numbers would sit at
-   * whatever the first load happened to catch.
-   *
-   * `channel.synced` means the emote inventory itself moved (mass delete, 7TV add/remove, set
-   * swap) — the ballot and the archived badges are stale, and so is the set id the mass-delete
-   * panel binds to. The server only fires it when a sync actually changed something, so this does
-   * not reintroduce the reload-on-a-timer the side-load comment above warns about.
-   */
-  private isRelevantLiveEvent(event: LiveEvent): boolean {
-    if (
-      event.type === LIVE_EVENT_TYPES.usageFlushed ||
-      event.type === LIVE_EVENT_TYPES.channelSynced
-    ) {
-      return true;
-    }
-    return (
-      event.type === LIVE_EVENT_TYPES.voteChanged && event.sessionId === Number(this.sessionId())
-    );
   }
 
   protected onResize(): void {
@@ -337,54 +314,6 @@ export class VoteSessionDetailPage {
     );
   }
 
-  // The tally in parentheses is dropped rather than shown as "(0)" or "(null)" when the server
-  // withheld it — the tooltip is the one place a hidden number could still slip out.
-  private voteButtonTitle(
-    emote: VoteSessionResult,
-    labelKey: string,
-    tally: number | null,
-  ): string {
-    if (emote.isArchived) {
-      return this.translocoService.translate('voting.detail.archivedVoteDisabled');
-    }
-    const label = this.translocoService.translate(labelKey);
-    return tally === null ? label : `${label} (${tally})`;
-  }
-
-  private load(options: { freeze: boolean } = { freeze: true }): void {
-    this.loadResults(options);
-    this.loadActiveEmoteSetId();
-  }
-
-  private loadResults(options: { freeze: boolean }): void {
-    const channelName = this.channelName();
-    const sessionId = Number(this.sessionId());
-
-    // voteSessionAccessGuard already verified login + audience eligibility before this component
-    // was even mounted — this call should always succeed for whoever reached this page normally.
-    this.voteSessionService.getResults(channelName, sessionId).subscribe({
-      next: (results) => {
-        this.results.set(results);
-        if (options.freeze) {
-          this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
-        }
-        // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
-        // deserialized objects this assigns resolve back to the same selection. Clearing would
-        // throw away a 50-emote selection on every single vote, since vote() reloads through here.
-      },
-      error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
-    });
-  }
-
-  /** Split out of load() so the live-update path can refetch the tally alone — this value only
-   *  changes when the 7TV set is resynced, never as a result of a vote. */
-  private loadActiveEmoteSetId(): void {
-    this.channelService.getStatus(this.channelName()).subscribe({
-      next: (status) => this.activeEmoteSetId.set(status.activeEmoteSetId),
-      error: () => this.activeEmoteSetId.set(null),
-    });
-  }
-
   protected refresh(): void {
     this.load();
   }
@@ -421,20 +350,6 @@ export class VoteSessionDetailPage {
     });
   }
 
-  // Was a second, competing status→message mapping alongside apiErrorTranslationKey; the codes it
-  // re-derived by status (vote_session_ended, vote_session_not_found, emote_not_eligible) all exist
-  // in the response bodies, so it can share the one mapping now. 401 is gone entirely —
-  // apiAuthInterceptor handles it app-wide.
-  //
-  // 403 stays a special case on purpose: it comes from VoteEligibilityFilter and means one specific
-  // thing here — the wrong role for *this session's* audience. The generic 403 message points at the
-  // mod-role cache instead, which would be actively misleading in, say, a subs-only session.
-  private handleVoteError(error: HttpErrorResponse): void {
-    this.errorMessage.set(
-      error.status === 403 ? 'voting.detail.errors.forbidden' : apiErrorTranslationKey(error),
-    );
-  }
-
   protected onDeleted(deletedIds: string[]): void {
     this.results.update((results) =>
       results
@@ -452,5 +367,92 @@ export class VoteSessionDetailPage {
   protected onReloadRequested(): void {
     this.selection.clear();
     this.load();
+  }
+
+  /**
+   * `vote.changed` is per session and must match this one. `usage.flushed` is channel-scoped and
+   * carries no session id — the stream is already this channel's, so its arrival alone is the
+   * signal. Usage no longer feeds the score, but the flush event stays subscribed: managers see
+   * the raw usage figures as context on every card (and filter on them), and chat usage only
+   * moves on the worker's 30 s batch flush — without the refetch those numbers would sit at
+   * whatever the first load happened to catch.
+   *
+   * `channel.synced` means the emote inventory itself moved (mass delete, 7TV add/remove, set
+   * swap) — the ballot and the archived badges are stale, and so is the set id the mass-delete
+   * panel binds to. The server only fires it when a sync actually changed something, so this does
+   * not reintroduce the reload-on-a-timer the side-load comment in the constructor warns about.
+   */
+  private isRelevantLiveEvent(event: LiveEvent): boolean {
+    if (
+      event.type === LIVE_EVENT_TYPES.usageFlushed ||
+      event.type === LIVE_EVENT_TYPES.channelSynced
+    ) {
+      return true;
+    }
+    return (
+      event.type === LIVE_EVENT_TYPES.voteChanged && event.sessionId === Number(this.sessionId())
+    );
+  }
+
+  // The tally in parentheses is dropped rather than shown as "(0)" or "(null)" when the server
+  // withheld it — the tooltip is the one place a hidden number could still slip out.
+  private voteButtonTitle(
+    emote: VoteSessionResult,
+    labelKey: string,
+    tally: number | null,
+  ): string {
+    if (emote.isArchived) {
+      return this.translocoService.translate('voting.detail.archivedVoteDisabled');
+    }
+    const label = this.translocoService.translate(labelKey);
+    return tally === null ? label : `${label} (${tally})`;
+  }
+
+  // Was a second, competing status→message mapping alongside apiErrorTranslationKey; the codes it
+  // re-derived by status (vote_session_ended, vote_session_not_found, emote_not_eligible) all exist
+  // in the response bodies, so it can share the one mapping now. 401 is gone entirely —
+  // apiAuthInterceptor handles it app-wide.
+  //
+  // 403 stays a special case on purpose: it comes from VoteEligibilityFilter and means one specific
+  // thing here — the wrong role for *this session's* audience. The generic 403 message points at the
+  // mod-role cache instead, which would be actively misleading in, say, a subs-only session.
+  private handleVoteError(error: HttpErrorResponse): void {
+    this.errorMessage.set(
+      error.status === 403 ? 'voting.detail.errors.forbidden' : apiErrorTranslationKey(error),
+    );
+  }
+
+  private load(options: { freeze: boolean } = { freeze: true }): void {
+    this.loadResults(options);
+    this.loadActiveEmoteSetId();
+  }
+
+  private loadResults(options: { freeze: boolean }): void {
+    const channelName = this.channelName();
+    const sessionId = Number(this.sessionId());
+
+    // voteSessionAccessGuard already verified login + audience eligibility before this component
+    // was even mounted — this call should always succeed for whoever reached this page normally.
+    this.voteSessionService.getResults(channelName, sessionId).subscribe({
+      next: (results) => {
+        this.results.set(results);
+        if (options.freeze) {
+          this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
+        }
+        // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
+        // deserialized objects this assigns resolve back to the same selection. Clearing would
+        // throw away a 50-emote selection on every single vote, since vote() reloads through here.
+      },
+      error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
+    });
+  }
+
+  /** Split out of load() so the live-update path can refetch the tally alone — this value only
+   *  changes when the 7TV set is resynced, never as a result of a vote. */
+  private loadActiveEmoteSetId(): void {
+    this.channelService.getStatus(this.channelName()).subscribe({
+      next: (status) => this.activeEmoteSetId.set(status.activeEmoteSetId),
+      error: () => this.activeEmoteSetId.set(null),
+    });
   }
 }

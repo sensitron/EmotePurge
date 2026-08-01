@@ -179,6 +179,11 @@ export class UsageStatsPage {
     })),
   );
 
+  // Plain field, not a signal: nothing renders from it. Written by the live-stream tap() in the
+  // constructor and read once per debounce window — see there for why it is a flag and not a
+  // second subscription.
+  private syncSeenSinceReload = false;
+
   constructor() {
     effect(() => {
       this.load(this.channelName(), this.from(), this.to());
@@ -220,19 +225,6 @@ export class UsageStatsPage {
           this.refreshActiveEmoteSetId();
         }
       });
-  }
-
-  // See the tap() above — plain field, not a signal: nothing renders from it.
-  private syncSeenSinceReload = false;
-
-  // Quiet counterpart to the set-id fetch in load(): no sync-poll, and a failed refetch keeps the
-  // current value — this runs unrequested, so it must never take the mass-delete panel away over
-  // a transient error.
-  private refreshActiveEmoteSetId(): void {
-    this.emoteAdminService.getActiveEmoteSetId(this.channelName()).subscribe({
-      next: (result) => this.activeEmoteSetId.set(result.activeEmoteSetId),
-      error: () => undefined,
-    });
   }
 
   protected updateColumns(): void {
@@ -301,6 +293,16 @@ export class UsageStatsPage {
   protected onReloadRequested(): void {
     this.selection.clear();
     this.refresh();
+  }
+
+  // Quiet counterpart to the set-id fetch in load(): no sync-poll, and a failed refetch keeps the
+  // current value — this runs unrequested, so it must never take the mass-delete panel away over
+  // a transient error.
+  private refreshActiveEmoteSetId(): void {
+    this.emoteAdminService.getActiveEmoteSetId(this.channelName()).subscribe({
+      next: (result) => this.activeEmoteSetId.set(result.activeEmoteSetId),
+      error: () => undefined,
+    });
   }
 
   private load(channelName: string, from: string, to: string): void {

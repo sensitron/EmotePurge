@@ -138,22 +138,6 @@ export class ChannelWorkspaceLayout {
     });
   }
 
-  private loadPermissions(channelName: string): void {
-    this.channelService.getPermissions(channelName).subscribe({
-      next: (permissions) => {
-        this.canManage.set(permissions.canManage);
-        this.canViewUsageStats.set(permissions.canViewUsageStats);
-        this.isBotActive.set(permissions.isBotActive);
-      },
-      // Only reachable for a logged-out user (the interceptor already redirects) or a server error —
-      // hide everything privileged rather than guess.
-      error: () => {
-        this.canManage.set(false);
-        this.canViewUsageStats.set(false);
-      },
-    });
-  }
-
   protected leave(): void {
     // A leave now only deactivates the bot and keeps all history (see ChannelService.LeaveAsync) —
     // reversible by rejoining. Still confirmed, because it stops data collection for the channel.
@@ -204,6 +188,22 @@ export class ChannelWorkspaceLayout {
             ? 'channelWorkspace.errors.leaveForbidden'
             : 'channelWorkspace.errors.rejoinFailed',
         );
+      },
+    });
+  }
+
+  private loadPermissions(channelName: string): void {
+    this.channelService.getPermissions(channelName).subscribe({
+      next: (permissions) => {
+        this.canManage.set(permissions.canManage);
+        this.canViewUsageStats.set(permissions.canViewUsageStats);
+        this.isBotActive.set(permissions.isBotActive);
+      },
+      // Only reachable for a logged-out user (the interceptor already redirects) or a server error —
+      // hide everything privileged rather than guess.
+      error: () => {
+        this.canManage.set(false);
+        this.canViewUsageStats.set(false);
       },
     });
   }

@@ -349,18 +349,6 @@ export class AdminChannelsPage {
     });
   }
 
-  /** Shows the transient hint on `channelName` and restarts its removal timer — so the upgrade to
-   *  "completed" gets its own full display window instead of inheriting the queued one's remainder. */
-  private showResyncFeedback(channelName: string, messageKey: string): void {
-    clearTimeout(this.resyncFeedbackTimeout);
-    this.resyncFeedback.set(channelName);
-    this.resyncFeedbackKey.set(messageKey);
-    this.resyncFeedbackTimeout = setTimeout(
-      () => this.resyncFeedback.set(null),
-      RESYNC_FEEDBACK_MS,
-    );
-  }
-
   protected confirmPurge(channel: AdminChannel): void {
     // The message names what disappears with the channel, in counts taken from this very row: an
     // admin should not have to remember that the cascade reaches usage stats and votes.
@@ -392,6 +380,34 @@ export class AdminChannelsPage {
       });
   }
 
+  // LOCALE_ID is bootstrap-time static and cannot follow a runtime language switch, so dates and
+  // numbers go through toLocale() — same as admin-monitoring-page.ts.
+  protected formatDateTime(iso: string | null): string {
+    if (!iso) {
+      return NO_VALUE;
+    }
+    return new Date(iso).toLocaleString(toLocale(this.languageService.lang()), {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+  }
+
+  protected formatNumber(value: number): string {
+    return new Intl.NumberFormat(toLocale(this.languageService.lang())).format(value);
+  }
+
+  /** Shows the transient hint on `channelName` and restarts its removal timer — so the upgrade to
+   *  "completed" gets its own full display window instead of inheriting the queued one's remainder. */
+  private showResyncFeedback(channelName: string, messageKey: string): void {
+    clearTimeout(this.resyncFeedbackTimeout);
+    this.resyncFeedback.set(channelName);
+    this.resyncFeedbackKey.set(messageKey);
+    this.resyncFeedbackTimeout = setTimeout(
+      () => this.resyncFeedback.set(null),
+      RESYNC_FEEDBACK_MS,
+    );
+  }
+
   private runAction(channelName: string, action: () => Observable<unknown>): void {
     this.actionError.set(null);
     this.pendingChannel.set(channelName);
@@ -407,21 +423,5 @@ export class AdminChannelsPage {
         this.actionError.set(apiErrorTranslationKey(error));
       },
     });
-  }
-
-  // LOCALE_ID is bootstrap-time static and cannot follow a runtime language switch, so dates and
-  // numbers go through toLocale() — same as admin-monitoring-page.ts.
-  protected formatDateTime(iso: string | null): string {
-    if (!iso) {
-      return NO_VALUE;
-    }
-    return new Date(iso).toLocaleString(toLocale(this.languageService.lang()), {
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
-  }
-
-  protected formatNumber(value: number): string {
-    return new Intl.NumberFormat(toLocale(this.languageService.lang())).format(value);
   }
 }
