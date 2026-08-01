@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-01 — ESLint mit schmalem Regelsatz erzwingt die Member-Reihenfolge im Frontend
+
+**Betrifft:** `web/eslint.config.mjs` · `web/package.json` · `web/.claude/CLAUDE.md` · `web/src/app/features/{admin/admin-channels-page,channel-workspace/channel-workspace-layout,usage-stats/usage-stats-page,voting/vote-session-detail-page}.ts` · `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md`
+
+**Der Vorwurf „der Code ist nicht aufgeräumt" hat sich in der Messung halbiert, aber nicht aufgelöst.** Eine faktische Reihenfolge existierte längst — 8 von 14 geprüften Angular-Dateien folgen ihr vollständig —, sie war nur nirgends aufgeschrieben und nirgends geprüft. Die Abweichungen waren entsprechend konkret statt chaotisch: 26 Verstöße in vier Dateien, davon zwei besonders sprechende, weil `syncSeenSinceReload` in `usage-stats-page.ts` und `vote-session-detail-page.ts` **mit wortgleichem Kommentar** nach dem Konstruktor stand. Das war kopiert, nicht entschieden.
+
+**ESLint kann nur die Hälfte davon sehen, und das ist beim Regelentwurf der springende Punkt.** `@typescript-eslint/member-ordering` bekommt `field → constructor → public-method → protected-method → private-method`, wobei `field` bewusst **ein** Topf ist: `input()`, `inject()`, `signal()` und `computed()` sind für den Parser ununterscheidbar Property-Initializer. Erzwingbar ist damit genau das, was tatsächlich gedriftet ist — State nach dem Konstruktor und private Helper zwischen öffentlichen Methoden. Die Feinordnung *innerhalb* des Feldblocks (Inputs vor `inject()` vor State) steht als Konvention in `web/.claude/CLAUDE.md` und bleibt Review-Sache. Diese Trennung ist ausdrücklich dokumentiert, damit niemand später annimmt, ein grüner Lint-Lauf beweise die ganze Reihenfolge.
+
+**`@angular-eslint/inject-at-top` ist geprüft und abgelehnt worden.** Die Regel verlangt `inject()` vor jedem anderen Member; der Bestand stellt `input()`/`output()` davor. Sie zu aktivieren hätte die Mehrheit der bestehenden Komponenten zu Verletzungen erklärt und eine gewachsene, sinnvolle Ordnung umgeworfen, um einer Werkzeugmeinung zu genügen. Dieselbe Linie wie bei `.prettierrc`: Die Config beschreibt den Bestand, sie schreibt ihn nicht um.
+
+**Kein `recommended`-Satz.** Aktiviert sind neben `member-ordering` nur sechs Regeln, und jede einzelne bildet entweder eine bereits in `web/.claude/CLAUDE.md` ausformulierte Konvention ab (`prefer-inject`, `prefer-host-metadata-property`, `prefer-standalone`, `template/prefer-control-flow`, `template/prefer-ngsrc`) oder fängt eine echte Fehlerklasse (`computed-must-return`, `sort-lifecycle-methods`). **Alle sechs meldeten beim ersten Lauf null Verstöße** — der beste verfügbare Beleg dafür, dass die Konventionen nicht nur behauptet, sondern gelebt werden. Ein `recommended`-Satz hätte dagegen einen zweiten, unvermessenen Sweep über 94 Dateien ausgelöst. Der Maßstab ist: Ein roter Lint-Lauf muss „du hast eine dokumentierte Regel gebrochen" heißen, nie „der Linter hat eine Meinung, der niemand zugestimmt hat".
+
+**`@angular-eslint/no-uncalled-signals` wäre wertvoll gewesen und ist trotzdem draußen.** Ihre Metadaten melden `requiresTypeChecking: false`, tatsächlich ruft sie `getParserServices()` und bricht ohne typisierten Parser ab — aufgefallen erst beim Ausprobieren, nicht beim Lesen der Doku. Sie zu aktivieren hieße, bei jedem Lint-Lauf ein vollständiges TypeScript-Programm zu bauen, für eine Verwechslung, die `ng build` und die Testsuite ohnehin sichtbar machen. Der Lauf bleibt damit syntaxbasiert und dauert rund 4 Sekunden; als Nebeneffekt erfasst er auch Dateien außerhalb jedes `tsconfig`, etwa `playwright.config.ts`.
+
+**Fürs Backend gibt es bewusst kein Gegenstück.** Die C#-Reihenfolge ist als Konvention dokumentiert und ihre sechs Ausreißer sind von Hand begradigt; StyleCop hätte ~200 Regeln mitgebracht, von denen ~190 zu unterdrücken gewesen wären, um sechs Fundstellen zu erwischen.
+
+---
+
 ### 2026-08-01 — Prettier für `web/`, `dotnet format` fürs Backend, kein CSharpier
 
 **Betrifft:** `web/package.json` · `web/.prettierignore` · `web/.editorconfig` · `.editorconfig` · alle 22 Dateien mit UTF-8-BOM (`src/EmotePurge.*/**.csproj`, `src/EmotePurge.Infrastructure/Migrations/**`) · `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md`

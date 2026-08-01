@@ -60,6 +60,24 @@ You are an expert in TypeScript, Angular, and scalable web application developme
 - Prefer the `@Service` decorator over `@Injectable({providedIn: 'root'})` for new singleton services (Angular v22+)
 - Use the `inject()` function instead of constructor injection
 
+## Member order (binding)
+
+Classes are laid out in this order. `npm run lint` enforces the parts a linter can see; the rest is review discipline.
+
+1. Module-level `const`s and types (outside the class)
+2. `input()` / `output()` / `model()`
+3. `inject()`
+4. `rxResource()` / `signal()` / `computed()` / plain fields
+5. `constructor()` with its `effect()`s
+6. `public` / `protected` methods — the ones the template calls
+7. `private` helpers, grouped by topic
+
+**What ESLint actually enforces:** only `field → constructor → public → protected → private`. It cannot see steps 2–4 apart, because `input()`, `inject()`, `signal()` and `computed()` are all just property initializers to the parser — keeping inputs before `inject()` before state is on you.
+
+**Deliberately not enabled: `@angular-eslint/inject-at-top`.** It wants `inject()` before every other member, which contradicts the order above and would turn the majority of existing components into violations. Config follows the codebase here, not the other way round.
+
+Two habits this exists to stop, both found by measurement in the 2026-08-01 review: declaring new state *after* the constructor because that is where the cursor happens to be, and dropping a new private helper next to its caller instead of at the end.
+
 ## EmotePurge-specific conventions
 
 This is the Angular frontend (Modul D) for EmotePurge, a .NET 10 backend at the repo root (`src/EmotePurge.Api`, `.Core`, `.Infrastructure`, `.Worker`). See the root `CLAUDE.md` for the overall architecture; this file only covers `web/`-specific conventions.
