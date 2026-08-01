@@ -20,6 +20,15 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         }
         else
         {
+            // Only a join that actually reactivates the channel restarts the tracking clock. A join
+            // on an already-active channel is a no-op for coverage — it publishes a JOIN command,
+            // but nothing was ever missed, so moving the marker would falsely shorten the history
+            // we claim to have.
+            if (!channel.IsBotActive)
+            {
+                channel.TrackingResumedAt = DateTime.UtcNow;
+            }
+
             channel.IsBotActive = true;
         }
 

@@ -84,6 +84,40 @@ public class ChannelServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task JoinAsync_AfterLeave_RestartsTheTrackingClock()
+    {
+        // The gap between leave and rejoin is time we did not count. Reporting CreatedAt as "we
+        // track since" would claim coverage over exactly that hole.
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+        var joined = await service.JoinAsync("channelservicetracking1", Actor);
+        Assert.Null(joined.TrackingResumedAt);
+        await service.LeaveAsync("channelservicetracking1", Actor);
+
+        var rejoined = await service.JoinAsync("channelservicetracking1", Actor);
+
+        Assert.NotNull(rejoined.TrackingResumedAt);
+        Assert.True(rejoined.TrackingResumedAt >= rejoined.CreatedAt);
+    }
+
+    [Fact]
+    public async Task JoinAsync_OnAnAlreadyActiveChannel_LeavesTheTrackingClockAlone()
+    {
+        // Nothing was missed, so the history we claim must not shrink. A join on an active channel
+        // still publishes a command and is still audited — it just isn't a coverage event.
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+        await service.JoinAsync("channelservicetracking2", Actor);
+        await service.LeaveAsync("channelservicetracking2", Actor);
+        var rejoined = await service.JoinAsync("channelservicetracking2", Actor);
+        var resumedAt = rejoined.TrackingResumedAt;
+
+        var joinedAgain = await service.JoinAsync("channelservicetracking2", Actor);
+
+        Assert.Equal(resumedAt, joinedAgain.TrackingResumedAt);
+    }
+
+    [Fact]
     public async Task PurgeAsync_RemovesChannel_AndPublishesLeaveCommand()
     {
         await using var db = fixture.CreateDbContext();

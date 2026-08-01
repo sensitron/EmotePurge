@@ -243,6 +243,8 @@ Kein Teil der ursprünglichen Spezifikation, aber umfangsmäßig ein eigenes Mod
 > | `VoteSession` | `HideResultsUntilEnd` | `20260801120155` | Secret Ballot — Tallies werden bis zum Sitzungsende serverseitig zurückgehalten, nicht nur im Frontend ausgeblendet |
 > | `User` | `TwitchRefreshToken`, `TwitchAccessToken`, `TwitchAccessTokenExpiresAtUtc`, `TwitchTokenScopes` | `20260730160215` | serverseitiger Token-Refresh; die beiden Token-Spalten liegen **verschlüsselt** (`AesGcmTokenCipher`, Schlüssel aus `Auth:Twitch:TokenEncryptionKey`) |
 > | `User` | `SessionsValidFromUtc` | `20260729222651` | serverseitig wirksames Logout / Session-Revoke: ältere Cookies gelten als ungültig |
+> | `Channel` | `ActiveEmoteSetCapacity` | `20260801183949` | Slot-Limit des aktiven 7TV-Sets, `null` = 7TV hat keins gemeldet (nie 1000 annehmen — Abonnenten haben größere Sets). Nur zusammen mit `ActiveEmoteSetId` im REST-Vollsync geschrieben, nie im EventAPI-Delta |
+> | `Channel` | `TrackingResumedAt` | `20260801183949` | Zeitpunkt des letzten Joins, der den Channel **reaktiviert** hat. `CreatedAt` überschätzt die Abdeckung, weil `LeaveAsync` die Zeile behält — „wir zählen seit" ist `TrackingResumedAt ?? CreatedAt` |
 >
 > `AllowedRoles` ist ein `[Flags]`-Enum mit **fünf** Werten: `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
 >

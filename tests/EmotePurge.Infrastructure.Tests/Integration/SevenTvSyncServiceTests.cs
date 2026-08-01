@@ -42,6 +42,23 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         return new SevenTvSyncService(db, apiClient, cache, new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
     }
 
+    // Same as CreateRestService, but with an explicit set capacity. Separate method because a
+    // params array has to stay last, so the capacity could not be an optional parameter in front
+    // of it without breaking every positional call above.
+    private static SevenTvSyncService CreateRestServiceWithCapacity(
+        Persistence.AppDbContext db,
+        EmoteMatchCache cache,
+        Channel channel,
+        string emoteSetId,
+        int? capacity,
+        params SevenTvEmote[] liveEmotes)
+    {
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
+            .Returns(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(emoteSetId, liveEmotes, capacity)));
+        return new SevenTvSyncService(db, apiClient, cache, new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+    }
+
     private static string SeededImageUrl(string sevenTvId) => $"https://cdn.7tv.app/emote/{sevenTvId}/2x.webp";
 
     private static SevenTvEmote LiveEmote(string sevenTvId, string name) => new(sevenTvId, name, SeededImageUrl(sevenTvId));
@@ -344,5 +361,73 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         Assert.NotNull(result);
         Assert.False(result.HasChanges);
         Assert.False(await db.Emotes.Where(e => e.ChannelId == channel.Id).Select(e => e.IsArchived).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_PersistsTheSetCapacity()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_capacity", ("e1", "stable", false));
+        var service = CreateRestServiceWithCapacity(db, cache, channel, SetId, 1500, LiveEmote("e1", "stable"));
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Equal(1500, await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.ActiveEmoteSetCapacity).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_UnreportedCapacity_StaysNull()
+    {
+        // "7TV told us nothing" must stay distinguishable from a number — the UI shows no budget
+        // bar at all rather than inventing a denominator.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_capacity_null", ("e1", "stable", false));
+        var service = CreateRestServiceWithCapacity(db, cache, channel, SetId, null, LiveEmote("e1", "stable"));
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.ActiveEmoteSetCapacity).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_CapacityChangeAlone_ReportsNoChanges()
+    {
+        // A resized set is not a changed inventory. If this reported a change, the resize would
+        // make every open page of the channel refetch for nothing.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_capacity_nochange", ("e1", "stable", false));
+        channel.ActiveEmoteSetCapacity = 1000;
+        await db.SaveChangesAsync();
+        var service = CreateRestServiceWithCapacity(db, cache, channel, SetId, 1500, LiveEmote("e1", "stable"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+        Assert.Equal(1500, await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.ActiveEmoteSetCapacity).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_ImplausibleEmptyLiveSet_DoesNotWriteCapacity()
+    {
+        // The empty-set guard returns before the set id is assigned, and the capacity has to share
+        // that fate: a partial 7TV outage must not leave a wrong slot limit behind.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_capacity_guard", ("e1", "stable", false));
+        channel.ActiveEmoteSetCapacity = 1000;
+        await db.SaveChangesAsync();
+        var service = CreateRestServiceWithCapacity(db, cache, channel, SetId, 7);
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Equal(1000, await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.ActiveEmoteSetCapacity).SingleAsync());
     }
 }

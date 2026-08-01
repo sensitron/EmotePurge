@@ -72,6 +72,11 @@ public class SevenTvSyncService(
 
         channel.TwitchChannelId ??= twitchUserId;
         channel.ActiveEmoteSetId = emoteSet.Id;
+        // Written here and only here, in lockstep with the set id: the EventAPI delta path carries no
+        // capacity, so writing it there would leave a switched set showing the old set's limit until
+        // the next resync. Deliberately outside the inventory-change bookkeeping below — a changed
+        // capacity is not a changed emote and must not make every open page refetch.
+        channel.ActiveEmoteSetCapacity = emoteSet.Capacity;
 
         var inventoryChanged = await ReconcileAsync(channel.Id, emoteSet.Emotes, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
