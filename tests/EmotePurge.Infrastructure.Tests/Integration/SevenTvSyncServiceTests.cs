@@ -414,6 +414,45 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SyncChannel_NoOpResync_StillRecordsTheSuccessfulSync()
+    {
+        // The whole reason LastSyncedAtUtc exists as its own column: a sync that changed nothing is
+        // still a sync that reached 7TV. Emote.LastSyncedAt does not move here, so the admin view
+        // would otherwise keep showing the last inventory change as if it were the last sync.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_lastsync_noop", ("e1", "stable", false));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "stable"));
+
+        var before = DateTime.UtcNow;
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+        var lastSynced = await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.LastSyncedAtUtc).SingleAsync();
+        Assert.NotNull(lastSynced);
+        Assert.True(lastSynced >= before);
+    }
+
+    [Fact]
+    public async Task SyncChannel_ImplausibleEmptyLiveSet_DoesNotRecordASuccessfulSync()
+    {
+        // The empty-set guard skips the reconciliation entirely, so nothing was verified against
+        // 7TV's real state. Stamping it as a successful sync would report a channel as healthily
+        // syncing precisely while its syncs are being thrown away.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_lastsync_emptyguard", ("e1", "stable", false));
+        var service = CreateRestService(db, cache, channel, SetId);
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.LastSyncedAtUtc).SingleAsync());
+    }
+
+    [Fact]
     public async Task SyncChannel_SetsFirstSeenAt_FromTheSetEntryTimestamp_OnInsert()
     {
         await using var db = fixture.CreateDbContext();

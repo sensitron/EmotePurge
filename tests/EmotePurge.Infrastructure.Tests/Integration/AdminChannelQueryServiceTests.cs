@@ -45,7 +45,7 @@ public class AdminChannelQueryServiceTests(PostgresFixture fixture)
         Assert.Equal(1, row.ArchivedEmoteCount);  // subset of the above
         Assert.Equal(3, row.VoteSessionCount);
         Assert.Equal(1, row.ActiveVoteSessionCount);
-        Assert.Equal(new DateTime(2026, 7, 29, 10, 0, 0, DateTimeKind.Utc), row.LastSyncedAtUtc);
+        Assert.Equal(new DateTime(2026, 7, 29, 10, 0, 0, DateTimeKind.Utc), row.LastInventoryChangeUtc);
 
         var neighbourRow = Assert.Single(all, c => c.ChannelName == "adminaggregateneighbour");
         Assert.False(neighbourRow.IsBotActive);
@@ -72,7 +72,94 @@ public class AdminChannelQueryServiceTests(PostgresFixture fixture)
         Assert.Equal(0, row.VoteSessionCount);
         Assert.Equal(0, row.ActiveVoteSessionCount);
         // Null, not DateTime.MinValue: "never synced" and "synced at the epoch" are different states.
+        Assert.Null(row.LastInventoryChangeUtc);
         Assert.Null(row.LastSyncedAtUtc);
+    }
+
+    [Fact]
+    public async Task ListAsync_ReportsLastSync_SeparatelyFromLastInventoryChange()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        // The whole point of the split: a channel synced a minute ago whose emote set nobody has
+        // touched in three months. Reported as one number, this used to read as "the bot stopped
+        // syncing three months ago" — the exact wrong conclusion on a support page.
+        var channel = await SeedChannelAsync(db, "adminsyncsplit");
+        channel.LastSyncedAtUtc = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+        await SeedEmoteAsync(db, channel.Id, "Ancient", lastSyncedAt: new DateTime(2026, 5, 1, 9, 0, 0, DateTimeKind.Utc));
+
+        var service = new AdminChannelQueryService(db);
+        var row = Assert.Single(await service.ListAsync(), c => c.ChannelName == "adminsyncsplit");
+
+        Assert.Equal(new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc), row.LastSyncedAtUtc);
+        Assert.Equal(new DateTime(2026, 5, 1, 9, 0, 0, DateTimeKind.Utc), row.LastInventoryChangeUtc);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReturnsTheSameRowAsTheList_ForOneChannel()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        var channel = await SeedChannelAsync(db, "admindrilldown", twitchChannelId: "9001");
+        channel.ActiveEmoteSetId = "01HSET";
+        channel.ActiveEmoteSetCapacity = 600;
+        await db.SaveChangesAsync();
+        await SeedEmoteAsync(db, channel.Id, "One");
+        await SeedEmoteAsync(db, channel.Id, "Two", isArchived: true);
+        await SeedVoteSessionAsync(db, channel.Id, isActive: true);
+
+        var service = new AdminChannelQueryService(db);
+        var single = await service.GetAsync("AdminDrilldown");   // Regel 9: normalized on the way in
+
+        Assert.NotNull(single);
+        // Compared against the list row rather than re-asserted field by field: the drilldown
+        // disagreeing with the row the admin clicked is the failure worth pinning.
+        var fromList = Assert.Single(await service.ListAsync(), c => c.ChannelName == "admindrilldown");
+        Assert.Equal(fromList, single);
+
+        Assert.Equal("01HSET", single.ActiveEmoteSetId);
+        Assert.Equal(600, single.ActiveEmoteSetCapacity);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReturnsNull_ForAnUnknownChannel()
+    {
+        await using var db = fixture.CreateDbContext();
+        var service = new AdminChannelQueryService(db);
+
+        Assert.Null(await service.GetAsync("adminneverjoinedanything"));
+    }
+
+    [Fact]
+    public async Task GetAsync_ReportsAnEmptyActiveSetIdAsNull()
+    {
+        await using var db = fixture.CreateDbContext();
+        // The column defaults to "" for a channel that has never synced. An empty string travelling
+        // to the UI as an emote-set id would render as a set that exists and is nameless.
+        await SeedChannelAsync(db, "adminneversynced");
+
+        var service = new AdminChannelQueryService(db);
+        var row = await service.GetAsync("adminneversynced");
+
+        Assert.NotNull(row);
+        Assert.Null(row.ActiveEmoteSetId);
+    }
+
+    [Fact]
+    public async Task ListActiveChannelNamesAsync_ReturnsOnlyActiveChannels()
+    {
+        await using var db = fixture.CreateDbContext();
+        await SeedChannelAsync(db, "adminrosteractive", isBotActive: true);
+        await SeedChannelAsync(db, "adminrosterleft", isBotActive: false);
+
+        var service = new AdminChannelQueryService(db);
+        var names = await service.ListActiveChannelNamesAsync();
+
+        // A channel the bot has left is not "missing from the roster" — it is correctly absent, and
+        // including it here would make the roster card report a permanent deficit.
+        Assert.Contains("adminrosteractive", names);
+        Assert.DoesNotContain("adminrosterleft", names);
     }
 
     [Fact]

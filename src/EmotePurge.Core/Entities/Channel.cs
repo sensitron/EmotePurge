@@ -22,5 +22,13 @@ public class Channel
     // since". Null means the channel was never left and rejoined, so CreatedAt is the honest answer.
     public DateTime? TrackingResumedAt { get; set; }
 
+    // When a full 7TV REST sync last completed for this channel, whether or not it changed anything.
+    // The obvious-looking alternative — MAX(Emote.LastSyncedAt) — answers a different question:
+    // emote rows are only stamped when they actually change, so a channel syncing successfully every
+    // minute against a set nobody edits reads as "last synced three days ago". That is the exact
+    // reading a support case turns on, so the two are now separate columns rather than one number
+    // doing double duty. Null means no full sync has ever completed since this column existed.
+    public DateTime? LastSyncedAtUtc { get; set; }
+
     public ICollection<Emote> Emotes { get; set; } = new List<Emote>();
 }

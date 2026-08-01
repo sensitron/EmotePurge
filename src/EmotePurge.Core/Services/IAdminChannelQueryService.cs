@@ -8,9 +8,15 @@ namespace EmotePurge.Core.Services;
 /// could disagree with the database.
 /// </summary>
 /// <param name="LastSyncedAtUtc">
-/// Newest <c>Emote.LastSyncedAt</c> of the channel, i.e. when the 7TV sync last touched it. Null for
-/// a channel that has no emote rows at all (freshly joined, or never successfully synced) — which is
-/// a different statement than "synced long ago" and must stay distinguishable.
+/// When a full 7TV REST sync last completed for this channel, successful or not-a-single-change
+/// alike. Null when none has completed since the column exists. This is the number that answers
+/// "is the sync running at all".
+/// </param>
+/// <param name="LastInventoryChangeUtc">
+/// Newest <c>Emote.LastSyncedAt</c> of the channel: when the emote inventory last actually moved.
+/// Null for a channel with no emote rows at all. Deliberately not the same as
+/// <paramref name="LastSyncedAtUtc"/> — a healthy channel whose set nobody edits shows a fresh sync
+/// and an ancient inventory change, and reporting only the latter made that look like a stalled bot.
 /// </param>
 public record AdminChannelDto(
     string ChannelName,
@@ -21,7 +27,11 @@ public record AdminChannelDto(
     int ArchivedEmoteCount,
     int ActiveVoteSessionCount,
     int VoteSessionCount,
-    DateTime? LastSyncedAtUtc);
+    DateTime? LastSyncedAtUtc,
+    DateTime? LastInventoryChangeUtc,
+    string? ActiveEmoteSetId = null,
+    int? ActiveEmoteSetCapacity = null,
+    DateTime? TrackingResumedAt = null);
 
 /// <summary>
 /// Read model behind GET /api/admin/channels: every tracked channel with the aggregates an admin
@@ -31,4 +41,17 @@ public record AdminChannelDto(
 public interface IAdminChannelQueryService
 {
     Task<IReadOnlyList<AdminChannelDto>> ListAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One channel by name, for the support drilldown. <c>null</c> when it is not tracked at all —
+    /// the same row shape as the list, so the two views cannot report different numbers.
+    /// </summary>
+    Task<AdminChannelDto?> GetAsync(string channelName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Just the names of the channels the bot should currently be in — the "should" side of the
+    /// roster comparison. Separate from <see cref="ListAsync"/> because the roster is refetched on
+    /// every worker.roster event and has no use for three aggregate queries over emotes and votes.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListActiveChannelNamesAsync(CancellationToken cancellationToken = default);
 }

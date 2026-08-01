@@ -77,6 +77,13 @@ public class SevenTvSyncService(
         // the next resync. Deliberately outside the inventory-change bookkeeping below — a changed
         // capacity is not a changed emote and must not make every open page refetch.
         channel.ActiveEmoteSetCapacity = emoteSet.Capacity;
+        // Unconditional, and deliberately not part of the change bookkeeping below: "we successfully
+        // reached 7TV and reconciled" is true even when nothing moved, and that is precisely what
+        // makes it worth recording separately from the inventory timestamps. Written only here, never
+        // in the delta path — a dispatch is not a full reconciliation, and ApplyEmoteSetUpdateAsync
+        // decides NoChange vs Applied by asking the ChangeTracker, so a write there would turn every
+        // no-op dispatch into a live event.
+        channel.LastSyncedAtUtc = DateTime.UtcNow;
 
         var inventoryChanged = await ReconcileAsync(channel.Id, emoteSet.Emotes, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
