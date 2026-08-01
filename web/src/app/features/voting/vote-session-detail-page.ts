@@ -29,6 +29,7 @@ import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { StatusBadge } from '../../shared/ui/status-badge';
+import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
@@ -67,6 +68,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     EmptyState,
     NoticeBanner,
     StatusBadge,
+    VoteAudienceBadge,
     ScrollingModule,
     NgOptimizedImage,
     MassDeletePanel,

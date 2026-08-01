@@ -65,6 +65,9 @@ export interface VoteSessionResult {
 export interface VoteSessionResults {
   sessionId: number;
   title: string;
+  // Same "describes the session, not the viewer" reasoning as hideResultsUntilEnd below — reported
+  // to everyone so the detail header can badge whom this vote was addressed to.
+  allowedVoterRoles: number;
   isActive: boolean;
   startedAt: string;
   endedAt: string | null;

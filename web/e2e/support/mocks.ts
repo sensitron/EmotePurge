@@ -504,6 +504,7 @@ export async function mockVoteSessionResults(
     fulfillJson(route, 200, {
       sessionId: session.id,
       title: session.title,
+      allowedVoterRoles: session.allowedVoterRoles ?? 1,
       isActive: session.isActive ?? true,
       startedAt: session.startedAt ?? '2026-07-31T12:00:00Z',
       endedAt: session.endedAt ?? null,

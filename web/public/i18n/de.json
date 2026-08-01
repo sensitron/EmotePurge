@@ -344,6 +344,12 @@
       "emoteCountAll": "Ganzes Emote-Set",
       "emoteCountSome": "{{count}} Emotes"
     },
+    "audience": {
+      "everyone": "Alle Zuschauer",
+      "subs": "Nur Subs",
+      "mods": "Nur Mods/Streamer",
+      "restricted": "Eingeschränkt"
+    },
     "create": {
       "dialogTitle": "Abstimmung aus Auswahl erstellen",
       "selectedCount": "{{count}} Emotes ausgewählt",

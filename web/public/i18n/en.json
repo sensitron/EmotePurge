@@ -344,6 +344,12 @@
       "emoteCountAll": "Whole emote set",
       "emoteCountSome": "{{count}} emotes"
     },
+    "audience": {
+      "everyone": "All viewers",
+      "subs": "Subs only",
+      "mods": "Mods/streamer only",
+      "restricted": "Restricted"
+    },
     "create": {
       "dialogTitle": "Create a vote from the selection",
       "selectedCount": "{{count}} emotes selected",

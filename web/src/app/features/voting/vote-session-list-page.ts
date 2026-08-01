@@ -24,6 +24,7 @@ import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge } from '../../shared/ui/status-badge';
+import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
 
 function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
   return control.value?.trim().length > 0 ? null : { required: true };
@@ -65,6 +66,7 @@ const EMPTY_PAGE: PagedResult<VoteSessionSummary> = {
     Pager,
     SkeletonRows,
     StatusBadge,
+    VoteAudienceBadge,
     TranslocoPipe,
   ],
   templateUrl: './vote-session-list-page.html',

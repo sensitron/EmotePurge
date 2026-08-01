@@ -123,7 +123,9 @@
             >
               {{ session.title }}
             </a>
-            <div class="flex shrink-0 items-center gap-2">
+            <!-- Wraps: with the audience badge this row can carry four items, which no longer fits
+                 one line on a phone. -->
+            <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
               <!-- Ballot scope: an explicit count for curated sessions, "whole set" otherwise. -->
               <span class="text-xs text-slate-400">
                 {{
@@ -132,6 +134,9 @@
                     : ('voting.list.emoteCountSome' | transloco: { count: session.emoteCount })
                 }}
               </span>
+              <!-- Unconditional, unlike the two badges below: the audience is fixed at creation and
+                   invisible everywhere else, so an ended session must state it too. -->
+              <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
               <!-- Only while it runs: once ended, the session hides nothing anymore and the badge
                    would just repeat history. -->
               @if (session.hideResultsUntilEnd && session.isActive) {
