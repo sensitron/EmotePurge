@@ -37,6 +37,13 @@ public class TwitchChatManager(
     // Tracking intent instead of success is what makes a failed join retryable (see TryJoinAsync
     // and EnsureJoinedAsync).
     private readonly ConcurrentDictionary<string, bool> _desiredChannels = new(StringComparer.OrdinalIgnoreCase);
+
+    // Per channel what _lastMessageReceivedUtcTicks is for the connection as a whole. The global
+    // one answers "is the socket alive", this one answers "is *this* channel alive" — the question
+    // a support case actually asks, and one the global figure hides: a single busy channel keeps it
+    // fresh while thirty others sit silently unjoined. Same OrdinalIgnoreCase comparer as
+    // _desiredChannels above, or `HandOfBlood` and `handofblood` become two roster rows.
+    private readonly ConcurrentDictionary<string, long> _lastMessageByChannelTicks = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _joinGate = new(1, 1);
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
 
@@ -56,6 +63,24 @@ public class TwitchChatManager(
     public DateTime? LastMessageReceivedUtc => ReadTimestamp(ref _lastMessageReceivedUtcTicks);
 
     public DateTime? ConnectAttemptedUtc => ReadTimestamp(ref _connectAttemptedUtcTicks);
+
+    public IReadOnlyList<TwitchRosterEntry> GetRoster()
+    {
+        // Built from the desired set, not from the message dictionary: a channel we want and never
+        // got a single message from is exactly the row worth showing, and it exists only here.
+        var roster = new List<TwitchRosterEntry>(_desiredChannels.Count);
+        foreach (var (channelName, joinConfirmed) in _desiredChannels)
+        {
+            var ticks = _lastMessageByChannelTicks.TryGetValue(channelName, out var stored) ? stored : 0;
+            roster.Add(new TwitchRosterEntry(
+                channelName,
+                joinConfirmed,
+                ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc)));
+        }
+
+        roster.Sort(static (left, right) => string.CompareOrdinal(left.ChannelName, right.ChannelName));
+        return roster;
+    }
 
     public void Initialize()
     {
@@ -305,6 +330,9 @@ public class TwitchChatManager(
         // Drop the intent first, so nothing rejoins this channel afterwards even if the leave
         // itself fails or the client is currently disconnected.
         _desiredChannels.TryRemove(channelName, out _);
+        // A left channel's last message time would otherwise outlive it for the process lifetime and
+        // resurrect as a stale timestamp if the channel is ever rejoined.
+        _lastMessageByChannelTicks.TryRemove(channelName, out _);
 
         if (!_isConnected)
         {
@@ -437,7 +465,11 @@ public class TwitchChatManager(
     {
         // Aktualisiert für JEDE Nachricht, nicht nur gematchte — der Watchdog erkennt so
         // auch ein stilles Einfrieren der Verbindung auf Channels ohne Emote-Nutzung.
-        Interlocked.Exchange(ref _lastMessageReceivedUtcTicks, DateTime.UtcNow.Ticks);
+        var receivedAtTicks = DateTime.UtcNow.Ticks;
+        Interlocked.Exchange(ref _lastMessageReceivedUtcTicks, receivedAtTicks);
+        // Hot path: one indexer assignment, no LINQ and no allocation beyond the dictionary's own
+        // first insert per channel.
+        _lastMessageByChannelTicks[e.ChatMessage.Channel] = receivedAtTicks;
 
         logger.LogDebug("[{Channel}] {Username}: {Message}",
             e.ChatMessage.Channel, e.ChatMessage.Username, e.ChatMessage.Message);
