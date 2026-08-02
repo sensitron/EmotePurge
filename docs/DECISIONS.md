@@ -10,6 +10,18 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — `Emote.ArchivedAt` wird geschrieben, aber noch nicht ausgeliefert
+
+**Betrifft:** `src/EmotePurge.Core/Entities/Emote.cs` · `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs` (drei Stellen) · `src/EmotePurge.Infrastructure/Services/EmoteService.cs` · `src/EmotePurge.Infrastructure/Migrations/20260802195616_AddEmoteArchivedAt` · `tests/EmotePurge.Infrastructure.Tests/Integration/{SevenTvSyncServiceTests,EmoteServiceTests}.cs`
+
+**Der Datenteil von Idee A6.** „Was haben wir wann rausgeworfen" ist ohne Zeitstempel nicht beantwortbar, und die Spalte lässt sich rückwirkend nie befüllen — sie jetzt zu schreiben ist der ganze Wert, auch wenn v1 sie noch nirgends ausliefert. Der einzige Konsument wäre eine DB-gestützte Archiv-Liste, und die ist bewusst nicht Teil von v1 (siehe den Restore-Eintrag).
+
+**Vier Schreibstellen, ein Muster:** REST-Reconcile (`ReconcileAsync`), EventAPI-Pull (`ApplyEmoteSetUpdateAsync`), Frontend-Bookkeeping (`EmoteService.MarkDeletedAsync`) setzen `ArchivedAt = UtcNow` beim Archivieren; `UpsertEmote` nullt es beim Un-Archive. Zwei bewusste Feinheiten: `MarkDeletedAsync` stempelt nur **neu** archivierte Zeilen — eine vom Live-Sync bereits archivierte Zeile behält ihr früheres (genaueres) Datum, dieselbe Idempotenz-Logik wie „already-archived zählt als Erfolg". Und in `UpsertEmote` steht das Nullen **im** Änderungsblock, nicht in der Bedingung — sonst würde ein reines Backfill zur Inventaränderung und feuerte `channel.synced` für jede offene Seite (dieselbe Falle, die der `FirstSeenAt`-Eintrag dokumentiert; der bestehende Regressionstest deckt das mit ab).
+
+**Kein Backfill, kein Index.** `null` auf einer archivierten Zeile heißt „archiviert, Datum unbekannt" — `LastSyncedAt` wäre kein ehrlicher Ersatz, weil der REST-Reconcile-Pfad es beim Archivieren nie gestempelt hat. Kein Index, weil v1 nicht auf der Spalte filtert. Additiv → in Prod von Hand **vor** dem Image-Deploy nachziehen (Tunnel, `migrations list` → `update` → `list`).
+
+---
+
 ### 2026-08-02 — Der Emote-Drilldown bekommt einen eigenen, auf ein Emote gefilterten Endpoint
 
 **Betrifft:** `src/EmotePurge.Api/Endpoints/UsageStatsEndpoints.cs` · `src/EmotePurge.Core/Services/IUsageStatQueryService.cs` · `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` · `tests/EmotePurge.Infrastructure.Tests/Integration/UsageStatQueryServiceTests.cs` · `web/src/app/core/usage-stats/usage-stat.{model,service}.ts` · `web/src/app/shared/emotes/usage-series.ts` · `web/src/app/shared/emotes/usage-sparkline.ts` · `web/src/app/shared/emotes/emote-drilldown-dialog.ts` · beide Feature-Seiten

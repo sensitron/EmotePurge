@@ -14,6 +14,12 @@ public class Emote
     public string ImageUrl { get; set; } = string.Empty;
     public bool IsArchived { get; set; }
 
+    // When the emote was (last) archived — written at every archiving site, cleared on un-archive.
+    // Null on an archived row means "archived before this column existed, date unknown": there is
+    // deliberately no backfill (LastSyncedAt is not a reliable proxy — the REST reconcile path
+    // never stamped it), same "null = unknown, never guessed" convention as FirstSeenAt.
+    public DateTime? ArchivedAt { get; set; }
+
     // When the emote entered the channel's 7TV set, taken from the set entry's own timestamp rather
     // than from when we first saw it — so it is correct for emotes that predate this column too.
     // Null means 7TV did not report one; consumers must read that as "unknown", never as "new".

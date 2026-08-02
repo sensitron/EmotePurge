@@ -30,6 +30,9 @@ public class EmoteService(AppDbContext db) : IEmoteService
         foreach (var emote in newlyArchived)
         {
             emote.IsArchived = true;
+            // Only for the newly archived: a row the live sync already archived keeps the earlier
+            // (more accurate) date — this call is bookkeeping that may arrive minutes later.
+            emote.ArchivedAt = now;
             emote.LastSyncedAt = now;
         }
 

@@ -56,6 +56,50 @@ public class EmoteServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task MarkDeletedAsync_StampsArchivedAt_ForNewlyArchivedEmotes()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = new Channel { ChannelName = "syncdeletetest_d", TwitchChannelId = "4005", ActiveEmoteSetId = "set-d" };
+        var emote = new Emote { ChannelId = channel.Id, Channel = channel, Name = "Stamp", SevenTvEmoteId = "7tv-d1", ImageUrl = "https://cdn/d1" };
+        db.Channels.Add(channel);
+        db.Emotes.Add(emote);
+        await db.SaveChangesAsync();
+
+        var before = DateTime.UtcNow;
+        var service = new EmoteService(db);
+        await service.MarkDeletedAsync("syncdeletetest_d", [emote.Id], Actor);
+
+        var archivedAt = await db.Emotes.Where(e => e.Id == emote.Id).Select(e => e.ArchivedAt).SingleAsync();
+        Assert.NotNull(archivedAt);
+        Assert.True(archivedAt >= before);
+    }
+
+    [Fact]
+    public async Task MarkDeletedAsync_LeavesTheArchiveDateOfAnAlreadyArchivedEmoteAlone()
+    {
+        // The live sync usually archives first (with the accurate timestamp); this later
+        // bookkeeping call counts the row as archived but must not overwrite the earlier date.
+        await using var db = fixture.CreateDbContext();
+        var earlier = DateTime.UtcNow.AddMinutes(-10);
+        var channel = new Channel { ChannelName = "syncdeletetest_e", TwitchChannelId = "4006", ActiveEmoteSetId = "set-e" };
+        var emote = new Emote
+        {
+            ChannelId = channel.Id, Channel = channel, Name = "Kept", SevenTvEmoteId = "7tv-e1",
+            ImageUrl = "https://cdn/e1", IsArchived = true, ArchivedAt = earlier
+        };
+        db.Channels.Add(channel);
+        db.Emotes.Add(emote);
+        await db.SaveChangesAsync();
+
+        var service = new EmoteService(db);
+        await service.MarkDeletedAsync("syncdeletetest_e", [emote.Id], Actor);
+
+        var archivedAt = await db.Emotes.Where(e => e.Id == emote.Id).Select(e => e.ArchivedAt).SingleAsync();
+        Assert.NotNull(archivedAt);
+        Assert.Equal(earlier, archivedAt.Value, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
     public async Task MarkDeletedAsync_ReportsUnknownAndForeignIdsAsNotFound()
     {
         await using var db = fixture.CreateDbContext();

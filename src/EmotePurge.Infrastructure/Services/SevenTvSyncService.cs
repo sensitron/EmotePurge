@@ -167,6 +167,7 @@ public class SevenTvSyncService(
             if (existing.TryGetValue(pulledId, out var emote) && !emote.IsArchived)
             {
                 emote.IsArchived = true;
+                emote.ArchivedAt = DateTime.UtcNow;
                 emote.LastSyncedAt = DateTime.UtcNow;
             }
         }
@@ -241,6 +242,7 @@ public class SevenTvSyncService(
                 }
 
                 emote.IsArchived = true;
+                emote.ArchivedAt = DateTime.UtcNow;
                 changed = true;
             }
         }
@@ -286,6 +288,10 @@ public class SevenTvSyncService(
                 emote.Name = live.Name;
                 emote.ImageUrl = imageUrl;
                 emote.IsArchived = false;
+                // Inside the change block, not part of the condition: clearing an archive date is
+                // only meaningful on a real un-archive, and putting it into the condition would turn
+                // no-op rows into inventory changes that fire channel.synced for every open page.
+                emote.ArchivedAt = null;
                 emote.LastSyncedAt = DateTime.UtcNow;
                 return true;
             }

@@ -549,6 +549,62 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SyncChannel_ArchivingViaRestReconcile_StampsArchivedAt()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_archivedat_rest", ("e1", "stays", false), ("e2", "goes", false));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "stays"));
+
+        var before = DateTime.UtcNow;
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        var archivedAt = await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2")
+            .Select(e => e.ArchivedAt).SingleAsync();
+        Assert.NotNull(archivedAt);
+        Assert.True(archivedAt >= before);
+    }
+
+    [Fact]
+    public async Task ApplyEmoteSetUpdate_Pulled_StampsArchivedAt()
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_archivedat_pull", ("e1", "keepme", false), ("e2", "removeme", false));
+        var service = CreateService(db, cache);
+
+        var before = DateTime.UtcNow;
+        await service.ApplyEmoteSetUpdateAsync(channel.ChannelName, SetId, Delta(pulledIds: ["e2"]));
+
+        var archivedAt = await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2")
+            .Select(e => e.ArchivedAt).SingleAsync();
+        Assert.NotNull(archivedAt);
+        Assert.True(archivedAt >= before);
+    }
+
+    [Fact]
+    public async Task ApplyEmoteSetUpdate_UnarchivingPush_ClearsArchivedAt()
+    {
+        // The restore path (A6) relies on exactly this: a re-added emote heals to "not archived,
+        // no archive date" through the ordinary sync, no dedicated endpoint involved.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_archivedat_clear", ("e1", "phoenix", true));
+        await db.Emotes.Where(e => e.ChannelId == channel.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.ArchivedAt, DateTime.UtcNow.AddDays(-1)));
+        var service = CreateService(db, cache);
+
+        await service.ApplyEmoteSetUpdateAsync(
+            channel.ChannelName, SetId, Delta(pushed: [new SevenTvEmote("e1", "phoenix", SeededImageUrl("e1"))]));
+
+        var row = await db.Emotes.SingleAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1");
+        Assert.False(row.IsArchived);
+        Assert.Null(row.ArchivedAt);
+    }
+
+    [Fact]
     public async Task SyncChannel_ImplausibleEmptyLiveSet_DoesNotWriteCapacity()
     {
         // The empty-set guard returns before the set id is assigned, and the capacity has to share
