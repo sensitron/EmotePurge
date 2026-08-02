@@ -226,7 +226,10 @@
                 ⓘ
               </button>
             }
-            <app-emote-card-header [name]="emote.emoteName" [class]="hasUsageData() ? 'pr-6' : ''" />
+            <app-emote-card-header
+              [name]="emote.emoteName"
+              [class]="hasUsageData() ? 'pr-6' : ''"
+            />
             <!-- The archived badge overlays the image block (relative/absolute) instead of adding a
                  line — the h-44 card contract that ROW_HEIGHT_PX budgets for stays untouched.
                  bg-emote-canvas is the plate an emote is drawn on — its own role, not surface-inset,

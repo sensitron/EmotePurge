@@ -84,8 +84,13 @@ public class EmoteServiceTests(PostgresFixture fixture)
         var channel = new Channel { ChannelName = "syncdeletetest_e", TwitchChannelId = "4006", ActiveEmoteSetId = "set-e" };
         var emote = new Emote
         {
-            ChannelId = channel.Id, Channel = channel, Name = "Kept", SevenTvEmoteId = "7tv-e1",
-            ImageUrl = "https://cdn/e1", IsArchived = true, ArchivedAt = earlier
+            ChannelId = channel.Id,
+            Channel = channel,
+            Name = "Kept",
+            SevenTvEmoteId = "7tv-e1",
+            ImageUrl = "https://cdn/e1",
+            IsArchived = true,
+            ArchivedAt = earlier
         };
         db.Channels.Add(channel);
         db.Emotes.Add(emote);

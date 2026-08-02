@@ -47,7 +47,10 @@ function results(
   };
 }
 
-function input(rows: VoteSessionResult[], overrides: Partial<VotingExportInput> = {}): VotingExportInput {
+function input(
+  rows: VoteSessionResult[],
+  overrides: Partial<VotingExportInput> = {},
+): VotingExportInput {
   return { channelName: 'sensitron', results: results(rows), rows, ...overrides };
 }
 

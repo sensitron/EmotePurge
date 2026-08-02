@@ -122,7 +122,9 @@ export interface EmoteDrilldownData {
                           : 'text-fg-muted')
                     "
                     [title]="'usageStats.trend.' + trendValue | transloco"
-                    >{{ trendValue === 'rising' ? '↗' : trendValue === 'falling' ? '↘' : '→' }}</span
+                    >{{
+                      trendValue === 'rising' ? '↗' : trendValue === 'falling' ? '↘' : '→'
+                    }}</span
                   >
                 }
               }

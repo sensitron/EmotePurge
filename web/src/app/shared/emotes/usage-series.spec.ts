@@ -21,9 +21,9 @@ describe('fillDailySeries', () => {
   });
 
   it('handles a single-day range', () => {
-    expect(fillDailySeries([{ date: '2026-07-01', useCount: 2 }], '2026-07-01', '2026-07-01')).toEqual([
-      { date: '2026-07-01', useCount: 2 },
-    ]);
+    expect(
+      fillDailySeries([{ date: '2026-07-01', useCount: 2 }], '2026-07-01', '2026-07-01'),
+    ).toEqual([{ date: '2026-07-01', useCount: 2 }]);
   });
 
   it('ignores days outside the range', () => {

@@ -62,9 +62,7 @@ describe('UsageStatService', () => {
 
   it('serves a second identical getDailySeries call from the cache', () => {
     service.getDailySeries('sensitron', 'e1', '2026-07-01', '2026-07-28').subscribe();
-    httpMock
-      .expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily')
-      .flush(SERIES);
+    httpMock.expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily').flush(SERIES);
 
     let replayed: EmoteUsageSeries | undefined;
     service
@@ -77,15 +75,11 @@ describe('UsageStatService', () => {
 
   it('clearSeriesCache forces a fresh request', () => {
     service.getDailySeries('sensitron', 'e1', '2026-07-01', '2026-07-28').subscribe();
-    httpMock
-      .expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily')
-      .flush(SERIES);
+    httpMock.expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily').flush(SERIES);
 
     service.clearSeriesCache();
     service.getDailySeries('sensitron', 'e1', '2026-07-01', '2026-07-28').subscribe();
-    httpMock
-      .expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily')
-      .flush(SERIES);
+    httpMock.expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily').flush(SERIES);
   });
 
   it('does not cache a failed request', () => {
@@ -97,8 +91,6 @@ describe('UsageStatService', () => {
       .flush({ errorCode: 'unexpected_error' }, { status: 500, statusText: 'Server Error' });
 
     service.getDailySeries('sensitron', 'e1', '2026-07-01', '2026-07-28').subscribe();
-    httpMock
-      .expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily')
-      .flush(SERIES);
+    httpMock.expectOne((r) => r.url === '/api/channels/sensitron/usage-stats/daily').flush(SERIES);
   });
 });
