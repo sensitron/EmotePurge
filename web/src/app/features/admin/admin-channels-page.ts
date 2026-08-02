@@ -128,7 +128,7 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
                 >
                   #{{ channel.channelName }}
                 </a>
-                <app-status-badge [tone]="channel.isBotActive ? 'emerald' : 'slate'">
+                <app-status-badge [tone]="channel.isBotActive ? 'success' : 'neutral'">
                   {{
                     (channel.isBotActive ? 'admin.channels.active' : 'admin.channels.inactive')
                       | transloco

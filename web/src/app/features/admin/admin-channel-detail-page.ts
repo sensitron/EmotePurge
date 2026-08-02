@@ -20,12 +20,12 @@ import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
 const NO_VALUE = '—';
 
 const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
-  healthy: 'emerald',
-  degraded: 'amber',
-  absent: 'red',
-  starting: 'slate',
-  unavailable: 'red',
-  unknown: 'slate',
+  healthy: 'success',
+  degraded: 'warning',
+  absent: 'danger',
+  starting: 'neutral',
+  unavailable: 'danger',
+  unknown: 'neutral',
 };
 
 /**
@@ -78,7 +78,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
             <h3 class="text-base font-semibold">
               {{ 'admin.channelDetail.database.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="data.channel.isBotActive ? 'emerald' : 'slate'">
+            <app-status-badge [tone]="data.channel.isBotActive ? 'success' : 'neutral'">
               {{
                 (data.channel.isBotActive ? 'admin.channels.active' : 'admin.channels.inactive')
                   | transloco
@@ -184,7 +184,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                   {{ 'admin.channelDetail.worker.ircJoin' | transloco }}
                 </dt>
                 <dd>
-                  <app-status-badge [tone]="row.ircJoinConfirmed ? 'emerald' : 'amber'">
+                  <app-status-badge [tone]="row.ircJoinConfirmed ? 'success' : 'warning'">
                     {{
                       (row.ircJoinConfirmed
                         ? 'admin.channelDetail.worker.confirmed'
@@ -207,7 +207,9 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                   {{ 'admin.channelDetail.worker.emoteSetSubscription' | transloco }}
                 </dt>
                 <dd>
-                  <app-status-badge [tone]="row.sevenTvEmoteSetAcknowledged ? 'emerald' : 'amber'">
+                  <app-status-badge
+                    [tone]="row.sevenTvEmoteSetAcknowledged ? 'success' : 'warning'"
+                  >
                     {{
                       (row.sevenTvEmoteSetAcknowledged
                         ? 'admin.channelDetail.worker.acknowledged'
@@ -229,7 +231,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                       {{ 'admin.channelDetail.worker.noUserSubscription' | transloco }}
                     </span>
                   } @else {
-                    <app-status-badge [tone]="row.sevenTvUserAcknowledged ? 'emerald' : 'amber'">
+                    <app-status-badge [tone]="row.sevenTvUserAcknowledged ? 'success' : 'warning'">
                       {{
                         (row.sevenTvUserAcknowledged
                           ? 'admin.channelDetail.worker.acknowledged'

@@ -140,11 +140,11 @@
               <!-- Only while it runs: once ended, the session hides nothing anymore and the badge
                    would just repeat history. -->
               @if (session.hideResultsUntilEnd && session.isActive) {
-                <app-status-badge tone="blue">
+                <app-status-badge tone="info">
                   {{ 'voting.list.hiddenBadge' | transloco }}
                 </app-status-badge>
               }
-              <app-status-badge [tone]="session.isActive ? 'emerald' : 'slate'">
+              <app-status-badge [tone]="session.isActive ? 'success' : 'neutral'">
                 {{
                   (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
                     | transloco

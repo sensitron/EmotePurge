@@ -76,7 +76,7 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
                     <span class="font-normal text-fg-muted">({{ row.twitchUsername }})</span>
                   }
                 </span>
-                <app-status-badge [tone]="row.hasRefreshToken ? 'emerald' : 'slate'">
+                <app-status-badge [tone]="row.hasRefreshToken ? 'success' : 'neutral'">
                   {{
                     (row.hasRefreshToken ? 'admin.users.token.connected' : 'admin.users.token.none')
                       | transloco

@@ -202,10 +202,10 @@
             <app-emote-card-header [name]="emote.emoteName" />
             <!-- The archived badge overlays the image block (relative/absolute) instead of adding a
                  line — the h-44 card contract that ROW_HEIGHT_PX budgets for stays untouched.
-                 bg-emote-canvas keeps this block dark in BOTH modes (design doc §2.0): 7TV emotes
-                 are drawn for dark chat backgrounds and a good share of them is invisible on a
-                 white card. Deliberate canvas, not an oversight — and it is what lets the selection
-                 wash move onto the card instead of fighting the artwork for the same pixels. -->
+                 bg-emote-canvas is the plate an emote is drawn on — its own role, not surface-inset,
+                 because 7TV artwork is authored for dark chat. It follows the theme; the reasoning
+                 is at the token in web/src/styles.css. Keeping it separate from the selection wash
+                 is what lets that wash sit on the card instead of under the artwork. -->
             <div
               class="relative flex h-10 shrink-0 items-center justify-center rounded bg-emote-canvas"
             >
@@ -219,7 +219,7 @@
               />
               @if (emote.isArchived) {
                 <div class="absolute inset-0 flex items-center justify-center">
-                  <app-status-badge tone="amber">{{
+                  <app-status-badge tone="warning">{{
                     'voting.detail.archivedBadge' | transloco
                   }}</app-status-badge>
                 </div>

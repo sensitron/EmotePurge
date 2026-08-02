@@ -10,9 +10,9 @@ import { SlotBudgetTone, slotBudget } from './slot-budget';
  * numbers above the bar are text as well, so none of this is the sole carrier of the message.
  */
 const TONE_CLASSES: Record<SlotBudgetTone, string> = {
-  emerald: 'bg-success-dot',
-  amber: 'bg-warning-dot',
-  red: 'bg-danger-dot',
+  success: 'bg-success-dot',
+  warning: 'bg-warning-dot',
+  danger: 'bg-danger-dot',
 };
 
 /**
@@ -78,7 +78,7 @@ export class SlotBudgetBar {
   );
 
   protected readonly fillClass = computed(() => {
-    const tone = this.budget()?.tone ?? 'emerald';
+    const tone = this.budget()?.tone ?? 'success';
     return `h-full ${TONE_CLASSES[tone]}`;
   });
 }

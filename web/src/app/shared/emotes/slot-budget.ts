@@ -1,5 +1,9 @@
-/** Colour tiers of the slot-budget bar. Purely derived from how full the set is. */
-export type SlotBudgetTone = 'emerald' | 'amber' | 'red';
+/**
+ * Severity tiers of the slot-budget bar, purely derived from how full the set is. Named after the
+ * meaning rather than the hue for the same reason `StatusBadgeTone` is: the value behind each tier
+ * differs per theme, so a tier called `red` would be promising something it cannot keep.
+ */
+export type SlotBudgetTone = 'success' | 'warning' | 'danger';
 
 /** Above this share of the capacity the bar warns, above the second one it alarms. */
 const WARN_AT_PERCENT = 80;
@@ -56,7 +60,7 @@ export function slotBudget(
 
 function toneFor(percent: number): SlotBudgetTone {
   if (percent >= CRITICAL_AT_PERCENT) {
-    return 'red';
+    return 'danger';
   }
-  return percent >= WARN_AT_PERCENT ? 'amber' : 'emerald';
+  return percent >= WARN_AT_PERCENT ? 'warning' : 'success';
 }

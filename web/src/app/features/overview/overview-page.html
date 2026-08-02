@@ -56,24 +56,24 @@
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
                 @if (channel.isBroadcaster) {
-                  <app-status-badge tone="purple">{{
+                  <app-status-badge tone="accent">{{
                     'overview.roleBadges.broadcaster' | transloco
                   }}</app-status-badge>
                 }
                 @if (channel.isModerator) {
-                  <app-status-badge tone="blue">{{
+                  <app-status-badge tone="info">{{
                     'overview.roleBadges.moderator' | transloco
                   }}</app-status-badge>
                 }
                 @if (channel.isSevenTvEditor) {
-                  <app-status-badge tone="emerald">{{
+                  <app-status-badge tone="success">{{
                     'overview.roleBadges.sevenTvEditor' | transloco
                   }}</app-status-badge>
                 }
               </div>
               <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
                 @if (channel.isTracked) {
-                  <app-status-badge [tone]="channel.isBotActive ? 'emerald' : 'slate'">
+                  <app-status-badge [tone]="channel.isBotActive ? 'success' : 'neutral'">
                     {{
                       (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive')
                         | transloco

@@ -31,7 +31,7 @@ describe('slotBudget', () => {
 
     expect(budget!.occupied).toBe(600);
     expect(budget!.occupiedPercent).toBe(100);
-    expect(budget!.tone).toBe('red');
+    expect(budget!.tone).toBe('danger');
   });
 
   it('clamps a pending removal larger than the occupancy', () => {
@@ -56,10 +56,10 @@ describe('slotBudget', () => {
   });
 
   it('grades the tone at the 80 and 95 percent boundaries', () => {
-    expect(slotBudget(1000, 799, 0)!.tone).toBe('emerald');
-    expect(slotBudget(1000, 800, 0)!.tone).toBe('amber');
-    expect(slotBudget(1000, 949, 0)!.tone).toBe('amber');
-    expect(slotBudget(1000, 950, 0)!.tone).toBe('red');
+    expect(slotBudget(1000, 799, 0)!.tone).toBe('success');
+    expect(slotBudget(1000, 800, 0)!.tone).toBe('warning');
+    expect(slotBudget(1000, 949, 0)!.tone).toBe('warning');
+    expect(slotBudget(1000, 950, 0)!.tone).toBe('danger');
   });
 
   it('grades the tone on the current occupancy, not on the projection', () => {
@@ -67,7 +67,7 @@ describe('slotBudget', () => {
     // delete has actually run.
     const budget = slotBudget(1000, 990, 900);
 
-    expect(budget!.tone).toBe('red');
+    expect(budget!.tone).toBe('danger');
     expect(budget!.projected).toBe(90);
   });
 });

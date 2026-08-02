@@ -15,12 +15,12 @@ import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
 const STALE_AFTER_SECONDS = 180;
 
 const STATUS_TONES: Record<string, StatusBadgeTone> = {
-  complete: 'emerald',
-  incomplete: 'amber',
-  starting: 'slate',
-  stale: 'amber',
-  unavailable: 'red',
-  unknown: 'slate',
+  complete: 'success',
+  incomplete: 'warning',
+  starting: 'neutral',
+  stale: 'warning',
+  unavailable: 'danger',
+  unknown: 'neutral',
 };
 
 /**

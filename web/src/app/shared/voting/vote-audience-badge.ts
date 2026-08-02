@@ -11,8 +11,8 @@ import { StatusBadge, StatusBadgeTone } from '../ui/status-badge';
  * ever visible was the create form.
  *
  * Tone follows the badge table in the design doc as far as it reaches: an open vote is the
- * unremarkable case and stays `slate` (neutral), a restricted one gets `blue` — the same "notable
- * property of this session" reading the "Verdeckt" badge next to it already uses.
+ * unremarkable case and stays `neutral`, a restricted one gets `info` — the same "notable property
+ * of this session" reading the "Verdeckt" badge next to it already uses.
  */
 @Component({
   selector: 'app-vote-audience-badge',
@@ -26,6 +26,6 @@ export class VoteAudienceBadge {
 
   protected readonly audience = computed(() => voteAudience(this.roles()));
   protected readonly tone = computed<StatusBadgeTone>(() =>
-    this.audience() === 'everyone' ? 'slate' : 'blue',
+    this.audience() === 'everyone' ? 'neutral' : 'info',
   );
 }

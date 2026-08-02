@@ -74,7 +74,10 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
                 >
                   {{ session.title }}
                 </a>
-                <app-status-badge class="shrink-0" [tone]="session.isActive ? 'emerald' : 'slate'">
+                <app-status-badge
+                  class="shrink-0"
+                  [tone]="session.isActive ? 'success' : 'neutral'"
+                >
                   {{
                     (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
                       | transloco

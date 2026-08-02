@@ -18,18 +18,18 @@ import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
 import { AdminRosterCard } from './admin-roster-card';
 
 const STATUS_TONES: Record<SevenTvConnectionStatus, StatusBadgeTone> = {
-  connected: 'emerald',
-  stale: 'amber',
-  disconnected: 'red',
-  unknown: 'slate',
-  disabled: 'slate',
+  connected: 'success',
+  stale: 'warning',
+  disconnected: 'danger',
+  unknown: 'neutral',
+  disabled: 'neutral',
 };
 
 const LIVE_TONES: Record<LiveStatus, StatusBadgeTone> = {
-  idle: 'slate',
-  connecting: 'amber',
-  open: 'emerald',
-  closed: 'red',
+  idle: 'neutral',
+  connecting: 'warning',
+  open: 'success',
+  closed: 'danger',
 };
 
 /** Shown when a value is absent — an older worker's snapshot simply lacks the newer detail fields. */
@@ -172,7 +172,7 @@ const NO_VALUE = '—';
               </dt>
               <dd class="text-fg-body">
                 @if (hasUnacknowledged()) {
-                  <app-status-badge tone="amber">
+                  <app-status-badge tone="warning">
                     {{ formatNumber(data.sevenTv.unacknowledgedCount) }}
                   </app-status-badge>
                 } @else {
@@ -213,7 +213,7 @@ const NO_VALUE = '—';
             <h3 class="text-base font-semibold">
               {{ 'admin.monitoring.flush.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="hasFlushFailures() ? 'red' : 'emerald'">
+            <app-status-badge [tone]="hasFlushFailures() ? 'danger' : 'success'">
               {{ 'admin.monitoring.flush.consecutiveFailures' | transloco }}:
               {{ formatNumber(data.flush.consecutiveFailures) }}
             </app-status-badge>
@@ -333,7 +333,7 @@ export class AdminMonitoringPage {
   }
 
   protected toneFor(status: SevenTvConnectionStatus | WorkerConnectionStatus): StatusBadgeTone {
-    return STATUS_TONES[status] ?? 'slate';
+    return STATUS_TONES[status] ?? 'neutral';
   }
 
   // LOCALE_ID is bootstrap-time static and can't follow a runtime language switch, so dates and
