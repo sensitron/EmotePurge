@@ -117,7 +117,8 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 ### 5.1 Inputs
 
 - **Was gilt:** `.app-input` ist der einzige Input-Stil, `.app-input-sm` die kompakte Variante für Filter-Toolbars. Beide bringen expliziten `color` mit (nötig im CDK-Overlay außerhalb der Shell-DOM).
-- **Referenz:** `web/src/styles.css`.
+- **Der Rand ist Vertrag, nicht Optik:** Er trägt `slate-500` und muss gegen die Fläche darunter **mindestens 3:1** erreichen (WCAG 1.4.11 — ein Eingabefeld wird durch seinen Rand überhaupt erst als Bedienelement erkennbar). Der frühere `slate-700` kam auf 1,7:1. Wer einen input-artigen Trigger von Hand nachbaut statt `.app-input` zu benutzen (der DateTime-Trigger tut das), schuldet denselben Wert — und einen Hover, der **heller** wird, nicht dunkler.
+- **Referenz:** `web/src/styles.css`, `web/src/app/shared/datetime/datetime-picker.ts` (nachgebauter Trigger).
 
 ### 5.2 Label-Pflicht
 
@@ -277,6 +278,7 @@ Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.*
 - [ ] **Disabled erklärt sich:** Grund als sichtbarer Text neben dem Button (TypedConfirm-Hint-Muster), nicht nur Ausgrauung.
 - [ ] **Dekoratives versteckt:** Emoji-Icons und Skeleton-Schimmer `aria-hidden="true"`.
 - [ ] **Accessible Names kurz:** Stretched-Link-Karten lassen den Screenreader nur den kurzen Titel hören (2.3), keine ganze Karte als Linktext.
+- [ ] **Kontrast:** Text 4,5:1, Ränder/Fokusringe/bedeutungstragende Grafiken 3:1 — **gerechnet, nicht geschätzt**. Die schwächste zulässige Textstufe auf Karten- und Seitenfläche ist `slate-400` (7,0:1); `slate-500` erreicht nur 3,7:1 und ist deshalb keine Textfarbe mehr. Input-Ränder: `slate-500`, s. 5.1.
 - [ ] **Kontrast/nativ:** `color-scheme: dark` bleibt auf `body`; Farbpaare der Primitives (Badge-Tones, Banner-Varianten) nicht ad hoc neu mischen.
 
 ## 11. Checkliste „Neue UI bauen"

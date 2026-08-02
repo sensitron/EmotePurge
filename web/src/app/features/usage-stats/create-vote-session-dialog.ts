@@ -106,7 +106,7 @@ export interface CreateVoteSessionDialogData {
       <label class="flex flex-col gap-1 text-sm text-slate-300">
         {{ 'voting.list.startCountingLabel' | transloco }}
         <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
-        <span class="text-xs text-slate-500">
+        <span class="text-xs text-slate-400">
           {{ 'voting.create.startPrefillHint' | transloco }}
         </span>
       </label>
@@ -121,7 +121,7 @@ export interface CreateVoteSessionDialogData {
           />
           {{ 'voting.list.hideResultsLabel' | transloco }}
         </label>
-        <span id="create-vote-session-hide-results-hint" class="text-xs text-slate-500">
+        <span id="create-vote-session-hide-results-hint" class="text-xs text-slate-400">
           {{ 'voting.list.hideResultsHint' | transloco }}
         </span>
       </div>

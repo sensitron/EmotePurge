@@ -114,7 +114,7 @@
   </div>
 
   @if (trackedSince(); as since) {
-    <p class="text-xs text-slate-500">
+    <p class="text-xs text-slate-400">
       {{ 'usageStats.trackedSince' | transloco: { date: formatDate(since) } }}
     </p>
     @if (rangeStartsBeforeTracking()) {
@@ -255,7 +255,7 @@
                         ? 'text-emerald-400'
                         : trend === 'falling'
                           ? 'text-amber-400'
-                          : 'text-slate-500')
+                          : 'text-slate-400')
                     "
                     [title]="'usageStats.trend.' + trend | transloco"
                     >{{ trend === 'rising' ? '↗' : trend === 'falling' ? '↘' : '→' }}</span

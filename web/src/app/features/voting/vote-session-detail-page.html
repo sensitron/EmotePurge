@@ -18,7 +18,7 @@
                vote here at all, and unlike the usage window it is not manager-only context. -->
           <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
         </div>
-        <p class="text-sm text-slate-500">
+        <p class="text-sm text-slate-400">
           {{
             (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco
           }}
@@ -237,7 +237,7 @@
                   >{{ 'voting.detail.scoreLabel' | transloco }} {{ formatScore(emote.score) }}</span
                 >
               } @else {
-                <span class="truncate text-xs text-slate-500 italic">{{
+                <span class="truncate text-xs text-slate-400 italic">{{
                   'voting.detail.resultsHiddenShort' | transloco
                 }}</span>
               }

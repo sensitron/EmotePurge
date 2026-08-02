@@ -119,10 +119,10 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
                 [style.width.%]="budgetPercent()"
               ></div>
             </div>
-            <p class="text-xs text-slate-500">
+            <p class="text-xs text-slate-400">
               {{ 'admin.roster.joinBudgetHint' | transloco }}
             </p>
-            <p class="text-xs text-slate-500">
+            <p class="text-xs text-slate-400">
               {{
                 'admin.roster.twitchLimitHint'
                   | transloco: { limit: data.ceilings.twitchConcurrentChannelLimit }

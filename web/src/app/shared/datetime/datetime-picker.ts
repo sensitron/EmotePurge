@@ -78,7 +78,7 @@ const WEEKDAY_LABEL_KEYS = [
     <div class="relative inline-block">
       <button
         type="button"
-        class="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-left text-sm text-slate-100 hover:border-slate-600"
+        class="rounded-md border border-slate-500 bg-slate-950 px-3 py-2 text-left text-sm text-slate-100 hover:border-slate-400"
         (click)="togglePanel()"
       >
         {{ displayValue() }}
@@ -108,7 +108,7 @@ const WEEKDAY_LABEL_KEYS = [
             </button>
           </div>
 
-          <div class="grid grid-cols-7 gap-1 text-center text-xs text-slate-500">
+          <div class="grid grid-cols-7 gap-1 text-center text-xs text-slate-400">
             @for (labelKey of weekdayLabelKeys; track labelKey) {
               <span>{{ labelKey | transloco }}</span>
             }
@@ -131,7 +131,7 @@ const WEEKDAY_LABEL_KEYS = [
             type="time"
             [value]="timeValue()"
             (change)="setTime($any($event.target).value)"
-            class="mt-3 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm"
+            class="mt-3 w-full rounded-md border border-slate-500 bg-slate-950 px-2 py-1.5 text-sm"
           />
 
           <div class="mt-3 flex items-center justify-between text-sm">

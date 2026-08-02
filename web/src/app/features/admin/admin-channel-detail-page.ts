@@ -260,7 +260,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
             }
           }
 
-          <p class="text-xs text-slate-500">
+          <p class="text-xs text-slate-400">
             {{
               'admin.channelDetail.worker.snapshotAge'
                 | transloco: { seconds: data.roster.ageSeconds ?? 0 }

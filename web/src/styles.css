@@ -35,10 +35,14 @@
   }
 
   /* The app's single text/number/date input look — the utility chain used to be copy-pasted per
-     template. `-sm` is the compact variant for filter toolbars. */
+     template. `-sm` is the compact variant for filter toolbars.
+
+     The border is slate-500, not the slate-700 it used to be: WCAG 1.4.11 wants 3:1 for the visual
+     boundary that makes a control recognisable as one, and slate-700 on the card surface reached
+     1,7:1. slate-500 gets 3,7:1 on the card and 3,6:1 on the field's own fill. */
   .app-input {
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-slate-700);
+    border: 1px solid var(--color-slate-500);
     background-color: var(--color-slate-950);
     color: var(--color-slate-100);
     padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
@@ -48,7 +52,7 @@
 
   .app-input-sm {
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-slate-700);
+    border: 1px solid var(--color-slate-500);
     background-color: var(--color-slate-950);
     color: var(--color-slate-100);
     padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2);

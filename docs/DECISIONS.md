@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Der dunkle Modus verfehlte an zwei Stellen AA, bevor der helle überhaupt anfängt
+
+**Betrifft:** `web/src/styles.css` (`.app-input`, `.app-input-sm`) · `web/src/app/shared/datetime/datetime-picker.ts` · 13 Vorkommen `text-slate-500` unter `web/src/app/` · `docs/UI-Designsprache.md` (§5.1, §10) · `docs/Konzept-Light-Mode.md` (neu)
+
+**Beim Durchrechnen des Tokensatzes für den hellen Modus sind zwei Bestandsverstöße aufgefallen, die nichts mit dem hellen Modus zu tun haben.** `text-slate-500` erreicht auf der Kartenfläche `slate-900` nur **3,7:1** und auf der Seitenfläche `slate-950` **4,2:1** — beides unter den 4,5:1, die §10 der Designsprache als Minimum führt. Betroffen waren 13 Stellen: Hinweistexte unter Checkboxen, die Wochentagsköpfe des Kalenders, Meta-Zeilen, der inaktive Sprachumschalter, der Landing-Footer, der „Trend unverändert"-Pfeil. Alle gehen auf `slate-400` (7,0:1 bzw. 7,9:1). Die Stufe verschwindet damit als Textfarbe aus dem Projekt; sie war nie eine eigene Bedeutungsebene, sondern „noch etwas leiser als leise".
+
+**Der zweite Verstoß ist der Rand der Eingabefelder, und er wiegt schwerer.** `.app-input`/`.app-input-sm` trugen `slate-700` — auf der Kartenfläche **1,7:1**. WCAG 1.4.11 verlangt 3:1 für die visuelle Begrenzung, die ein Bedienelement überhaupt erst als solches erkennbar macht; ein Eingabefeld ohne wahrnehmbaren Rand ist ein Stück Fläche. Neu ist `slate-500` (3,7:1 auf der Karte, 3,6:1 gegen die eigene Füllung `slate-950`). Mitgezogen sind die beiden Stellen im DateTime-Picker, die `.app-input` von Hand nachbauen statt es zu benutzen (Trigger und Zeitfeld) — beim Trigger dreht sich dabei der Hover mit, der vorher auf `slate-600` *dunkler* wurde als der neue Grundzustand.
+
+**Warum das ein eigener, vorgelagerter Commit ist und nicht im Theming-Diff steckt:** Beide Änderungen sind im *dunklen* Modus sichtbar. Wären sie Teil der Token-Umstellung, ließe sich hinterher nicht mehr sauber trennen, ob ein „Dark sieht anders aus als vorher" ein beabsichtigter Fix oder ein Umbaufehler ist. So ist die Token-Ebene, die als Nächstes kommt, bitgleich zum Bestand — und jede Abweichung danach ist ein Bug.
+
+**Ausdrücklich nicht mitgenommen:** `disabled:opacity-50` an `shared/ui/button.ts`. Das ist ausschließlich im hellen Modus ein Problem (Weiß auf 50 % `purple-600` über Weiß = 2,3:1); im Dunkeln fällt es nicht durch, und ein Disabled-Zustand ist von 1.4.3 ohnehin befreit. Es wird dort behoben, wo es entsteht. Ebenso bleiben die drei uneinheitlichen Purple-Stufen für „ausgewählt/primär" (`purple-600` beim Button, `purple-700` bei SegmentedControl und Zeitraum-Menü) vorerst stehen — sie sind eine Inkonsistenz, kein Kontrastfehler, und die Token-Ebene macht sie erst richtig sichtbar.
+
+`docs/Konzept-Light-Mode.md` kommt als freigegebenes Eingangsdokument mit in diesen Commit; §5.3 dort ist die Rechnung, auf der er beruht.
+
+---
+
 ### 2026-08-02 — Ein drittes Testprojekt für die Api
 
 **Betrifft:** `tests/EmotePurge.Api.Tests/` (neu) · `src/EmotePurge.Api/Program.cs` · `src/EmotePurge.Api/EmotePurge.Api.csproj` · `EmotePurge.slnx` · `CLAUDE.md`
