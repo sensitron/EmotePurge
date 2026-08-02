@@ -101,6 +101,38 @@ public static class LogoTool
         return dst;
     }
 
+    // Largest distance from the crop centre to any opaque pixel.
+    //
+    // A maskable icon has to keep everything that matters inside a circle of 80 % of the canvas
+    // diameter: the launcher applies its own shape (circle, squircle, teardrop, rounded square)
+    // and only that circle is contained by all of them. Fitting the BOUNDING BOX into that circle
+    // would be the naive route and is far too strict here — this mark is a disc with two crescent
+    // tails, so its box corners are empty, and a box fit would shrink it to 57 % of the canvas for
+    // no reason. Measuring the shape's own radius lets it stay as large as it actually can.
+    public static double MaxRadius(Bitmap bmp, Rectangle bbox)
+    {
+        int w = bmp.Width, h = bmp.Height;
+        var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        int stride = d.Stride;
+        byte[] px = new byte[stride * h];
+        Marshal.Copy(d.Scan0, px, 0, px.Length);
+        bmp.UnlockBits(d);
+        // The same centre CropSquare uses, so the measurement describes the crop it feeds.
+        int cx = bbox.X + bbox.Width / 2, cy = bbox.Y + bbox.Height / 2;
+        double max = 0;
+        for (int y = bbox.Y; y < bbox.Y + bbox.Height; y++)
+        {
+            for (int x = bbox.X; x < bbox.X + bbox.Width; x++)
+            {
+                if (px[y * stride + x * 4 + 3] == 0) continue;
+                double dx = x - cx, dy = y - cy;
+                double r = Math.Sqrt(dx * dx + dy * dy);
+                if (r > max) max = r;
+            }
+        }
+        return max;
+    }
+
     public static Bitmap Resize(Bitmap src, int size)
     {
         var dst = new Bitmap(size, size, PixelFormat.Format32bppArgb);
@@ -181,6 +213,24 @@ $icon192.Save("$pub\icon-192.png", [System.Drawing.Imaging.ImageFormat]::Png)
 $icon512 = [LogoTool]::Resize($iconBase, 512)
 $icon512.Save("$pub\icon-512.png", [System.Drawing.Imaging.ImageFormat]::Png)
 
+# ---- maskable variants: the Android launcher icon ----
+# Without a purpose:"maskable" entry in the manifest, Android has no adaptive icon to work with.
+# It then falls back to the legacy treatment: shrink the PNG and drop it onto a WHITE plate. The
+# dark icon then sits in a white frame in the launcher, which is what this fixes.
+#
+# Same #020617 as the other app icons, but full-bleed and with the mark scaled so its own radius
+# equals 40 % of the canvas — that is the safe-zone circle, so no mask can clip a crescent tip.
+$maxDimB = [Math]::Max($bboxB.Width, $bboxB.Height)
+$maskRadius = [LogoTool]::MaxRadius($b, $bboxB)
+$maskPad = ($maskRadius / 0.4 / $maxDimB - 1) / 2
+$maskFill = [Math]::Round(100 / (1 + 2 * $maskPad), 1)
+Write-Output "maskable: radius $([Math]::Round($maskRadius,1)) px of bbox $maxDimB px -> pad $([Math]::Round($maskPad,4)), mark fills $maskFill % of the edge"
+$maskBase = [LogoTool]::CropSquare($b, $bboxB, $maskPad, $bgColor)
+$maskable192 = [LogoTool]::Resize($maskBase, 192)
+$maskable192.Save("$pub\icon-maskable-192.png", [System.Drawing.Imaging.ImageFormat]::Png)
+$maskable512 = [LogoTool]::Resize($maskBase, 512)
+$maskable512.Save("$pub\icon-maskable-512.png", [System.Drawing.Imaging.ImageFormat]::Png)
+
 # ---- logo-full: hero version (with the pixel squares) ----
 $a = [LogoTool]::Load("$branding\logo-full.png")
 [LogoTool]::KeyOut($a, 30)
@@ -217,5 +267,5 @@ Write-Output ("hero corner alpha: " + [LogoTool]::AlphaAt($hero, 2, 2) + ", cent
 Write-Output ("mark-light corner alpha: " + [LogoTool]::AlphaAt($markLight, 2, 2) + ", center alpha: " + [LogoTool]::AlphaAt($markLight, 64, 64))
 Write-Output ("hero-light corner alpha: " + [LogoTool]::AlphaAt($heroLight, 2, 2) + ", center alpha: " + [LogoTool]::AlphaAt($heroLight, 256, 256))
 
-foreach ($obj in @($b, $a, $favBase, $touchBase, $iconBase, $heroBase, $mark, $touch, $icon192, $icon512, $hero, $bLight, $aLight, $markLightBase, $heroLightBase, $markLight, $heroLight) + $sizes.Values) { $obj.Dispose() }
+foreach ($obj in @($b, $a, $favBase, $touchBase, $iconBase, $maskBase, $heroBase, $mark, $touch, $icon192, $icon512, $maskable192, $maskable512, $hero, $bLight, $aLight, $markLightBase, $heroLightBase, $markLight, $heroLight) + $sizes.Values) { $obj.Dispose() }
 Get-ChildItem $pub -File | Select-Object Name, Length | Format-Table -AutoSize

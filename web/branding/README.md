@@ -8,7 +8,7 @@ Dunkles Paar (2026-07-31), Grund `#020617`, Gesichtszüge fast-schwarz:
 
 - `logo-full.png` — Hauptversion mit wegfliegenden Pixel-Quadraten → Quelle für `public/logo-hero.png`.
 - `logo-mark.png` — vereinfachte Icon-Version → Quelle für `public/favicon.ico`, `logo.png`,
-  `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`.
+  `apple-touch-icon.png`, `icon-192.png`, `icon-512.png` sowie `icon-maskable-192/512.png`.
 
 Helles Paar (2026-08-02) für den Light Mode, Grund `#FFFFFF` (gemessen `#FDFDFD`–`#FFFFFF`),
 Gesichtszüge und Sichel-Aussparungen fast-weiß, Verlauf tiefer abgestimmt (`#931CD1` → `#E32F81`,
@@ -26,6 +26,14 @@ ICO-Container mit PNG-Einträgen) macht [make-icons.ps1](make-icons.ps1) — bei
 einfach erneut ausführen, es überschreibt die generierten Assets in `public/`.
 Padding-Konventionen: Favicon/`logo.png`/`logo-hero.png` und die hellen Zwillinge transparent mit
 3 % Rand, App-Icons (`apple-touch-icon`, `icon-192/512`) auf `#020617` mit 10–12 % Rand.
+
+Die **maskable**-Icons (`icon-maskable-192/512.png`, im Manifest als `purpose: "maskable"`) sind ein
+eigenes Paar und werden **nicht** über einen festen Prozentwert gepaddet: das Skript misst den
+größten Abstand vom Mittelpunkt zu einem deckenden Pixel und wählt die Kantenlänge so, dass dieser
+Radius genau 40 % davon beträgt — der Safe-Zone-Kreis, den jede Launcher-Maske (Kreis, Squircle,
+Tropfen, abgerundetes Quadrat) vollständig enthält. Weil der Mark eine Scheibe mit zwei Sicheln ist
+und seine Box-Ecken leer sind, füllt er damit **78,8 %** der Kante; ein Padding nach Bounding-Box
+hätte auf 57 % gedrückt, ohne dass die Form das nötig macht. Fläche ist randlos `#020617`.
 Weil der Zuschnitt relativ zur Bounding-Box rechnet, füllt die Marke in hell wie dunkel dieselben
 94,3 % der Kantenlänge — die Varianten sind an derselben `<img>`-Box austauschbar, ohne dass
 etwas springt.

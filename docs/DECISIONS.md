@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Das Manifest bekommt maskable Icons, damit Android das App-Icon nicht auf eine weiße Platte legt
+
+**Betrifft:** `web/public/manifest.webmanifest` · `web/public/icon-maskable-{192,512}.png` (neu) · `web/branding/{make-icons.ps1,README.md}`
+
+**Befund aus der Praxis, nicht aus einem Test:** die auf einem Android-Gerät installierte PWA zeigte im App-Launcher das dunkle Icon in einem **weißen Rahmen**. Ursache ist nicht das Icon, sondern das Fehlen einer Angabe: das Manifest führte seine Icons ohne `purpose`, das ist per Default `"any"`. Android hat damit kein Adaptive Icon, auf das es seine Maske anwenden könnte, und fällt auf die Legacy-Behandlung zurück — PNG verkleinern, auf eine weiße Platte setzen, Systemmaske darüber. Jedes dunkle Icon sieht so aus, als hätte es einen weißen Rand.
+
+**Behoben durch ein zweites Icon-Paar mit `purpose: "maskable"`**, nicht durch Ändern der vorhandenen. Die `"any"`-Einträge bleiben, wie sie sind: sie werden dort benutzt, wo *nicht* maskiert wird (Desktop-Installationen, Task-Switcher, Icon-Listen), und dort ist der heutige 10-%-Rand richtig. Ein Icon, das für beide Rollen taugt, gibt es nicht — maskable braucht randlose Fläche und viel Innenabstand, „any" braucht das Gegenteil.
+
+**Der Innenabstand ist gemessen, nicht gesetzt.** Die Safe Zone einer maskable-Grafik ist ein Kreis mit 80 % des Kantenmaßes; nur der wird von jeder Launcher-Maske vollständig überdeckt. Der naheliegende Weg — die Bounding-Box in diesen Kreis legen — hätte den Mark auf 57 % der Kante gedrückt, weil eine Box-Diagonale √2 mal so lang ist wie ihre Seite. Der Mark ist aber eine Scheibe mit zwei Sichel-Ausläufern, seine Box-Ecken sind leer. `make-icons.ps1` misst deshalb neu (`MaxRadius`) den größten Abstand vom Zuschnitt-Mittelpunkt zu einem deckenden Pixel und wählt die Kantenlänge so, dass dieser Radius 40 % davon ist. Ergebnis: der Mark füllt **78,8 %** der Kante statt 57 %, und trotzdem kann keine Maske eine Sichelspitze abschneiden. Nachgeprüft, nicht angenommen: das erzeugte Icon unter Kreis-, Squircle- und Rounded-Square-Maske gerendert und angesehen.
+
+**Das erneute Ausführen des Skripts hat kein Bestandsasset verändert** — `git status` zeigt nur die zwei neuen Dateien und das Skript selbst. Die Ableitung ist damit weiterhin deterministisch, was die Voraussetzung dafür ist, dass man sie überhaupt gefahrlos laufen lassen kann.
+
+**Unverändert bleibt, dass das Manifest dunkel ist.** Das ist eine andere Frage als die hier — `theme_color`/`background_color` und die eingebrannte Fläche folgen weiter der Marke, nicht dem Seiten-Theme (Eintrag vom selben Tag). Neu ist nur, dass Android die Fläche jetzt als *seine* Icon-Fläche erkennt, statt eine eigene darunterzulegen.
+
+**Zu wissen beim Ausrollen:** Der Launcher aktualisiert ein installiertes Icon nicht zuverlässig, wenn sich nur das Manifest ändert. Nach dem Deploy kann eine Neuinstallation der PWA nötig sein, um das Ergebnis überhaupt zu sehen.
+
+---
+
 ### 2026-08-02 — Nach dem Ansehen: die Emote-Leinwand folgt doch dem Theme, Hover wird immer dunkler, Tones heißen nach Bedeutung
 
 **Betrifft:** `web/src/styles.css` · `web/src/app/shared/ui/{status-badge.ts,theme-menu.ts}` · `web/src/app/shared/emotes/{slot-budget.ts,slot-budget-bar.ts,slot-budget.spec.ts}` · `web/src/app/shared/voting/vote-audience-badge.ts` · `web/src/app/features/{overview,voting,my-votings,admin}/*` · `docs/UI-Designsprache.md` (§2.0, §2.4, §4.3, §10)
