@@ -1,13 +1,11 @@
-/**
- * Severity tiers of the slot-budget bar, purely derived from how full the set is. Named after the
- * meaning rather than the hue for the same reason `StatusBadgeTone` is: the value behind each tier
- * differs per theme, so a tier called `red` would be promising something it cannot keep.
- */
-export type SlotBudgetTone = 'success' | 'warning' | 'danger';
+import { UtilizationTone, utilizationTone } from '../ui/utilization-tone';
 
-/** Above this share of the capacity the bar warns, above the second one it alarms. */
-const WARN_AT_PERCENT = 80;
-const CRITICAL_AT_PERCENT = 95;
+/**
+ * Severity tiers of the slot-budget bar, purely derived from how full the set is. An alias of the
+ * shared `UtilizationTone` ladder (see `shared/ui/utilization-tone.ts`) so existing importers keep
+ * their name while the thresholds live in one place.
+ */
+export type SlotBudgetTone = UtilizationTone;
 
 export interface SlotBudget {
   capacity: number;
@@ -54,13 +52,6 @@ export function slotBudget(
     hasPendingRemoval: clampedRemoval > 0,
     // Graded on the current occupancy, not the projection: the colour answers "how full is the set
     // right now", and a large selection must not make a full set look healthy before it is emptied.
-    tone: toneFor((clampedOccupied / capacity) * 100),
+    tone: utilizationTone((clampedOccupied / capacity) * 100),
   };
-}
-
-function toneFor(percent: number): SlotBudgetTone {
-  if (percent >= CRITICAL_AT_PERCENT) {
-    return 'danger';
-  }
-  return percent >= WARN_AT_PERCENT ? 'warning' : 'success';
 }
