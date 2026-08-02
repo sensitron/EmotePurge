@@ -30,7 +30,7 @@ import { SevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
           appButton="outline"
           [disabled]="restoreService.isRunning()"
           class="disabled:cursor-not-allowed"
-          (click)="fileInput().nativeElement.click()"
+          (click)="openFilePicker()"
         >
           {{ 'restore.import.trigger' | transloco }}
         </button>
@@ -60,10 +60,16 @@ export class RestorePanel {
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly dialog = inject(Dialog);
 
-  protected readonly fileInput = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
+  // Named apart from the #fileInput template reference: inside the template the bare name
+  // resolves to the reference (the raw element), which is not callable — AOT rejects it.
+  private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
   protected readonly errorKey = signal<string | null>(null);
 
   private readonly restoreSlots = signal<{ occupied: number; capacity: number } | null>(null);
+
+  protected openFilePicker(): void {
+    this.fileInputRef().nativeElement.click();
+  }
 
   protected async onFileSelected(event: Event): Promise<void> {
     const inputElement = event.target as HTMLInputElement;
