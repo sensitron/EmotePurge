@@ -41,7 +41,12 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
            of, and it had a way back only while empty (design doc §8.6). -->
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
         <app-back-link link="/" [label]="'nav.overview' | transloco" />
-        <h2 class="text-2xl font-bold tracking-tight">{{ 'shell.myVotings' | transloco }}</h2>
+        <!-- The heading doubles as the pager's scroll/focus target (§8.4). scroll-mt-14, not the
+             scroll-mt-24 of the tabbed pages: this route hangs directly off the shell, so the h-14
+             header is the only sticky layer above it (§8.5). -->
+        <h2 #resultsTop tabindex="-1" class="scroll-mt-14 text-2xl font-bold tracking-tight">
+          {{ 'shell.myVotings' | transloco }}
+        </h2>
       </div>
 
       @if (errorMessage(); as message) {
@@ -91,6 +96,7 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
         <app-pager
           [page]="page()"
           [totalPages]="totalPages()"
+          [scrollTarget]="resultsTop"
           (pageChange)="onPageChange($event)"
         />
       }

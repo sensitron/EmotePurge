@@ -112,8 +112,13 @@
     />
   } @else {
     <!-- Plain gap list, no inner scroll box: the pager already bounds the length, and a nested
-         scroll area inside the page scroll was its own usability problem on mobile. -->
-    <ul class="flex flex-col gap-2">
+         scroll area inside the page scroll was its own usability problem on mobile.
+
+         The list itself is the pager's scroll/focus target (§8.4) — unlike the other paginated
+         pages this one has no heading of its own above the rows, only the create card, which is
+         exactly what a page change must *not* scroll back to. `scroll-mt-24` clears the shell
+         header + workspace tabs, `tabindex="-1"` makes it focusable without adding a tab stop. -->
+    <ul #resultsTop tabindex="-1" class="flex scroll-mt-24 flex-col gap-2">
       @for (session of sessions(); track session.id) {
         <li class="app-card app-card-interactive relative px-4 py-3">
           <div class="flex items-start justify-between gap-3">
@@ -197,6 +202,11 @@
         </li>
       }
     </ul>
-    <app-pager [page]="page()" [totalPages]="totalPages()" (pageChange)="onPageChange($event)" />
+    <app-pager
+      [page]="page()"
+      [totalPages]="totalPages()"
+      [scrollTarget]="resultsTop"
+      (pageChange)="onPageChange($event)"
+    />
   }
 </div>

@@ -257,8 +257,24 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ### 8.4 Pagination
 
-- **Was gilt:** Seitenweise Listen nutzen `<app-pager [page] [totalPages] (pageChange)>` gegen ein `PagedResult<T>` vom Backend (`items/page/pageSize/totalCount/totalPages`); der Pager versteckt sich bei einer Seite selbst. `create`/`delete` laden die Liste neu statt optimistisch zu patchen (verschiebt sonst die Paginierung); reine In-Place-Änderungen dürfen lokal patchen.
-- **Referenz:** `web/src/app/shared/pagination/pager.ts`; Verwendung `admin-audit-log-page.ts`, `vote-session-list-page.ts`.
+- **Was gilt:** Seitenweise Listen nutzen `<app-pager [page] [totalPages] [scrollTarget] (pageChange)>` gegen ein `PagedResult<T>` vom Backend (`items/page/pageSize/totalCount/totalPages`); der Pager versteckt sich bei einer Seite selbst. `create`/`delete` laden die Liste neu statt optimistisch zu patchen (verschiebt sonst die Paginierung); reine In-Place-Änderungen dürfen lokal patchen.
+- **Ein Seitenwechsel repositioniert den Viewport — `[scrollTarget]` ist Pflicht, sobald die Liste länger als ein Bildschirm werden kann.** Der Pager steht unter seiner Liste, der Klick passiert also immer am unteren Dokumentende; ohne Reposition kommen die Zeilen der nächsten Seite komplett *oberhalb* des Viewports an und der Leser schaut weiter auf das Ende einer Liste, durch die er nie gescrollt ist. Übergeben wird eine Template-Referenz auf den Kopf der Ergebnisregion:
+
+  ```html
+  <h2 #resultsTop tabindex="-1" class="scroll-mt-24 text-lg font-semibold">…</h2>
+  …
+  <app-pager [page]="page()" [totalPages]="totalPages()" [scrollTarget]="resultsTop" … />
+  ```
+
+  Drei Teile, alle notwendig:
+  - **`tabindex="-1"`** — der Pager fokussiert das Ziel (WCAG 2.4.3). Ohne Fokusverschiebung fällt der Fokus beim Seitenwechsel auf `<body>`, weil der geklickte Button samt Liste in den Lade-Zweig verschwindet.
+  - **`scroll-mt-*` = Höhe des Sticky-Stapels über der Seite** (§8.5): `scroll-mt-24` unter einer Tab-Leiste (14 + 10), `scroll-mt-14` direkt unter der Shell. Ohne das parkt `scrollIntoView` das Ziel hinter dem Header. Die Filter-Toolbar bekommt keinen Anteil — sie ist selbst sticky und pinnt an ihrem eigenen `top`.
+  - **Reposition vor dem `pageChange`-Emit**, im Pager gekapselt: der Emit setzt das Page-Signal, die Resource fällt auf ihren `defaultValue` zurück, und Liste wie Pager werden durch das Skeleton ersetzt. Alles danach liefe gegen ein totes Element.
+
+  Instant, nie `behavior: 'smooth'`: das ist ein Inhaltsaustausch, kein geführter Rundgang, und mehrere Bildschirmhöhen zu animieren ist langsamer als der Leser und ein Motion-Trigger. Die Seitenzeile des Pagers ist `role="status"` und damit eine Live-Region — die Fokusverschiebung sagt *was* auf dem Schirm steht, nie *welche Seite*.
+- **Der Pager bleibt bewusst im Lade-`@else` und wird nicht während des Ladens weitergerendert.** Angulars `resource` gibt bei einem Params-Wechsel `value()` auf den `defaultValue` zurück (nur ein `reload()` mit gleichen Params behält den Stream), `totalPages()` ist während des Ladens also `0` und der Pager würde sich ohnehin selbst verstecken. Ihn stehen zu lassen bräuchte in jeder Seite einen klebrigen Zweitzustand — und der Fokus ist durch die Reposition bereits gerettet.
+- **Nicht in der URL:** die Seitennummer ist reiner Signal-State, kein Query-Param. Reload und Zurück-Button landen also auf Seite 1. Bewusst offen — ein Query-Param würde den Router in den Scroll-Pfad hängen (`scrollPositionRestoration`, `app.config.ts`) und sich mit der Anker-Reposition überlagern.
+- **Referenz:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`); Verwendung `admin-audit-log-page.ts`, `admin-users-page.ts`, `channel-activity-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (Anker ist die `<ul>` — die Seite hat über den Zeilen keine eigene Überschrift, nur die Anlege-Karte, und genau dorthin darf ein Seitenwechsel *nicht* zurückspringen).
 
 ### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
 

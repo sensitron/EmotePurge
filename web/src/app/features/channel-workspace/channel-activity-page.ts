@@ -55,8 +55,11 @@ const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
   ],
   template: `
     <div class="flex flex-col gap-4">
+      <!-- The heading doubles as the pager's scroll/focus target (§8.4): tabindex="-1" lets it take
+           focus without becoming a tab stop, scroll-mt-24 clears the two sticky layers above it
+           (shell header h-14 + workspace tabs h-10, §8.5) so it does not land behind them. -->
       <header class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-lg font-semibold">
+        <h2 #resultsTop tabindex="-1" class="scroll-mt-24 text-lg font-semibold">
           {{ 'channelWorkspace.activity.title' | transloco }}
         </h2>
         <button
@@ -130,6 +133,7 @@ const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
         <app-pager
           [page]="page()"
           [totalPages]="totalPages()"
+          [scrollTarget]="resultsTop"
           (pageChange)="onPageChange($event)"
         />
       }

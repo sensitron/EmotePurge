@@ -536,6 +536,7 @@
     "typedConfirmHint": "Type “{{text}}” exactly to continue."
   },
   "pager": {
+    "label": "Pagination",
     "previous": "Back",
     "pageOf": "Page {{ page }} of {{ totalPages }}",
     "next": "Next"

@@ -536,6 +536,7 @@
     "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben."
   },
   "pager": {
+    "label": "Seitennummerierung",
     "previous": "Zurück",
     "pageOf": "Seite {{ page }} von {{ totalPages }}",
     "next": "Weiter"
