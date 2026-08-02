@@ -19,7 +19,7 @@ Emote Purge: plattformübergreifende Webanwendung zur Analyse, Community-Bewertu
 | **D** | Angular-Frontend: Login, Übersicht, Usage-Stats-Grid, Voting-UI, 7TV-Mass-Delete-Engine, i18n (de/en), Pagination | ✅ vollständig |
 | **Admin** | Globaler Admin-Bereich (`/admin/*`, Allowlist `Auth:AdminTwitchLogins`): Monitoring, Channel-Liste inkl. Resync/Purge, Nutzerliste inkl. Session-Revoke und Rollen-Cache-Invalidierung, Audit-Log (`AuditLogEntry`), eigener SSE-Stream | ✅ vollständig |
 | **E** | Launch-Vorbereitung: Ressourcenlimits, Container-Healthchecks (S3-35), Log-Aggregation/Alerting (S3-36), Rechtstexte | ⬜ offen — **Monitoring selbst ist gebaut** (Admin-Bereich + `GET /api/admin/health` + `WorkerHealthPublisher`); offen ist die Infrastruktur drumherum |
-| **Review 2026-07-29** | 81 Befunde; Wellen A–C umgesetzt, D (Tests) und E (Infra & Launch) offen — s. [Review-2026-07-29-Umsetzung.md](docs/Review-2026-07-29-Umsetzung.md) | 🟡 laufend |
+| **Review 2026-07-29** | 81 Befunde; Wellen A–D umgesetzt (D am 2026-08-02: Autorisierungs-Tests, Api-Filter-Matrix, Struktur-Test), nur E (Infra & Launch) offen — s. [Review-2026-07-29-Umsetzung.md](docs/Review-2026-07-29-Umsetzung.md) | 🟡 laufend |
 | **Review 2026-08-01** | Struktur, Formatter-Tooling, Fremd-Wartbarkeit — s. [Review-2026-08-01-Struktur-und-Wartbarkeit.md](docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md) | 🟡 laufend |
 
 ## Commands

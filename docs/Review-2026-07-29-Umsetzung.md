@@ -7,7 +7,7 @@ Begleitdokument zu [`Review-2026-07-29.md`](Review-2026-07-29.md). Hält fest, w
 | **A** | Quick Wins | ✅ **abgeschlossen** (2026-07-29) |
 | **B** | Sicherheit & Korrektheit (S1/S2) | ✅ **abgeschlossen** (2026-07-30) |
 | **C** | Refactorings | ✅ **abgeschlossen** (2026-07-30) |
-| **D** | Tests | ⬜ offen |
+| **D** | Tests | ✅ **abgeschlossen** (2026-08-02) |
 | **E** | Infra & Launch | ⬜ offen |
 
 ---
@@ -321,6 +321,73 @@ Zusätzlich zwei neue Log-Einträge in `docs/DECISIONS.md` (Regel: ein Commit, d
 
 ---
 
+## Welle D — umgesetzt am 2026-08-02
+
+Vier Befunde (S3-5, S3-6 Teil 2 und 3, S3-28, S3-29), dazu die Nachpflege dieses Dokuments: drei der in der Welle-D-Zeile als offen geführten Punkte waren längst erledigt und nur nie nachgetragen worden — der Struktur-Review vom 2026-08-01 hat das als Nebenbefund festgehalten. Alles von Hand geschrieben, Fix für Fix; zwei Sonnet-Sub-Agenten haben ausschließlich gelesen (Doku-Extrakte, Bestandsaufnahme der Testdateien), nichts davon hat Code angefasst.
+
+Die Reihenfolge folgt dem Risiko: erst die Autorisierungspfade, dann die Filter-Matrix darüber, zuletzt die Struktur-Tests. **Ein echter Produktionsfehler ist dabei nicht aufgefallen** — die vier Autorisierungs-Services verhalten sich in jedem geprüften Fall so, wie ihre Kommentare es behaupten, einschließlich des `?? false` aus S3-5, das der Report als Ein-Zeichen-Falle benannt hatte. Was aufgefallen ist, sind drei Abweichungen zwischen Report und Bestand und ein nicht offensichtliches Framework-Verhalten; alle vier stehen unten.
+
+### S3-5 — der Entscheidungskern der Autorisierung hatte kein Testpendant
+
+`tests/EmotePurge.Infrastructure.Tests/Unit/ChannelAccessServiceTests.cs` (13 Fälle) und `Unit/ModeratorCheckServiceTests.cs` (7) sind container-frei wie vom Report vorgesehen; `Integration/VoteEligibilityServiceTests.cs` (22) und `Integration/MyChannelsServiceTests.cs` (10) nicht.
+
+Die wertvollste Zeile der ganzen Welle ist `CanViewUsageStatsAsync_DeniesAccess_WhenSevenTvCannotAnswer`. Der Report hatte den Fall als Ein-Zeichen-Falle beschrieben — `?? false` gegen ein übersehenes `?? true` in der Grants-Verzweigung —, und genau daran hängt, ob ein 7TV-Ausfall die Usage-Stats jedes Channels für jeden eingeloggten Nutzer öffnet. Der Bestand ist korrekt; ab jetzt ist er es nachweislich. Daneben stehen die beiden Isolationsfälle, die der Report nicht nennt: ein 7TV-Editor-Grant für Channel B darf Channel A nicht aufschließen, auch wenn A's Login zufällig in der Login-Menge liegt (gematcht wird auf der unveränderlichen Twitch-ID, wo eine da ist), und der Rename-Squatting-Schutz aus Welle B — Login stimmt, hinterlegte Twitch-ID nicht — wird verweigert statt durchgelassen.
+
+**Abweichung:** Zwei der vier Testklassen liegen in `Integration/`, nicht in `Unit/`. Die Report-Aussage „kein Container nötig, alle Abhängigkeiten sind Interfaces bzw. `IConfiguration`" trägt für `ChannelAccessService` und `ModeratorCheckService`, aber nicht für `VoteEligibilityService` und `MyChannelsService`: beide nehmen `AppDbContext` im Konstruktor und laden ihre Channel-/Session-Daten selbst. Nach Regel 11 gehören sie damit in `Integration/` mit der vorhandenen Postgres-Fixture — alles außer der Datenbank ist auch dort substituiert.
+
+**Abweichung:** Der Report verlangt für `ModeratorCheckService` den Fall „`principal.AccessToken is null` → `false` ohne Helix-Call". Diese Zeile gibt es seit dem Refresh-Token-Umbau vom 2026-07-30 nicht mehr — der Service fragt `ITwitchUserTokenService.GetValidAccessTokenAsync`, das den Claim-Token bedient, solange er gilt, und danach serverseitig erneuert. Der Fall ist deshalb als „der Token-Service liefert auch nach dem Refresh-Versuch keinen Token" getestet, was dieselbe Invariante an der heutigen Stelle prüft. Die beiden Nicht-Cachen-Fälle sind wörtlich wie im Report umgesetzt: weder ein fehlender Token noch ein Helix-`null` darf in den Cache, sonst sperrt ein transienter Twitch-Ausfall alle Mods für die volle TTL aus.
+
+**Über den Report hinaus:** `VoteEligibilityServiceTests` nagelt die kontraintuitivste Regel des Projekts fest, die bisher ausschließlich in einem Kommentar lebte — `EvaluateAsync` lehnt eine beendete Session ab, `EvaluateAudienceAsync` nicht. Beide Methoden teilen sich ihre gesamte Rollenauswertung, der Unterschied ist ein einzelnes vorgezogenes `return`; verschöbe es sich, würde jede abgeschlossene Session ihr eigenes Publikum von der Ergebnisseite werfen, ohne dass irgendetwas rot wird. Ebenfalls über den Report hinaus: die Rollenmatrix ist als `[Theory]` über alle `AllowedRoles`-Kombinationen ohne `Everyone`/`Subs` ausgeführt, inklusive `VIPs` — die dokumentierte Lücke (kein Helix-Self-Check für VIPs) ist damit als Verhalten festgeschrieben statt als Fußnote.
+
+### S3-6 Teil 2 und 3 — die Filter-Matrix, und ein drittes Testprojekt
+
+`tests/EmotePurge.Api.Tests/` (39 Fälle, container-frei, Laufzeit unter einer Sekunde). Teil 1 (`ReconnectPolicy` extrahieren) war Welle C, Teil 2 (Unit-Tests dafür und für `EmoteUsageCounter`) am 2026-07-30 erledigt; offen war der dritte: „für die Api ein einziger `WebApplicationFactory`-Test, der die Filter-Matrix (401/403/404/409) über alle Filter-Pfade abfährt".
+
+**Nutzerentscheidung: jetzt bauen statt vertagen.** Das bedeutet ein drittes Testprojekt und mit `Microsoft.AspNetCore.Mvc.Testing` das erste neue Testpaket seit NSubstitute. `AuthFilterMatrixTests` fährt die echte Route-Tabelle ab — nicht nachgebaute Endpoints —, weil die Hälfte des Werts darin liegt, dass ein Filter am *richtigen* Endpoint hängt. Belegt sind: 401 für jede der 14 geschützten Routen anonym; 401 statt 403, wenn die Session zwar authentifiziert ist, aber die `twitch:login`-Claim fehlt (das Problem des Aufrufers ist seine Session, nicht seine Berechtigung); 403 aus allen vier Autorisierungsfiltern; 404 mit `vote_session_not_found` und 409 mit `vote_session_ended` aus `VoteEligibilityFilter`; und die eine Switch-Arm-Differenz, um die es dem Report ging — die Ergebnis-Route ruft nachweislich `EvaluateAudienceAsync` und nachweislich **nicht** `EvaluateAsync`.
+
+Zwei Registrierungs-Eigenheiten sind mitfestgeschrieben, weil beide leicht als Fehler zu lesen sind: `UsageStatsAccessAuthorizationFilter` hängt trotz seines Namens auch an der Emote-Gruppe, und die Admin-Gruppe hat **keinen** `ChannelNameValidationFilter`, antwortet auf einen malformierten Namen also 403 statt 400.
+
+**Über den Report hinaus:** Die Welle C hatte unter „noch nicht live getestet" notiert, der Fehlercode-Vertrag „malformierter Channel-Name ⇒ 400 `invalid_channel_name`, nicht 403" sei per curl nicht prüfbar, weil ohne Cookie die Auth-Middleware vorher greift. Genau dieser Fall ist jetzt als Test da — inklusive der Gegenprobe, dass 401 die 400 schlägt, und dass `HandOfBlood` durchkommt, weil der Filter normalisiert (ein Route-Constraint hätte das abgelehnt; das war der Grund für Z4).
+
+**Bewusst in Kauf genommene Nebenwirkung:** Zwei Zugeständnisse an die Testbarkeit im Produktionscode. `Program.cs` bekommt am Ende ein `public partial class Program;`, weil Top-Level-Statements sonst eine interne `Program`-Klasse erzeugen, die `WebApplicationFactory<T>` nicht erreicht. Und `EmotePurge.Api.csproj` bekommt `InternalsVisibleTo` für das Testprojekt — die Alternative wäre gewesen, `ApiErrorCodes`-Literale wie `"vote_session_ended"` im Test abzutippen, womit ein umbenannter Code den Test nicht mehr bricht, sondern ihn still gegen einen Wert prüfen ließe, den niemand mehr zurückgibt. Beides erweitert die Oberfläche der Api-Assembly minimal; der Gegenwert ist, dass die Tests die echte Pipeline fahren statt einer Kopie davon.
+
+**Über den Report hinaus, und der interessanteste Fund der Welle:** `RequestDelegateFactory` löst die injizierten Services eines Handlers auf, **bevor** die Endpoint-Filter-Pipeline läuft. Ein Request, den ein Filter gleich mit 403 abweist, konstruiert also trotzdem den gesamten Service-Graph des Handlers — und mehrere dieser Services nehmen `IConnectionMultiplexer`, dessen Registrierung `ConnectionMultiplexer.Connect` sofort ausführt. In der ersten Fassung liefen sieben Fälle deshalb zwölf Sekunden lang in einen Redis-Timeout und antworteten 500 statt des erwarteten Codes. In Produktion ist das folgenlos (der Multiplexer ist ein längst verbundener Singleton), aber es ist eine Eigenschaft, die man kennen muss, bevor man einen Handler mit einer teuren Abhängigkeit hinter einen Filter hängt. Die Testfactory substituiert deshalb `IConnectionMultiplexer` und lässt den restlichen Service-Graph echt.
+
+**Testanpassung:** `ApiFactory` ist eine `IClassFixture`, also über alle Tests der Klasse geteilt — die Substitutes sammeln damit die Aufrufe der Nachbartests ein, und die `DidNotReceive()`-Zusicherung der Audience-Filter-Prüfung war dadurch zunächst falsch grün bzw. falsch rot. Der Konstruktor der Testklasse setzt die aufgezeichneten Aufrufe jetzt pro Test zurück.
+
+**Nicht umgesetzt und bewusst so:** `TwitchChatManager` und `SevenTvEventClient` bekommen weiterhin keine Tests gegen Fakes (Regel 11) — die Reconnect-*Entscheidung* liegt seit Welle C TwitchLib-frei in `ReconnectPolicy` und ist dort getestet, der Transport bleibt live verifiziert.
+
+### S3-28 — der Worker greift nicht mehr an der Schicht vorbei, und die Regel ist jetzt ein Test
+
+`src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelService.cs`, `src/EmotePurge.Worker/Worker.cs`, `src/EmotePurge.Worker/SevenTvPeriodicResyncWorker.cs`, `tests/EmotePurge.Infrastructure.Tests/Unit/CoreAssemblyReferenceTests.cs`.
+
+**Nutzerentscheidung: der Code-Teil gehört mit in diesen Auftrag**, obwohl er streng genommen Architektur und nicht Test ist. Beide Hosted Services schrieben zeichengleich dieselbe Query gegen `AppDbContext`; sie liegt jetzt als `IChannelService.ListActiveChannelNamesAsync` in der Infrastructure, mit `AsNoTracking` (der Resync-Worker führt sie jede Minute für immer aus) und stabiler Sortierung. Damit fällt die Fußnote „aktuell noch 2 Verstöße" aus der Schichtentreue-Tabelle in `CLAUDE.md` weg, und beide `using`-Direktiven auf `EmotePurge.Infrastructure.Persistence` sind aus dem Worker verschwunden — der Worker kennt EF Core nicht mehr.
+
+Der Struktur-Test ist reines Reflection wie im Report vorgeschlagen, kein NetArchTest: `typeof(Channel).Assembly.GetReferencedAssemblies()` darf nichts enthalten, das mit `Microsoft.EntityFrameworkCore`, `StackExchange.Redis`, `Microsoft.AspNetCore` oder `System.Net.Http` beginnt. Aus der Kernregel des Projekts wird damit ein roter Build statt eines Review-Kommentars, und die Assert-Message nennt die verletzende Assembly beim Namen.
+
+**Über den Report hinaus:** ein zweiter Fall im selben Test — Core darf auch kein *Geschwisterprojekt* referenzieren. Das ist die Gegenrichtung derselben Regel: eine Referenz auf `EmotePurge.Infrastructure` würde die Abhängigkeitsrichtung umdrehen, ohne eine der vier verbotenen Technologien zu nennen, und wäre vom ersten Fall nicht erfasst.
+
+### S3-29 — war bereits erledigt, nur nie nachgetragen
+
+`web/src/app/core/i18n/api-error.spec.ts` existiert samt beidseitigem Abgleich zwischen `KNOWN_API_ERROR_CODES` und den `errors.api.*`-Keys beider Locale-Dateien. Der Befund stand trotzdem noch als offener Struktur-Test in der Welle-D-Zeile; die Durchstreichung dort ist mit diesem Commit nachgeholt. Teil 2 des vorgeschlagenen Fixes — die zwei Health-Konstanten in eine eigene `WorkerHealthReasonCodes`-Klasse zu verschieben — bleibt offen und steht unten unter „Was noch offen ist".
+
+### Verifikation
+
+| Prüfung | Ergebnis |
+|---|---|
+| `dotnet build EmotePurge.slnx` | grün, 0 Warnungen |
+| `dotnet test EmotePurge.slnx` | 383/383 grün (284 vorher: +13 `ChannelAccessService`, +7 `ModeratorCheckService`, +22 `VoteEligibilityService`, +10 `MyChannelsService`, +5 `CastVoteAsync`, +2 Struktur, +1 `ListActiveChannelNames`, +39 neues Api-Projekt) |
+| Aufteilung | `EmotePurge.Infrastructure.Tests` 306 (13 s, Testcontainers) · `EmotePurge.Worker.Tests` 38 (0,5 s) · `EmotePurge.Api.Tests` 39 (0,9 s) |
+| `dotnet format EmotePurge.slnx --verify-no-changes` | grün |
+| Struktur-Gegenprobe | `CoreAssemblyReferenceTests` schlägt fehl, sobald `EmotePurge.Core` eine der vier Technologien referenziert — die Regel ist ab jetzt ein CI-Gate (`publish.yml` fährt die Solution, das neue Projekt läuft automatisch mit) |
+| Redis-/Postgres-Freiheit der Api-Tests | belegt: die Suite läuft mit gestopptem Docker durch, 39/39 in 0,9 s |
+
+**Frontend-Suiten nicht gelaufen** — diese Welle fasst `web/` nicht an. Der einzige Frontend-Bezug (S3-29) war bereits erledigt.
+
+**Live-Verifikation nach Regel 16 steht aus.** Der Code-Teil von S3-28 verändert Produktionsverhalten: beide Hosted Services holen ihre Channel-Liste jetzt über den Service statt über den DbContext. Vor dem Deploy zu prüfen: Boot-Recovery joint nach einem Neustart weiterhin alle aktiven Channels, und der periodische Resync läuft im Minutentakt ohne neue Warnungen im Log.
+
+---
+
 ## Was noch offen ist
 
 ### Direkte Anschlussarbeiten aus den Wellen A und B
@@ -330,6 +397,7 @@ Diese Punkte sind Teil eines Befunds, dessen Rest bewusst einer späteren Welle 
 - ~~**S2-16 (Auswahl über Filterwechsel erhalten)** ist durch die keyed `ListSelection` jetzt sicher baubar — aber nicht automatisch fertig: beide Host-Seiten leiten ihre Löschliste über `selectedItems()` ab, sodass eine über einen Filterwechsel erhaltene Auswahl beim Löschen still auf die sichtbaren Zeilen zusammenschrumpfen würde. Die Richtung ist ungefährlich (es würde weniger gelöscht, nie das Falsche), widerspräche aber der vom Befund geforderten Anzeige „50 ausgewählt (12 ausgeblendet)". Wer S2-16 baut, muss die Zählung auf `selectedKeys()` umstellen und eine Key→Zeile-Zuordnung für ausgeblendete Einträge mitführen.~~ Am 2026-07-30 in Welle 1 der UI/UX-Überarbeitung erledigt — bewusst als **Prune-Variante** (`retainVisible()`: sichtbar Bleibendes überlebt den Filterwechsel, Weggefiltertes fliegt aus der Auswahl), nicht als „n ausgewählt (m ausgeblendet)"-Zählung: `selectedKeys` bleibt so die autoritative Menge für den Löschpfad, ein unsichtbar-ausgewähltes Emote kann dort nie landen. Begründung im DECISIONS-Eintrag „`SegmentedControl` … Filterwechsel beschneiden die Auswahl" (2026-07-30).
 - ~~**`ReconnectPolicy` extrahieren (S3-6)**~~ — in Welle C erledigt. ~~Die Unit-Tests dafür bleiben Welle D.~~ Am 2026-07-30 mit der 7TV-WebSocket-Wiedereinführung erledigt: neues container-freies Testprojekt `tests/EmotePurge.Worker.Tests` mit `ReconnectPolicyTests` (die fünf dokumentierten Entscheidungsfälle), s. docs/DECISIONS.md „Worker-Testprojekt eingeführt".
 - **Redis-Cache für `OnValidatePrincipal`** — der Widerruf kostet einen Primärschlüssel-Lookup pro authentifiziertem Request. Sauber, aber cachebar, falls es je auffällt.
+- **S3-29 Teil 2** — die Paritätsprüfung steht (Welle D), aber `NoHealthData` und `HealthDataUnreadable` teilen sich weiterhin `ApiErrorCodes` mit den echten Fehlercodes, obwohl sie zu einem anderen Vertrag gehören (`reasonCode` in einem 200-Body). Der Report schlägt eine eigene `WorkerHealthReasonCodes`-Klasse vor; der Ausfallmodus ist heute nur Verwirrung, kein Fehler.
 - **S3-30 restliche ~~vier~~ drei Loader-`effect()`s** — der Pilot auf `VoteSessionListPage` steht (Welle C); ~~`my-votings-page.ts`~~ (am 2026-07-30 in Welle 2 der UI/UX-Überarbeitung auf `rxResource` nachgezogen, Commit `21cb1c0`), `channel-workspace-layout.ts`, `usage-stats-page.ts` und `vote-session-detail-page.ts` laden weiter über `effect()` bzw. den Konstruktor. Erst nachziehen, wenn der Pilot sich im Live-Betrieb getragen hat. Bei der Usage-Stats-Seite ist zusätzlich der 7TV-Sync-Poll in dieselbe Ressource einzuweben — der aufwändigste der verbleibenden drei.
 - ~~**S3-16 `@angular/cdk/dialog`** (mittelfristig) — Fokusfalle/Escape sind nachgerüstet, aber weiter handgebaut.~~ Am 2026-07-30 in Welle 2 der UI/UX-Überarbeitung erledigt: alle Dialoge (Mass-Delete-Confirm, 7TV-Token-Prompt, neuer generischer `ConfirmDialog` statt der zwei verbliebenen `window.confirm`) laufen über `Dialog.open()`; die zwei live gefundenen CDK-Fallen (Overlay-Container erbt keine Textfarbe; Laufzeit-`<style>` schlägt gleich-spezifische Regeln) stehen im DECISIONS-Eintrag vom 2026-07-30.
 - **S4-3 `style-src` ohne `unsafe-inline`** — braucht `ngCspNonce`, mit `MapFallbackToFile("index.html")` nicht ohne Weiteres möglich; im Report ausdrücklich kein Blocker.
@@ -356,7 +424,9 @@ Billigster Vorabtest: lokal ~25 Channels tracken und prüfen, ob `Twitch hat den
 
 ### Offene Wellen
 
-**Welle D — Tests.** In dieser Reihenfolge, die ersten beiden ohne Container: `ChannelAccessServiceTests` → `VoteEligibilityServiceTests` → `VoteSessionService.CastVoteAsync` → ~~`SevenTvSyncService`~~ (am 2026-07-30 mit der WS-Wiedereinführung angelegt: `SevenTvSyncServiceTests`, 11 Fälle inkl. Delta-Pfad — Achtung, `SyncChannelAsync` hat seitdem eine andere Signatur als im Report beschrieben) → `UsageStatFlushService` → ~~`ReconnectPolicy`~~ (2026-07-30 erledigt, s. o.)/`EmoteUsageCounter` → zwei Struktur-Tests (Core-Assembly-Referenzen, Fehlercode-Key-Parität beider Locale-Dateien).
+**Welle D — Tests.** ~~In dieser Reihenfolge, die ersten beiden ohne Container:~~ ~~`ChannelAccessServiceTests`~~ → ~~`VoteEligibilityServiceTests`~~ → ~~`VoteSessionService.CastVoteAsync`~~ → ~~`SevenTvSyncService`~~ (am 2026-07-30 mit der WS-Wiedereinführung angelegt: `SevenTvSyncServiceTests`, 11 Fälle inkl. Delta-Pfad — Achtung, `SyncChannelAsync` hat seitdem eine andere Signatur als im Report beschrieben) → ~~`UsageStatFlushService`~~ (existierte längst: `UsageStatFlushServiceTests`, 8 Fälle — nie nachgetragen) → ~~`ReconnectPolicy`~~ (2026-07-30 erledigt, s. o.)/~~`EmoteUsageCounter`~~ (existierte längst: `EmoteUsageCounterTests`, 4 Fälle im container-freien `tests/EmotePurge.Worker.Tests` — nie nachgetragen) → ~~zwei Struktur-Tests (Core-Assembly-Referenzen, Fehlercode-Key-Parität beider Locale-Dateien)~~ (der zweite existierte längst als `web/src/app/core/i18n/api-error.spec.ts`, S3-29 — nie nachgetragen).
+
+**Am 2026-08-02 abgeschlossen** — s. Abschnitt „Welle D — umgesetzt am 2026-08-02" oben. Die drei „existierte längst"-Nachträge sind der Nebenbefund, den der Struktur-Review vom 2026-08-01 an dieser Liste gefunden hatte. Zwei Punkte gehörten zu Welle D, standen aber nie in dieser Zeile und sind mit erledigt: die Api-Filter-Matrix (S3-6 Teil 3, jetzt `tests/EmotePurge.Api.Tests`) und die beiden übrigen Testklassen aus S3-5, `ModeratorCheckServiceTests` und `MyChannelsServiceTests`. Die Reihenfolgeangabe „die ersten beiden ohne Container" ist gestrichen, weil sie nicht stimmte: `VoteEligibilityService` nimmt `AppDbContext`.
 
 **Welle E — Infra & Launch.** S2-21 (Ressourcenlimits, vor dem Stresstest) → Z1-Aufteilung der Health-Endpoints + S3-35 → S3-36 → S3-34 → S3-38 → ~~S3-37 (`pull_request`-Trigger)~~ (2026-07-30 erledigt, zusammen mit `paths-ignore` für Doku-only-Pushes — s. DECISIONS-Eintrag „CI: Doku-only-Pushes überspringen die Pipeline") → S4-15/**S4-16 (Format-/Lint-Teil am 2026-08-01 erledigt** — `prettier --check`, `eslint` und `dotnet format --verify-no-changes` gaten jetzt in `publish.yml`; offen bleiben Dependency-Scan, `npm audit`, NuGet-Cache und Dependabot, s. [Review-2026-08-01-Struktur-und-Wartbarkeit.md](Review-2026-08-01-Struktur-und-Wartbarkeit.md)**)** → S4-17/**S4-18 (README-Teil am 2026-08-01 erledigt** — Root-`README.md` mit vollständiger Setup-Kette angelegt, die irreführende Angular-CLI-Vorlage unter `web/` ersetzt; LICENSE, CONTRIBUTING und das leere `marketing/` bleiben offen**)** → S2-20 (Rechtstexte) → `robots.txt` öffnen.
 
