@@ -23,7 +23,7 @@ test.describe('global admin on /admin/audit-log', () => {
           id: 2,
           action: 'emotes.syncDeleted',
           channelName: 'handofblood',
-          detailsJson: '{"emoteCount": 12}',
+          detail: { kind: 'emoteCount', count: 12, text: null },
         },
         {
           id: 1,
@@ -31,7 +31,7 @@ test.describe('global admin on /admin/audit-log', () => {
           channelName: 'handofblood',
           targetType: 'voteSession',
           targetId: '42',
-          detailsJson: '{"title": "Sommer-Purge"}',
+          detail: { kind: 'title', count: null, text: 'Sommer-Purge' },
         },
       ],
     });

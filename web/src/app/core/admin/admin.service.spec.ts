@@ -9,9 +9,9 @@ import {
   AdminHealth,
   AdminRoster,
   AdminUser,
-  AuditLogEntry,
 } from './admin.model';
 import { AdminService } from './admin.service';
+import { AuditLogEntry } from '../audit/audit.model';
 import { PagedResult } from '../models/paged-result.model';
 
 describe('AdminService', () => {
@@ -353,13 +353,12 @@ describe('AdminService', () => {
       {
         id: 2,
         occurredAtUtc: '2026-07-31T12:00:00Z',
-        actorTwitchUserId: '1',
         actorLogin: 'sensitron',
         action: 'channel.purge',
         channelName: 'handofblood',
         targetType: null,
         targetId: null,
-        detailsJson: null,
+        detail: null,
       },
     ];
     const page: PagedResult<AuditLogEntry> = {
@@ -411,9 +410,10 @@ describe('AdminService', () => {
       .flush({ items: [], page: 1, pageSize: 25, totalCount: 0, totalPages: 0 });
   });
 
-  it('hands detailsJson through as raw text, unparsed', () => {
-    // The column is free-form per action; parsing belongs in the page (defensively), not in the
-    // service — a service that parsed it would have to decide what an unknown shape means.
+  it('hands the whitelisted detail through as the server projected it', () => {
+    // The raw jsonb column never reaches a client: the server reduces it to a closed set of kinds
+    // (AuditLogQueryService.ProjectDetail), so neither this service nor the page has to guess what
+    // an unknown shape means — or risk rendering something no one meant for this audience.
     let result: PagedResult<AuditLogEntry> | undefined;
     service.listAuditLog(1, 25).subscribe((r) => (result = r));
 
@@ -422,13 +422,12 @@ describe('AdminService', () => {
         {
           id: 1,
           occurredAtUtc: '2026-07-31T11:00:00Z',
-          actorTwitchUserId: '1',
           actorLogin: 'sensitron',
           action: 'emotes.syncDeleted',
           channelName: 'handofblood',
           targetType: null,
           targetId: null,
-          detailsJson: '{"emoteCount": 12}',
+          detail: { kind: 'emoteCount', count: 12, text: null },
         },
       ],
       page: 1,
@@ -437,6 +436,6 @@ describe('AdminService', () => {
       totalPages: 1,
     });
 
-    expect(result?.items[0].detailsJson).toBe('{"emoteCount": 12}');
+    expect(result?.items[0].detail).toEqual({ kind: 'emoteCount', count: 12, text: null });
   });
 });

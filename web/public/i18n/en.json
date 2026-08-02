@@ -345,7 +345,6 @@
       "refreshTitle": "Reload audit log",
       "empty": "No entries yet.",
       "emptyHint": "Every channel, voting and emote-deletion action shows up here once it has been performed.",
-      "actor": "by {{actor}}",
       "filter": {
         "actionLabel": "Filter by action",
         "all": "All",
@@ -357,24 +356,27 @@
         "noMatches": "No entries for these filters.",
         "noMatchesHint": "Adjust or reset the filters to see entries again.",
         "reset": "Reset filters"
-      },
-      "actions": {
-        "channelJoin": "Channel joined",
-        "channelLeave": "Channel left",
-        "channelPurge": "Channel deleted",
-        "channelResync": "Resync requested",
-        "voteSessionCreate": "Voting created",
-        "voteSessionEnd": "Voting ended",
-        "voteSessionDelete": "Voting deleted",
-        "emotesSyncDeleted": "Emotes marked as deleted",
-        "userRevokeSessions": "User sessions revoked",
-        "userInvalidateRoleCache": "Role cache cleared"
-      },
-      "details": {
-        "emoteCount": "{{count}} emotes",
-        "removedEntries": "{{count}} entries removed",
-        "title": "“{{title}}”"
       }
+    }
+  },
+  "audit": {
+    "actor": "by {{actor}}",
+    "actions": {
+      "channelJoin": "Channel joined",
+      "channelLeave": "Channel left",
+      "channelPurge": "Channel deleted",
+      "channelResync": "Resync requested",
+      "voteSessionCreate": "Voting created",
+      "voteSessionEnd": "Voting ended",
+      "voteSessionDelete": "Voting deleted",
+      "emotesSyncDeleted": "Emotes marked as deleted",
+      "userRevokeSessions": "User sessions revoked",
+      "userInvalidateRoleCache": "Role cache cleared"
+    },
+    "details": {
+      "emoteCount": "{{count}} emotes",
+      "removedEntries": "{{count}} entries removed",
+      "title": "“{{title}}”"
     }
   },
   "emoteCount": {

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
@@ -81,7 +83,7 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task ListAsync_ProjectsEveryField_IncludingRawDetailsJson()
+    public async Task ListAsync_ProjectsEveryField_AndWhitelistsTheDetails()
     {
         await using var db = fixture.CreateDbContext();
         var channel = $"{ChannelPrefix}-fields";
@@ -101,13 +103,84 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
         var page = await new AuditLogQueryService(db).ListAsync(1, 100);
 
         var dto = Assert.Single(page.Items, i => i.ChannelName == channel);
-        Assert.Equal("4711", dto.ActorTwitchUserId);
         Assert.Equal("sensitron", dto.ActorLogin);
         Assert.Equal(AuditActions.EmotesSyncDeleted, dto.Action);
         Assert.Equal("voteSession", dto.TargetType);
         Assert.Equal("42", dto.TargetId);
-        // Handed to the client verbatim (jsonb round-trip aside) — the UI parses it defensively.
-        Assert.Contains("\"emoteCount\"", dto.DetailsJson);
+        // Never the raw column: the client receives a closed shape it cannot be surprised by.
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.EmoteCount, 12, null), dto.Detail);
+    }
+
+    [Theory]
+    // The three recognized shapes, one row each.
+    [InlineData("""{"emoteCount": 12}""", AuditLogDetail.Kinds.EmoteCount, 12L, null)]
+    [InlineData("""{"removedEntries": 3}""", AuditLogDetail.Kinds.RemovedEntries, 3L, null)]
+    [InlineData("""{"title": "Sommer-Purge"}""", AuditLogDetail.Kinds.Title, null, "Sommer-Purge")]
+    // Fixed precedence when a payload carries more than one known key.
+    [InlineData("""{"title": "x", "emoteCount": 7}""", AuditLogDetail.Kinds.EmoteCount, 7L, null)]
+    // Everything unrecognized degrades to "no detail" instead of leaking or throwing. `login` is
+    // the one that matters: it is present on the user-scoped actions and must never render.
+    [InlineData("""{"login": "handofblood"}""", null, null, null)]
+    [InlineData("""{"ip": "203.0.113.7"}""", null, null, null)]
+    [InlineData("""{"emoteCount": "twelve"}""", null, null, null)]
+    [InlineData("""[1, 2]""", null, null, null)]
+    [InlineData("""17""", null, null, null)]
+    [InlineData(null, null, null, null)]
+    // No case for syntactically invalid JSON: the column is jsonb, so Postgres rejects it on insert
+    // and it cannot reach the reader through this path. ProjectDetail still catches JsonException —
+    // the guard costs nothing and is what keeps the column type from being load-bearing.
+    public async Task ListAsync_ProjectsDetails_DefensivelyAndByWhitelist(
+        string? detailsJson, string? expectedKind, long? expectedCount, string? expectedText)
+    {
+        await using var db = fixture.CreateDbContext();
+        // Truncated to the column's 25 characters — one channel per theory case, so the cases stay
+        // independent inside the shared database.
+        var channel = $"{ChannelPrefix}-d{Guid.NewGuid():N}"[..25];
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 10, 0, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.VoteSessionDelete,
+            ChannelName = channel,
+            DetailsJson = detailsJson
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        if (expectedKind is null)
+        {
+            Assert.Null(dto.Detail);
+            return;
+        }
+
+        Assert.Equal(new AuditLogDetail(expectedKind, expectedCount, expectedText), dto.Detail);
+    }
+
+    [Fact]
+    public async Task ListAsync_TruncatesDetailText_BecauseTitlesAreUserInput()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-detail-long";
+        var title = new string('a', 500);
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 11, 0, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.VoteSessionDelete,
+            ChannelName = channel,
+            DetailsJson = JsonSerializer.Serialize(new { title })
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        Assert.Equal(200, Assert.Single(page.Items).Detail?.Text?.Length);
     }
 
     [Fact]

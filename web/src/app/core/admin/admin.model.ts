@@ -181,24 +181,6 @@ export interface AdminUser {
 }
 
 /**
- * The audited actions, mirroring `EmotePurge.Core.Entities.AuditActions`. Typed as a union of
- * the literal strings the server sends, but consumers must still handle an unknown value: an entry
- * written by a newer backend carries an action this build has no label for, and a log that hides
- * rows it cannot name would be worse than one that shows the raw string.
- */
-export type AuditAction =
-  | 'channel.join'
-  | 'channel.leave'
-  | 'channel.purge'
-  | 'channel.resync'
-  | 'voteSession.create'
-  | 'voteSession.end'
-  | 'voteSession.delete'
-  | 'emotes.syncDeleted'
-  | 'user.revokeSessions'
-  | 'user.invalidateRoleCache';
-
-/**
  * Optional narrowing of GET /api/admin/audit-log; fields are AND-combined server-side.
  * `action` matches exactly, `channel` matches the normalized name exactly (the server normalizes,
  * so raw input like "HandOfBlood" is fine), `actor` is a case-insensitive substring match.
@@ -209,22 +191,6 @@ export interface AuditLogFilter {
   actor?: string;
 }
 
-/**
- * One row of GET /api/admin/audit-log (paged via the shared `PagedResult<T>` envelope).
- *
- * `actorLogin` and `channelName` are snapshots taken when the action happened, not live joins — a
- * renamed account or a purged channel still shows what was true at the time, which is the point of
- * an audit log. `detailsJson` is raw JSON text, not a parsed object: its shape is per-action and
- * open-ended, so the page parses it defensively rather than the type pretending to know it.
- */
-export interface AuditLogEntry {
-  id: number;
-  occurredAtUtc: string;
-  actorTwitchUserId: string;
-  actorLogin: string;
-  action: AuditAction | string;
-  channelName: string | null;
-  targetType: string | null;
-  targetId: string | null;
-  detailsJson: string | null;
-}
+// The row type itself lives in `core/audit/audit.model.ts`: both this endpoint and the
+// channel-scoped one return it, and a channel manager's page must not import from the
+// global-admin client.

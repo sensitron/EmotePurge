@@ -10,6 +10,26 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — `DetailsJson` verlässt den Server nicht mehr roh: die Whitelist steht in `Core`, nicht im Client
+
+**Betrifft:** `src/EmotePurge.Core/Services/IAuditLogQueryService.cs` · `src/EmotePurge.Infrastructure/Services/AuditLogQueryService.cs` · `web/src/app/core/audit/audit.model.ts` (neu) · `web/src/app/core/admin/{admin.model.ts,admin.service.ts}` · `web/src/app/features/admin/admin-audit-log-page.ts` · `tests/EmotePurge.Infrastructure.Tests/Integration/AuditLogQueryServiceTests.cs`
+
+**Vorarbeit für den channel-gescopten Audit-Log (A7), aber die Begründung steht für sich.** `AuditLogEntry.DetailsJson` ist eine `jsonb`-Spalte, die per Entitäts-Kommentar *free-form on purpose* ist: jede der zehn Aktionen schreibt ihre eigene Form hinein, und nichts hindert einen künftigen Schreibpfad daran, dort etwas abzulegen, das sein Autor nie für fremde Augen gedacht hat. Bisher ging das Feld **roh** an den Client, und die einzige Whitelist stand in `admin-audit-log-page.ts` — in einem Frontend, dessen einziges Publikum ein einzelner Global-Admin ist. Sobald dieselbe Zeile an die Moderatoren eines fremden Channels geht, ist das keine Randbemerkung mehr.
+
+**Die Whitelist wandert nach `Core`, statt sich zu vermehren.** Der naheliegende kleine Weg wäre gewesen, nur den neuen Channel-Endpoint filtern zu lassen. Das hätte dieselbe Entscheidung an drei Stellen gehabt: einmal im Channel-Endpoint, einmal im Admin-Endpoint (gar nicht), einmal im Client. Stattdessen projiziert `AuditLogQueryService.ProjectDetail` das Feld einmalig auf einen geschlossenen Satz von Formen — `AuditLogDetail(Kind, Count, Text)` mit `Kind` ∈ `emoteCount` | `removedEntries` | `title`, sprachneutral wie `AuditActions`. Was nicht in dieser Liste steht, existiert für **beide** Endpoints nicht, ohne dass irgendwer daran denken muss.
+
+**`parseDetail()` im Client wurde gelöscht, nicht verschoben.** Das ist der Punkt, an dem die Sache strukturell wird statt nur ordentlich: der Client behält eine reine Anzeige-Tabelle `Record<kind, translationKey>`. Ein unbekanntes `kind` rendert nichts — das ist eine Darstellungsentscheidung, keine Sicherheitsentscheidung, und damit gibt es keine zweite Wahrheit mehr, die driften könnte. Hätte man den gefilterten JSON-String zurückserialisiert und das Feld `DetailsJson` gelassen, wäre der Zaun gebaut und das Tor offen geblieben.
+
+**Zwei Felder fallen dabei aus dem DTO.** `DetailsJson` ersetzt durch `Detail`, und `ActorTwitchUserId` ersatzlos — nachgemessen, nicht vermutet: keine einzige Stelle im Frontend liest es, jede Oberfläche identifiziert den Aktor über `ActorLogin`. Die numerische Twitch-ID mitzuliefern hätte nur vergrößert, was die Moderatoren eines Channels künftig übereinander erfahren. Die Spalte selbst bleibt natürlich — sie ist die stabile Identität, wenn ein Login umbenannt wird. Wieder aufnehmen, wenn es einen Konsumenten gibt.
+
+**`login` wird weiterhin erkannt und weiterhin verworfen**, samt Begründung, die aus dem Client mitgewandert ist: die nutzerbezogenen Aktionen tragen den Login des *Ziels* in ihren Details, und die Zeile läse sich dann „von sensitron · handofblood", ohne dass irgendetwas sagt, welcher der beiden Namen das Ziel ist.
+
+**Projiziert wird nach dem Materialisieren, nicht im `Select`.** EF Core kann `JsonDocument.Parse` nicht übersetzen; im Query-Ausdruck wäre das ein Laufzeit-, kein Build-Fehler gewesen. Steht als Kommentar an der Stelle, weil es beim nächsten „Aufräumen" wieder verlockend aussieht.
+
+**`Text` wird bei 200 Zeichen gekappt.** Vote-Session-Titel sind Nutzereingabe und nur durch ihre eigene Validierung begrenzt; eine Log-Zeile ist nicht der Ort für einen Aufsatz.
+
+---
+
 ### 2026-08-02 — Der Produkt-Backlog wird zum dritten verbindlichen Dokument und trägt seinen Umsetzungsstand selbst
 
 **Betrifft:** `docs/Feature-Ideen-2026-08-01.md` · `CLAUDE.md` (Kopf-Dokumentenliste)

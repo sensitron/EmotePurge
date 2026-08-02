@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { AuditLogEntry } from '../audit/audit.model';
 import { PagedResult } from '../models/paged-result.model';
 import {
   AdminChannel,
@@ -9,7 +10,6 @@ import {
   AdminHealth,
   AdminRoster,
   AdminUser,
-  AuditLogEntry,
   AuditLogFilter,
 } from './admin.model';
 

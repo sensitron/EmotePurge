@@ -345,7 +345,6 @@
       "refreshTitle": "Audit-Log neu laden",
       "empty": "Noch keine Einträge.",
       "emptyHint": "Hier landet jede Channel-, Abstimmungs- und Emote-Löschaktion, sobald sie ausgeführt wurde.",
-      "actor": "von {{actor}}",
       "filter": {
         "actionLabel": "Nach Aktion filtern",
         "all": "Alle",
@@ -357,24 +356,27 @@
         "noMatches": "Keine Einträge für diese Filter.",
         "noMatchesHint": "Filter anpassen oder zurücksetzen, um wieder Einträge zu sehen.",
         "reset": "Filter zurücksetzen"
-      },
-      "actions": {
-        "channelJoin": "Channel beigetreten",
-        "channelLeave": "Channel verlassen",
-        "channelPurge": "Channel gelöscht",
-        "channelResync": "Resync angestoßen",
-        "voteSessionCreate": "Abstimmung erstellt",
-        "voteSessionEnd": "Abstimmung beendet",
-        "voteSessionDelete": "Abstimmung gelöscht",
-        "emotesSyncDeleted": "Emotes als gelöscht markiert",
-        "userRevokeSessions": "User-Sessions widerrufen",
-        "userInvalidateRoleCache": "Rollen-Cache geleert"
-      },
-      "details": {
-        "emoteCount": "{{count}} Emotes",
-        "removedEntries": "{{count}} Einträge entfernt",
-        "title": "„{{title}}“"
       }
+    }
+  },
+  "audit": {
+    "actor": "von {{actor}}",
+    "actions": {
+      "channelJoin": "Channel beigetreten",
+      "channelLeave": "Channel verlassen",
+      "channelPurge": "Channel gelöscht",
+      "channelResync": "Resync angestoßen",
+      "voteSessionCreate": "Abstimmung erstellt",
+      "voteSessionEnd": "Abstimmung beendet",
+      "voteSessionDelete": "Abstimmung gelöscht",
+      "emotesSyncDeleted": "Emotes als gelöscht markiert",
+      "userRevokeSessions": "User-Sessions widerrufen",
+      "userInvalidateRoleCache": "Rollen-Cache geleert"
+    },
+    "details": {
+      "emoteCount": "{{count}} Emotes",
+      "removedEntries": "{{count}} Einträge entfernt",
+      "title": "„{{title}}“"
     }
   },
   "emoteCount": {

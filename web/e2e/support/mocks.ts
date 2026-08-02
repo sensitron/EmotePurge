@@ -314,13 +314,13 @@ export async function mockChannelResync(page: Page, channelName: string): Promis
 export interface MockAuditLogEntry {
   id: number;
   occurredAtUtc?: string;
-  actorTwitchUserId?: string;
   actorLogin?: string;
   action: string;
   channelName?: string | null;
   targetType?: string | null;
   targetId?: string | null;
-  detailsJson?: string | null;
+  /** Already whitelisted by the server — the raw jsonb column never reaches a client. */
+  detail?: { kind: string; count: number | null; text: string | null } | null;
 }
 
 /**
@@ -353,13 +353,12 @@ export async function mockAuditLog(
   const withDefaults = (entry: MockAuditLogEntry) => ({
     id: entry.id,
     occurredAtUtc: entry.occurredAtUtc ?? '2026-07-31T12:00:00Z',
-    actorTwitchUserId: entry.actorTwitchUserId ?? '1',
     actorLogin: entry.actorLogin ?? 'sensitron',
     action: entry.action,
     channelName: entry.channelName ?? null,
     targetType: entry.targetType ?? null,
     targetId: entry.targetId ?? null,
-    detailsJson: entry.detailsJson ?? null,
+    detail: entry.detail ?? null,
   });
 
   await page.route('**/api/admin/audit-log**', (route) => {

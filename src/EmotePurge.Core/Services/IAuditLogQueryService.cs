@@ -1,21 +1,51 @@
 namespace EmotePurge.Core.Services;
 
 /// <summary>
-/// One audit-log row as the admin UI receives it — a straight projection of
-/// <see cref="Entities.AuditLogEntry"/>, including <paramref name="Id"/> so the client has a stable
-/// list key. <paramref name="Action"/> is one of the <see cref="Entities.AuditActions"/> constants
-/// and stays language-neutral; the frontend owns the wording.
+/// The renderable part of an entry's <c>DetailsJson</c>, reduced to a closed set of shapes.
+/// <paramref name="Kind"/> is language-neutral like <see cref="Entities.AuditActions"/> — the
+/// frontend maps it to a translation key and owns the wording. <paramref name="Count"/> carries the
+/// number for counting kinds, <paramref name="Text"/> the string for naming kinds; exactly one of
+/// the two is set per kind.
+/// <para>
+/// This exists because <c>DetailsJson</c> is free-form by design: every action writes its own shape
+/// into a jsonb column, and nothing stops a future write path from putting something in there that
+/// its author never meant for a channel's moderators to read. Whitelisting here rather than in the
+/// client makes that a structural guarantee instead of a review question — a new key is invisible
+/// to every consumer until someone adds it to <see cref="Kinds"/> on purpose.
+/// </para>
+/// </summary>
+public record AuditLogDetail(string Kind, long? Count, string? Text)
+{
+    /// <summary>The recognized <see cref="Kind"/> values. Anything else is dropped.</summary>
+    public static class Kinds
+    {
+        public const string EmoteCount = "emoteCount";
+        public const string RemovedEntries = "removedEntries";
+        public const string Title = "title";
+    }
+}
+
+/// <summary>
+/// One audit-log row as the UI receives it — a projection of <see cref="Entities.AuditLogEntry"/>,
+/// including <paramref name="Id"/> so the client has a stable list key.
+/// <paramref name="Action"/> is one of the <see cref="Entities.AuditActions"/> constants and stays
+/// language-neutral; the frontend owns the wording.
+/// <para>
+/// Two entity fields are deliberately absent. <c>DetailsJson</c> never leaves the server raw — see
+/// <see cref="AuditLogDetail"/> — and <c>ActorTwitchUserId</c> has no consumer: every surface
+/// identifies the actor by login, and shipping the numeric id would only widen what a channel's
+/// moderators learn about each other. Add it back together with its first consumer.
+/// </para>
 /// </summary>
 public record AuditLogEntryDto(
     long Id,
     DateTime OccurredAtUtc,
-    string ActorTwitchUserId,
     string ActorLogin,
     string Action,
     string? ChannelName,
     string? TargetType,
     string? TargetId,
-    string? DetailsJson);
+    AuditLogDetail? Detail);
 
 /// <summary>
 /// Optional narrowing of the audit-log list; every field is AND-combined, null means "no filter".
@@ -29,9 +59,15 @@ public record AuditLogEntryDto(
 public record AuditLogFilter(string? Action, string? ChannelName, string? ActorLogin);
 
 /// <summary>
-/// Read side of the audit log, behind GET /api/admin/audit-log. Separate from the services that
-/// write entries: those own one action each and add their entry to the action's own transaction,
-/// while this one only ever reads.
+/// Read side of the audit log, behind GET /api/admin/audit-log and GET
+/// /api/channels/{channelName}/audit-log. Separate from the services that write entries: those own
+/// one action each and add their entry to the action's own transaction, while this one only ever
+/// reads.
+/// <para>
+/// The two callers differ only in who may ask and how the channel filter is set — the
+/// channel-scoped route takes it from the route value and never from the query string, so a
+/// caller authorized for one channel cannot read another's log through it.
+/// </para>
 /// </summary>
 public interface IAuditLogQueryService
 {
