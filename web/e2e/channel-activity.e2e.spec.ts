@@ -89,6 +89,44 @@ test.describe('channel activity tab', () => {
     await expect(page.getByRole('listitem').getByText('Abstimmung gelöscht')).toBeVisible();
   });
 
+  // The one thing jsdom cannot check: there is no layout there, so the unit spec can only assert that
+  // the pager calls scrollIntoView. Whether the reader actually ends up at the top of the new page —
+  // and in front of it rather than behind the sticky stack — needs a real browser (design doc §8.4).
+  test('a page change puts the reader back at the top of the results, clear of the sticky bars', async ({
+    page,
+  }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelAuditLog(page, 'sensitron', {
+      1: Array.from({ length: 25 }, (_, i) => ({ id: 100 - i, action: 'channel.join' })),
+      2: Array.from({ length: 5 }, (_, i) => ({ id: 20 - i, action: 'voteSession.delete' })),
+    });
+
+    await page.goto('/channels/sensitron/activity');
+    await expect(page.getByRole('listitem')).toHaveCount(25);
+
+    // Where the click always happens: the pager sits under the list, so reaching it means being at
+    // the bottom of the document.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const scrolledDown = await page.evaluate(() => window.scrollY);
+    expect(scrolledDown).toBeGreaterThan(0);
+
+    await page.getByRole('navigation', { name: 'Seitennummerierung' }).getByText('Weiter').click();
+    await expect(page.getByRole('listitem')).toHaveCount(5);
+
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(scrolledDown);
+
+    // Not just "scrolled up" but "not behind the header": scroll-mt-24 keeps the heading clear of the
+    // shell header (h-14) plus the workspace tabs (h-10), which is what a bare scrollIntoView misses.
+    const heading = page.getByRole('heading', { name: 'Aktivitätsverlauf' });
+    await expect(heading).toBeInViewport();
+    const box = await heading.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(96);
+
+    // And the keyboard user came along — without this the focus would have fallen to <body> when the
+    // clicked button left the DOM with the old page.
+    await expect(heading).toBeFocused();
+  });
+
   // The permission boundary that separates this tab from every other channel page: a 7TV editor may
   // read the usage stats and must not read who on the mod team did what.
   test('a 7TV editor sees neither the tab nor the page', async ({ page }) => {
