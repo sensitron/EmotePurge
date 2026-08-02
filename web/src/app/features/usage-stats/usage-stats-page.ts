@@ -36,6 +36,16 @@ import {
 } from '../../shared/emotes/emote-context';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
+import { CSV_MIME } from '../../shared/export/csv';
+import { ExportDialog, ExportDialogData, ExportFormat } from '../../shared/export/export-dialog';
+import { JSON_MIME } from '../../shared/export/export-envelope';
+import { downloadFile } from '../../shared/export/file-download';
+import {
+  UsageExportInput,
+  usageCsv,
+  usageExportFilename,
+  usageJson,
+} from '../../shared/export/usage-export';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
@@ -358,6 +368,40 @@ export class UsageStatsPage {
         if (created) {
           this.selection.clear();
           this.router.navigate(['/channels', this.channelName(), 'vote-sessions', created.id]);
+        }
+      });
+  }
+
+  // Exports the *visible* list (filtered + sorted): the button sits with the filters, and shipping
+  // 900 rows while the user looks at 12 would surprise. Client-side serialization on purpose — the
+  // read model is already loaded, and a download must never see more than the page does (A12).
+  protected openExport(): void {
+    const input: UsageExportInput = {
+      channelName: this.channelName(),
+      from: this.from(),
+      to: this.to(),
+      rows: this.sortedEmotes(),
+      filtered: this.usageFilter.isAnyActive(),
+      trendFor: (row) => this.trendFor(row),
+    };
+    const data: ExportDialogData = {
+      rowCount: input.rows.length,
+      filtered: input.filtered,
+      // Whoever can open this page sees every usage figure — nothing to explain away here.
+      noticeKeys: [],
+    };
+    this.dialog
+      .open<ExportFormat | undefined>(ExportDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+        ariaLabelledBy: 'export-dialog-title',
+      })
+      .closed.subscribe((format) => {
+        if (format === 'csv') {
+          downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
+        } else if (format === 'json') {
+          downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
         }
       });
   }

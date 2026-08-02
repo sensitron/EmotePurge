@@ -23,6 +23,17 @@ import {
 } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import { CSV_MIME } from '../../shared/export/csv';
+import { ExportDialog, ExportDialogData, ExportFormat } from '../../shared/export/export-dialog';
+import { JSON_MIME } from '../../shared/export/export-envelope';
+import { downloadFile } from '../../shared/export/file-download';
+import {
+  VotingExportInput,
+  votingCsv,
+  votingExportFilename,
+  votingJson,
+  withheldFields,
+} from '../../shared/export/voting-export';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
@@ -324,6 +335,48 @@ export class VoteSessionDetailPage {
 
   protected refresh(): void {
     this.load();
+  }
+
+  // Exports the *visible* list (filtered + frozen order). Client-side serialization of the loaded
+  // read model on purpose (A12): the `null`s in it are the server's visibility verdict, so the
+  // withheld tally/usage columns drop out without this page re-implementing the secret-ballot rule.
+  protected openExport(): void {
+    const results = this.results();
+    if (!results) {
+      return;
+    }
+    const input: VotingExportInput = {
+      channelName: this.channelName(),
+      results,
+      rows: this.emotes(),
+    };
+    const withheld = withheldFields(input.rows);
+    const noticeKeys: string[] = [];
+    if (withheld.includes('keepVotes')) {
+      noticeKeys.push('export.withheldTallies');
+    }
+    if (withheld.includes('totalUseCount')) {
+      noticeKeys.push('export.withheldUsage');
+    }
+    const data: ExportDialogData = {
+      rowCount: input.rows.length,
+      filtered: input.rows.length !== this.orderedEmotes().length,
+      noticeKeys,
+    };
+    this.dialog
+      .open<ExportFormat | undefined>(ExportDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+        ariaLabelledBy: 'export-dialog-title',
+      })
+      .closed.subscribe((format) => {
+        if (format === 'csv') {
+          downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
+        } else if (format === 'json') {
+          downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
+        }
+      });
   }
 
   /**

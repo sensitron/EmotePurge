@@ -515,6 +515,23 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The export dialog is a page state of its own: format choice, row count and (elsewhere) the
+    // withheld-columns notice all render only here.
+    slug: 'usage-stats-export-dialog',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+    },
+    afterLoad: async (page) => {
+      // Locale-independent handle: the visible label is translated, the aria-label key is not
+      // unique — the export trigger is the only button of the toolbar that opens a CDK dialog.
+      await page.getByRole('button', { name: /export/i }).first().click();
+      await page.locator('#export-dialog-title').waitFor();
+    },
+  },
+  {
     slug: 'usage-stats-empty',
     path: '/channels/sensitron/usage-stats',
     setup: async (page) => {

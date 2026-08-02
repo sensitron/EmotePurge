@@ -546,6 +546,20 @@
     "pageOf": "Page {{ page }} of {{ totalPages }}",
     "next": "Next"
   },
+  "export": {
+    "button": "Export",
+    "buttonAriaLabel": "Export results",
+    "title": "Export",
+    "rowCount": {
+      "one": "{{count}} row",
+      "other": "{{count}} rows"
+    },
+    "filteredHint": "The currently filtered list will be exported.",
+    "formatCsv": "CSV (spreadsheet)",
+    "formatJson": "JSON",
+    "withheldTallies": "This vote runs with hidden results — the vote columns are not included.",
+    "withheldUsage": "Usage figures are not visible to you and therefore not included."
+  },
   "massDelete": {
     "deleteButton": "Delete ({{ count }})",
     "clearSelection": "Clear selection",

@@ -98,6 +98,17 @@
     >
       {{ 'usageStats.hideObserved' | transloco }}
     </button>
+    <!-- Sits with the filters because it exports exactly what they leave visible. -->
+    <button
+      type="button"
+      appButton="neutral"
+      class="disabled:cursor-not-allowed"
+      [disabled]="sortedEmotes().length === 0"
+      [attr.aria-label]="'export.buttonAriaLabel' | transloco"
+      (click)="openExport()"
+    >
+      {{ 'export.button' | transloco }}
+    </button>
     <!-- The filter's own readout, so it sits with the controls that produce it and stays visible
          while the grid scrolls. It used to be a lone paragraph above the slot bar, where two
          unrelated "x of y" lines ended up stacked on top of each other. ml-auto parks it at the

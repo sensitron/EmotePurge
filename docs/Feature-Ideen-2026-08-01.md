@@ -30,7 +30,9 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A6** Purge-Sicherheitsnetz | ⬜ | — |
 | **A7** Kanal-Aktivitätsverlauf | ✅ 2026-08-02 | DECISIONS „Der Channel bekommt seinen eigenen Audit-Log" |
 | **A8** Resync für Channel-Manager | ✅ 2026-08-02 | DECISIONS „Resync als Self-Service" |
-| **A9**–**A15** | ⬜ | — |
+| **A9**–**A11** | ⬜ | — |
+| **A12** Ergebnis-Export | ✅ 2026-08-02 | DECISIONS „Der Export ist eine Client-Serialisierung …" |
+| **A13**–**A15** | ⬜ | — |
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
 | **B2** Soll/Ist-Roster | ✅ 2026-08-02 | DECISIONS „Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht" |
 | **B3**–**B9** | ⬜ | — |
@@ -338,6 +340,13 @@ Alias im Set, `emotes[].data.name` der Originalname (live bei KarmikKoala: `AYAY
 *Hinweis* rendern, nie als Vorauswahl.
 
 ### A12 — Ergebnis-Export (CSV/JSON) für Voting und Usage
+
+**Status: ✅ umgesetzt am 2026-08-02** — als reine Client-Serialisierung des geladenen Read-Models
+(kein Export-Endpoint), Export-Dialog mit Formatwahl auf beiden Seiten, exportiert wird die sichtbare
+(gefilterte) Liste. Verdeckte Werte (Secret Ballot, manager-only Usage) fallen als ganze Spalte weg
+statt leer zu exportieren; im JSON stehen sie im `withheld`-Feld des Envelopes. Begründung in
+DECISIONS „Der Export ist eine Client-Serialisierung, und eine verdeckte Spalte fehlt statt leer zu
+sein".
 
 Download-Button auf der Vote-Session-Detailseite und im Usage-Grid.
 

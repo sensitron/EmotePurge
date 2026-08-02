@@ -43,6 +43,16 @@
             {{ 'voting.list.end' | transloco }}
           </button>
         }
+        <button
+          type="button"
+          appButton="neutral"
+          class="disabled:cursor-not-allowed"
+          [disabled]="emotes().length === 0"
+          [attr.aria-label]="'export.buttonAriaLabel' | transloco"
+          (click)="openExport()"
+        >
+          {{ 'export.button' | transloco }}
+        </button>
         <button type="button" appButton="neutral" (click)="refresh()">
           {{ 'usageStats.refresh' | transloco }}
         </button>

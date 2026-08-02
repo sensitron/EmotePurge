@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Der Export ist eine Client-Serialisierung, und eine verdeckte Spalte fehlt statt leer zu sein
+
+**Betrifft:** `web/src/app/shared/export/` (neu: `file-download.ts` · `csv.ts` · `export-envelope.ts` · `usage-export.ts` · `voting-export.ts` · `export-dialog.ts`, alle mit Spec) · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/src/app/features/voting/vote-session-detail-page.{ts,html}` · beide Locale-Dateien (`export.*`) · `web/e2e/audit/ui-audit.audit.ts`
+
+**Umsetzung von Idee A12: Download-Button (CSV/JSON) auf der Usage-Stats-Seite und der Vote-Session-Detailseite.** Der Export ist eine reine Client-Serialisierung des bereits geladenen Read-Models — es gibt bewusst **keinen** Export-Endpoint. Das `null` im Read-Model *ist* die serverseitige Sichtbarkeitsentscheidung (`includeTallies`, `includeRawUsage`): ein CSV-Endpoint müsste dieselbe Regel ein zweites Mal treffen, und genau diese Doppelung ist es, die Regel 7 für Fehlertexte verbietet. Nebenwirkung: kein neuer ApiErrorCode, keine neue Rate-Limit-Fläche, und der Download kann konstruktionsbedingt nie mehr sehen als die Seite.
+
+**Exportiert wird die sichtbare Liste** (gefiltert + aktuell sortiert), nicht der Rohabruf — der Button steht bei den Filtern, und 900 Zeilen zu liefern, während der Nutzer auf 12 schaut, wäre überraschend. Die Zeilenzahl steht im Export-Dialog, der außerdem der einzige Ort ist, an dem stehen kann, *warum* Spalten fehlen („verdeckte Ergebnisse — Stimmenspalten nicht enthalten").
+
+**Verdeckte Werte: Spalte fällt weg, nicht leer.** Ist ein Wert in **allen** Zeilen `null` (Secret Ballot, manager-only Usage), entfällt die CSV-Spalte komplett; ist er nur in einzelnen Zeilen `null` (nie benutzt, archiviertes Ballot-Mitglied, nicht abgestimmt), bleibt die Zelle leer. Eine durchgängig leere Tally-Spalte liest `=SUMME()` als „0 Stimmen" — exakt die Fehldeutung, gegen die der Secret Ballot existiert. Im JSON werden zurückgehaltene Felder aus den `rows` **weggelassen** und stattdessen im `withheld: string[]`-Feld benannt — bloßes Weglassen könnte „nicht vorhanden" nicht von „zurückgehalten" unterscheiden.
+
+**Das Envelope-Format ist der Vertrag, auf den A6 aufsetzt.** Jeder JSON-Export trägt `source: 'emotepurge'`, `kind` (`usage` | `voting` | `purge-run`), `formatVersion`, `exportedAt`, `channelName`, `withheld`, `meta`, `rows`. Das Purge-Protokoll (A6) ist die dritte `kind`-Ausprägung desselben Formats und wird beim Re-Import gegen genau diese Felder validiert statt vertraut.
+
+**Dateiform-Entscheidungen, alle mit demselben Argument („die Datei ist Daten, kein UI"):** CSV-Header sind englisches `snake_case` und sprachunabhängig — deutsche Header würden jedes Skript brechen, das gegen den Export geschrieben wurde, und mit der UI-Sprache die Dateiform ändern (dieselbe Begründungslinie wie `ApiErrorCodes`). Zahlen und Daten laufen nie durch `Intl` (`1234`, nicht `1.234`; ISO-Daten). UTF-8-BOM vorangestellt, sonst zerlegt Excel Emote-Namen mit Nicht-ASCII; CRLF und RFC-4180-Quoting; Werte, die mit `=`, `+`, `-`, `@`, Tab oder CR beginnen, bekommen ein führendes `'` (CSV-Injection — Emote-Namen sind fremdkontrollierter Text; eigene Zahlen sind davon ausgenommen, ein präfixierter negativer Score wäre nicht mehr summierbar). Der Session-Titel steht **nie** im Dateinamen (Freitext mit `/`, Anführungszeichen, Unicode) — der Dateiname trägt Channel + Session-Id + Datum, der Titel steht im JSON-`meta`.
+
+---
+
 ### 2026-08-02 — Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht
 
 **Betrifft:** `web/src/app/shared/ui/utilization-tone.ts` (+ `utilization-tone.spec.ts`, beide neu) · `web/src/app/shared/emotes/slot-budget.ts` · `web/src/app/features/admin/admin-roster-card.ts` · `web/src/app/features/admin/admin-monitoring-page.ts` · beide Locale-Dateien · `web/e2e/audit/ui-audit.audit.ts`
