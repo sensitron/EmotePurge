@@ -248,6 +248,108 @@ public class VoteSessionServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task CastVoteAsync_InsertsOnce_ThenUpdatesTheSameRow_WhenTheVoterChangesTheirMind()
+    {
+        // The (VoteSessionId, EmoteId, UserId) unique index is what makes this an update rather than
+        // a second row, and the read-then-insert in front of it is the reason the method carries a
+        // DbUpdateException fallback at all. One vote per user per emote is the invariant the whole
+        // popularity score rests on.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "castupsert1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Emote");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var voter = await SeedUserAsync(db, "castupsert1-voter");
+        var service = new VoteSessionService(db);
+
+        var (firstResult, firstVote) = await service.CastVoteAsync(channel.ChannelName, session.Id, emote.Id, voter.Id, VoteType.Keep);
+        var (secondResult, secondVote) = await service.CastVoteAsync(channel.ChannelName, session.Id, emote.Id, voter.Id, VoteType.Delete);
+
+        Assert.Equal(VoteCastResult.Success, firstResult);
+        Assert.Equal(VoteCastResult.Success, secondResult);
+        Assert.NotNull(firstVote);
+        Assert.NotNull(secondVote);
+        Assert.Equal(firstVote!.Id, secondVote!.Id);
+
+        var stored = Assert.Single(await db.Votes.AsNoTracking().Where(v => v.VoteSessionId == session.Id).ToListAsync());
+        Assert.Equal(VoteType.Delete, stored.Type);
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_ForAnEndedSession_ReturnsSessionEnded_AndStoresNothing()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "castended1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Emote");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var voter = await SeedUserAsync(db, "castended1-voter");
+        var service = new VoteSessionService(db);
+        await service.EndAsync(channel.ChannelName, session.Id, Actor);
+
+        var (result, vote) = await service.CastVoteAsync(channel.ChannelName, session.Id, emote.Id, voter.Id, VoteType.Keep);
+
+        Assert.Equal(VoteCastResult.SessionEnded, result);
+        Assert.Null(vote);
+        Assert.Empty(await db.Votes.AsNoTracking().Where(v => v.VoteSessionId == session.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_ForAnUnknownChannel_ReturnsChannelNotFound()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "castunknown1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Emote");
+        var session = await SeedActiveSessionAsync(db, channel.Id);
+        var voter = await SeedUserAsync(db, "castunknown1-voter");
+        var service = new VoteSessionService(db);
+
+        var (result, vote) = await service.CastVoteAsync("doesnotexist", session.Id, emote.Id, voter.Id, VoteType.Keep);
+
+        Assert.Equal(VoteCastResult.ChannelNotFound, result);
+        Assert.Null(vote);
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_ForASessionOfAnotherChannel_ReturnsSessionNotFound()
+    {
+        // Multi-tenant isolation: the session id is globally unique, so without the ChannelId
+        // predicate in LoadChannelSessionAsync a caller authorized for channel A could vote in
+        // channel B's session simply by naming its id.
+        await using var db = fixture.CreateDbContext();
+        var channelA = await SeedChannelAsync(db, "castforeign1a");
+        var channelB = await SeedChannelAsync(db, "castforeign1b");
+        var emoteA = await SeedEmoteAsync(db, channelA.Id, "Emote");
+        var sessionB = await SeedActiveSessionAsync(db, channelB.Id);
+        var voter = await SeedUserAsync(db, "castforeign1-voter");
+        var service = new VoteSessionService(db);
+
+        var (result, vote) = await service.CastVoteAsync(channelA.ChannelName, sessionB.Id, emoteA.Id, voter.Id, VoteType.Keep);
+
+        Assert.Equal(VoteCastResult.SessionNotFound, result);
+        Assert.Null(vote);
+        Assert.Empty(await db.Votes.AsNoTracking().Where(v => v.VoteSessionId == sessionB.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task CastVoteAsync_ForAnEmoteOfAnotherChannel_ReturnsEmoteNotEligible()
+    {
+        // The other half of the isolation: same session, but an emote id belonging to a foreign
+        // channel. Emote.Id is a global Guid, so only the ChannelId predicate stops this.
+        await using var db = fixture.CreateDbContext();
+        var channelA = await SeedChannelAsync(db, "castforeign2a");
+        var channelB = await SeedChannelAsync(db, "castforeign2b");
+        var sessionA = await SeedActiveSessionAsync(db, channelA.Id);
+        var emoteB = await SeedEmoteAsync(db, channelB.Id, "ForeignEmote");
+        var voter = await SeedUserAsync(db, "castforeign2-voter");
+        var service = new VoteSessionService(db);
+
+        var (result, vote) = await service.CastVoteAsync(channelA.ChannelName, sessionA.Id, emoteB.Id, voter.Id, VoteType.Keep);
+
+        Assert.Equal(VoteCastResult.EmoteNotEligible, result);
+        Assert.Null(vote);
+        Assert.Empty(await db.Votes.AsNoTracking().Where(v => v.EmoteId == emoteB.Id).ToListAsync());
+    }
+
+    [Fact]
     public async Task EndAsync_WritesAuditEntry_Once_EvenWhenCalledTwice()
     {
         // Ending an already-ended session is an idempotent no-op by contract, and a no-op is not an
