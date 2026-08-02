@@ -73,8 +73,8 @@
       class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
       [class]="
         usageFilter.isUnusedActive()
-          ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
-          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+          ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
+          : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
       "
       [attr.aria-pressed]="usageFilter.isUnusedActive()"
       (click)="usageFilter.toggleUnused()"
@@ -89,8 +89,8 @@
       class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
       [class]="
         usageFilter.isHideObservedActive()
-          ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
-          : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+          ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
+          : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
       "
       [attr.aria-pressed]="usageFilter.isHideObservedActive()"
       [title]="'usageStats.hideObservedTitle' | transloco"
@@ -106,7 +106,7 @@
       role="status"
       [class]="
         'ml-auto whitespace-nowrap ' +
-        (usageFilter.isAnyActive() ? 'font-medium text-purple-300' : 'text-slate-400')
+        (usageFilter.isAnyActive() ? 'font-medium text-accent-fg' : 'text-fg-muted')
       "
     >
       {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
@@ -114,7 +114,7 @@
   </div>
 
   @if (trackedSince(); as since) {
-    <p class="text-xs text-slate-400">
+    <p class="text-xs text-fg-muted">
       {{ 'usageStats.trackedSince' | transloco: { date: formatDate(since) } }}
     </p>
     @if (rangeStartsBeforeTracking()) {
@@ -219,10 +219,10 @@
             tabindex="0"
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
-              'flex h-36 cursor-pointer flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition hover:bg-slate-800/70 ' +
+              'flex h-36 cursor-pointer flex-col gap-1 rounded-md border border-border p-2 text-center transition hover:bg-surface-inset/70 ' +
               (selection.isSelected(emote)
-                ? 'inset-ring-2 inset-ring-purple-500 bg-purple-950/40'
-                : 'bg-slate-900')
+                ? 'inset-ring-2 inset-ring-accent bg-accent-wash'
+                : 'bg-surface')
             "
             (click)="selection.onRowClick(emote, $event)"
             (mousedown)="$event.shiftKey && $event.preventDefault()"
@@ -230,7 +230,14 @@
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" />
-            <div class="flex h-10 shrink-0 items-center justify-center">
+            <!-- The image area stays dark in BOTH modes (bg-emote-canvas, design doc §2.0). 7TV
+                 emotes are drawn for dark chat backgrounds — white lettering, light outlines, white
+                 glow edges — and a good share of them is simply invisible on a white card. We have
+                 no influence over the material and cannot blanket-invert it without wrecking the
+                 coloured ones, so this is a deliberate canvas, not an oversight. It also gives the
+                 selection wash somewhere to live: the wash is on the card now, not under the image,
+                 where it used to fight for the same pixels. -->
+            <div class="flex h-10 shrink-0 items-center justify-center rounded bg-emote-canvas">
               <img
                 [ngSrc]="emote.imageUrl"
                 width="40"
@@ -239,9 +246,9 @@
                 class="max-h-10 max-w-10 object-contain"
               />
             </div>
-            <span class="truncate text-sm font-medium text-slate-200"
+            <span class="truncate text-sm font-medium text-fg-body"
               >{{ emote.totalUseCount }}x
-              <span class="text-xs font-normal text-slate-400">{{
+              <span class="text-xs font-normal text-fg-muted">{{
                 'usageStats.usageLabel' | transloco
               }}</span>
               <!-- Suppressed entirely rather than rendered as "stable" when the comparison would be
@@ -252,10 +259,10 @@
                     [class]="
                       'text-xs ' +
                       (trend === 'rising'
-                        ? 'text-emerald-400'
+                        ? 'text-success-fg'
                         : trend === 'falling'
-                          ? 'text-amber-400'
-                          : 'text-slate-400')
+                          ? 'text-warning-fg'
+                          : 'text-fg-muted')
                     "
                     [title]="'usageStats.trend.' + trend | transloco"
                     >{{ trend === 'rising' ? '↗' : trend === 'falling' ? '↘' : '→' }}</span
@@ -271,8 +278,7 @@
                  title so nothing is lost. -->
             <span
               [class]="
-                'truncate text-xs ' +
-                (isUnderObservation(emote) ? 'text-blue-300' : 'text-slate-400')
+                'truncate text-xs ' + (isUnderObservation(emote) ? 'text-info-fg' : 'text-fg-muted')
               "
               [title]="
                 emote.lastUsedDate

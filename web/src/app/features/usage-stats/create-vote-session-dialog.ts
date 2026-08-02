@@ -47,11 +47,13 @@ export interface CreateVoteSessionDialogData {
   selector: 'app-create-vote-session-dialog',
   imports: [Button, DateTimePicker, NoticeBanner, ReactiveFormsModule, TranslocoPipe],
   template: `
-    <div class="flex w-[28rem] max-w-[90vw] flex-col gap-3 rounded-lg bg-slate-900 p-6 shadow-xl">
+    <div
+      class="flex w-[28rem] max-w-[90vw] flex-col gap-3 rounded-lg bg-surface p-6 shadow-overlay"
+    >
       <h2 id="create-vote-session-title" class="text-lg font-semibold">
         {{ 'voting.create.dialogTitle' | transloco }}
       </h2>
-      <p class="text-sm text-slate-400">
+      <p class="text-sm text-fg-muted">
         {{ 'voting.create.selectedCount' | transloco: { count: data.emoteIds.length } }}
       </p>
       <input
@@ -67,15 +69,15 @@ export interface CreateVoteSessionDialogData {
         class="app-input"
       />
       @if (titleControl.invalid && titleControl.touched) {
-        <p id="create-vote-session-title-error" class="text-sm text-red-400">
+        <p id="create-vote-session-title-error" class="text-sm text-danger-fg">
           {{ 'voting.list.titleRequired' | transloco }}
         </p>
       }
-      <div class="flex flex-wrap gap-4 text-sm text-slate-300">
+      <div class="flex flex-wrap gap-4 text-sm text-fg-secondary">
         <label class="flex items-center gap-2 py-1">
           <input
             type="radio"
-            class="h-4 w-4 accent-purple-600"
+            class="h-4 w-4 accent-accent-solid"
             name="dialog-audience"
             [checked]="selectedAudience() === 'everyone'"
             (change)="selectedAudience.set('everyone')"
@@ -85,7 +87,7 @@ export interface CreateVoteSessionDialogData {
         <label class="flex items-center gap-2 py-1">
           <input
             type="radio"
-            class="h-4 w-4 accent-purple-600"
+            class="h-4 w-4 accent-accent-solid"
             name="dialog-audience"
             [checked]="selectedAudience() === 'subs'"
             (change)="selectedAudience.set('subs')"
@@ -95,7 +97,7 @@ export interface CreateVoteSessionDialogData {
         <label class="flex items-center gap-2 py-1">
           <input
             type="radio"
-            class="h-4 w-4 accent-purple-600"
+            class="h-4 w-4 accent-accent-solid"
             name="dialog-audience"
             [checked]="selectedAudience() === 'mods'"
             (change)="selectedAudience.set('mods')"
@@ -103,25 +105,25 @@ export interface CreateVoteSessionDialogData {
           {{ 'voting.list.audienceMods' | transloco }}
         </label>
       </div>
-      <label class="flex flex-col gap-1 text-sm text-slate-300">
+      <label class="flex flex-col gap-1 text-sm text-fg-secondary">
         {{ 'voting.list.startCountingLabel' | transloco }}
         <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
-        <span class="text-xs text-slate-400">
+        <span class="text-xs text-fg-muted">
           {{ 'voting.create.startPrefillHint' | transloco }}
         </span>
       </label>
-      <div class="flex flex-col gap-1 text-sm text-slate-300">
+      <div class="flex flex-col gap-1 text-sm text-fg-secondary">
         <label class="flex items-center gap-2 py-1">
           <input
             type="checkbox"
-            class="h-4 w-4 accent-purple-600"
+            class="h-4 w-4 accent-accent-solid"
             [checked]="hideResultsUntilEnd()"
             (change)="hideResultsUntilEnd.set($any($event.target).checked)"
             aria-describedby="create-vote-session-hide-results-hint"
           />
           {{ 'voting.list.hideResultsLabel' | transloco }}
         </label>
-        <span id="create-vote-session-hide-results-hint" class="text-xs text-slate-400">
+        <span id="create-vote-session-hide-results-hint" class="text-xs text-fg-muted">
           {{ 'voting.list.hideResultsHint' | transloco }}
         </span>
       </div>

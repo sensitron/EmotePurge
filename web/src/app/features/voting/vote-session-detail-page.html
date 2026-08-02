@@ -18,7 +18,7 @@
                vote here at all, and unlike the usage window it is not manager-only context. -->
           <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
         </div>
-        <p class="text-sm text-slate-400">
+        <p class="text-sm text-fg-muted">
           {{
             (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded') | transloco
           }}
@@ -94,8 +94,8 @@
           class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
           [class]="
             usageFilter.isUnusedActive()
-              ? 'bg-purple-700 font-medium text-white hover:bg-purple-600'
-              : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+              ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
+              : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
           "
           [attr.aria-pressed]="usageFilter.isUnusedActive()"
           (click)="usageFilter.toggleUnused()"
@@ -105,7 +105,7 @@
       }
     </div>
   }
-  <p class="text-sm text-slate-400" role="status">
+  <p class="text-sm text-fg-muted" role="status">
     {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}
   </p>
 
@@ -188,11 +188,11 @@
             [attr.tabindex]="canSelectForDelete() ? 0 : null"
             [attr.aria-pressed]="canSelectForDelete() ? selection.isSelected(emote) : null"
             [class]="
-              'flex h-44 flex-col gap-1 rounded-md border border-slate-800 p-2 text-center transition ' +
-              (canSelectForDelete() ? 'cursor-pointer hover:bg-slate-800/70 ' : '') +
+              'flex h-44 flex-col gap-1 rounded-md border border-border p-2 text-center transition ' +
+              (canSelectForDelete() ? 'cursor-pointer hover:bg-surface-inset/70 ' : '') +
               (selection.isSelected(emote)
-                ? 'inset-ring-2 inset-ring-purple-500 bg-purple-950/40'
-                : 'bg-slate-900')
+                ? 'inset-ring-2 inset-ring-accent bg-accent-wash'
+                : 'bg-surface')
             "
             (click)="onCardActivate(emote, $event)"
             (mousedown)="canSelectForDelete() && $event.shiftKey && $event.preventDefault()"
@@ -201,8 +201,14 @@
           >
             <app-emote-card-header [name]="emote.emoteName" />
             <!-- The archived badge overlays the image block (relative/absolute) instead of adding a
-                 line — the h-44 card contract that ROW_HEIGHT_PX budgets for stays untouched. -->
-            <div class="relative flex h-10 shrink-0 items-center justify-center">
+                 line — the h-44 card contract that ROW_HEIGHT_PX budgets for stays untouched.
+                 bg-emote-canvas keeps this block dark in BOTH modes (design doc §2.0): 7TV emotes
+                 are drawn for dark chat backgrounds and a good share of them is invisible on a
+                 white card. Deliberate canvas, not an oversight — and it is what lets the selection
+                 wash move onto the card instead of fighting the artwork for the same pixels. -->
+            <div
+              class="relative flex h-10 shrink-0 items-center justify-center rounded bg-emote-canvas"
+            >
               <img
                 [ngSrc]="emote.imageUrl"
                 width="40"
@@ -226,18 +232,18 @@
                  figure at all (manager view) — null means withheld, not "used 0 times". -->
             <div class="flex flex-col leading-tight" [attr.title]="statsTitle(emote)">
               @if (emote.totalUseCount !== null) {
-                <span class="truncate text-xs font-medium text-slate-200"
+                <span class="truncate text-xs font-medium text-fg-body"
                   >{{ emote.totalUseCount }}x {{ 'usageStats.usageLabel' | transloco }}</span
                 >
               }
               <!-- The line stays occupied either way: dropping it on a hidden session would change
                    the card height the ROW_HEIGHT_PX arithmetic budgets for. -->
               @if (emote.score !== null) {
-                <span class="truncate text-xs text-slate-400"
+                <span class="truncate text-xs text-fg-muted"
                   >{{ 'voting.detail.scoreLabel' | transloco }} {{ formatScore(emote.score) }}</span
                 >
               } @else {
-                <span class="truncate text-xs text-slate-400 italic">{{
+                <span class="truncate text-xs text-fg-muted italic">{{
                   'voting.detail.resultsHiddenShort' | transloco
                 }}</span>
               }
@@ -256,8 +262,8 @@
                 class="flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6 sm:justify-start disabled:cursor-not-allowed disabled:opacity-50"
                 [class]="
                   emote.myVote === voteType.Keep
-                    ? 'bg-emerald-700 text-white hover:bg-emerald-600'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-success-solid text-on-accent hover:bg-success-solid-hover'
+                    : 'bg-surface-inset text-fg-secondary hover:bg-surface-inset-hover'
                 "
                 [disabled]="emote.isArchived"
                 [attr.aria-pressed]="emote.myVote === voteType.Keep"
@@ -291,8 +297,8 @@
                 class="flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs transition sm:min-h-6 sm:justify-start disabled:cursor-not-allowed disabled:opacity-50"
                 [class]="
                   emote.myVote === voteType.Delete
-                    ? 'bg-red-700 text-white hover:bg-red-600'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-danger-solid text-on-accent hover:bg-danger-solid-hover'
+                    : 'bg-surface-inset text-fg-secondary hover:bg-surface-inset-hover'
                 "
                 [disabled]="emote.isArchived"
                 [attr.aria-pressed]="emote.myVote === voteType.Delete"

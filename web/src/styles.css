@@ -81,6 +81,7 @@
   --ep-success-wash: var(--color-emerald-950);
   --ep-success-fg: var(--color-emerald-300);
   --ep-success-solid: var(--color-emerald-700);
+  --ep-success-solid-hover: var(--color-emerald-600);
   --ep-success-dot: var(--color-emerald-500);
 
   --ep-warning-wash: var(--color-amber-950);
@@ -151,6 +152,7 @@
   --ep-success-wash: var(--color-emerald-50);
   --ep-success-fg: var(--color-emerald-700);
   --ep-success-solid: var(--color-emerald-700);
+  --ep-success-solid-hover: var(--color-emerald-800);
   --ep-success-dot: var(--color-emerald-600);
 
   --ep-warning-wash: var(--color-amber-50);
@@ -218,6 +220,7 @@
   --color-success-wash: var(--ep-success-wash);
   --color-success-fg: var(--ep-success-fg);
   --color-success-solid: var(--ep-success-solid);
+  --color-success-solid-hover: var(--ep-success-solid-hover);
   --color-success-dot: var(--ep-success-dot);
 
   --color-warning-wash: var(--ep-warning-wash);

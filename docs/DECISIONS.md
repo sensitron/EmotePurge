@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Der Umschalter wird sichtbar, und die Emote-Kachel bleibt in beiden Modi dunkel
+
+**Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/app.ts` · `web/src/app/features/{usage-stats,voting,channel-workspace,login,overview,my-votings}/*` · `web/e2e/theme.spec.ts` (neu) · `web/src/test-setup.ts` (neu) · `web/angular.json` · `docs/UI-Designsprache.md`
+
+**Der helle Modus ist ab hier benutzbar, und deshalb ist der Umschalter jetzt im Header.** Er stand seit der Tokenebene bereit, war aber nicht gerendert — in einen halb migrierten Zustand schalten zu können wäre schlimmer gewesen als gar nicht schalten zu können. Mit dieser Welle ist die komplette angemeldete Nutzung themefähig; Admin-Bereich und Landing-Page ziehen nach und sind bis dahin dunkel-fest, aber in sich stimmig.
+
+**Die Emote-Kachel bleibt in beiden Modi dunkel (`bg-emote-canvas`), und das ist Absicht.** Die Bilder kommen vom 7TV-CDN und sind für dunkle Chat-Hintergründe gezeichnet: weiße Schrift, helle Outlines, weiße Glow-Kanten. Auf einer weißen Karte verschwindet ein erheblicher Teil davon. Wir haben auf das Material keinen Einfluss und können es nicht pauschal invertieren, ohne die farbigen Emotes zu zerstören — eine bewusst gesetzte, abgerundete „Leinwand" ist gegenüber dem Material ehrlicher als ein hellerer Kasten, in dem manche Emotes einfach fehlen. Das ist das **einzige** themefeste Token; es ist als solches in der Designsprache §2.0 vermerkt und darf sich nicht vermehren. **Nebenwirkung, die dazugehört:** der Selektions-Wash lag bisher *unter* dem Bild (`bg-purple-950/40` auf der Karte, Bild ohne eigene Fläche). Er wandert damit auf die Karte, wo er nicht mehr mit dem Bild um dieselben Pixel kämpft; der `inset-ring` bleibt, wie §8.5 ihn vorschreibt.
+
+**`ThemeService` wird in `App` injiziert, nicht in der Shell — gefunden durch den neuen E2E-Spec, nicht durch Nachdenken.** Ein `providedIn: 'root'`-Service wird erst konstruiert, wenn ihn jemand anfordert. Landing-Page und Login-Seite rendern **außerhalb** der App-Shell; auf beiden existierte der Service also nie, womit ein Systemwechsel bei geöffneter Seite dort nicht durchschlug und die Seite bei dem Wert stehenblieb, den `theme-init.js` beim Laden gestempelt hatte. `App` ist die einzige Komponente, die auf jeder Route rendert — dort gehört die Injektion hin. Zwei der fünf Fälle in `theme.spec.ts` sind genau darüber rot geworden.
+
+**Der Header benutzt jetzt `.app-sticky-bar` statt einer eigenen Blur-Kopie.** Er hatte `bg-slate-950/80 backdrop-blur` handgeschrieben; die Deckung muss aber im Hellen höher sein als im Dunkeln (sonst schmutzt der Text durch den Blur), und dieser Wert lebt in `--ep-sticky-alpha`. Das `z-30` des Headers steht als Utility daneben und schlägt damit das `z-20` der Klasse — Utilities liegen in Tailwind hinter der Components-Ebene. Der Höhenvertrag aus §8.5 (`h-14`) bleibt unberührt.
+
+**Neu: `web/src/test-setup.ts`, global über `angular.json` eingehängt.** jsdom implementiert `window.matchMedia` nicht. Sobald `App` den `ThemeService` zieht, fällt jeder Spec darüber, der die Wurzelkomponente instanziiert — aus einem Grund, der mit dem Testgegenstand nichts zu tun hat. Der Stub ist bewusst der dümpste mögliche (matcht nie, feuert nie); Specs, die Media-Query-Verhalten wirklich prüfen, stellen per `vi.stubGlobal` ihren eigenen, reicheren Fake davor.
+
+---
+
 ### 2026-08-02 — Eine Tokenebene für Farbe, und warum der FOUC-Wächter eine eigene Datei ist
 
 **Betrifft:** `web/src/styles.css` · `web/public/theme-init.js` (neu) · `web/src/index.html` · `web/src/app/core/theme/theme.service.{ts,spec.ts}` (neu) · `web/src/app/shared/ui/theme-menu.ts` (neu) · `web/public/i18n/{de,en}.json` · `web/src/app/features/{shell/app-shell.ts,landing/landing-page.html,login/login-page.ts}` · `docs/UI-Designsprache.md` (§2.0, §2.1, §10)

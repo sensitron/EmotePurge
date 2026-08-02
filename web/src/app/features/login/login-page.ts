@@ -11,7 +11,7 @@ import { Button } from '../../shared/ui/button';
   selector: 'app-login-page',
   template: `
     <div
-      class="relative isolate flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-950 px-4 text-slate-100"
+      class="relative isolate flex min-h-screen flex-col items-center justify-center gap-6 bg-page px-4 text-fg"
     >
       <!-- Same subtle top glow as the app shell — the login page renders outside the shell,
            so it brings the brand background along itself. -->
@@ -24,8 +24,8 @@ import { Button } from '../../shared/ui/button';
         Emote Purge
       </a>
       <div class="app-card w-full max-w-sm p-8 text-center shadow-xl">
-        <h1 class="mb-2 text-2xl font-semibold text-white">{{ 'login.title' | transloco }}</h1>
-        <p class="mb-6 text-sm text-slate-400">
+        <h1 class="mb-2 text-2xl font-semibold text-fg">{{ 'login.title' | transloco }}</h1>
+        <p class="mb-6 text-sm text-fg-muted">
           {{ 'login.subtitle' | transloco }}
         </p>
         <button type="button" appButton="primary" buttonSize="lg" class="w-full" (click)="login()">

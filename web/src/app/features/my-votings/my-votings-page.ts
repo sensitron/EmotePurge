@@ -81,7 +81,7 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
                   }}
                 </app-status-badge>
               </div>
-              <div class="mt-1 text-sm text-slate-400">#{{ session.channelName }}</div>
+              <div class="mt-1 text-sm text-fg-muted">#{{ session.channelName }}</div>
             </li>
           }
         </ul>

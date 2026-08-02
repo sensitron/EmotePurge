@@ -7,11 +7,12 @@ import { AuthService } from '../../core/auth/auth.service';
 import { WorkerHealthService, WorkerHealthStatus } from '../../core/health/worker-health.service';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { Button } from '../../shared/ui/button';
+import { ThemeMenu } from '../../shared/ui/theme-menu';
 
 const STATUS_DOT_CLASS: Record<WorkerHealthStatus, string> = {
-  connected: 'bg-emerald-500',
-  stale: 'bg-amber-500',
-  unknown: 'bg-slate-600',
+  connected: 'bg-success-dot',
+  stale: 'bg-warning-dot',
+  unknown: 'bg-fg-disabled',
 };
 
 const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
@@ -22,23 +23,32 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
 
 @Component({
   selector: 'app-shell',
-  imports: [Button, NgOptimizedImage, RouterLink, RouterOutlet, TranslocoPipe, LanguageSwitcher],
+  imports: [
+    Button,
+    NgOptimizedImage,
+    RouterLink,
+    RouterOutlet,
+    TranslocoPipe,
+    LanguageSwitcher,
+    ThemeMenu,
+  ],
   host: {
     '(keydown.escape)': 'onEscape()',
     '(document:click)': 'onDocumentClick($event)',
   },
   template: `
-    <div class="isolate min-h-screen bg-slate-950 text-slate-100">
+    <div class="isolate min-h-screen bg-page text-fg">
       <!-- Subtle top glow — decorative only, sits behind everything via -z-10 (root is isolate).
            The class is shared with the landing hero and the login page, which carried three
            byte-identical copies of the gradient before; it also carries the per-theme dimming. -->
       <div class="app-page-glow" aria-hidden="true"></div>
       <!-- h-14 is a contract, not styling: the sticky tab bars pin at top-14 and the sticky
            filter toolbars at top-24, both assuming exactly this header height (design doc §8.5).
-           z-30 keeps the header (and its mobile disclosure) above the z-20 sticky bars. -->
-      <header
-        class="sticky top-0 z-30 h-14 border-b border-slate-800 bg-slate-950/80 px-4 backdrop-blur"
-      >
+           z-30 keeps the header (and its mobile disclosure) above the z-20 sticky bars — it is a
+           utility here so it beats .app-sticky-bar's own z-20 (utilities layer after components).
+           Reusing that class rather than repeating the blur: the translucency has to be denser in
+           light than in dark, and --ep-sticky-alpha is where that lives. -->
+      <header class="app-sticky-bar top-0 z-30 h-14 border-b border-border px-4">
         <div class="relative mx-auto flex h-full max-w-5xl items-center justify-between gap-3">
           <!-- Logo and worker-health dot form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
@@ -52,7 +62,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
             </a>
             <!-- Dot always visible, text label only when there's room. -->
             <span
-              class="inline-flex min-w-0 items-center gap-2 text-xs text-slate-400"
+              class="inline-flex min-w-0 items-center gap-2 text-xs text-fg-muted"
               [attr.title]="statusLabelKey() | transloco"
             >
               <span class="h-2.5 w-2.5 shrink-0 rounded-full" [class]="statusDotClass()"></span>
@@ -63,22 +73,23 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
 
           <!-- Desktop: everything inline, as before. -->
           <div class="hidden items-center gap-4 md:flex">
+            <!-- Theme and language sit together: both are personal display preferences rather than
+                 domain actions, so they belong in the same corner of the header. -->
+            <app-theme-menu />
             <app-language-switcher />
 
             @if (currentUser(); as user) {
               <!-- Visibility only — /admin is behind adminGuard and every admin endpoint behind
                    GlobalAdminAuthorizationFilter. The flag rides along on the cached /me. -->
               @if (user.isGlobalAdmin) {
-                <a routerLink="/admin" class="px-1 py-2 text-sm text-slate-400 hover:underline">{{
+                <a routerLink="/admin" class="px-1 py-2 text-sm text-fg-muted hover:underline">{{
                   'shell.admin' | transloco
                 }}</a>
               }
-              <a
-                routerLink="/my-votings"
-                class="px-1 py-2 text-sm text-slate-400 hover:underline"
-                >{{ 'shell.myVotings' | transloco }}</a
-              >
-              <span class="text-sm text-slate-400">{{ user.displayName }}</span>
+              <a routerLink="/my-votings" class="px-1 py-2 text-sm text-fg-muted hover:underline">{{
+                'shell.myVotings' | transloco
+              }}</a>
+              <span class="text-sm text-fg-muted">{{ user.displayName }}</span>
               <button type="button" appButton="outline" (click)="logout()">
                 {{ 'shell.logout' | transloco }}
               </button>
@@ -94,7 +105,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
             #menuButton
             type="button"
             data-shell-menu
-            class="inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-700 text-slate-300 transition hover:bg-slate-800 md:hidden"
+            class="inline-flex h-11 w-11 items-center justify-center rounded-md border border-border-strong text-fg-secondary transition hover:bg-surface-inset md:hidden"
             [attr.aria-expanded]="menuOpen()"
             aria-controls="app-shell-menu"
             [attr.aria-label]="'shell.menu' | transloco"
@@ -129,13 +140,13 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
             <nav
               id="app-shell-menu"
               data-shell-menu
-              class="absolute inset-x-0 top-full z-20 mt-3 flex flex-col gap-1 rounded-md border border-slate-800 bg-slate-900 p-2 shadow-lg md:hidden"
+              class="absolute inset-x-0 top-full z-20 mt-3 flex flex-col gap-1 rounded-md border border-border bg-surface p-2 shadow-overlay md:hidden"
             >
               @if (currentUser(); as user) {
                 @if (user.isGlobalAdmin) {
                   <a
                     routerLink="/admin"
-                    class="rounded-md px-3 py-3 text-sm text-slate-200 transition hover:bg-slate-800"
+                    class="rounded-md px-3 py-3 text-sm text-fg-body transition hover:bg-surface-inset"
                     (click)="closeMenu()"
                   >
                     {{ 'shell.admin' | transloco }}
@@ -143,14 +154,19 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
                 }
                 <a
                   routerLink="/my-votings"
-                  class="rounded-md px-3 py-3 text-sm text-slate-200 transition hover:bg-slate-800"
+                  class="rounded-md px-3 py-3 text-sm text-fg-body transition hover:bg-surface-inset"
                   (click)="closeMenu()"
                 >
                   {{ 'shell.myVotings' | transloco }}
                 </a>
+                <!-- The h-14 header has no room for another control on narrow viewports (§8.5
+                     height contract), so the theme menu joins the language switcher down here. -->
                 <div class="flex items-center justify-between gap-3 rounded-md px-3 py-3">
-                  <span class="text-sm text-slate-400">{{ user.displayName }}</span>
-                  <app-language-switcher />
+                  <span class="text-sm text-fg-muted">{{ user.displayName }}</span>
+                  <div class="flex items-center gap-2">
+                    <app-theme-menu />
+                    <app-language-switcher />
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -161,7 +177,8 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
                   {{ 'shell.logout' | transloco }}
                 </button>
               } @else {
-                <div class="flex items-center justify-end rounded-md px-3 py-2">
+                <div class="flex items-center justify-end gap-2 rounded-md px-3 py-2">
+                  <app-theme-menu />
                   <app-language-switcher />
                 </div>
                 <a

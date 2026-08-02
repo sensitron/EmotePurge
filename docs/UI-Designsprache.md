@@ -157,11 +157,11 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
     [attr.aria-describedby]="control.invalid && control.touched ? 'feld-id-error' : null"
   />
   @if (control.invalid && control.touched) {
-    <p id="feld-id-error" class="text-sm text-red-400">{{ 'x.y.error' | transloco }}</p>
+    <p id="feld-id-error" class="text-sm text-danger-fg">{{ 'x.y.error' | transloco }}</p>
   }
   ```
 
-  Fest: Fehlertext `text-sm text-red-400`, Fehler-`<p>` mit `id`, Input mit `aria-invalid` + `aria-describedby` nur im Fehlerfall. Formular-**übergreifende** Fehler (Request fehlgeschlagen) laufen dagegen über `NoticeBanner variant="error"` (4.4), nicht über Feldfehler.
+  Fest: Fehlertext `text-sm text-danger-fg`, Fehler-`<p>` mit `id`, Input mit `aria-invalid` + `aria-describedby` nur im Fehlerfall. Formular-**übergreifende** Fehler (Request fehlgeschlagen) laufen dagegen über `NoticeBanner variant="error"` (4.4), nicht über Feldfehler.
 - **Wann anwenden:** Jedes Feld mit Client-Validierung, dessen Fehler sichtbar wird. Ein still bleibendes `invalid` ohne Anzeige (7TV-Token-Input) ist die zu vermeidende Ausnahme.
 - **Referenz:** `web/src/app/features/voting/vote-session-list-page.html` (Titel-Feld), `web/src/app/features/admin/admin-channels-page.ts` (Channel-Join).
 
@@ -216,7 +216,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Kanonisches Snippet — inklusive `ariaCurrentWhenActive="page"`, das ist Pflicht:
 
   ```html
-  <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-slate-800">
+  <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
     <a
       [routerLink]="['...', 'tab']"
       routerLinkActive
@@ -224,8 +224,8 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
       #tab="routerLinkActive"
       [class]="
         tab.isActive
-          ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-          : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+          ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+          : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
       "
     >{{ 'x.tab' | transloco }}</a>
   </nav>
@@ -263,7 +263,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Virtualisierte Emote-Grids scrollen mit dem Dokument:** `<cdk-virtual-scroll-viewport scrollWindow>` — kein innerer Scroll-Container, keine feste Viewport-Höhe, kein Rahmen um das Grid. Die Zeilen laufen beim Scrollen bewusst unter den transluzenten Sticky-Leisten durch. Zum Vertrag gehört die Regel `cdk-virtual-scroll-viewport[scrollWindow] { overflow-anchor: none; }` in `styles.css` (bei `scrollWindow` wendet CDK `.cdk-virtual-scrollable` nicht an, das Scroll-Anchoring des Browsers würde sonst auf dem Dokument jittern) sowie `minBufferPx`/`maxBufferPx` ≥ 1×/2× Zeilenhöhe (die CDK-Defaults sind kleiner als eine Grid-Zeile). Die `ROW_HEIGHT_PX`-Konstanten der Seiten müssen die Kartenhöhen-Arithmetik als Kommentar nennen.
 - **z-Leiter (verbindlich):** dekorativer Glow `-z-10` < Karten-Action-Container/Stretched-Link `z-10` (§2.3, unverändert) < Sticky-Leisten `z-20` < Shell-/Landing-Header `z-30` (dessen Mobile-Disclosure liegt als `z-20` **im** Header-Kontext und damit über allem). Dropdowns, die aus einer Sticky-Leiste heraus öffnen (z. B. das Zeitraum-Menü der Usage-Stats, `shared/ui/popover.ts` via `shared/datetime/date-range-menu.ts`), erben deren `z-20`-Kontext und liegen damit über dem Content; Dropdowns im Content (Datetime-Picker im Create-Formular, `z-30` im `z-10`-Karten-Kontext) bleiben unter den Leisten — sie öffnen nach unten, weg davon.
 - **Warum feste Höhen:** `sticky` braucht für gestapelte Ebenen exakte `top`-Offsets. `h-14`/`h-10` sind deshalb keine Optik, sondern Berechnungsgrundlage (`top-24` = 14 + 10) — wer sie ändert, zieht alle `top`-Werte nach. Die Filter-Toolbar selbst darf beliebig hoch wrappen, ihr eigener `top` hängt nur von den Ebenen **über** ihr ab.
-- **Selektions- und Hover-Zustände malen ausschließlich *innerhalb* der Kartenfläche** — konkret `inset-ring-2 inset-ring-purple-500` statt `ring-2` (Tailwind v4; `ring-inset` gibt es dort nicht mehr). Grund ist genau diese Sticky-Konstruktion: Scroll-Container und Sticky-Leisten sind beide exakt die Content-Box von `<main class="mx-auto max-w-5xl px-4">`, und ein *outset* `ring-2` malt 2 px **außerhalb** der Border-Box. Bei den Karten der ersten und letzten Grid-Spalte lagen diese 2 px damit links und rechts neben dem Hintergrundkasten der Leiste und schimmerten beim Durchscrollen durch. Die Leiste breiter zu machen wurde verworfen: das hätte den Randeffekt nur verdeckt, statt ihn zu vermeiden, und jede künftige Leiste hätte mitziehen müssen. **Neuer Selektionszustand auf einer Karte ⇒ `inset-ring-*`.**
+- **Selektions- und Hover-Zustände malen ausschließlich *innerhalb* der Kartenfläche** — konkret `inset-ring-2 inset-ring-accent` statt `ring-2` (Tailwind v4; `ring-inset` gibt es dort nicht mehr). Grund ist genau diese Sticky-Konstruktion: Scroll-Container und Sticky-Leisten sind beide exakt die Content-Box von `<main class="mx-auto max-w-5xl px-4">`, und ein *outset* `ring-2` malt 2 px **außerhalb** der Border-Box. Bei den Karten der ersten und letzten Grid-Spalte lagen diese 2 px damit links und rechts neben dem Hintergrundkasten der Leiste und schimmerten beim Durchscrollen durch. Die Leiste breiter zu machen wurde verworfen: das hätte den Randeffekt nur verdeckt, statt ihn zu vermeiden, und jede künftige Leiste hätte mitziehen müssen. **Neuer Selektionszustand auf einer Karte ⇒ `inset-ring-*`.**
 - **Die Fokus-Outline bleibt bewusst outset** (globaler `:focus-visible`-Ring, §10) — sie ist transient und darf an den Randspalten nicht abgeschnitten werden. Genau deshalb steht in `styles.css` weiterhin `contain: layout style` statt CDKs `contain: content` auf `.cdk-virtual-scroll-content-wrapper`: Paint-Containment würde sie kappen. Diese Regel nicht „aufräumen".
 - **Referenz:** `web/src/styles.css` (`.app-sticky-bar`, CDK-Containment-Block), `web/src/app/features/admin/admin-audit-log-page.ts` (Toolbar), `web/src/app/features/shell/app-shell.ts` (Header), `usage-stats-page.html` + `vote-session-detail-page.html` (Selektionsring).
 

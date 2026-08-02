@@ -68,7 +68,7 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
 
       <!-- Sticky under the h-14 shell header; h-10 is a contract — filter toolbars pin at
            top-24 (= 14 + 10). Links are flex/items-center so the fixed height carries exactly. -->
-      <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-slate-800">
+      <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
         @if (canViewUsageStats()) {
           <a
             routerLink="usage-stats"
@@ -77,8 +77,8 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
             #usageStatsTab="routerLinkActive"
             [class]="
               usageStatsTab.isActive
-                ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-                : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+                ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+                : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
             "
           >
             {{ 'channelWorkspace.tabs.usage' | transloco }}
@@ -91,8 +91,8 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
           #voteSessionsTab="routerLinkActive"
           [class]="
             voteSessionsTab.isActive
-              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
           "
         >
           {{ 'channelWorkspace.tabs.voting' | transloco }}
