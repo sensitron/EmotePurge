@@ -26,6 +26,9 @@
           class="hidden px-1 py-2 text-sm text-fg-muted transition hover:text-fg sm:inline-block"
           >{{ 'landing.nav.how' | transloco }}</a
         >
+        <!-- Same pair as the app shell: theme and language are both personal display
+             preferences. The landing renders outside the shell, so it carries its own copy. -->
+        <app-theme-menu />
         <app-language-switcher />
         <button
           type="button"

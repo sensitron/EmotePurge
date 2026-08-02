@@ -7,6 +7,7 @@ import { AuthService } from '../../core/auth/auth.service';
 import { logoSrc } from '../../shared/branding/logo';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { Button } from '../../shared/ui/button';
+import { ThemeMenu } from '../../shared/ui/theme-menu';
 
 @Component({
   selector: 'app-login-page',
@@ -17,7 +18,10 @@ import { Button } from '../../shared/ui/button';
       <!-- Same subtle top glow as the app shell — the login page renders outside the shell,
            so it brings the brand background along itself. -->
       <div class="app-page-glow" aria-hidden="true"></div>
-      <div class="absolute top-4 right-4">
+      <!-- The login page renders outside the shell too, so it brings both display-preference
+           controls along itself rather than leaving the visitor without a theme switch. -->
+      <div class="absolute top-4 right-4 flex items-center gap-2">
+        <app-theme-menu />
         <app-language-switcher />
       </div>
       <a routerLink="/welcome" class="flex items-center gap-2 text-xl font-semibold">
@@ -35,7 +39,7 @@ import { Button } from '../../shared/ui/button';
       </div>
     </div>
   `,
-  imports: [Button, NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher],
+  imports: [Button, NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher, ThemeMenu],
 })
 export class LoginPage {
   private readonly authService = inject(AuthService);

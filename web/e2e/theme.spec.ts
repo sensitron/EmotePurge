@@ -104,8 +104,6 @@ test.describe('theme', () => {
   });
 
   test('the header menu switches the mode and persists the choice', async ({ page }) => {
-    // The switcher lives in the app shell, and /welcome and /login both render outside it — so
-    // this one needs a signed-in session to have a header at all.
     await mockAuthMe(page, AUTH_USER);
     await mockMyChannels(page, []);
     await page.emulateMedia({ colorScheme: 'dark' });
@@ -119,4 +117,22 @@ test.describe('theme', () => {
     const stored = await page.evaluate(() => localStorage.getItem('emotepurge.theme'));
     expect(stored).toBe('light');
   });
+
+  // The landing and login pages render outside the app shell and therefore outside its header.
+  // Leaving them without a theme switch would mean the marketing surface — the first thing anyone
+  // ever sees — offers a language switch and no way to change the mode next to it.
+  for (const [name, path] of [
+    ['landing', '/welcome'],
+    ['login', '/login'],
+  ]) {
+    test(`the ${name} page carries its own theme switch`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await page.goto(path);
+
+      await page.getByRole('button', { name: 'Darstellung wählen' }).click();
+      await page.getByRole('menuitemradio', { name: 'Hell' }).click();
+
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    });
+  }
 });

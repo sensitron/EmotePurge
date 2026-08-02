@@ -6,6 +6,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { AuthService } from '../../core/auth/auth.service';
 import { logoSrc } from '../../shared/branding/logo';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
+import { ThemeMenu } from '../../shared/ui/theme-menu';
 
 interface Feature {
   icon: string;
@@ -52,7 +53,7 @@ const STEPS: Step[] = [
 
 @Component({
   selector: 'app-landing-page',
-  imports: [NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher],
+  imports: [NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher, ThemeMenu],
   templateUrl: './landing-page.html',
 })
 export class LandingPage {
