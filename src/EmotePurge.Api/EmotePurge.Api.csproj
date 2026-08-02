@@ -16,6 +16,14 @@
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
   </ItemGroup>
 
+  <!-- The auth filters, ApiErrorCodes and TwitchClaimTypes are internal on purpose — they are this
+       assembly's contract with itself, not a public API. The filter-matrix tests assert exactly
+       those constants, so they read them rather than re-typing the string literals: a renamed error
+       code must break the test, not silently make it assert against a value nobody returns. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="EmotePurge.Api.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\EmotePurge.Infrastructure\EmotePurge.Infrastructure.csproj" />
     <ProjectReference Include="..\EmotePurge.Core\EmotePurge.Core.csproj" />

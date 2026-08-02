@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Ein drittes Testprojekt für die Api
+
+**Betrifft:** `tests/EmotePurge.Api.Tests/` (neu) · `src/EmotePurge.Api/Program.cs` · `src/EmotePurge.Api/EmotePurge.Api.csproj` · `EmotePurge.slnx` · `CLAUDE.md`
+
+**Es gibt jetzt ein Testprojekt für die Api, und die alte Begründung dagegen wird ergänzt, nicht ersetzt.** Sie lautete: „die dünnen Handler delegieren an die getestete Infrastructure-Schicht" — das stimmt für die Handler und stimmt nicht für die fünf `IEndpointFilter`-Klassen davor. Die sind enge Verwandte voneinander: `VoteAudienceFilter` und `VoteEligibilityFilter` unterscheiden sich in genau einem Switch-Arm, `UsageStatsAccessAuthorizationFilter` und `ChannelManagementAuthorizationFilter` in genau einem Methodenaufruf. Ein Copy-Paste-Fehler an einer dieser Stellen öffnet Daten dem falschen Publikum, ohne dass irgendetwas rot wird — und die Handler-Delegations-Begründung deckt genau diesen Bereich nicht ab. `tests/EmotePurge.Api.Tests` fährt deshalb per `WebApplicationFactory` die **echte** Route-Tabelle ab statt nachgebauter Endpoints: die Hälfte des Werts liegt darin, dass ein Filter am richtigen Endpoint hängt. Neues Paket: `Microsoft.AspNetCore.Mvc.Testing`.
+
+**Container-frei, und die Grenze dafür ist `IConnectionMultiplexer`.** Substituiert werden nur `IChannelAccessService`, `IVoteEligibilityService`, `IChannelService` und der Multiplexer; der restliche Service-Graph bleibt echt. Der Multiplexer muss mit hinein, weil `RequestDelegateFactory` die injizierten Services eines Handlers auflöst, **bevor** die Endpoint-Filter-Pipeline läuft — ein Request, den ein Filter gleich mit 403 abweist, konstruiert trotzdem den ganzen Graph, und `ConnectionMultiplexer.Connect` läuft in der DI-Registrierung sofort. Ohne die Substitution liefen sieben Fälle zwölf Sekunden in einen Redis-Timeout und antworteten 500 statt des Codes unter Test. In Produktion ist das folgenlos (längst verbundener Singleton), aber es ist die Eigenschaft, die man kennen muss, bevor man einen Handler mit einer teuren Abhängigkeit hinter einen Filter hängt.
+
+**Zwei Zugeständnisse an die Testbarkeit im Produktionscode, beide bewusst.** `Program.cs` endet auf `public partial class Program;`, weil Top-Level-Statements sonst eine interne `Program`-Klasse erzeugen, die `WebApplicationFactory<T>` nicht erreicht. Und `EmotePurge.Api.csproj` bekommt `InternalsVisibleTo` für das Testprojekt: die Alternative wäre, `ApiErrorCodes`-Literale wie `"vote_session_ended"` im Test abzutippen — dann bricht ein umbenannter Code den Test nicht, sondern lässt ihn still gegen einen Wert prüfen, den niemand mehr zurückgibt. Die Api-Assembly wird dadurch minimal offener; der Gegenwert ist, dass die Tests die echte Pipeline fahren statt einer Kopie.
+
+**Konventionserweiterung (Regel 11):** Ein neuer `IEndpointFilter` oder eine geänderte Filter-Reihenfolge an einer `MapGroup` bekommt seinen Fall in `tests/EmotePurge.Api.Tests`. Endpoint-*Handler* ausdrücklich nicht — die bleiben dünn, und für die gilt die alte Begründung unverändert weiter.
+
+---
+
 ### 2026-08-02 — Die Schichtenregel für Core ist ein roter Build, und der Worker kennt EF Core nicht mehr
 
 **Betrifft:** `tests/EmotePurge.Infrastructure.Tests/Unit/CoreAssemblyReferenceTests.cs` (neu) · `src/EmotePurge.Core/Services/IChannelService.cs` · `src/EmotePurge.Infrastructure/Services/ChannelService.cs` · `src/EmotePurge.Worker/Worker.cs` · `src/EmotePurge.Worker/SevenTvPeriodicResyncWorker.cs` · `CLAUDE.md`
