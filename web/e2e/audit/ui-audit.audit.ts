@@ -16,6 +16,7 @@ import {
   mockAdminUsers,
   mockAuditLog,
   mockAuthMe,
+  mockChannelAuditLog,
   mockChannelPermissions,
   mockChannelStatus,
   mockUsageTotals,
@@ -548,6 +549,38 @@ const SCENARIOS: Scenario[] = [
       await authedShell(page);
       await channelWorkspace(page, { canManage: false });
       await mockUsageTotals(page, 'sensitron', usageEmotes(8));
+    },
+  },
+  {
+    slug: 'channel-activity',
+    path: '/channels/sensitron/activity',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockChannelAuditLog(page, 'sensitron', {
+        1: Array.from({ length: 25 }, (_, i) => ({
+          id: 100 - i,
+          action: ['channel.join', 'channel.resync', 'voteSession.delete', 'emotes.syncDeleted'][
+            i % 4
+          ],
+          actorLogin: i % 2 === 0 ? 'sensitron' : 'averylongmoderatorname',
+          detail:
+            i % 4 === 2
+              ? { kind: 'title', count: null, text: 'Sommer-Purge 2026' }
+              : i % 4 === 3
+                ? { kind: 'emoteCount', count: 128, text: null }
+                : null,
+        })),
+      });
+    },
+  },
+  {
+    slug: 'channel-activity-empty',
+    path: '/channels/sensitron/activity',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockChannelAuditLog(page, 'sensitron', { 1: [] });
     },
   },
   {

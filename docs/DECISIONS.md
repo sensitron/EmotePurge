@@ -10,6 +10,55 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Resync als Self-Service: der weitere Filter, ein Per-Channel-Cooldown und eine achtmal strengere Policy
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/ChannelEndpoints.cs` · `src/EmotePurge.Api/Program.cs` (Policy `ChannelResync`) · `src/EmotePurge.Api/Validation/ApiErrorCodes.cs` · `src/EmotePurge.Core/Services/IChannelResyncCooldown.cs` (neu) · `src/EmotePurge.Infrastructure/Redis/ChannelResyncCooldown.cs` (neu) · `src/EmotePurge.Api/Endpoints/AdminEndpoints.cs` (Kommentar) · `web/src/app/core/i18n/api-error.ts` · beide Locale-Dateien
+
+**Idee A8 aus [Feature-Ideen-2026-08-01.md](Feature-Ideen-2026-08-01.md).** `POST /api/channels/{channelName}/resync` gibt den 7TV-Vollsync für die Channel-Verwaltung frei. Der häufigste Support-Fall der App ist „ich hab ein Emote hinzugefügt, es taucht nicht auf"; die Antwort war bis hierher „warte den nächsten 60-Sekunden-Tick ab" oder „schreib dem Admin" — in einer App, die sonst durchgehend rollengegateter Self-Service ist.
+
+**Der *weitere* Filter, direkt neben dem Audit-Log mit dem engeren.** Die beiden Routen entscheiden bewusst gegensätzlich, und beide Male aus demselben Prinzip: es zählt, was der Endpoint preisgibt bzw. auslöst, nicht wie „mächtig" er wirkt. Der Aktivitätsverlauf nennt Personen, deshalb Mod-Team. Der Resync liest nur von 7TV und schreibt nichts, was jemand anderem gehört — und die Person mit dem Problem ist typischerweise gerade der **7TV-Editor**, der das Emote eben hinzugefügt hat. Ihn auszuschließen hätte den Feature-Zweck verfehlt. Die Missbrauchsfläche ist hier Kosten, nicht Autorität.
+
+**Und Kosten sind zwei getrennte Probleme, die zwei getrennte Mechanismen brauchen.** Das ist der eigentliche Inhalt dieser Entscheidung:
+
+- Die Rate-Limit-Policy `ChannelResync` (5/min, gegenüber `ExternalApi`s 40) partitioniert **pro Nutzer** und schützt das app-weite 7TV-Budget davor, dass ein einzelner Account es leerläuft.
+- `IChannelResyncCooldown` partitioniert **pro Channel** (Redis-Key `resync:cooldown:{name}`, `SET NX EX`, Default 60 s). Fünfzehn Moderatoren desselben Channels haben fünfzehn Nutzer-Budgets — gegen die einen Rate-Limiter grundsätzlich nichts ausrichten kann.
+
+Keiner der beiden deckt den Fall des anderen ab, deshalb beide.
+
+**Die teure Ressource ist nicht 7TV, sondern das Live-Event.** Ein Resync kostet einen 7TV-REST-Call und ein paar DB-Roundtrips — vergleichbar mit dem periodischen Worker-Sync, der ohnehin einmal pro Channel und Minute läuft. Was ihn wirklich teuer macht: der RESYNC-Pfad publiziert `channel.synced` **unbedingt**, wodurch jede offene Seite dieses Channels neu lädt, inklusive der schwersten Aggregat-Query der App. Die Kosten trägt jeder Zuschauer mit offener Seite, nicht die Person, die klickt. **Das unbedingte Publizieren bleibt so** (die periodischen und EventAPI-Pfade publizieren seit dem 2026-08-01 nur bei echter Bestandsänderung): die „angestoßen → abgeschlossen"-Rückmeldung im Admin-Bereich **und** im Workspace hängt daran, und ein änderungsgesteuerter Push ließe die Meldung bei einem Resync ohne Änderung — dem Normalfall ab dem zweiten Versuch — ewig auf „angestoßen" stehen. Restrisiko nach dem Cooldown: ein zusätzlicher Fanout pro Channel und Minute, dieselbe Größenordnung wie der Worker-Takt.
+
+**Redis, nicht In-Process und nicht DB-Spalte.** Ein prozesslokaler Guard multipliziert sich mit der Zahl der Api-Replicas, mit denen ausdrücklich gerechnet wird. Eine Spalte bräuchte eine Migration, und der naheliegende Wiederverwendungskandidat `Channel.LastSyncedAtUtc` ist untauglich: der 60-Sekunden-Resync des Workers hält ihn dauernd frisch, ein Cooldown darauf würde manuelle Resyncs faktisch immer blockieren. `When.NotExists` ist der erste Einsatz dieses Musters im Repo — mit Kommentar und eigenem Integrationstest, insbesondere darauf, dass die TTL gesetzt ist: ein `SET NX` ohne `EX` wäre ein permanenter Lock, den nichts im Code je wieder löscht.
+
+**`TryBegin`/`Release` statt einer Methode.** Der Slot wird **vor** dem Trigger geklaut, sonst gibt es ein Fenster zwischen Prüfen und Auslösen. Wenn der Resync dann gar nicht stattfand (Channel unbekannt oder inaktiv), gibt der Handler ihn sofort zurück — sonst blockierte ausgerechnet die Rückfrage nach einem gerade reaktivierten Channel den Resync, den der Broadcaster in dem Moment will.
+
+**Im Handler, nicht in einem `IEndpointFilter`** — die einzige Stelle, an der diese Umsetzung von Regel 6 abweicht. Ein Filter müsste zur Freigabe den `IResult` des Handlers auf seinen konkreten Typ untersuchen; das ist brüchiger als drei Zeilen im Handler, und der Handler bleibt trotzdem dünn. Dass der Cooldown *nach* den Autorisierungsfiltern greift, ist dabei genau richtig: ein 403-Aufrufer darf keinen fremden Cooldown verbrennen.
+
+**429 mit Body statt 409.** Die Semantik ist „zu oft, versuch's später", und `Retry-After` ist dafür der standardisierte Kanal. Dass der Rate-Limiter denselben Status ohne Body liefert, ist kein Konflikt, sondern nützlich: `apiErrorTranslationKey` bevorzugt einen bekannten `errorCode` vor dem Status, die beiden Fälle sind im Client also automatisch unterscheidbar. `retryAfterSeconds` steuert nur, wie lange der Button deaktiviert bleibt — der Text bleibt parameterlos, weil `apiErrorTranslationKey` einen Key zurückgibt und keine Parameter.
+
+**Der Admin-Resync bleibt ohne Cooldown**, mit Kommentar an beiden Handlern. Er ist der Notausgang für den Support-Fall, in dem der Channel-Cooldown im Weg steht, und erreichbar nur für die Handvoll Logins in der Allowlist.
+
+**Nebenbefund, den dieser Commit mit erledigt: Regel 7 stimmte nicht.** Sie behauptet, `api-error.spec.ts` prüfe die Locale-Dateien gegen `ApiErrorCodes` — das tat sie nie, keine Datei unter `web/src` las `public/i18n/*.json`. Der Beweis lag im Repo: `no_health_data` und `health_data_unreadable` existierten server-seitig und in **keiner** der beiden Locale-Dateien, wurden also stillschweigend auf die generische Statusmeldung heruntergestuft. Neu ist `api-error-locales.spec.ts`, das beide Richtungen prüft (kein Code ohne Übersetzung, keine Übersetzung ohne Code, identische Schlüsselmengen); die zwei Altlasten sind nachgetragen. Was der Test weiterhin nicht sieht, ist die C#-Seite — dafür müsste er eine `.cs`-Datei parsen, was den Handel nicht wert ist.
+
+---
+
+### 2026-08-02 — Der Channel bekommt seinen eigenen Audit-Log — hinter dem engeren Filter, mit dem Channel aus der Route
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/ChannelEndpoints.cs` · `src/EmotePurge.Api/Validation/PagingQuery.cs` (neu) · `src/EmotePurge.Api/Endpoints/{AdminEndpoints.cs,VoteSessionEndpoints.cs}` · `tests/EmotePurge.Api.Tests/AuthFilterMatrixTests.cs` · `docs/Architectur.md` (Endpoint-Filter-Matrix)
+
+**Idee A7 aus [Feature-Ideen-2026-08-01.md](Feature-Ideen-2026-08-01.md), Backend-Hälfte.** `GET /api/channels/{channelName}/audit-log` liefert dieselben Zeilen wie der Admin-Log, auf einen Channel eingegrenzt. Bis hierher konnte ein Broadcaster nicht sehen, welcher seiner Moderatoren eine Abstimmung gelöscht oder den Bot entfernt hat — diese Antwort lag ausschließlich im Global-Admin-Bereich. Es entsteht **kein** neuer Service und **keine** Migration: `IAuditLogQueryService.ListAsync` filtert bereits exakt auf den normalisierten Channel und wird vom Compound-Index `(ChannelName, OccurredAtUtc DESC)` bedient, der seit dem 2026-07-31 genau dafür existiert.
+
+**Der engere Filter, nicht der weitere — bewusst gegen die Symmetrie.** Alle anderen Lese-Endpoints eines Channels hängen an `UsageStatsAccessAuthorizationFilter`, der zusätzlich die 7TV-Editoren des Channels zulässt. Der Aktivitätsverlauf hängt an `ChannelManagementAuthorizationFilter` und lässt sie **nicht** zu. Grund ist der Inhalt: Nutzungszahlen sind aggregiert, hier steht namentlich, wer was getan hat. Ein 7TV-Editor ist häufig ein externer Grafiker mit Set-Rechten, kein Mitglied des Mod-Teams — und die Empfindlichkeit von Add/Remove-Attribution ist belegt ([SevenTV/Extension#267](https://github.com/SevenTV/Extension/issues/267), ein Streamer wörtlich: „I don't really want that everyone knows if I add or remove an emote"). Die Zielgruppe ist das Mod-Team über sich selbst.
+
+**Der Channel kommt aus dem Route-Wert und aus nichts anderem.** Der Handler bindet bewusst **keinen** `channel`-Query-Parameter, obwohl `AuditLogFilter` ein Feld dafür hat. Täte er es, könnte ein für Channel A autorisierter Aufrufer über seine eigene, korrekt autorisierte Route den Log von Channel B lesen — der Filter läuft gegen den Routen-Wert, die Query ginge ungeprüft an die Datenbank. Das ist die Art Lücke, die in einem Review wie eine Bequemlichkeit aussieht.
+
+**Zwei Tests, die die beiden Sätze oben zu Verhalten machen.** `ChannelAuditLog_UsesTheManagementCheck_NotTheWiderOne` prüft nicht nur den 403, sondern per `DidNotReceive()`, dass `CanViewUsageStatsAsync` gar nicht erst gefragt wird — ohne das wäre der Editor-Ausschluss ein Kommentar. `ChannelAuditLog_ValidatesTheChannelName_BeforeAuthorizing` pinnt, dass die Route in der geteilten `/api/channels`-Gruppe liegt: die naheliegende Aufräum-Idee, sie wie `UsageStatsEndpoints` in eine eigene `MapGroup` zu ziehen, verliert stillschweigend den `ChannelNameValidationFilter` und damit den 400-vor-403-Vertrag.
+
+**`Bookkeeping` statt gar keiner Policy.** Reiner DB-Read gegen einen Covering-Index, aber über den Actor-Filter pro Tastendruck erreichbar. `Bookkeeping` (120/min) ist die vorhandene Policy für „nur unsere eigene Infrastruktur, trotzdem nicht unbegrenzt"; `ExternalApi` wäre die falsche Aussage, weil hier nichts Externes berührt wird.
+
+**Nebenbei: `PagingQuery` als vierte Kopie.** `page <= 0 ? 1 : page` und `pageSize <= 0 ? 20 : Math.Min(pageSize, 100)` standen wortgleich an drei Stellen; die neue Route wäre die vierte gewesen. Jetzt einmal in `Validation/PagingQuery.cs`, zusammen mit `NullIfBlank`. Die Query-Services dokumentieren ihre Argumente als „expected to be pre-validated by the endpoint" — das *ist* diese Validierung, und die Obergrenze kann jetzt nicht mehr zwischen Endpoints auseinanderlaufen. Weiterhin bewusst **kein** `ApiErrorCode` für Paging: Bereichsüberschreitungen werden still korrigiert, nicht abgelehnt, und müssen so auch nicht in zwei Locale-Dateien gespiegelt werden.
+
+---
+
 ### 2026-08-02 — `DetailsJson` verlässt den Server nicht mehr roh: die Whitelist steht in `Core`, nicht im Client
 
 **Betrifft:** `src/EmotePurge.Core/Services/IAuditLogQueryService.cs` · `src/EmotePurge.Infrastructure/Services/AuditLogQueryService.cs` · `web/src/app/core/audit/audit.model.ts` (neu) · `web/src/app/core/admin/{admin.model.ts,admin.service.ts}` · `web/src/app/features/admin/admin-audit-log-page.ts` · `tests/EmotePurge.Infrastructure.Tests/Integration/AuditLogQueryServiceTests.cs`

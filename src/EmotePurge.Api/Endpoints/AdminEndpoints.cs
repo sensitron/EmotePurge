@@ -254,6 +254,11 @@ public static class AdminEndpoints
             // 202, not 200: the command protocol is one-way, so success means "the worker was
             // told", never "the sync finished". Completion shows up as LastSyncedAtUtc in
             // GET /channels on the next refresh.
+            //
+            // No IChannelResyncCooldown here, unlike the channel-scoped POST /api/channels/{name}
+            // /resync — on purpose. This is the escape hatch for the support case where that
+            // cooldown is in the way, and it is reachable only by the handful of allowlisted admin
+            // logins. Do not "unify" the two handlers.
             var result = await channelService.TriggerResyncAsync(channelName, actor, ct);
             return result switch
             {
@@ -270,9 +275,7 @@ public static class AdminEndpoints
             IAdminUserQueryService userQueryService,
             CancellationToken ct) =>
         {
-            // Same silent clamping as the audit log below.
-            var effectivePage = page <= 0 ? 1 : page;
-            var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+            var (effectivePage, effectivePageSize) = PagingQuery.Clamp(page, pageSize);
 
             var result = await userQueryService.ListAsync(effectivePage, effectivePageSize, ct);
             return Results.Ok(result);
@@ -335,26 +338,21 @@ public static class AdminEndpoints
             IAuditLogQueryService auditLogQueryService,
             CancellationToken ct) =>
         {
-            // Same clamping as the vote-session list and /api/vote-sessions/mine: out-of-range paging
-            // is corrected silently rather than rejected, so no new ApiErrorCode is introduced for it
-            // (and none has to be mirrored into both locale files).
-            var effectivePage = page <= 0 ? 1 : page;
-            var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+            var (effectivePage, effectivePageSize) = PagingQuery.Clamp(page, pageSize);
 
             // Filters are pass-through: an unknown action or channel simply yields an empty page.
             // Channel normalization happens in the query service, next to the matching rule it feeds.
+            // Unlike the channel-scoped counterpart in ChannelEndpoints, the channel here is a real
+            // filter and may be absent — this caller is authorized for every channel.
             var filter = new AuditLogFilter(
-                NullIfBlank(action),
-                NullIfBlank(channel),
-                NullIfBlank(actor));
+                PagingQuery.NullIfBlank(action),
+                PagingQuery.NullIfBlank(channel),
+                PagingQuery.NullIfBlank(actor));
 
             var result = await auditLogQueryService.ListAsync(effectivePage, effectivePageSize, filter, ct);
             return Results.Ok(result);
         });
     }
-
-    private static string? NullIfBlank(string? value)
-        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     // Shipped in both branches of /roster so the page renders one layout: the ceilings are constants
     // and do not depend on a snapshot being available.

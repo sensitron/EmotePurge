@@ -30,6 +30,18 @@ export class ChannelService {
   }
 
   /**
+   * Asks the worker for a full 7TV resync. Answers 202 — the command protocol is one-way, so this
+   * only means "the worker was told". Completion arrives as a `channel.synced` live event.
+   *
+   * Available to everyone who may see the usage stats, including the channel's 7TV editors: they
+   * are usually the ones who just added the emote that is not showing up yet. Guarded server-side
+   * by a per-channel cooldown, which answers 429 with `resync_cooldown_active`.
+   */
+  resync(channelName: string): Observable<void> {
+    return this.http.post<void>(`/api/channels/${channelName}/resync`, {});
+  }
+
+  /**
    * Irreversible: removes the channel with its emotes, usage history, vote sessions and votes
    * (server-side cascades). Global-admin-only — deliberately not reachable from any channel-scoped
    * screen, only from the admin channel page, and only behind a typed name confirmation.

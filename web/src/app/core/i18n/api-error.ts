@@ -2,7 +2,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 
 // Mirrors src/EmotePurge.Api/Validation/ApiErrorCodes.cs — the API returns only these stable,
 // language-neutral codes (never prose), so translation happens exactly once, here.
-const KNOWN_API_ERROR_CODES = new Set([
+//
+// Exported so api-error-locales.spec.ts can assert that both locale files carry every entry. That
+// mirror used to be maintained by hand and had already drifted: no_health_data and
+// health_data_unreadable existed server-side and in neither locale, and silently fell back to the
+// generic status message.
+export const KNOWN_API_ERROR_CODES = new Set([
   'invalid_channel_name',
   'invalid_channel_or_session_id',
   'emote_ids_empty',
@@ -24,7 +29,10 @@ const KNOWN_API_ERROR_CODES = new Set([
   'vote_session_not_found',
   'vote_session_ended',
   'emote_not_eligible',
+  'resync_cooldown_active',
   'unexpected_error',
+  'no_health_data',
+  'health_data_unreadable',
 ]);
 
 /**

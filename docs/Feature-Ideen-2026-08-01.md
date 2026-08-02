@@ -28,8 +28,8 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A4** Trend-Label | ✅ 2026-08-01 | dito |
 | **A5** Emote-Drilldown | ⬜ | — |
 | **A6** Purge-Sicherheitsnetz | ⬜ | — |
-| **A7** Kanal-Aktivitätsverlauf | ⬜ | — |
-| **A8** Resync für Channel-Manager | ⬜ | — |
+| **A7** Kanal-Aktivitätsverlauf | ✅ 2026-08-02 | DECISIONS „Der Channel bekommt seinen eigenen Audit-Log" |
+| **A8** Resync für Channel-Manager | ✅ 2026-08-02 | DECISIONS „Resync als Self-Service" |
 | **A9**–**A15** | ⬜ | — |
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
 | **B2** Soll/Ist-Roster | 🟡 2026-08-01 | Frühwarn-Schwellen fehlen |
@@ -225,6 +225,14 @@ das 7TV-Schreib-Token darf das Backend nie sehen. Ein serverseitiger Undo-Button
 
 ### A7 — Kanal-Aktivitätsverlauf für Broadcaster und Mods
 
+**Status: ✅ umgesetzt am 2026-08-02.** `GET /api/channels/{c}/audit-log` plus ein dritter Tab
+„Aktivität" im Workspace. Wie vorgeschlagen ohne neuen Service und ohne Migration — nur die Route,
+der `channelManageGuard` und die Seite. Zwei Konkretisierungen: der Channel kommt **ausschließlich**
+aus dem Route-Wert (ein `channel`-Query-Parameter wird gar nicht gebunden, sonst läse ein Manager
+über seine eigene Route fremde Logs), und die geforderte defensive Projektion von `DetailsJson`
+wurde nicht in dieser Seite gebaut, sondern einen Tag zuvor serverseitig für **beide** Endpoints —
+s. den DECISIONS-Eintrag „`DetailsJson` verlässt den Server nicht mehr roh".
+
 Ein Tab im Channel-Workspace: wer hat wann gejoint/verlassen, Sessions angelegt/beendet/gelöscht,
 Emotes als gelöscht gemeldet, Resync ausgelöst.
 
@@ -244,6 +252,14 @@ für alle Voter. `DetailsJson` nicht roh ausliefern (kann Interna tragen), sonde
 Projektion wie im Admin-UI.
 
 ### A8 — Resync-Button für Channel-Manager
+
+**Status: ✅ umgesetzt am 2026-08-02.** `POST /api/channels/{c}/resync` hinter
+`UsageStatsAccessAuthorizationFilter` — also wie hier gefordert **inklusive 7TV-Editoren**, im
+Gegensatz zum Aktivitätsverlauf (A7) direkt daneben. Der geforderte Missbrauchsschutz ist beides
+geworden: die neue Policy `ChannelResync` (5/min) **plus** `IChannelResyncCooldown`, ein
+Redis-`SET NX EX` pro Channel (60 s). Die Begründung, warum keiner der beiden allein reicht, und die
+Erkenntnis, dass die eigentlich teure Ressource nicht 7TV ist, sondern der `channel.synced`-Fanout
+an alle offenen Seiten, stehen im DECISIONS-Eintrag „Resync als Self-Service".
 
 Der 7TV-Vollsync, den heute nur der Global-Admin auslösen kann, im Channel-Workspace für
 Broadcaster, Mods und 7TV-Editoren.

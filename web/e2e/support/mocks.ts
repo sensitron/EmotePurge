@@ -311,6 +311,22 @@ export async function mockChannelResync(page: Page, channelName: string): Promis
   );
 }
 
+/**
+ * POST /api/channels/{name}/resync — the channel-scoped variant. Defaults to 202 (queued); pass a
+ * status to drive the cooldown case, which answers 429 with its own error code.
+ */
+export async function mockChannelScopedResync(
+  page: Page,
+  channelName: string,
+  status: 202 | 429 = 202,
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/resync`, (route) =>
+    status === 202
+      ? route.fulfill({ status: 202 })
+      : fulfillJson(route, 429, { errorCode: 'resync_cooldown_active', retryAfterSeconds: 42 }),
+  );
+}
+
 export interface MockAuditLogEntry {
   id: number;
   occurredAtUtc?: string;
@@ -377,6 +393,75 @@ export async function mockAuditLog(
           (entry) =>
             (!action || entry.action === action) &&
             (!channel || entry.channelName?.toLowerCase() === channel) &&
+            (!actor || entry.actorLogin.toLowerCase().includes(actor)),
+        );
+      return fulfillJson(route, 200, {
+        items: filtered.slice((requestedPage - 1) * pageSize, requestedPage * pageSize),
+        page: requestedPage,
+        pageSize,
+        totalCount: filtered.length,
+        totalPages: filtered.length === 0 ? 0 : Math.ceil(filtered.length / pageSize),
+      });
+    }
+
+    const items = entriesByPage[requestedPage] ?? [];
+    return fulfillJson(route, 200, {
+      items: items.map(withDefaults),
+      page: requestedPage,
+      pageSize,
+      totalCount: effectiveTotal,
+      totalPages: effectiveTotal === 0 ? 0 : Math.ceil(effectiveTotal / pageSize),
+    });
+  });
+}
+
+/**
+ * GET /api/channels/{name}/audit-log — a channel's own activity feed. Same page-keyed shape as
+ * `mockAuditLog`, minus the channel filter: the server takes the channel from the route, so the
+ * handler asserts that no `channel` query parameter arrives and fails loudly if one ever does.
+ */
+export async function mockChannelAuditLog(
+  page: Page,
+  channelName: string,
+  entriesByPage: Record<number, MockAuditLogEntry[]>,
+): Promise<void> {
+  const pageSize = 25;
+  const pageNumbers = Object.keys(entriesByPage).map(Number);
+  const highestPage = pageNumbers.length > 0 ? Math.max(...pageNumbers) : 1;
+  const effectiveTotal =
+    highestPage > 1
+      ? (highestPage - 1) * pageSize + (entriesByPage[highestPage]?.length ?? 0)
+      : (entriesByPage[1]?.length ?? 0);
+
+  const withDefaults = (entry: MockAuditLogEntry) => ({
+    id: entry.id,
+    occurredAtUtc: entry.occurredAtUtc ?? '2026-07-31T12:00:00Z',
+    actorLogin: entry.actorLogin ?? 'sensitron',
+    action: entry.action,
+    channelName: entry.channelName ?? channelName,
+    targetType: entry.targetType ?? null,
+    targetId: entry.targetId ?? null,
+    detail: entry.detail ?? null,
+  });
+
+  await page.route(`**/api/channels/${channelName}/audit-log**`, (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.has('channel')) {
+      return fulfillJson(route, 400, { errorCode: 'channel_must_come_from_the_route' });
+    }
+
+    const requestedPage = Number(params.get('page') ?? '1');
+    const action = params.get('action');
+    const actor = params.get('actor')?.trim().toLowerCase() || null;
+
+    if (action || actor) {
+      const filtered = pageNumbers
+        .sort((a, b) => a - b)
+        .flatMap((pageNumber) => entriesByPage[pageNumber])
+        .map(withDefaults)
+        .filter(
+          (entry) =>
+            (!action || entry.action === action) &&
             (!actor || entry.actorLogin.toLowerCase().includes(actor)),
         );
       return fulfillJson(route, 200, {

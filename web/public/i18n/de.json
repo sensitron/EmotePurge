@@ -149,7 +149,30 @@
     "leaveConfirm": "Channel #{{ channelName }} wirklich verlassen? Der Bot verlässt den Chat und erfasst keine neuen Daten mehr. Bereits erfasste Emotes, Nutzungsstatistiken und Abstimmungen bleiben erhalten und sind nach einem erneuten Beitritt wieder da.",
     "tabs": {
       "usage": "Nutzung",
-      "voting": "Votings"
+      "voting": "Votings",
+      "activity": "Aktivität"
+    },
+    "resync": {
+      "label": "Neu synchronisieren",
+      "title": "Emote-Set jetzt neu von 7TV einlesen, statt auf den nächsten automatischen Abgleich zu warten",
+      "queued": "Resync angestoßen …",
+      "completed": "Resync abgeschlossen."
+    },
+    "activity": {
+      "title": "Aktivitätsverlauf",
+      "refresh": "Aktualisieren",
+      "refreshTitle": "Aktivitätsverlauf neu laden",
+      "empty": "Noch keine Aktivität.",
+      "emptyHint": "Hier landet jede Aktion in diesem Channel: Beitritte, Abstimmungen, gemeldete Löschungen und Resyncs — mit dem Namen der Person, die sie ausgelöst hat.",
+      "filter": {
+        "actionLabel": "Nach Aktion filtern",
+        "all": "Alle",
+        "actorLabel": "Nach ausführender Person filtern",
+        "actorPlaceholder": "Person",
+        "noMatches": "Keine Einträge für diese Filter.",
+        "noMatchesHint": "Filter anpassen oder zurücksetzen, um wieder Einträge zu sehen.",
+        "reset": "Filter zurücksetzen"
+      }
     },
     "errors": {
       "leaveForbidden": "Nicht berechtigt, diesen Channel zu verlassen.",
@@ -598,7 +621,10 @@
       "vote_session_not_found": "Abstimmung nicht gefunden.",
       "vote_session_ended": "Diese Abstimmung ist bereits beendet.",
       "emote_not_eligible": "Dieses Emote ist nicht mehr abstimmbar.",
-      "unexpected_error": "Auf dem Server ist ein unerwarteter Fehler aufgetreten. Bitte versuch es erneut."
+      "resync_cooldown_active": "Für diesen Channel läuft bereits ein Resync. Bitte kurz warten.",
+      "unexpected_error": "Auf dem Server ist ein unerwarteter Fehler aufgetreten. Bitte versuch es erneut.",
+      "no_health_data": "Es liegen aktuell keine Worker-Daten vor.",
+      "health_data_unreadable": "Die Worker-Daten konnten nicht gelesen werden."
     }
   }
 }

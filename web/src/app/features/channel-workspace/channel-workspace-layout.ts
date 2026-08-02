@@ -1,15 +1,21 @@
 import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { apiErrorTranslationKey } from '../../core/i18n/api-error';
+import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
+import { liveEvents } from '../../core/live/live-reload';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+
+/** Long enough to read, short enough that a stale "queued" never lingers on screen. */
+const RESYNC_FEEDBACK_MS = 4000;
 
 @Component({
   selector: 'app-channel-workspace-layout',
@@ -33,23 +39,40 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
         >
           #{{ channelName() }}
         </h1>
-        @if (canManage()) {
-          @if (isBotActive()) {
-            <button type="button" appButton="danger" class="ml-auto" (click)="leave()">
-              {{ 'channelWorkspace.leaveChannel' | transloco }}
-            </button>
-          } @else {
+        <!-- One wrapper carries the ml-auto, not each button: with it on two siblings they would be
+             pushed to opposite ends and collide with the title's order-last/md:flex-1 contract. -->
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          @if (resyncFeedbackKey(); as key) {
+            <span role="status" class="text-sm text-fg-muted">{{ key | transloco }}</span>
+          }
+          @if (canViewUsageStats() && isBotActive()) {
             <button
               type="button"
-              appButton="primary"
-              class="ml-auto"
-              [disabled]="rejoinInProgress()"
-              (click)="rejoin()"
+              appButton="outline"
+              [disabled]="resyncInProgress()"
+              (click)="resync()"
+              [title]="'channelWorkspace.resync.title' | transloco"
             >
-              {{ 'channelWorkspace.rejoinChannel' | transloco }}
+              {{ 'channelWorkspace.resync.label' | transloco }}
             </button>
           }
-        }
+          @if (canManage()) {
+            @if (isBotActive()) {
+              <button type="button" appButton="danger" (click)="leave()">
+                {{ 'channelWorkspace.leaveChannel' | transloco }}
+              </button>
+            } @else {
+              <button
+                type="button"
+                appButton="primary"
+                [disabled]="rejoinInProgress()"
+                (click)="rejoin()"
+              >
+                {{ 'channelWorkspace.rejoinChannel' | transloco }}
+              </button>
+            }
+          }
+        </div>
       </div>
 
       <!-- An inactive bot collects nothing, but every page below still renders its historical data
@@ -97,6 +120,24 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
         >
           {{ 'channelWorkspace.tabs.voting' | transloco }}
         </a>
+        <!-- canManage, not canViewUsageStats: the rows name which moderator did what, and the
+             channel's 7TV editors are frequently outside the mod team. The route carries the same
+             check as its own guard, so hiding the tab is visibility only. -->
+        @if (canManage()) {
+          <a
+            routerLink="activity"
+            routerLinkActive
+            ariaCurrentWhenActive="page"
+            #activityTab="routerLinkActive"
+            [class]="
+              activityTab.isActive
+                ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+                : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
+            "
+          >
+            {{ 'channelWorkspace.tabs.activity' | transloco }}
+          </a>
+        }
       </nav>
 
       <router-outlet />
@@ -127,7 +168,12 @@ export class ChannelWorkspaceLayout {
   protected readonly isBotActive = signal(true);
   protected readonly rejoinInProgress = signal(false);
 
+  protected readonly resyncInProgress = signal(false);
+  protected readonly resyncFeedbackKey = signal<string | null>(null);
+
   protected readonly errorMessage = signal<string | null>(null);
+
+  private feedbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     effect(() => {
@@ -135,6 +181,20 @@ export class ChannelWorkspaceLayout {
       // A finished mass-delete run from another channel must not follow the user in here.
       this.deleteService.resetIfChannelChanged(channelName);
       this.loadPermissions(channelName);
+    });
+
+    // The 202 only means "the worker was told". This is what turns "angestoßen" into
+    // "abgeschlossen": the RESYNC path publishes channel.synced unconditionally, unlike the
+    // periodic one, precisely so this confirmation can exist. The stream is already scoped to this
+    // channel, so no event needs inspecting — but the upgrade only fires while a resync of ours is
+    // still on screen, otherwise the periodic sync of any channel would announce itself.
+    liveEvents(
+      computed(() => channelLiveUrl(this.channelName())),
+      [LIVE_EVENT_TYPES.channelSynced],
+    ).subscribe(() => {
+      if (this.resyncFeedbackKey() !== null) {
+        this.showResyncFeedback('channelWorkspace.resync.completed');
+      }
     });
   }
 
@@ -190,6 +250,40 @@ export class ChannelWorkspaceLayout {
         );
       },
     });
+  }
+
+  /**
+   * The answer to "I added an emote and it is not showing up". No confirmation: it is
+   * non-destructive and only asks the worker to re-read from 7TV.
+   *
+   * The server keeps a per-channel cooldown, so a second click within the window answers 429 with
+   * `resync_cooldown_active` — rendered like any other API error rather than hidden, because "wait
+   * a moment" is the useful answer there.
+   */
+  protected resync(): void {
+    this.resyncInProgress.set(true);
+    this.errorMessage.set(null);
+
+    this.channelService.resync(this.channelName()).subscribe({
+      next: () => {
+        this.resyncInProgress.set(false);
+        this.showResyncFeedback('channelWorkspace.resync.queued');
+      },
+      error: (error: HttpErrorResponse) => {
+        this.resyncInProgress.set(false);
+        this.errorMessage.set(apiErrorTranslationKey(error));
+      },
+    });
+  }
+
+  // A transient inline status rather than a toast — there is no toast service, and the admin
+  // channel page solves the same problem the same way.
+  private showResyncFeedback(key: string): void {
+    this.resyncFeedbackKey.set(key);
+    if (this.feedbackTimeout !== null) {
+      clearTimeout(this.feedbackTimeout);
+    }
+    this.feedbackTimeout = setTimeout(() => this.resyncFeedbackKey.set(null), RESYNC_FEEDBACK_MS);
   }
 
   private loadPermissions(channelName: string): void {

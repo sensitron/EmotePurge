@@ -113,8 +113,7 @@ public static class VoteSessionEndpoints
             IVoteEligibilityService voteEligibilityService,
             CancellationToken ct) =>
         {
-            var effectivePage = page <= 0 ? 1 : page;
-            var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+            var (effectivePage, effectivePageSize) = PagingQuery.Clamp(page, pageSize);
 
             var principal = httpContext.User.TryBuildTwitchPrincipal();
             if (principal is null)
@@ -271,8 +270,7 @@ public static class VoteSessionEndpoints
                 return Results.Unauthorized();
             }
 
-            var effectivePage = page <= 0 ? 1 : page;
-            var effectivePageSize = pageSize <= 0 ? 20 : Math.Min(pageSize, 100);
+            var (effectivePage, effectivePageSize) = PagingQuery.Clamp(page, pageSize);
 
             var result = await voteSessionQueryService.ListMyVoteSessionsAsync(principal.TwitchUserId, effectivePage, effectivePageSize, ct);
             return Results.Ok(result);

@@ -41,6 +41,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public IChannelService Channels { get; } = Substitute.For<IChannelService>();
 
+    /// <summary>
+    /// Substituted explicitly rather than left to the real Redis-backed implementation: the resync
+    /// handler consults it, and per the note below every handler service is constructed before the
+    /// filter pipeline runs — so even a 403 case would otherwise reach for a Redis that is not
+    /// there. It also lets a test drive the cooldown outcome directly.
+    /// </summary>
+    public IChannelResyncCooldown ResyncCooldown { get; } = Substitute.For<IChannelResyncCooldown>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // "Testing" rather than the default "Development": Development would load the developer's
@@ -67,6 +75,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddScoped(_ => ChannelAccess);
             services.AddScoped(_ => VoteEligibility);
             services.AddScoped(_ => Channels);
+            services.AddSingleton(_ => ResyncCooldown);
 
             // Load-bearing, and not obvious: RequestDelegateFactory resolves a handler's injected
             // services *before* it runs the endpoint filter pipeline. A request the filter is about

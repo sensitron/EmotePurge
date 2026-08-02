@@ -87,6 +87,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
         services.AddScoped<IMyChannelsService, MyChannelsService>();
         services.AddSingleton<IModRoleCache, ModRoleCache>();
+
+        // Next to the role cache: same shape (a Redis key with a TTL), same lifetime, and both hold
+        // no state of their own. Consumed only by the channel-scoped resync endpoint — the worker's
+        // periodic resync must not see it.
+        services.AddSingleton<IChannelResyncCooldown, ChannelResyncCooldown>();
         services.AddSingleton<IWorkerHealthReader, WorkerHealthReader>();
         services.AddSingleton<IWorkerRosterReader, WorkerRosterReader>();
 

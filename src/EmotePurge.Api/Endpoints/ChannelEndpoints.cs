@@ -28,6 +28,41 @@ public static class ChannelEndpoints
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
 
+        // The channel's own activity feed: the same audit log the global admin reads, narrowed to
+        // one channel. A broadcaster could not see who on their mod team deleted a vote session
+        // until this existed — that answer lived in the global-admin area only.
+        //
+        // Behind ChannelManagementAuthorizationFilter, *not* the wider usage-stats one: this shows
+        // which named moderator did what, and the wider filter also admits the channel's 7TV
+        // editors, who are frequently outside the mod team. Attribution is the sensitive part here
+        // (SevenTV/Extension#267), so the audience is the mod team itself.
+        group.MapGet("/{channelName}/audit-log", async (
+            string channelName,
+            int page,
+            int pageSize,
+            string? action,
+            string? actor,
+            IAuditLogQueryService auditLogQueryService,
+            CancellationToken ct) =>
+        {
+            var (effectivePage, effectivePageSize) = PagingQuery.Clamp(page, pageSize);
+
+            // The channel comes from the route value and from nowhere else. No `channel` query
+            // parameter is bound on purpose: binding one would let a caller authorized for their own
+            // channel read another channel's log through their own authorized route.
+            var filter = new AuditLogFilter(
+                PagingQuery.NullIfBlank(action),
+                channelName,
+                PagingQuery.NullIfBlank(actor));
+
+            var result = await auditLogQueryService.ListAsync(effectivePage, effectivePageSize, filter, ct);
+            return Results.Ok(result);
+        })
+        .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+        // Pure DB read against a covering index, but it is reachable per keystroke through the
+        // actor filter — Bookkeeping is the policy for "ours only, still not unlimited".
+        .RequireRateLimiting("Bookkeeping");
+
         // Deliberately behind no authorization filter of its own: this endpoint *reports* whether the
         // caller would pass those filters, so gating it with one would make it answer only for people
         // who already know the answer. It replaces four separate UI probes that each called a real
@@ -102,6 +137,62 @@ public static class ChannelEndpoints
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
         .RequireRateLimiting("ExternalApi");
+
+        // Self-service for the most common support case there is: "I added an emote and it is not
+        // showing up". The answer used to be "wait for the next 60-second tick" or "ask the admin".
+        //
+        // Behind UsageStatsAccessAuthorizationFilter, the *wider* check — the opposite choice from
+        // the audit log above, and deliberately so: the person with this problem is usually the
+        // channel's 7TV editor, the one who just added the emote. A resync only reads from 7TV and
+        // writes nothing anyone else owns; the abuse surface is cost, not authority, and cost is
+        // what the cooldown below answers.
+        group.MapPost("/{channelName}/resync", async (
+            string channelName,
+            HttpContext httpContext,
+            IChannelService channelService,
+            IChannelResyncCooldown resyncCooldown,
+            CancellationToken ct) =>
+        {
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            // Claimed before triggering, not after: the two steps must not have a window between
+            // them, or fifteen moderators clicking at once all pass the check and all trigger.
+            // Deliberately in the handler rather than in a filter — a filter would have to inspect
+            // the concrete IResult type to know whether to hand the slot back below.
+            var cooldown = await resyncCooldown.TryBeginAsync(channelName, ct);
+            if (!cooldown.Acquired)
+            {
+                httpContext.Response.Headers.RetryAfter = cooldown.RetryAfterSeconds.ToString();
+                return Results.Json(
+                    new { errorCode = ApiErrorCodes.ResyncCooldownActive, retryAfterSeconds = cooldown.RetryAfterSeconds },
+                    statusCode: StatusCodes.Status429TooManyRequests);
+            }
+
+            // 202, not 200: the command protocol is one-way, so success means "the worker was told",
+            // never "the sync finished". Completion arrives separately, as a channel.synced live
+            // event — which is also the reason this endpoint is worth rate-limiting at all.
+            var result = await channelService.TriggerResyncAsync(channelName, actor, ct);
+            if (result != ChannelResyncResult.Triggered)
+            {
+                // Nothing was actually triggered, so the channel must not stay blocked for a full
+                // window — the broadcaster who just rejoined wants a resync straight away.
+                await resyncCooldown.ReleaseAsync(channelName, ct);
+            }
+
+            return result switch
+            {
+                ChannelResyncResult.Triggered => Results.Accepted(),
+                ChannelResyncResult.NotFound => Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotFound }),
+                ChannelResyncResult.NotActive => Results.Conflict(new { errorCode = ApiErrorCodes.ChannelNotJoined }),
+                _ => Results.Problem(),
+            };
+        })
+        .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
+        .RequireRateLimiting("ChannelResync");
 
         group.MapDelete("/{channelName}", async (
             string channelName,

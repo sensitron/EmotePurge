@@ -145,12 +145,12 @@ Es gibt **keine** `Role`-Spalte und kein Rollen-Enum. „Rolle" heißt hier: ein
 
 `ChannelNameValidationFilter` liegt in `Validation/`, nicht `Auth/`: er prüft nur das Format (`^[a-z0-9_]{4,25}$` nach `ChannelName.Normalize`) und greift ausschließlich, wenn die Route überhaupt ein `channelName` trägt.
 
-**Zuordnung Endpoint → Filter** (33 Endpoints; Gruppenfilter sind aufgelöst):
+**Zuordnung Endpoint → Filter** (35 Endpoints; Gruppenfilter sind aufgelöst):
 
 | Gruppe | Filter der Gruppe | Abweichungen einzelner Endpoints |
 |---|---|---|
-| `/api/channels` | Auth + ChannelNameValidation | `GET /{name}`, `POST /{name}/join`, `DELETE /{name}` → zusätzlich ChannelManagement · **`DELETE /{name}/purge` → GlobalAdmin** (einziger Admin-Endpoint außerhalb `/api/admin`) · `GET /{name}/permissions` und `GET /mine` → **bewusst ohne** Autorisierungsfilter |
-| `/api/channels/{name}/emotes` | Auth + ChannelNameValidation + **UsageStatsAccess** + `ExternalApi` | `POST /sync-deleted` nutzt `Bookkeeping` statt `ExternalApi` — der einzige Endpoint der App mit dieser Policy |
+| `/api/channels` | Auth + ChannelNameValidation | `GET /{name}`, `GET /{name}/audit-log`, `POST /{name}/join`, `DELETE /{name}` → zusätzlich ChannelManagement · **`POST /{name}/resync` → UsageStatsAccess** (bewusst der weitere Filter, s. Entscheidungslog) mit eigener Policy `ChannelResync` **plus** Per-Channel-Cooldown · **`DELETE /{name}/purge` → GlobalAdmin** (einziger Admin-Endpoint außerhalb `/api/admin`) · `GET /{name}/permissions` und `GET /mine` → **bewusst ohne** Autorisierungsfilter |
+| `/api/channels/{name}/emotes` | Auth + ChannelNameValidation + **UsageStatsAccess** + `ExternalApi` | `POST /sync-deleted` nutzt `Bookkeeping` statt `ExternalApi` — zusammen mit `GET /{name}/audit-log` einer von zwei Endpoints mit dieser Policy |
 | `/api/channels/{name}/usage-stats` | Auth + ChannelNameValidation + UsageStatsAccess + `ExternalApi` | — |
 | `/api/channels/{name}/vote-sessions` | Auth + ChannelNameValidation | `POST`, `POST /{id}/end`, `DELETE /{id}` → ChannelManagement · `GET /{id}/results` → VoteAudience · `POST`/`DELETE .../votes` → VoteEligibility · `GET` (Liste) → **kein Filter**, gefiltert pro Session im Handler |
 | `/api/admin` | Auth + **GlobalAdmin** | kein Rate-Limit (bewusst) und **kein `ChannelNameValidationFilter`** — `POST /channels/{name}/resync` liefert deshalb kein 400 bei ungültigem Namen |

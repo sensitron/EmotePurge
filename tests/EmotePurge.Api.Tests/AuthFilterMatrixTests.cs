@@ -39,6 +39,12 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
         factory.ChannelAccess.ClearReceivedCalls();
         factory.VoteEligibility.ClearReceivedCalls();
         factory.Channels.ClearReceivedCalls();
+        factory.ResyncCooldown.ClearReceivedCalls();
+
+        // Default to "the slot was free", so the cooldown never masks the status code a test is
+        // actually asserting. The one case that cares sets it explicitly.
+        factory.ResyncCooldown.TryBeginAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ResyncCooldownState(true, 0));
     }
 
     [Theory]
@@ -46,6 +52,8 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     [InlineData("POST", "/api/channels/testchannel/join")]
     [InlineData("DELETE", "/api/channels/testchannel")]
     [InlineData("DELETE", "/api/channels/testchannel/purge")]
+    [InlineData("GET", "/api/channels/testchannel/audit-log")]
+    [InlineData("POST", "/api/channels/testchannel/resync")]
     [InlineData("GET", "/api/channels/testchannel/permissions")]
     [InlineData("GET", "/api/channels/mine")]
     [InlineData("GET", "/api/channels/testchannel/usage-stats")]
@@ -69,6 +77,8 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
 
     [Theory]
     [InlineData("GET", "/api/channels/testchannel")]
+    [InlineData("GET", "/api/channels/testchannel/audit-log")]
+    [InlineData("POST", "/api/channels/testchannel/resync")]
     [InlineData("DELETE", "/api/channels/testchannel/purge")]
     [InlineData("GET", "/api/channels/testchannel/usage-stats")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions/1/results")]
@@ -148,6 +158,115 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         await _factory.ChannelAccess.Received().CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChannelAuditLog_UsesTheManagementCheck_NotTheWiderOne()
+    {
+        // The inverse of the usage-stats test above, and the reason it is worth its own case: the
+        // activity feed names which moderator did what, and CanViewUsageStatsAsync would also admit
+        // the channel's 7TV editors — who are frequently outside the mod team. A caller who passes
+        // the wider check but not the management one must be refused, and the wider check must not
+        // even be consulted. Without this, the exclusion is a comment rather than a behaviour.
+        _factory.ChannelAccess.CanManageChannelAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(false);
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var response = await SendAsync("GET", $"/api/channels/{Channel}/audit-log", NewUserId());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await _factory.ChannelAccess.DidNotReceive()
+            .CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChannelAuditLog_ValidatesTheChannelName_BeforeAuthorizing()
+    {
+        // Registered on the shared /api/channels group, which is what carries
+        // ChannelNameValidationFilter. Pinned here because the obvious "tidy-up" — moving the route
+        // into its own MapGroup like UsageStatsEndpoints — silently drops that filter unless it is
+        // re-registered ahead of the authorization one.
+        _factory.ChannelAccess.CanManageChannelAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var response = await SendAsync("GET", "/api/channels/bad-name/audit-log", NewUserId());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidChannelName, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task ChannelResync_UsesTheWiderCheck_NotTheManagementOne()
+    {
+        // The mirror image of the audit-log case, on the route right next to it. The 7TV editor is
+        // precisely the person with the problem this endpoint solves ("I added an emote and it is
+        // not showing up"), so a caller who fails the management check but passes the wider one must
+        // get through.
+        _factory.ChannelAccess.CanManageChannelAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(false);
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+        _factory.Channels.TriggerResyncAsync(Channel, Arg.Any<AuditActor>(), Arg.Any<CancellationToken>())
+            .Returns(ChannelResyncResult.Triggered);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/resync", NewUserId());
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        await _factory.ChannelAccess.Received()
+            .CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChannelResync_Answers429_WithItsOwnErrorCode_WhenTheCooldownIsActive()
+    {
+        // Formally handler behaviour rather than filter behaviour, and in this file anyway: it is
+        // the contract of a new ApiErrorCodes entry, and the difference between this 429 and the
+        // rate limiter's bare one is exactly what lets the frontend say something useful.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+        _factory.ResyncCooldown.TryBeginAsync(Channel, Arg.Any<CancellationToken>())
+            .Returns(new ResyncCooldownState(false, 42));
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/resync", NewUserId());
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ResyncCooldownActive, await ReadErrorCodeAsync(response));
+        Assert.Equal("42", response.Headers.GetValues("Retry-After").Single());
+        // Nothing was triggered, so nothing may reach the worker.
+        await _factory.Channels.DidNotReceive()
+            .TriggerResyncAsync(Arg.Any<string>(), Arg.Any<AuditActor>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChannelResync_ReleasesTheCooldown_WhenNothingWasActuallyTriggered()
+    {
+        // Otherwise a resync attempt against a channel that is not tracked would block the real
+        // resync for a full window — the exact moment a broadcaster who just rejoined wants one.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+        _factory.Channels.TriggerResyncAsync(Channel, Arg.Any<AuditActor>(), Arg.Any<CancellationToken>())
+            .Returns(ChannelResyncResult.NotFound);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/resync", NewUserId());
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ChannelNotFound, await ReadErrorCodeAsync(response));
+        await _factory.ResyncCooldown.Received().ReleaseAsync(Channel, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChannelResync_KeepsTheCooldown_WhenItDidTrigger()
+    {
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+        _factory.Channels.TriggerResyncAsync(Channel, Arg.Any<AuditActor>(), Arg.Any<CancellationToken>())
+            .Returns(ChannelResyncResult.Triggered);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/resync", NewUserId());
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        await _factory.ResyncCooldown.DidNotReceive().ReleaseAsync(Channel, Arg.Any<CancellationToken>());
     }
 
     [Fact]

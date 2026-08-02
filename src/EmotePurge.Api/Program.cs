@@ -112,6 +112,13 @@ builder.Services.AddRateLimiter(options =>
     // there leaves the database diverging from 7TV with no signal), and it used to share the
     // 20/min budget with join and the vote endpoints.
     options.AddPolicy("Bookkeeping", httpContext => PartitionPerUser(httpContext, permitLimit: 120));
+
+    // Stricter than ExternalApi by a factor of eight, for the one endpoint a user can trigger that
+    // costs an unconditional 7TV call *and* fans a live event out to every open page of the channel.
+    // It is only half the guard: this partitions per user, so fifteen moderators of one channel
+    // would still get fifteen budgets — the per-channel half is IChannelResyncCooldown. Neither
+    // mechanism covers the other's case.
+    options.AddPolicy("ChannelResync", httpContext => PartitionPerUser(httpContext, permitLimit: 5));
 });
 
 static RateLimitPartition<string> PartitionPerUser(HttpContext httpContext, int permitLimit)

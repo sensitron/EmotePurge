@@ -26,6 +26,9 @@ internal static class ApiErrorCodes
     public const string EmoteIdEmpty = "emote_id_empty";
     public const string InvalidVoteType = "invalid_vote_type";
     public const string ChannelNotFound = "channel_not_found";
+    // 429 with a body, unlike the rate limiter's bare 429: the client can tell the two apart and
+    // say "already running, try again shortly" instead of a generic throttling message.
+    public const string ResyncCooldownActive = "resync_cooldown_active";
     public const string VoteSessionNotFound = "vote_session_not_found";
     public const string VoteSessionEnded = "vote_session_ended";
     public const string EmoteNotEligible = "emote_not_eligible";

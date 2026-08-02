@@ -2,10 +2,12 @@ import { expect, test } from '@playwright/test';
 
 import {
   AUTH_USER,
+  emitLive,
   installLiveStub,
   mockActiveEmoteSet,
   mockAuthMe,
   mockChannelPermissions,
+  mockChannelScopedResync,
   mockChannelStatus,
   mockMyChannels,
   mockUsageTotals,
@@ -62,6 +64,60 @@ test.describe('authenticated broadcaster', () => {
     await expect(page.getByText('PogU')).toBeVisible();
     await expect(page.getByText('42x')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Channel verlassen' })).toBeVisible();
+  });
+
+  test('resync reports queued and upgrades to finished when the sync event arrives', async ({
+    page,
+  }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockChannelScopedResync(page, 'sensitron');
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await page.getByRole('button', { name: 'Neu synchronisieren' }).click();
+
+    // The 202 only means the worker was told; the confirmation is a separate live event.
+    // Located by text, not by role: the usage grid below carries its own role="status" counter.
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+
+    await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
+
+    await expect(page.getByText('Resync abgeschlossen.')).toBeVisible();
+  });
+
+  // The endpoint sits behind the wider permission check on purpose: the person who just added an
+  // emote and is wondering why it is missing is usually the channel's 7TV editor.
+  test('a 7TV editor sees the resync button but not the leave button', async ({ page }) => {
+    await mockChannelPermissions(page, 'sensitron', {
+      canManage: false,
+      canViewUsageStats: true,
+    });
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+
+    await page.goto('/channels/sensitron/usage-stats');
+
+    await expect(page.getByRole('button', { name: 'Neu synchronisieren' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Channel verlassen' })).toHaveCount(0);
+  });
+
+  test('a second resync inside the cooldown says so instead of failing silently', async ({
+    page,
+  }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockChannelScopedResync(page, 'sensitron', 429);
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await page.getByRole('button', { name: 'Neu synchronisieren' }).click();
+
+    // The dedicated error code, not the rate limiter's generic 429 message — that difference is
+    // the whole reason the cooldown answers with a body.
+    await expect(
+      page.getByText('Für diesen Channel läuft bereits ein Resync. Bitte kurz warten.'),
+    ).toBeVisible();
   });
 
   // Would have caught a regression back to an inner scroll container: with one the window never

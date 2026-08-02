@@ -3,6 +3,7 @@ import { Routes } from '@angular/router';
 import { adminGuard } from './core/auth/admin.guard';
 import { authGuard } from './core/auth/auth.guard';
 import { homeGuard } from './core/auth/home.guard';
+import { channelManageGuard } from './core/channels/channel-manage.guard';
 import { usageStatsAccessGuard } from './core/channels/usage-stats-access.guard';
 import { voteSessionAccessGuard } from './core/voting/vote-session-access.guard';
 import { LoginPage } from './features/login/login-page';
@@ -94,6 +95,17 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/voting/vote-session-list-page').then((m) => m.VoteSessionListPage),
             canActivate: [authGuard],
+          },
+          {
+            // The strictest of the three channel guards: canManage, not canViewUsageStats — the
+            // activity feed names which moderator did what, and the channel's 7TV editors are
+            // frequently outside the mod team.
+            path: 'activity',
+            loadComponent: () =>
+              import('./features/channel-workspace/channel-activity-page').then(
+                (m) => m.ChannelActivityPage,
+              ),
+            canActivate: [channelManageGuard],
           },
           {
             // Requires login AND being part of this specific session's target audience
