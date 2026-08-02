@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, inject, input, signal, viewChild } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { ThemePreference, ThemeService } from '../../core/theme/theme.service';
@@ -8,15 +8,62 @@ import { Popover } from './popover';
 interface ThemeOption {
   value: ThemePreference;
   labelKey: string;
-  /** Decorative — the accessible name comes from the label next to it. */
-  glyph: string;
 }
 
 const THEME_OPTIONS: ThemeOption[] = [
-  { value: 'system', labelKey: 'theme.system', glyph: '🖥' },
-  { value: 'light', labelKey: 'theme.light', glyph: '☀' },
-  { value: 'dark', labelKey: 'theme.dark', glyph: '🌙' },
+  { value: 'system', labelKey: 'theme.system' },
+  { value: 'light', labelKey: 'theme.light' },
+  { value: 'dark', labelKey: 'theme.dark' },
 ];
+
+/**
+ * The three mode glyphs as drawn icons rather than emoji.
+ *
+ * Emoji are a font, not artwork: `☀` and `🌙` render as a different picture on every platform, one
+ * of the two is usually presented in colour and the other monochrome, and neither takes
+ * `currentColor` — so the selected row, whose text turns white on the accent fill, kept a glyph that
+ * did not follow it. These are 24-unit outline paths at the same stroke weight as the shell's own
+ * icons (`app-shell.ts`), so they inherit colour, size and weight like text does.
+ *
+ * `name` takes a `ThemePreference` because the trigger passes a *resolved* theme (`'light'|'dark'`),
+ * which is a subset of it — one type, no mapping table.
+ */
+@Component({
+  selector: 'app-theme-icon',
+  template: `
+    <svg
+      class="h-5 w-5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      @switch (name()) {
+        @case ('light') {
+          <circle cx="12" cy="12" r="4" />
+          <path
+            d="M12 2.75v2M12 19.25v2M21.25 12h-2M4.75 12h-2M18.54 5.46l-1.42 1.42M6.88 17.12l-1.42 1.42M18.54 18.54l-1.42-1.42M6.88 6.88L5.46 5.46"
+          />
+        }
+        @case ('dark') {
+          <!-- Crescent as a single outline: a full disc minus the disc that bites into it. -->
+          <path d="M20.5 14.4A8.6 8.6 0 0 1 9.6 3.5a8.6 8.6 0 1 0 10.9 10.9z" />
+        }
+        @default {
+          <!-- 'system' = a display, i.e. "whatever the device says". -->
+          <rect x="2.75" y="4" width="18.5" height="12.5" rx="2" />
+          <path d="M8.5 20.25h7M12 16.5v3.75" />
+        }
+      }
+    </svg>
+  `,
+})
+export class ThemeIcon {
+  readonly name = input.required<ThemePreference>();
+}
 
 /**
  * Theme picker for the shell header, next to the language switcher — same category of control (a
@@ -32,7 +79,7 @@ const THEME_OPTIONS: ThemeOption[] = [
  */
 @Component({
   selector: 'app-theme-menu',
-  imports: [Popover, TranslocoPipe],
+  imports: [Popover, ThemeIcon, TranslocoPipe],
   template: `
     <div class="relative" data-popover-anchor>
       <button
@@ -45,7 +92,9 @@ const THEME_OPTIONS: ThemeOption[] = [
         [title]="'theme.label' | transloco"
         (click)="toggle()"
       >
-        <span aria-hidden="true">{{ triggerGlyph() }}</span>
+        <!-- resolved(), not preference(): the trigger shows what is currently on screen. With
+             'system' chosen, a display icon here would say nothing about which mode you are in. -->
+        <app-theme-icon [name]="themeService.resolved()" />
       </button>
 
       @if (isOpen()) {
@@ -71,7 +120,7 @@ const THEME_OPTIONS: ThemeOption[] = [
                 "
                 (click)="select(option.value)"
               >
-                <span aria-hidden="true">{{ option.glyph }}</span>
+                <app-theme-icon [name]="option.value" />
                 <span>{{ option.labelKey | transloco }}</span>
               </button>
             }
@@ -90,12 +139,6 @@ export class ThemeMenu {
 
   protected readonly themeOptions = THEME_OPTIONS;
   protected readonly isOpen = signal(false);
-
-  /** The trigger shows what is currently *rendered*, not what was chosen — with `'system'` selected
-   *  the monitor glyph would say nothing about which mode the user is looking at. */
-  protected triggerGlyph(): string {
-    return this.themeService.resolved() === 'light' ? '☀' : '🌙';
-  }
 
   protected toggle(): void {
     if (this.isOpen()) {
