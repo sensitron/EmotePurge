@@ -568,6 +568,42 @@
     "pageOf": "Page {{ page }} of {{ totalPages }}",
     "next": "Next"
   },
+  "restore": {
+    "button": "Restore emotes",
+    "progress": "{{ finished }} / {{ total }} restored",
+    "deleteFailedFallback": "Restore failed",
+    "rateLimitPaused": "7TV rate limit reached — resuming automatically in {{ seconds }}s.",
+    "confirmTitle": {
+      "one": "Add {{ count }} emote back to the set?",
+      "other": "Add {{ count }} emotes back to the set?"
+    },
+    "confirmExecute": "Restore",
+    "capacityProjection": "The set would then hold {{ projected }} of {{ capacity }} slots.",
+    "capacityWarning": "That exceeds the capacity — 7TV will reject the surplus emotes.",
+    "historyNote": "The usage history stays unchanged.",
+    "summary": {
+      "counts": "{{done}} restored · {{failed}} failed · {{cancelled}} cancelled"
+    },
+    "resync": {
+      "pending": "Triggering a sync…",
+      "succeeded": "Sync triggered — the list will refresh in a moment.",
+      "cooldown": "Sync cooldown active — the list refreshes on its own within a minute.",
+      "failed": "Could not trigger a sync — the periodic sync catches up within a minute."
+    },
+    "import": {
+      "trigger": "Import protocol",
+      "hint": "Load a downloaded purge protocol (JSON) as the restore list.",
+      "fileLabel": "Choose a purge protocol",
+      "errors": {
+        "notJson": "The file is not valid JSON.",
+        "wrongKind": "The file is not an EmotePurge purge protocol.",
+        "wrongVersion": "The protocol comes from a newer EmotePurge version.",
+        "wrongChannel": "The protocol belongs to a different channel.",
+        "wrongSet": "The protocol belongs to a different emote set — the channel switched its active set.",
+        "noRestorableRows": "The protocol contains no successfully deleted emotes to restore."
+      }
+    }
+  },
   "export": {
     "button": "Export",
     "buttonAriaLabel": "Export results",
@@ -609,6 +645,11 @@
     "syncRetry": "Report again",
     "syncRetrySucceeded": "Reported back successfully.",
     "rateLimitPaused": "7TV rate limit reached — resuming automatically in {{ seconds }}s.",
+    "summary": {
+      "counts": "{{done}} deleted · {{failed}} failed · {{cancelled}} cancelled",
+      "downloadProtocol": "Download protocol",
+      "protocolNotSaved": "Protocol not saved yet — it is gone once you close this."
+    },
     "errors": {
       "tokenInvalid": "Token invalid or expired — please enter a new 7TV token.",
       "rateLimited": "Too many requests to 7TV (rate limit) — try again later.",

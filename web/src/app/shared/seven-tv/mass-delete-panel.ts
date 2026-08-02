@@ -7,10 +7,22 @@ import {
   DeleteQueueEmote,
   SevenTvDeleteService,
 } from '../../core/seven-tv/seven-tv-delete.service';
+import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { CSV_MIME } from '../export/csv';
+import { ExportDialog, ExportDialogData, ExportFormat } from '../export/export-dialog';
+import { JSON_MIME } from '../export/export-envelope';
+import { downloadFile } from '../export/file-download';
+import {
+  buildPurgeRunProtocol,
+  purgeRunCsv,
+  purgeRunFilename,
+  purgeRunJson,
+} from '../export/purge-run-export';
 import { Button } from '../ui/button';
 import { DeleteConfirmDialog, DeleteConfirmDialogData } from './delete-confirm-dialog';
-import { DeleteProgressPanel } from './delete-progress-panel';
+import { RestoreConfirmDialog, RestoreConfirmDialogData } from './restore-confirm-dialog';
+import { RunProgressPanel } from './run-progress-panel';
 import { SevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
 export interface DeletableEmote {
@@ -23,10 +35,14 @@ export interface DeletableEmote {
  * One reusable delete engine, rendered as two separate instances (Usage-Stats page and
  * Voting-Results page) — each instance owns its host page's local selection, but both talk to
  * the same singleton SevenTvDeleteService/SevenTvTokenService underneath.
+ *
+ * Since A6 it also owns the run's paper trail: the post-run summary offers the protocol as a
+ * download (the file is the restore list), and "restore" re-adds the deleted emotes over the
+ * restore service's own engine run — both browser-side, the 7TV token never leaves it.
  */
 @Component({
   selector: 'app-mass-delete-panel',
-  imports: [Button, DeleteProgressPanel, TranslocoPipe],
+  imports: [Button, RunProgressPanel, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-2">
@@ -56,7 +72,7 @@ export interface DeletableEmote {
       </div>
 
       @if (deleteService.isRunning() || deleteService.queue().length > 0) {
-        <app-delete-progress-panel
+        <app-run-progress-panel
           [items]="deleteService.queue()"
           [isRunning]="deleteService.isRunning()"
           [syncReport]="deleteService.syncReport()"
@@ -64,7 +80,45 @@ export interface DeletableEmote {
           (cancelled)="deleteService.cancel()"
           (dismissed)="deleteService.reset()"
           (syncRetryRequested)="deleteService.retrySyncReport()"
-        />
+        >
+          <ng-container run-actions>
+            @if (deleteService.lastRun(); as run) {
+              <button type="button" appButton="neutral" (click)="openProtocolExport()">
+                {{ 'massDelete.summary.downloadProtocol' | transloco }}
+              </button>
+              @if (run.result.doneIds.length > 0 && !restoreService.isRunning()) {
+                <!-- The two-tier *shape* of the destructive convention, not its colour: outline
+                     triggers, the dialog's primary-solid executes — restore is constructive. -->
+                <button type="button" appButton="outline" (click)="openRestoreConfirm()">
+                  {{ 'restore.button' | transloco }}
+                </button>
+              }
+              @if (!protocolSaved()) {
+                <!-- reset() wipes the run — the downloaded file is the only durable artifact. -->
+                <span class="text-xs text-fg-muted">
+                  {{ 'massDelete.summary.protocolNotSaved' | transloco }}
+                </span>
+              }
+            }
+          </ng-container>
+        </app-run-progress-panel>
+      }
+
+      @if (restoreService.isRunning() || restoreService.queue().length > 0) {
+        <app-run-progress-panel
+          [items]="restoreService.queue()"
+          [isRunning]="restoreService.isRunning()"
+          labelPrefix="restore"
+          [rateLimitPauseSeconds]="restoreService.rateLimitPauseSeconds()"
+          (cancelled)="restoreService.cancel()"
+          (dismissed)="restoreService.reset()"
+        >
+          <ng-container run-actions>
+            @if (resyncNoticeKey(); as noticeKey) {
+              <span class="text-xs text-fg-muted" role="status">{{ noticeKey | transloco }}</span>
+            }
+          </ng-container>
+        </app-run-progress-panel>
       }
     </div>
   `,
@@ -88,6 +142,7 @@ export class MassDeletePanel {
 
   protected readonly tokenService = inject(SevenTvTokenService);
   protected readonly deleteService = inject(SevenTvDeleteService);
+  protected readonly restoreService = inject(SevenTvRestoreService);
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly dialog = inject(Dialog);
 
@@ -96,6 +151,28 @@ export class MassDeletePanel {
   private readonly selectedEmoteNames = computed(() =>
     this.selectedEmotes().map((emote) => emote.name),
   );
+
+  /** Whether the current run's protocol was downloaded at least once — drives the reminder next
+   *  to Close, since reset() leaves the file as the only artifact. */
+  protected readonly protocolSaved = signal(false);
+
+  /** Live slot view for the restore-confirm dialog, loaded when that dialog opens. */
+  private readonly restoreSlots = signal<{ occupied: number; capacity: number } | null>(null);
+
+  protected readonly resyncNoticeKey = computed(() => {
+    switch (this.restoreService.resyncTrigger()) {
+      case 'pending':
+        return 'restore.resync.pending';
+      case 'succeeded':
+        return 'restore.resync.succeeded';
+      case 'cooldown':
+        return 'restore.resync.cooldown';
+      case 'failed':
+        return 'restore.resync.failed';
+      default:
+        return null;
+    }
+  });
 
   constructor() {
     // The queue settling is not on its own a reason to tell the host page anything: the backend only
@@ -110,6 +187,7 @@ export class MassDeletePanel {
 
       if (running) {
         notifiedForThisRun = false;
+        this.protocolSaved.set(false);
         return;
       }
 
@@ -132,6 +210,21 @@ export class MassDeletePanel {
         this.deleted.emit(doneIds);
       }
     });
+
+    // A finished restore changes the emote inventory back — the host page must refetch rather
+    // than trust its current list, same reasoning as the delete's reload path.
+    let restoreNotified = false;
+    effect(() => {
+      if (this.restoreService.isRunning()) {
+        restoreNotified = false;
+        return;
+      }
+      if (restoreNotified || this.restoreService.queue().length === 0) {
+        return;
+      }
+      restoreNotified = true;
+      this.reloadRequested.emit();
+    });
   }
 
   protected openConfirm(): void {
@@ -152,6 +245,118 @@ export class MassDeletePanel {
     }
 
     this.openConfirmDialog();
+  }
+
+  /** Offers the finished run's protocol in both formats — the JSON is the restore list. */
+  protected openProtocolExport(): void {
+    const run = this.deleteService.lastRun();
+    if (!run) {
+      return;
+    }
+    const protocol = buildPurgeRunProtocol({
+      channelName: run.channelName,
+      emoteSetId: run.setId,
+      startedAt: run.result.startedAt,
+      finishedAt: run.result.finishedAt,
+      items: run.result.items,
+    });
+    const data: ExportDialogData = {
+      rowCount: protocol.rows.length,
+      filtered: false,
+      noticeKeys: [],
+    };
+    this.dialog
+      .open<ExportFormat | undefined>(ExportDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+        ariaLabelledBy: 'export-dialog-title',
+      })
+      .closed.subscribe((format) => {
+        if (format === 'csv') {
+          downloadFile(
+            purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'csv'),
+            purgeRunCsv(protocol),
+            CSV_MIME,
+          );
+        } else if (format === 'json') {
+          downloadFile(
+            purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'json'),
+            purgeRunJson(protocol),
+            JSON_MIME,
+          );
+        }
+        if (format) {
+          this.protocolSaved.set(true);
+        }
+      });
+  }
+
+  protected openRestoreConfirm(): void {
+    const run = this.deleteService.lastRun();
+    if (!run || this.restoreService.isRunning()) {
+      return;
+    }
+    const doneItems = run.result.items.filter((item) => item.status === 'done');
+    if (doneItems.length === 0) {
+      return;
+    }
+
+    if (!this.tokenService.hasToken()) {
+      const promptRef = this.dialog.open<boolean>(SevenTvTokenPromptDialog, {
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+      });
+      promptRef.closed.subscribe((saved) => {
+        if (saved) {
+          this.openRestoreConfirmDialog(doneItems);
+        }
+      });
+      return;
+    }
+    this.openRestoreConfirmDialog(doneItems);
+  }
+
+  private openRestoreConfirmDialog(
+    doneItems: { emoteId: string; sevenTvEmoteId: string; name: string }[],
+  ): void {
+    // Live slot view, so the projection line pops in once the check answers (the dialog is
+    // already open by then) — same pattern as the delete confirm's shared-set warning.
+    this.restoreSlots.set(null);
+    this.emoteAdminService.getSetStatus(this.channelName()).subscribe({
+      next: (status) =>
+        this.restoreSlots.set(
+          status.capacity === null
+            ? null
+            : { occupied: status.occupiedSlots, capacity: status.capacity },
+        ),
+      error: () => this.restoreSlots.set(null),
+    });
+
+    const data: RestoreConfirmDialogData = {
+      names: doneItems.map((item) => item.name),
+      slots: this.restoreSlots.asReadonly(),
+    };
+    this.dialog
+      .open<boolean>(RestoreConfirmDialog, {
+        data,
+        backdropClass: 'app-dialog-backdrop',
+        panelClass: 'app-dialog-panel',
+        ariaLabelledBy: 'restore-confirm-dialog-title',
+      })
+      .closed.subscribe((confirmed) => {
+        if (confirmed) {
+          this.restoreService.startRestore(
+            this.setId(),
+            this.channelName(),
+            doneItems.map((item) => ({
+              emoteId: item.emoteId,
+              sevenTvEmoteId: item.sevenTvEmoteId,
+              name: item.name,
+            })),
+          );
+        }
+      });
   }
 
   private openConfirmDialog(): void {

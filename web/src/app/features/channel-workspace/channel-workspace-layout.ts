@@ -9,6 +9,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
 import { liveEvents } from '../../core/live/live-reload';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
+import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
@@ -149,6 +150,7 @@ export class ChannelWorkspaceLayout {
 
   private readonly channelService = inject(ChannelService);
   private readonly deleteService = inject(SevenTvDeleteService);
+  private readonly restoreService = inject(SevenTvRestoreService);
   private readonly router = inject(Router);
   private readonly translocoService = inject(TranslocoService);
   private readonly dialog = inject(Dialog);
@@ -178,8 +180,9 @@ export class ChannelWorkspaceLayout {
   constructor() {
     effect(() => {
       const channelName = this.channelName();
-      // A finished mass-delete run from another channel must not follow the user in here.
+      // A finished mass-delete or restore run from another channel must not follow the user in here.
       this.deleteService.resetIfChannelChanged(channelName);
+      this.restoreService.resetIfChannelChanged(channelName);
       this.loadPermissions(channelName);
     });
 

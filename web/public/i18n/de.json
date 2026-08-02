@@ -568,6 +568,42 @@
     "pageOf": "Seite {{ page }} von {{ totalPages }}",
     "next": "Weiter"
   },
+  "restore": {
+    "button": "Emotes wiederherstellen",
+    "progress": "{{ finished }} / {{ total }} wiederhergestellt",
+    "deleteFailedFallback": "Wiederherstellen fehlgeschlagen",
+    "rateLimitPaused": "7TV-Rate-Limit erreicht — es geht in {{ seconds }} s automatisch weiter.",
+    "confirmTitle": {
+      "one": "{{ count }} Emote wieder zum Set hinzufügen?",
+      "other": "{{ count }} Emotes wieder zum Set hinzufügen?"
+    },
+    "confirmExecute": "Wiederherstellen",
+    "capacityProjection": "Das Set hätte danach {{ projected }} von {{ capacity }} Slots belegt.",
+    "capacityWarning": "Das überschreitet die Kapazität — 7TV wird überzählige Emotes ablehnen.",
+    "historyNote": "Die Nutzungshistorie bleibt unverändert.",
+    "summary": {
+      "counts": "{{done}} wiederhergestellt · {{failed}} fehlgeschlagen · {{cancelled}} abgebrochen"
+    },
+    "resync": {
+      "pending": "Synchronisierung wird angestoßen…",
+      "succeeded": "Synchronisierung angestoßen — die Liste aktualisiert sich gleich.",
+      "cooldown": "Sync-Cooldown aktiv — die Liste aktualisiert sich innerhalb einer Minute von selbst.",
+      "failed": "Synchronisierung konnte nicht angestoßen werden — der periodische Sync holt es innerhalb einer Minute nach."
+    },
+    "import": {
+      "trigger": "Protokoll importieren",
+      "hint": "Ein heruntergeladenes Purge-Protokoll (JSON) als Wiederherstellungsliste einspielen.",
+      "fileLabel": "Purge-Protokoll auswählen",
+      "errors": {
+        "notJson": "Die Datei ist kein gültiges JSON.",
+        "wrongKind": "Die Datei ist kein EmotePurge-Purge-Protokoll.",
+        "wrongVersion": "Das Protokoll stammt aus einer neueren EmotePurge-Version.",
+        "wrongChannel": "Das Protokoll gehört zu einem anderen Channel.",
+        "wrongSet": "Das Protokoll gehört zu einem anderen Emote-Set — der Channel hat das aktive Set gewechselt.",
+        "noRestorableRows": "Das Protokoll enthält keine erfolgreich gelöschten Emotes zum Wiederherstellen."
+      }
+    }
+  },
   "export": {
     "button": "Exportieren",
     "buttonAriaLabel": "Ergebnisse exportieren",
@@ -609,6 +645,11 @@
     "syncRetry": "Erneut melden",
     "syncRetrySucceeded": "Rückmeldung erfolgreich nachgeholt.",
     "rateLimitPaused": "7TV-Rate-Limit erreicht — es geht in {{ seconds }} s automatisch weiter.",
+    "summary": {
+      "counts": "{{done}} gelöscht · {{failed}} fehlgeschlagen · {{cancelled}} abgebrochen",
+      "downloadProtocol": "Protokoll herunterladen",
+      "protocolNotSaved": "Protokoll noch nicht gespeichert — nach dem Schließen ist es weg."
+    },
     "errors": {
       "tokenInvalid": "Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.",
       "rateLimited": "Zu viele Anfragen an 7TV (Rate Limit) — später erneut versuchen.",
