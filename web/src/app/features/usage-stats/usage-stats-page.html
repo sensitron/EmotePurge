@@ -247,10 +247,12 @@
                  keydown, because Enter on the button would otherwise bubble into the card's
                  selection handler — same isolation the vote buttons use on the voting cards.
                  Absolutely positioned so ROW_HEIGHT_PX stays untouched; the name row keeps pr-6
-                 clear of it. -->
+                 clear of it. The before: inset grows the hit area to 44px for touch without
+                 growing the visible 24px glyph — it may only overhang into the grid gap, never
+                 reach the neighbouring card. -->
             <button
               type="button"
-              class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition hover:bg-surface-inset hover:text-fg-body"
+              class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition before:absolute before:-inset-2.5 hover:bg-surface-inset hover:text-fg-body"
               [attr.aria-label]="'usageStats.drilldown.open' | transloco: { name: emote.emoteName }"
               (click)="$event.stopPropagation(); openDrilldown(emote)"
               (keydown)="$event.stopPropagation()"

@@ -211,11 +211,13 @@
           >
             <!-- Drilldown affordance (A5), gated on hasUsageData(): the /daily endpoint sits behind
                  the usage-stats access filter, so a plain voter's click could only earn a 403.
-                 stopPropagation on click *and* keydown keeps it out of the selection handler. -->
+                 stopPropagation on click *and* keydown keeps it out of the selection handler.
+                 The before: inset grows the hit area to 44px for touch without growing the
+                 visible 24px glyph. -->
             @if (hasUsageData()) {
               <button
                 type="button"
-                class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition hover:bg-surface-inset hover:text-fg-body"
+                class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition before:absolute before:-inset-2.5 hover:bg-surface-inset hover:text-fg-body"
                 [attr.aria-label]="
                   'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
                 "
