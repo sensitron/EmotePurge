@@ -32,7 +32,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A8** Resync für Channel-Manager | ✅ 2026-08-02 | DECISIONS „Resync als Self-Service" |
 | **A9**–**A15** | ⬜ | — |
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
-| **B2** Soll/Ist-Roster | 🟡 2026-08-01 | Frühwarn-Schwellen fehlen |
+| **B2** Soll/Ist-Roster | ✅ 2026-08-02 | DECISIONS „Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht" |
 | **B3**–**B9** | ⬜ | — |
 
 ## Inhalt
@@ -451,16 +451,19 @@ Roster in jeden Heartbeat packen, sondern einen zweiten Key mit längerem Takt.
 
 ### B2 — Soll/Ist-Abgleich des IRC-Rosters + Kapazitäts-Frühwarnung
 
-**Status: 🟡 teilweise umgesetzt am 2026-08-01** (`GET /api/admin/roster` + `admin-roster-card.ts`).
+**Status: ✅ vollständig umgesetzt am 2026-08-02** (Frühwarnung nachgezogen; Soll/Ist-Teil vom
+2026-08-01, `GET /api/admin/roster` + `admin-roster-card.ts`).
 Der Soll/Ist-Abgleich ist vollständig da, inklusive der Gegenrichtung („Worker hat Channel, DB nicht
 mehr aktiv") und mit Boot-Recovery- und Staleness-Gate gegen Fehlalarme. Bei den Decken weicht die
 Umsetzung bewusst ab: der Twitch-Balken läuft gegen ein **Join-Budget von 20** (TwitchLibs
 Rejoin-Burst nach einem Reconnect, begründet in `Api/Health/WorkerCapacity.cs`), die 100er-Decke
 steht als Hinweistext daneben; 7TV wird gegen das gemeldete `subscription_limit` gezeigt statt gegen
 eine abgeleitete 250er-Channel-Decke; für 7TV-REST gibt es bewusst nur eine Rate ohne Balken, weil es
-kein veröffentlichtes Quota als ehrlichen Nenner gibt. **Offen:** die eigentliche *Frühwarnung* —
-es gibt keine Schwelle, die vor dem Anschlag warnt (der Twitch-Balken färbt sich erst bei echter
-Überschreitung, der 7TV-Balken gar nicht).
+kein veröffentlichtes Quota als ehrlichen Nenner gibt. Die Frühwarnung fährt seit dem 2026-08-02 die
+geteilte 80/95-Schwellen-Leiter (`shared/ui/utilization-tone.ts`) auf beiden Balken, mit Warntext ab
+80 %; zwei bewusste Abweichungen: das Roster-Status-Badge bekommt keine Kapazitätsstufe, und
+7TV-REST bleibt balkenlos — Begründung in DECISIONS „Auslastungsbalken bekommen eine
+Schwellen-Leiter, das Roster-Badge nicht".
 
 Ein Panel im Monitoring: „DB sagt 34 aktive Channels, IRC ist in 31 gejoint — diese drei fehlen",
 plus Auslastungsbalken gegen die drei harten Decken:

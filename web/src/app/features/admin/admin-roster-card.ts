@@ -10,9 +10,23 @@ import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.mod
 import { liveEvents } from '../../core/live/live-reload';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
+import { UtilizationTone, utilizationTone } from '../../shared/ui/utilization-tone';
 
 /** Three times the worker's 60-second roster cadence — the same rule the Redis TTL follows. */
 const STALE_AFTER_SECONDS = 180;
+
+/** Bar fills are small meaning-carrying graphics — the `dot` tokens owe 3:1, not 4.5:1. */
+const TONE_FILL: Record<UtilizationTone, string> = {
+  success: 'bg-success-dot',
+  warning: 'bg-warning-dot',
+  danger: 'bg-danger-dot',
+};
+
+const TONE_TEXT: Record<UtilizationTone, string> = {
+  success: 'text-fg-body',
+  warning: 'text-warning-fg',
+  danger: 'text-danger-fg',
+};
 
 const STATUS_TONES: Record<string, StatusBadgeTone> = {
   complete: 'success',
@@ -101,7 +115,7 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
           <div class="flex flex-col gap-1">
             <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
               <span class="text-fg-muted">{{ 'admin.roster.joinBudget' | transloco }}</span>
-              <span [class]="overBudget() ? 'text-warning-fg' : 'text-fg-body'">
+              <span [class]="budgetTextClass()">
                 {{ data.trackedChannelCount }} / {{ data.ceilings.twitchJoinBudgetChannels }}
               </span>
             </div>
@@ -115,10 +129,16 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
             >
               <div
                 class="h-full rounded-full"
-                [class]="overBudget() ? 'bg-warning-dot' : 'bg-accent'"
+                [class]="budgetFillClass()"
                 [style.width.%]="budgetPercent()"
               ></div>
             </div>
+            @if (budgetWarningKey(); as warningKey) {
+              <!-- The colour step alone must never carry the warning (WCAG 1.4.1). -->
+              <p class="text-xs" [class]="budgetTextClass()">
+                {{ warningKey | transloco: budgetWarningParams() }}
+              </p>
+            }
             <p class="text-xs text-fg-muted">
               {{ 'admin.roster.joinBudgetHint' | transloco }}
             </p>
@@ -215,9 +235,66 @@ export class AdminRosterCard {
     () => (this.roster()?.ageSeconds ?? 0) > STALE_AFTER_SECONDS,
   );
 
-  protected readonly overBudget = computed(() => {
+  /**
+   * Uncapped share of the join budget, null when the ceiling is missing or zero: without a
+   * denominator there is no utilization to grade, and a green bar would claim a health we cannot
+   * know. The tone must see values past 100 — a budget at 120 % grades `danger`, the capped
+   * `budgetPercent` below is only the bar width.
+   */
+  private readonly rawBudgetPercent = computed<number | null>(() => {
     const data = this.roster();
-    return !!data && data.trackedChannelCount > data.ceilings.twitchJoinBudgetChannels;
+    const budget = data?.ceilings.twitchJoinBudgetChannels;
+    if (!data || !budget) {
+      return null;
+    }
+    return (data.trackedChannelCount / budget) * 100;
+  });
+
+  protected readonly budgetTone = computed<UtilizationTone | null>(() => {
+    const percent = this.rawBudgetPercent();
+    return percent === null ? null : utilizationTone(percent);
+  });
+
+  protected readonly budgetFillClass = computed(() => {
+    const tone = this.budgetTone();
+    return tone === null ? 'bg-accent' : TONE_FILL[tone];
+  });
+
+  protected readonly budgetTextClass = computed(() => {
+    const tone = this.budgetTone();
+    return tone === null ? 'text-fg-body' : TONE_TEXT[tone];
+  });
+
+  /**
+   * Text line under the bar from `warning` upwards — three states: nearing the budget, critically
+   * close, and past it. Null in the healthy (or denominator-less) state, which un-renders the line.
+   */
+  protected readonly budgetWarningKey = computed<string | null>(() => {
+    const data = this.roster();
+    if (!data?.ceilings.twitchJoinBudgetChannels) {
+      return null;
+    }
+    if (data.trackedChannelCount > data.ceilings.twitchJoinBudgetChannels) {
+      return 'admin.roster.joinBudgetExceeded';
+    }
+    switch (this.budgetTone()) {
+      case 'danger':
+        return 'admin.roster.joinBudgetCritical';
+      case 'warning':
+        return 'admin.roster.joinBudgetWarning';
+      default:
+        return null;
+    }
+  });
+
+  /** One params object serving all three warning keys — each key picks what it interpolates. */
+  protected readonly budgetWarningParams = computed(() => {
+    const data = this.roster();
+    return {
+      percent: Math.round(this.rawBudgetPercent() ?? 0),
+      tracked: data?.trackedChannelCount ?? 0,
+      budget: data?.ceilings.twitchJoinBudgetChannels ?? 0,
+    };
   });
 
   /** Capped so an over-budget channel count cannot overflow the bar out of its track. */

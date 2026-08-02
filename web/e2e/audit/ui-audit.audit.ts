@@ -373,6 +373,20 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // Both capacity bars in their early-warning band (86 % subscriptions, 90 % join budget): the
+    // amber fills plus their mandatory text lines are a distinct page state the happy path and the
+    // degraded scenario never reach.
+    slug: 'admin-monitoring-near-capacity',
+    path: '/admin/monitoring',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockAdminHealth(page, {
+        sevenTv: { desiredSubscriptionCount: 430, desiredChannelCount: 215 },
+      });
+      await mockAdminRoster(page, { trackedChannelCount: 18 });
+    },
+  },
+  {
     slug: 'admin-channel-detail',
     path: '/admin/channels/handofblood',
     setup: async (page) => {

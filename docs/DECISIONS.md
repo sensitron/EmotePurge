@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht
+
+**Betrifft:** `web/src/app/shared/ui/utilization-tone.ts` (+ `utilization-tone.spec.ts`, beide neu) · `web/src/app/shared/emotes/slot-budget.ts` · `web/src/app/features/admin/admin-roster-card.ts` · `web/src/app/features/admin/admin-monitoring-page.ts` · beide Locale-Dateien · `web/e2e/audit/ui-audit.audit.ts`
+
+**Der Rest von Idee B2: die eigentliche Frühwarnung.** Der Twitch-Join-Balken färbte sich erst bei echter Überschreitung des Budgets, der 7TV-Subscription-Balken nie — beide Decken meldeten sich also genau dann, wenn es zu spät ist. Jetzt fahren beide dieselbe Schwellen-Leiter wie der Slot-Budget-Balken: `success` unter 80 %, `warning` ab 80 %, `danger` ab 95 %.
+
+**Die Leiter ist aus `slot-budget.ts` nach `shared/ui/utilization-tone.ts` extrahiert, nicht importiert.** Der Admin-Bereich dürfte `shared/emotes/` zwar importieren — aber eine rein präsentationale Schwellen-Leiter aus der Emote-Domäne zu beziehen wäre eine Kopplung ohne inhaltlichen Grund. `SlotBudgetTone` bleibt als Alias-Re-Export bestehen, alle bisherigen Importeure sind unberührt; `slot-budget.spec.ts` lief unverändert grün als Regressionsbeweis der Extraktion.
+
+**Der Ton wird aus dem ungekappten Prozentwert berechnet.** Die Balkenbreite bleibt auf 100 % gekappt (ein Über-Budget-Zustand darf den Balken nicht aus seiner Spur laufen lassen), aber 120 % muss `danger` ergeben und nicht knapp-unter-100 — deshalb existieren `rawBudgetPercent`/`rawUtilizationPercent` getrennt von den gekappten Breiten-Werten.
+
+**Kein Nenner → kein Ton.** Meldet 7TV kein `subscription_limit` (älterer Worker-Snapshot) oder fehlt das Join-Budget, bleibt der Balken beim bedeutungsfreien `bg-accent` und es erscheint kein Warntext — dieselbe Ehrlichkeit, aus der `slotBudget()` bei fehlender Kapazität `null` liefert: ein grüner Balken ohne Nenner würde eine Gesundheit behaupten, die niemand gemessen hat. Der gesunde Zustand mit Nenner wechselt dafür sichtbar von `bg-accent` auf `bg-success-dot` — `accent` trägt keine Gesundheitsaussage, und die einzige bestehende Auslastungsanzeige der App (Slot-Budget) fährt die Leiter bereits.
+
+**Ab `warning` steht eine Textzeile unter dem Balken** — der Farbwechsel allein wäre ein Verstoß gegen WCAG 1.4.1, und der Balken-Kontrast (1.4.11, 3:1 der `*-dot`-Token) ist vom Audit-Harness ohnehin nicht automatisiert prüfbar. Beim Join-Budget gibt es drei Textstufen (`warning`/`critical`/`exceeded`), weil „mehr getrackte Channels als Budget" eine andere Handlungsaufforderung ist als „nähert sich".
+
+**Das Roster-Status-Badge bekommt bewusst keine `nearing-capacity`-Stufe.** Das Badge beantwortet „macht der Worker seinen Job" — Kapazität ist eine Prognose, kein Defekt. Ein voll gejointer, gesunder Worker als `warning` zu badgen würde genau das Signal verwässern, das „drei Channels fehlen" bedeutet. Ebenso unverändert: 7TV-REST bekommt weiterhin keinen Balken (kein veröffentlichtes Quota, kein ehrlicher Nenner), und die 90-%-Log-Warnung des Workers (`SevenTvEventClient`) bleibt als serverseitiges Gegenstück stehen.
+
+---
+
 ### 2026-08-02 — Die URL trägt den Listenzustand: Seite *und* Filter, mit zwei unterschiedlichen Navigationsarten
 
 **Betrifft:** `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`, beide neu) · `web/src/app/features/admin/admin-audit-log-page.ts` · `web/src/app/features/admin/admin-users-page.ts` · `web/src/app/features/channel-workspace/channel-activity-page.ts` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/features/voting/vote-session-list-page.ts` · `web/e2e/channel-activity.e2e.spec.ts` · [UI-Designsprache.md](UI-Designsprache.md) §8.4

@@ -15,7 +15,21 @@ import { Button } from '../../shared/ui/button';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
+import { UtilizationTone, utilizationTone } from '../../shared/ui/utilization-tone';
 import { AdminRosterCard } from './admin-roster-card';
+
+/** Bar fills are small meaning-carrying graphics — the `dot` tokens owe 3:1, not 4.5:1. */
+const TONE_FILL: Record<UtilizationTone, string> = {
+  success: 'bg-success-dot',
+  warning: 'bg-warning-dot',
+  danger: 'bg-danger-dot',
+};
+
+const TONE_TEXT: Record<UtilizationTone, string> = {
+  success: 'text-fg-body',
+  warning: 'text-warning-fg',
+  danger: 'text-danger-fg',
+};
 
 const STATUS_TONES: Record<SevenTvConnectionStatus, StatusBadgeTone> = {
   connected: 'success',
@@ -139,7 +153,7 @@ const NO_VALUE = '—';
               </span>
               <!-- The numbers are rendered as text as well, so the bar never carries meaning on its
                    own (it is additionally an ARIA progressbar for assistive tech). -->
-              <span class="text-fg-body">
+              <span [class]="subscriptionTextClass()">
                 {{ formatNumber(data.sevenTv.desiredSubscriptionCount) }} /
                 {{ formatNumber(data.sevenTv.subscriptionLimit) }}
               </span>
@@ -153,10 +167,17 @@ const NO_VALUE = '—';
               [attr.aria-label]="'admin.monitoring.sevenTv.utilization' | transloco"
             >
               <div
-                class="h-full rounded-full bg-accent"
+                class="h-full rounded-full"
+                [class]="subscriptionFillClass()"
                 [style.width.%]="utilizationPercent()"
               ></div>
             </div>
+            @if (subscriptionWarningKey(); as warningKey) {
+              <!-- The colour step alone must never carry the warning (WCAG 1.4.1). -->
+              <p class="text-xs" [class]="subscriptionTextClass()">
+                {{ warningKey | transloco: subscriptionWarningParams() }}
+              </p>
+            }
           </div>
 
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
@@ -289,6 +310,51 @@ export class AdminMonitoringPage {
     }
     return Math.min(100, (sevenTv.desiredSubscriptionCount / sevenTv.subscriptionLimit) * 100);
   });
+
+  /**
+   * Uncapped share of the subscription limit, null when 7TV never reported one (older worker
+   * snapshot): without a denominator there is no utilization to grade, and a green bar would claim
+   * a health we cannot know. The tone must see values past 100, so this is deliberately not the
+   * capped `utilizationPercent` above.
+   */
+  private readonly rawUtilizationPercent = computed<number | null>(() => {
+    const sevenTv = this.health()?.sevenTv;
+    if (!sevenTv?.desiredSubscriptionCount || !sevenTv.subscriptionLimit) {
+      return null;
+    }
+    return (sevenTv.desiredSubscriptionCount / sevenTv.subscriptionLimit) * 100;
+  });
+
+  protected readonly subscriptionTone = computed<UtilizationTone | null>(() => {
+    const percent = this.rawUtilizationPercent();
+    return percent === null ? null : utilizationTone(percent);
+  });
+
+  protected readonly subscriptionFillClass = computed(() => {
+    const tone = this.subscriptionTone();
+    return tone === null ? 'bg-accent' : TONE_FILL[tone];
+  });
+
+  protected readonly subscriptionTextClass = computed(() => {
+    const tone = this.subscriptionTone();
+    return tone === null ? 'text-fg-body' : TONE_TEXT[tone];
+  });
+
+  /** Text line under the bar from `warning` upwards (WCAG 1.4.1 — colour is never alone). */
+  protected readonly subscriptionWarningKey = computed<string | null>(() => {
+    switch (this.subscriptionTone()) {
+      case 'danger':
+        return 'admin.monitoring.sevenTv.utilizationCritical';
+      case 'warning':
+        return 'admin.monitoring.sevenTv.utilizationWarning';
+      default:
+        return null;
+    }
+  });
+
+  protected readonly subscriptionWarningParams = computed(() => ({
+    percent: Math.round(this.rawUtilizationPercent() ?? 0),
+  }));
 
   /**
    * The periodic resync issues one 7TV REST call per tracked channel per tick, so the load we put on
