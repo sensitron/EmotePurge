@@ -74,8 +74,13 @@ function findViolations(file) {
 /**
  * Files still allowed to carry palette utilities, with the wave that clears them. Repo-relative,
  * forward slashes. Delete an entry in the same commit that cleans the file — see the note above.
+ *
+ * EMPTY, and it is meant to stay that way. It held the seven admin files and the landing page while
+ * the light mode was being rolled out; both waves cleared their own entries because leaving them
+ * would have failed the stale check. A new entry here is a temporary debt with a named owner, not
+ * a way to opt a file out.
  */
-const EXEMPT = new Map([['web/src/app/features/landing/landing-page.html', 'wave 4 (landing)']]);
+const EXEMPT = new Map([]);
 
 const failures = [];
 const usedExemptions = new Set();

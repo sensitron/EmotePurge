@@ -79,6 +79,30 @@ test.describe('theme', () => {
     expect(themeAtBoot).toBe('light');
   });
 
+  test('switching modes swaps the logo without any runtime complaint', async ({ page }) => {
+    // The brand mark is bound rather than static, and NgOptimizedImage has opinions about an ngSrc
+    // that changes after init — opinions it voices at runtime, where neither the build nor a unit
+    // test would hear them. So this asserts on the console, not just on the attribute.
+    const problems: string[] = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error' || message.type() === 'warning') {
+        problems.push(`${message.type()}: ${message.text()}`);
+      }
+    });
+    page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`));
+
+    await mockAuthMe(page, AUTH_USER);
+    await mockMyChannels(page, []);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto('/');
+    await expect(page.locator('header img').first()).toHaveAttribute('src', /logo\.png/);
+
+    await page.emulateMedia({ colorScheme: 'light' });
+
+    await expect(page.locator('header img').first()).toHaveAttribute('src', /logo-light\.png/);
+    expect(problems, problems.join('\n')).toEqual([]);
+  });
+
   test('the header menu switches the mode and persists the choice', async ({ page }) => {
     // The switcher lives in the app shell, and /welcome and /login both render outside it — so
     // this one needs a signed-in session to have a header at all.

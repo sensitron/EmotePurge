@@ -116,6 +116,11 @@
   --ep-sticky-alpha: 85%;
   --ep-page-glow-1: rgb(147 51 234 / 0.14);
   --ep-page-glow-2: rgb(236 72 153 / 0.1);
+
+  /* Landing hero heading. The gradient is decorative *and* carries the headline, so the stops owe
+     contrast in their own right: purple-400 (7,7:1) and pink-400 (6,4:1) on the dark page. */
+  --ep-heading-gradient-from: var(--color-purple-400);
+  --ep-heading-gradient-to: var(--color-pink-400);
 }
 
 :root[data-theme='light'] {
@@ -189,6 +194,12 @@
   --ep-sticky-alpha: 92%;
   --ep-page-glow-1: rgb(147 51 234 / 0.06);
   --ep-page-glow-2: rgb(236 72 153 / 0.04);
+
+  /* The dark stops land at 1,6:1 and 2,1:1 on a light page — far below anything, even for display
+     type. purple-600 gets 5,2:1 and pink-700 5,9:1, so both ends clear 4,5:1 as ordinary text and
+     the headline is safe wherever the eye lands in the ramp. */
+  --ep-heading-gradient-from: var(--color-purple-600);
+  --ep-heading-gradient-to: var(--color-pink-700);
 }
 
 @theme inline {
@@ -249,7 +260,13 @@
      "canvas" in both modes. Everything else on the tile follows the theme. */
   --color-emote-canvas: var(--color-slate-800);
 
+  --color-heading-gradient-from: var(--ep-heading-gradient-from);
+  --color-heading-gradient-to: var(--ep-heading-gradient-to);
+
   --shadow-overlay: var(--ep-shadow-overlay);
+  /* The landing CTAs' halo. Same token as the interactive card's hover shadow — brand glow in dark,
+     a neutral lift in light, because an additive purple halo on white is a smudge, not depth. */
+  --shadow-glow: var(--ep-shadow-card-hover);
 }
 
 @layer base {

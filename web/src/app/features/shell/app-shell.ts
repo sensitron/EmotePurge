@@ -5,6 +5,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { WorkerHealthService, WorkerHealthStatus } from '../../core/health/worker-health.service';
+import { logoSrc } from '../../shared/branding/logo';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { Button } from '../../shared/ui/button';
 import { ThemeMenu } from '../../shared/ui/theme-menu';
@@ -57,7 +58,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
               routerLink="/"
               class="flex items-center gap-2 text-lg font-semibold whitespace-nowrap"
             >
-              <img ngSrc="logo.png" width="24" height="24" alt="" class="h-6 w-6" />
+              <img [ngSrc]="logoSrc()" width="24" height="24" alt="" class="h-6 w-6" />
               Emote Purge
             </a>
             <!-- Dot always visible, text label only when there's room. -->
@@ -211,6 +212,7 @@ export class AppShell {
   protected readonly statusDotClass = computed(() => STATUS_DOT_CLASS[this.healthService.status()]);
   protected readonly statusLabelKey = computed(() => STATUS_LABEL_KEY[this.healthService.status()]);
   protected readonly menuOpen = signal(false);
+  protected readonly logoSrc = logoSrc();
 
   constructor() {
     // AppShell is mounted for every route (overview, usage-stats, vote-sessions), unlike

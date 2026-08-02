@@ -22,7 +22,9 @@ public static class LogoTool
     }
 
     // Flood fill from the image border: every background-colored pixel connected to the
-    // border becomes transparent. Enclosed dark areas (eyes, mouth) stay opaque.
+    // border becomes transparent. Enclosed areas (eyes, mouth) stay opaque — in the dark
+    // sources they keep the near-black fill, in the light ones the near-white one, which is
+    // what makes each variant sit flush on the surface it was drawn for.
     public static void KeyOut(Bitmap bmp, int tol)
     {
         int w = bmp.Width, h = bmp.Height;
@@ -188,9 +190,32 @@ $heroBase = [LogoTool]::CropSquare($a, $bboxA, 0.03, $transparent)
 $hero = [LogoTool]::Resize($heroBase, 512)
 $hero.Save("$pub\logo-hero.png", [System.Drawing.Imaging.ImageFormat]::Png)
 
+# ---- light-mode twins: header mark + hero only ----
+# Same derivation, same padding, same output sizes as the dark pair, so the two variants are
+# drop-in swappable at the same <img> box. Deliberately NOT regenerated here: favicon.ico,
+# apple-touch-icon.png and icon-192/512.png keep their baked-in #020617 — a PWA manifest
+# carries a single theme_color, so the installed icon follows the brand, not the page theme.
+$bLight = [LogoTool]::Load("$branding\logo-mark-light.png")
+[LogoTool]::KeyOut($bLight, 30)
+$bboxBLight = [LogoTool]::OpaqueBBox($bLight)
+Write-Output "bbox b-light: $bboxBLight"
+$markLightBase = [LogoTool]::CropSquare($bLight, $bboxBLight, 0.03, $transparent)
+$markLight = [LogoTool]::Resize($markLightBase, 128)
+$markLight.Save("$pub\logo-light.png", [System.Drawing.Imaging.ImageFormat]::Png)
+
+$aLight = [LogoTool]::Load("$branding\logo-full-light.png")
+[LogoTool]::KeyOut($aLight, 30)
+$bboxALight = [LogoTool]::OpaqueBBox($aLight)
+Write-Output "bbox a-light: $bboxALight"
+$heroLightBase = [LogoTool]::CropSquare($aLight, $bboxALight, 0.03, $transparent)
+$heroLight = [LogoTool]::Resize($heroLightBase, 512)
+$heroLight.Save("$pub\logo-hero-light.png", [System.Drawing.Imaging.ImageFormat]::Png)
+
 # Sanity: corners transparent, center opaque
 Write-Output ("mark corner alpha: " + [LogoTool]::AlphaAt($mark, 2, 2) + ", center alpha: " + [LogoTool]::AlphaAt($mark, 64, 64))
 Write-Output ("hero corner alpha: " + [LogoTool]::AlphaAt($hero, 2, 2) + ", center alpha: " + [LogoTool]::AlphaAt($hero, 256, 256))
+Write-Output ("mark-light corner alpha: " + [LogoTool]::AlphaAt($markLight, 2, 2) + ", center alpha: " + [LogoTool]::AlphaAt($markLight, 64, 64))
+Write-Output ("hero-light corner alpha: " + [LogoTool]::AlphaAt($heroLight, 2, 2) + ", center alpha: " + [LogoTool]::AlphaAt($heroLight, 256, 256))
 
-foreach ($obj in @($b, $a, $favBase, $touchBase, $iconBase, $heroBase, $mark, $touch, $icon192, $icon512, $hero) + $sizes.Values) { $obj.Dispose() }
+foreach ($obj in @($b, $a, $favBase, $touchBase, $iconBase, $heroBase, $mark, $touch, $icon192, $icon512, $hero, $bLight, $aLight, $markLightBase, $heroLightBase, $markLight, $heroLight) + $sizes.Values) { $obj.Dispose() }
 Get-ChildItem $pub -File | Select-Object Name, Length | Format-Table -AutoSize

@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Die Landing zieht mit, das Logo folgt dem Theme, und das Manifest bleibt dunkel
+
+**Betrifft:** `web/src/app/features/landing/landing-page.{ts,html}` · `web/src/app/shared/branding/logo.ts` (neu) · `web/src/app/features/{shell/app-shell.ts,login/login-page.ts}` · `web/branding/{logo-mark-light.png,logo-full-light.png,make-icons.ps1,README.md}` · `web/public/{logo-light.png,logo-hero-light.png}` · `web/src/styles.css` · `web/scripts/check-color-tokens.mjs` · `web/e2e/theme.spec.ts`
+
+**Der Logo-Tausch läuft über ein Signal, nicht über `<picture media="(prefers-color-scheme: …)">`.** Ein Media-Query beantwortet, was das *System* bevorzugt — diese App lässt den Nutzer das überstimmen. Bei einer expliziten Wahl gegen die Systempräferenz zeigte der CSS-Weg also die falsche Marke. `shared/branding/logo.ts` leitet den Dateinamen aus `ThemeService.resolved()` ab; `NgOptimizedImage` bleibt Pflicht, `[ngSrc]` erfüllt das mit gebundenem Wert. Größe und Position springen dabei nicht, weil beide Varianten gegen dieselbe Bounding-Box zugeschnitten sind und denselben Anteil der Kantenlänge füllen.
+
+**Ein gebundenes `ngSrc` ist genau die Sorte Änderung, über die `NgOptimizedImage` sich zur Laufzeit beschwert — nicht beim Build.** Deshalb prüft der neue Fall in `theme.spec.ts` beim Moduswechsel nicht nur das `src`-Attribut, sondern **auch die Browser-Konsole** auf `error`/`warning`/`pageerror`. Ein Test, der nur das Attribut prüft, hätte eine Direktiven-Warnung nie bemerkt.
+
+**Zwei neue Tokens für die Landing, beide mit gerechnetem Kontrast.** Das Gradient-Heading (`--ep-heading-gradient-from/-to`): die dunklen Stops erreichen auf hellem Grund 1,6:1 bzw. 2,1:1 — unbrauchbar selbst für Display-Type. Hell nimmt `purple-600` (5,2:1) und `pink-700` (5,9:1), womit beide Enden der Rampe 4,5:1 als Fließtext halten und es egal ist, wo das Auge landet. Und `shadow-glow` für die CTA-Halos: derselbe Wert wie der Hover-Schatten der interaktiven Karte — Markenglühen im Dunkeln, ein neutraler Lift im Hellen, weil ein additiver lila Schein auf Weiß ein Fleck ist und keine Tiefe.
+
+**Das PWA-Manifest bleibt dunkel, und die App-Icons auch.** Ein Manifest trägt genau **eine** `theme_color`; der Splash-Screen der installierten App gehört optisch zum Icon, und das hat `#020617` eingebrannt (`branding/README.md`). Ein weißer Splash mit dunklem Icon-Kasten sähe kaputt aus. Die `<meta name="theme-color">`-Tags in `index.html` folgen dem Modus trotzdem — das ist der Browser-Chrome, nicht der Splash. Damit ist die letzte offene Entscheidung aus dem Konzept (§10 Nr. 8) beantwortet.
+
+**Die Ausnahmeliste des Farbgates ist leer.** Sie hat getan, wofür sie gebaut war: die sieben Admin-Dateien und die Landing-Page haben ihre eigenen Einträge entfernt, weil das Stehenlassen den Lint genauso rot gefärbt hätte wie ein neuer Verstoß. Ein künftiger Eintrag ist eine befristete Schuld mit Namen, kein Weg, eine Datei dauerhaft auszuklinken.
+
+---
+
 ### 2026-08-02 — Paletten-Utilities sind ab jetzt ein roter Lint, und der Audit-Harness rechnet Kontrast selbst
 
 **Betrifft:** `web/scripts/check-color-tokens.mjs` (neu) · `web/package.json` · `web/e2e/audit/ui-audit.audit.ts` · `docs/UI-Designsprache.md` (§10, §11, §12)
