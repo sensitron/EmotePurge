@@ -10,7 +10,8 @@
     "e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint ."
+    "lint": "eslint . && npm run lint:colors",
+    "lint:colors": "node scripts/check-color-tokens.mjs"
   },
   "private": true,
   "packageManager": "npm@11.16.0",
@@ -33,6 +34,7 @@
     "@angular/build": "^22.0.8",
     "@angular/cli": "^22.0.8",
     "@angular/compiler-cli": "^22.0.0",
+    "@axe-core/playwright": "^4.12.1",
     "@playwright/test": "^1.62.0",
     "@tailwindcss/postcss": "^4.1.12",
     "angular-eslint": "^22.1.0",

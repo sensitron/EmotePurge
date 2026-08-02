@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Paletten-Utilities sind ab jetzt ein roter Lint, und der Audit-Harness rechnet Kontrast selbst
+
+**Betrifft:** `web/scripts/check-color-tokens.mjs` (neu) · `web/package.json` · `web/e2e/audit/ui-audit.audit.ts` · `docs/UI-Designsprache.md` (§10, §11, §12)
+
+**Die Token-Regel wird erzwungen, nicht erbeten.** `check-color-tokens.mjs` verbietet Tailwind-Paletten-Utilities unterhalb `web/src/app/` und hängt an `npm run lint`, läuft also im bestehenden CI-Schritt mit, ohne dass `publish.yml` angefasst werden muss. Bewusst ein Node-Skript statt eines `rg`-Schritts: ripgrep ist auf einem CI-Runner nicht garantiert. Kommentare werden vorher entfernt — eine Regel, die es verbietet, in einem Kommentar zu erklären, *warum* `bg-slate-900` hier mal stand, entmutigt genau die Kommentare, die sie verständlich machen.
+
+**Die Ausnahmeliste kann nicht vergessen werden, und das ist ihr eigentlicher Zweck.** Sie startet mit den sieben Admin-Dateien und der Landing-Page. Ein Eintrag, dessen Datei **keine** Verstöße mehr hat, ist selbst ein Fehler und macht den Lint rot. Wer eine Datei aufräumt, kann den Eintrag also nicht liegen lassen — Vergessen färbt den Build genauso rot wie ein neuer Verstoß. Beide Fehlermodi sind vor dem Commit einzeln provoziert und beobachtet worden, nicht nur angenommen: injizierter Verstoß in einer migrierten Datei → rot, injizierter Verstoß in einer ausgenommenen Datei → grün, künstlich veralteter Eintrag → rot.
+
+**Der Audit-Harness bekommt Theme als vierte Dimension — und einen Kontrast-Gate, der rechnet statt zu schauen.** `@axe-core/playwright` (neue Devdependency) fährt pro Zustand die Regel `color-contrast`; neue Metrik `contrastViolations`, Gate 0 auf `serious`/`critical`. **Bewusst nur diese eine Regel:** ein voller axe-Lauf fördert unabhängige Befunde zutage, die mit Theming nichts zu tun haben und jeden Audit rot färben würden, ohne dass dieser Harness etwas dagegen tun kann — die verdienen eine eigene Runde. Der erste Lauf hat den Nutzen sofort belegt: 224 Zustände, davon 12 rot, **alle zwölf hell und alle zwölf im Admin-Bereich** — also exakt die Dateien, die noch auf der Ausnahmeliste stehen. Der gesamte angemeldete Bereich und der dunkle Modus sind sauber. Damit bestätigt der Gate unabhängig, dass die Wellen 1 und 2 stimmen, und markiert punktgenau, was Welle 3 noch schuldet.
+
+**Hell läuft nur bei 1280, dauerhaft.** Dieselbe Abwägung wie bei der `en`-Locale: Layoutbrüche sind theme-unabhängig, weil Farbe keine Kastengrößen ändert, und das, was am hellen Modus wirklich zu prüfen ist — der Kontrast — wird ohnehin in jedem Zustand gemessen. Laufzeit ~1,3× statt 2×. In der Welle, die einen Modus erstmals ausliefert, wird der Skip herausgenommen und die volle Matrix in beiden Modi durchgesehen.
+
+**Nebenbefund, der in die Doku gehört:** die Ausgabedateien heißen jetzt `<szenario>--<viewport>--<locale>--<theme>`. Wer `.audit-out/` vor einem Lauf nicht leert, zählt beim Auswerten alte Dateien aus dem Vorher-Schema mit — beim ersten Lauf hier waren das 46 Einträge einer Metrik aus einem Lauf ohne Theme-Dimension.
+
+---
+
 ### 2026-08-02 — Der Umschalter wird sichtbar, und die Emote-Kachel bleibt in beiden Modi dunkel
 
 **Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/app.ts` · `web/src/app/features/{usage-stats,voting,channel-workspace,login,overview,my-votings}/*` · `web/e2e/theme.spec.ts` (neu) · `web/src/test-setup.ts` (neu) · `web/angular.json` · `docs/UI-Designsprache.md`

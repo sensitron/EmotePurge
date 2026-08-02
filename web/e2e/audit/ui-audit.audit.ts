@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import AxeBuilder from '@axe-core/playwright';
 import { Page, test } from '@playwright/test';
 
 import {
@@ -35,6 +36,13 @@ const VIEWPORTS = [
   { name: 'tablet', width: 768, height: 1024 },
   { name: 'desktop', width: 1280, height: 900 },
 ] as const;
+
+// Theme is the fourth dimension of the matrix. Running it in full would double a run that is
+// already minutes long and gets started by hand — so light is desktop-only, the same trade the
+// `en` locale already makes. Layout breaks are theme-independent (colour changes no box sizes);
+// what light actually needs checking for is contrast, and that is measured per state either way.
+// In the wave that first ships a theme, drop the skip below and look at both sets of screenshots.
+const THEMES = ['dark', 'light'] as const;
 
 // 1x1 PNG stub so emote images from cdn.7tv.app never hit the network.
 const PNG_1X1 = Buffer.from(
@@ -678,43 +686,85 @@ async function collectMetrics(page: Page) {
   });
 }
 
+/**
+ * axe's `color-contrast` rule, and nothing else. §10 has demanded an AXE pass since the design doc
+ * was written, but until now it was checked by eye. Scoped to the one rule on purpose: a full axe
+ * run surfaces unrelated findings that have nothing to do with theming and would turn every audit
+ * red for reasons this harness cannot act on — those deserve their own round.
+ *
+ * Gate: 0 on serious/critical. What it cannot see, and what therefore stays hand-work:
+ * semi-transparent stacks it refuses to compute, and non-text graphic contrast (1.4.11).
+ */
+async function collectContrastViolations(page: Page) {
+  const results = await new AxeBuilder({ page }).withRules(['color-contrast']).analyze();
+  return results.violations.flatMap((violation) =>
+    violation.nodes
+      .filter((node) => node.impact === 'serious' || node.impact === 'critical')
+      .map((node) => ({
+        impact: node.impact,
+        target: node.target.join(' '),
+        summary: node.failureSummary?.split('\n').slice(0, 3).join(' ') ?? '',
+      })),
+  );
+}
+
 // --- test matrix -----------------------------------------------------------
 
 fs.mkdirSync(path.join(OUT, 'shots'), { recursive: true });
 fs.mkdirSync(path.join(OUT, 'metrics'), { recursive: true });
 
-for (const vp of VIEWPORTS) {
-  for (const sc of SCENARIOS) {
-    test(`${sc.slug} @ ${vp.name}`, async ({ page }, testInfo) => {
-      const locale = testInfo.project.name;
-      // English pass only in mobile (worst-case overflow) + desktop to keep the matrix sane.
-      test.skip(locale === 'en' && vp.name === 'tablet', 'en only in mobile+desktop');
+for (const theme of THEMES) {
+  for (const vp of VIEWPORTS) {
+    for (const sc of SCENARIOS) {
+      test(`${sc.slug} @ ${vp.name} [${theme}]`, async ({ page }, testInfo) => {
+        const locale = testInfo.project.name;
+        // English pass only in mobile (worst-case overflow) + desktop to keep the matrix sane.
+        test.skip(locale === 'en' && vp.name === 'tablet', 'en only in mobile+desktop');
+        test.skip(theme === 'light' && vp.name !== 'desktop', 'light only at 1280');
 
-      await page.setViewportSize({ width: vp.width, height: vp.height });
-      await stubSevenTvCdn(page);
-      // Mandatory here, not just nice to have: a live EventSource keeps the network busy forever,
-      // so the waitForLoadState('networkidle') below would never resolve.
-      await installLiveStub(page);
-      await sc.setup(page);
-      await page.goto(sc.path);
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(400);
-      if (sc.afterLoad) {
-        await sc.afterLoad(page);
-        await page.waitForTimeout(200);
-      }
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+        // Both, and deliberately: emulateMedia covers the system-preference path, the storage seed
+        // covers the explicit-choice path, and together they make the state independent of which
+        // one the app happens to read first.
+        await page.emulateMedia({ colorScheme: theme });
+        await page.addInitScript(
+          (value) => localStorage.setItem('emotepurge.theme', value),
+          theme as string,
+        );
+        await stubSevenTvCdn(page);
+        // Mandatory here, not just nice to have: a live EventSource keeps the network busy forever,
+        // so the waitForLoadState('networkidle') below would never resolve.
+        await installLiveStub(page);
+        await sc.setup(page);
+        await page.goto(sc.path);
+        await page.waitForLoadState('networkidle');
+        await page.waitForTimeout(400);
+        if (sc.afterLoad) {
+          await sc.afterLoad(page);
+          await page.waitForTimeout(200);
+        }
 
-      const base = `${sc.slug}--${vp.name}--${locale}`;
-      await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: true });
-      const metrics = await collectMetrics(page);
-      fs.writeFileSync(
-        path.join(OUT, 'metrics', `${base}.json`),
-        JSON.stringify(
-          { scenario: sc.slug, viewport: vp.name, locale, url: sc.path, ...metrics },
-          null,
-          2,
-        ),
-      );
-    });
+        const base = `${sc.slug}--${vp.name}--${locale}--${theme}`;
+        await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: true });
+        const metrics = await collectMetrics(page);
+        const contrastViolations = await collectContrastViolations(page);
+        fs.writeFileSync(
+          path.join(OUT, 'metrics', `${base}.json`),
+          JSON.stringify(
+            {
+              scenario: sc.slug,
+              viewport: vp.name,
+              locale,
+              theme,
+              url: sc.path,
+              ...metrics,
+              contrastViolations,
+            },
+            null,
+            2,
+          ),
+        );
+      });
+    }
   }
 }

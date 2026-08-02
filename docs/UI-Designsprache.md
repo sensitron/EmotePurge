@@ -297,28 +297,31 @@ Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.*
 - [ ] **Disabled erklärt sich:** Grund als sichtbarer Text neben dem Button (TypedConfirm-Hint-Muster), nicht nur Ausgrauung.
 - [ ] **Dekoratives versteckt:** Emoji-Icons und Skeleton-Schimmer `aria-hidden="true"`.
 - [ ] **Accessible Names kurz:** Stretched-Link-Karten lassen den Screenreader nur den kurzen Titel hören (2.3), keine ganze Karte als Linktext.
-- [ ] **Kontrast:** Text 4,5:1, Ränder/Fokusringe/bedeutungstragende Grafiken 3:1 — **gerechnet, nicht geschätzt**. Die schwächste zulässige Textstufe auf Karten- und Seitenfläche ist `slate-400` (7,0:1); `slate-500` erreicht nur 3,7:1 und ist deshalb keine Textfarbe mehr. Input-Ränder: `slate-500`, s. 5.1.
+- [ ] **Kontrast, in beiden Modi:** Text 4,5:1, Ränder/Fokusringe/bedeutungstragende Grafiken 3:1 — **gerechnet für hell UND dunkel, nicht geschätzt** (2.0: ein neues Token bringt beide Werte plus den Nachweis in der Commit-Message mit). Die schwächste zulässige Textstufe ist `text-fg-muted` (7,0:1 auf der Karte im Dunkeln, 7,6:1 im Hellen); die frühere `slate-500`-Stufe erreichte nur 3,7:1 und existiert nicht mehr. Input-Ränder: `border-border-field`, s. 5.1.
+- [ ] **axe-Kontrastgate:** Der Audit-Harness (12) fährt `@axe-core/playwright` mit der Regel `color-contrast` pro Zustand und schreibt `contrastViolations`. **Gate: 0 auf `serious`/`critical`.** Grenze, die man kennen muss: axe rechnet nur, was es als Text über einer bestimmbaren Fläche erkennt — halbtransparente Stapel verweigert es, und Grafik-Kontrast (1.4.11: Ampelpunkte, Balkenfüllungen, Ränder) deckt die Regel gar nicht ab. Beides bleibt Handarbeit.
 - [ ] **Kontrast/nativ:** `color-scheme` wird **pro Theme** im Tokenblock auf `:root` gesetzt (nicht mehr fest auf `body`) — dadurch folgen `input[type="time"]`, Scrollbars und Autofill dem Modus von selbst. Farbpaare der Primitives (Badge-Tones, Banner-Varianten) nicht ad hoc neu mischen — sie sind Tokens (2.0).
 
 ## 11. Checkliste „Neue UI bauen"
 
 Vor dem Abschluss jeder UI-Änderung abhaken:
 
-1. [ ] **Primitives statt Utility-Ketten:** `appButton`, `StatusBadge`, `NoticeBanner`, `EmptyState`, `SkeletonRows`, `SegmentedControl`, `ConfirmDialog`/`TypedConfirmDialog`, `Pager`, `.app-card*`, `.app-input*` — nichts davon nachbauen.
-2. [ ] **Flächen:** `.app-card`; `app-card-interactive` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
-3. [ ] **Typo-Skala** eingehalten (Abschnitt 3), Heading-Level folgt Dokumentstruktur.
-4. [ ] **Destruktiv-Flow:** `danger`-Auslöser → Dialog → `danger-solid`-Vollzug (4.2).
-5. [ ] **Ladezustand:** Skeleton (Seite/Liste) bzw. disabled-Button (Aktion) — kein Lade-Text (6.1).
-6. [ ] **Leerzustand:** `EmptyState` mit Warum + CTA (6.2).
-7. [ ] **Fehlerpfad:** `apiErrorTranslationKey` + `NoticeBanner error`; Feldfehler nach 5.3.
-8. [ ] **i18n:** alle Keys in **beiden** Locales, konstante Labels (9).
-9. [ ] **A11y-Checkliste** (10) durchgegangen; neue Formulare mit Label + Feldfehler-ARIA.
-10. [ ] **Audit-Harness** gelaufen, Gates grün (12); bei neuen Seiten: Szenario ergänzt.
-11. [ ] Konvention geändert/präzisiert? → DECISIONS-Eintrag im selben Commit (CLAUDE.md Regel 3) und dieses Dokument aktualisieren.
+1. [ ] **Primitives statt Utility-Ketten:** `appButton`, `StatusBadge`, `NoticeBanner`, `EmptyState`, `SkeletonRows`, `SegmentedControl`, `ConfirmDialog`/`TypedConfirmDialog`, `Pager`, `ThemeMenu`, `.app-card*`, `.app-input*` — nichts davon nachbauen.
+2. [ ] **Farbe aus Tokens** (2.0): keine Paletten-Utility unter `web/src/app/` — `npm run lint` erzwingt das. Fehlt ein Token, wird es **ergänzt**, mit Werten für **beide** Modi und gerechnetem Kontrast in der Commit-Message. Und: **beide Modi angesehen**, nicht nur den, in dem gerade gearbeitet wurde.
+3. [ ] **Flächen:** `.app-card`; `app-card-interactive` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
+4. [ ] **Typo-Skala** eingehalten (Abschnitt 3), Heading-Level folgt Dokumentstruktur.
+5. [ ] **Destruktiv-Flow:** `danger`-Auslöser → Dialog → `danger-solid`-Vollzug (4.2).
+6. [ ] **Ladezustand:** Skeleton (Seite/Liste) bzw. disabled-Button (Aktion) — kein Lade-Text (6.1).
+7. [ ] **Leerzustand:** `EmptyState` mit Warum + CTA (6.2).
+8. [ ] **Fehlerpfad:** `apiErrorTranslationKey` + `NoticeBanner error`; Feldfehler nach 5.3.
+9. [ ] **i18n:** alle Keys in **beiden** Locales, konstante Labels (9).
+10. [ ] **A11y-Checkliste** (10) durchgegangen; neue Formulare mit Label + Feldfehler-ARIA.
+11. [ ] **Audit-Harness** gelaufen, Gates grün inkl. `contrastViolations` (12); bei neuen Seiten: Szenario ergänzt.
+12. [ ] Konvention geändert/präzisiert? → DECISIONS-Eintrag im selben Commit (CLAUDE.md Regel 3) und dieses Dokument aktualisieren.
 
 ## 12. Verifikation per UI-Audit-Harness
 
-- **Was er ist:** Playwright-Harness getrennt von der e2e-Suite: rendert die UI-Zustands-Matrix (~20 Szenarien × 3 Viewports 360/768/1280 × de/en, API gemockt) und schreibt pro Zustand einen Full-Page-Screenshot + JSON-Metriken.
+- **Was er ist:** Playwright-Harness getrennt von der e2e-Suite: rendert die UI-Zustands-Matrix (~30 Szenarien × 3 Viewports 360/768/1280 × de/en × **dunkel/hell**, API gemockt) und schreibt pro Zustand einen Full-Page-Screenshot + JSON-Metriken.
+- **Theme ist die vierte Dimension, und sie läuft bewusst nicht voll.** Dunkel deckt alle drei Viewports ab, **hell nur 1280** — dieselbe Abwägung, die die `en`-Locale schon macht. Begründung: Layoutbrüche sind theme-unabhängig (Farbe ändert keine Kastengrößen), und was am hellen Modus wirklich zu prüfen ist, ist der Kontrast — den misst der axe-Gate in *jedem* Zustand. Das hält die Laufzeit bei ~1,3× statt 2×. **Ausnahme:** in der Welle, die einen Modus erstmals ausliefert, den Skip herausnehmen und die volle Matrix in beiden Modi durchsehen.
 - **Wann laufen lassen:** Nach jeder Layout-/Style-Änderung mit Flächenwirkung, bei jeder neuen Seite (vorher als Szenario in `web/e2e/audit/ui-audit.audit.ts` ergänzen — Route mocken, Edge-Case-Daten mit langen Namen verwenden) und vor Abschluss jeder UI-Welle.
 - **Wie:**
 
@@ -327,11 +330,12 @@ Vor dem Abschluss jeder UI-Änderung abhaken:
   npx playwright test --config=playwright.audit.config.ts
   ```
 
-  (Kein npm-Script; startet selbst `ng serve` auf Port 4300.) Output unter `web/.audit-out/` (gitignored): `shots/<szenario>--<viewport>--<locale>.png`, `metrics/<szenario>--<viewport>--<locale>.json`.
+  (Kein npm-Script; startet selbst `ng serve` auf Port 4300.) Output unter `web/.audit-out/` (gitignored): `shots/<szenario>--<viewport>--<locale>--<theme>.png`, `metrics/<szenario>--<viewport>--<locale>--<theme>.json`. **Vor einem Lauf, dessen Metriken man auswertet, `.audit-out/` leeren** — die Dateinamen haben sich mit der Theme-Dimension geändert, alte Dateien bleiben sonst liegen und verfälschen jede Auszählung über das Verzeichnis.
 - **Metriken lesen:** Pro JSON-Datei:
   - `horizontalOverflowPx` — horizontaler Seiten-Overflow in px. **Gate: muss 0 sein.**
   - `smallTargetsUnder24` — interaktive Elemente < 24 px (WCAG 2.5.8). **Gate: keine neuen Einträge gegenüber dem letzten Lauf** (bestehende Einträge sind dokumentierte „equivalent target"-Ausnahmen).
   - `targets24to43` — Elemente unter dem 44-px-Komfortziel: beobachten, kein hartes Gate.
   - `beyondRightEdge` — Elemente jenseits der rechten Viewport-Kante: wie Overflow behandeln.
-- Screenshots zusätzlich sichten (de **und** en — längere deutsche Strings sind der häufigste Umbruch-Bruch).
+  - `contrastViolations` — axe-Befunde der Regel `color-contrast`, gefiltert auf `serious`/`critical`. **Gate: muss leer sein.** Was axe nicht sieht, steht in §10.
+- Screenshots zusätzlich sichten (de **und** en — längere deutsche Strings sind der häufigste Umbruch-Bruch; und in der Auslieferungswelle eines Modus beide Themes).
 - **Referenz:** `web/playwright.audit.config.ts`, `web/e2e/audit/ui-audit.audit.ts`.
