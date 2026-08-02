@@ -3,7 +3,7 @@ namespace EmotePurge.Core.Entities;
 /// <summary>
 /// The vocabulary of <see cref="AuditLogEntry.Action"/>. Constants rather than an enum, because the
 /// value is persisted and shipped to the frontend as-is: the strings are the contract (the UI maps
-/// each one to an <c>admin.audit.actions.*</c> translation key), and an enum would have made the
+/// each one to an <c>audit.actions.*</c> translation key), and an enum would have made the
 /// stored representation an implementation detail that renumbering could silently break.
 /// </summary>
 public static class AuditActions
