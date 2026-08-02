@@ -36,15 +36,18 @@ public class EmoteService(AppDbContext db) : IEmoteService
             emote.LastSyncedAt = now;
         }
 
-        // No state change (all already archived by the live sync, or ids from another channel) is
-        // not an event worth an audit row; the caller still gets its counts.
-        if (newlyArchived.Count > 0)
+        // Audited on the goal-state count, not on newlyArchived: the user's delete on 7TV happened
+        // either way, and with the live sync usually winning the race, gating on "this call changed
+        // rows" left most real deletes without a paper trail. A retried report can write a second
+        // row — the log records the reports, and a duplicate beats a gap. Only the live event stays
+        // tied to an actual state change (see the endpoint).
+        if (emotes.Count > 0)
         {
             db.AddAuditEntry(
                 actor,
                 AuditActions.EmotesSyncDeleted,
                 channelName: normalized,
-                details: new { emoteCount = newlyArchived.Count });
+                details: new { emoteCount = emotes.Count });
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -53,5 +56,51 @@ public class EmoteService(AppDbContext db) : IEmoteService
         var notFoundIds = emoteIds.Where(id => !foundIds.Contains(id)).ToList();
 
         return new SyncDeletedResultDto(emotes.Count, notFoundIds, newlyArchived.Count);
+    }
+
+    public async Task<SyncRestoredResultDto> MarkRestoredAsync(string channelName, IReadOnlyList<string> emoteIds, AuditActor actor, CancellationToken cancellationToken = default)
+    {
+        var normalized = ChannelName.Normalize(channelName);
+
+        var channel = await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
+        if (channel is null)
+        {
+            return new SyncRestoredResultDto(0, emoteIds, 0);
+        }
+
+        // Mirror of MarkDeletedAsync, in the opposite direction: the live sync usually un-archives
+        // the emote off the 7TV ADD dispatch before this call arrives, so already-active rows count
+        // as restored (goal state reached) instead of landing in NotFoundIds.
+        var emotes = await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && emoteIds.Contains(e.Id))
+            .ToListAsync(cancellationToken);
+
+        var newlyRestored = emotes.Where(e => e.IsArchived).ToList();
+        var now = DateTime.UtcNow;
+        foreach (var emote in newlyRestored)
+        {
+            emote.IsArchived = false;
+            // Active again, so the archive date is meaningless — same clearing UpsertEmote does.
+            emote.ArchivedAt = null;
+            emote.LastSyncedAt = now;
+        }
+
+        // Same audit semantics as the delete: the restore happened on 7TV regardless of who
+        // un-archived the row first.
+        if (emotes.Count > 0)
+        {
+            db.AddAuditEntry(
+                actor,
+                AuditActions.EmotesSyncRestored,
+                channelName: normalized,
+                details: new { emoteCount = emotes.Count });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        var foundIds = emotes.Select(e => e.Id).ToHashSet();
+        var notFoundIds = emoteIds.Where(id => !foundIds.Contains(id)).ToList();
+
+        return new SyncRestoredResultDto(emotes.Count, notFoundIds, newlyRestored.Count);
     }
 }

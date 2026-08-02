@@ -15,7 +15,7 @@ public static class EmoteEndpoints
         // system, so they must be admitted here too, not just channel managers.
         // The whole group carries the strict policy, because the *authorization filter itself* calls
         // 7TV for every non-admin/broadcaster/mod caller — the cost is there even for the endpoints
-        // that look cheap. sync-deleted overrides it below.
+        // that look cheap. The two sync-* bookkeeping endpoints override it below.
         var group = app.MapGroup("/api/channels/{channelName}/emotes")
             .RequireAuthorization()
             // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
@@ -57,6 +57,42 @@ public static class EmoteEndpoints
         // endpoints, which several delete batches in one minute could exhaust.
         .RequireRateLimiting("Bookkeeping");
 
+        // The restore counterpart: the browser has already re-added the emotes on 7TV, this call
+        // un-archives them here and — its actual reason to exist — writes the emotes.syncRestored
+        // audit entry. Without it a restore only ever showed up as an anonymous channel.resync
+        // (or, under the resync cooldown, not at all).
+        group.MapPost("/sync-restored", async (
+            string channelName,
+            SyncRestoredRequest request,
+            HttpContext httpContext,
+            IEmoteService emoteService,
+            IRedisPublisher redisPublisher,
+            ILogger<Program> logger,
+            CancellationToken ct) =>
+        {
+            if (request.EmoteIds is null || request.EmoteIds.Count == 0)
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty });
+            }
+
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var result = await emoteService.MarkRestoredAsync(channelName, request.EmoteIds, actor, ct);
+            if (result.NewlyRestoredCount > 0)
+            {
+                await PublishChannelSyncedAsync(redisPublisher, logger, channelName);
+            }
+
+            return Results.Ok(new { restoredCount = result.RestoredCount, notFoundIds = result.NotFoundIds });
+        })
+        // Same reasoning as sync-deleted: the emotes are already back on 7TV, a dropped call here
+        // costs the paper trail and leaves the database stale until the next sync.
+        .RequireRateLimiting("Bookkeeping");
+
         group.MapGet("/set-warning", async (
             string channelName,
             HttpContext httpContext,
@@ -86,9 +122,10 @@ public static class EmoteEndpoints
 
     /// <summary>
     /// Announces "this channel's emote inventory changed" — the same event the worker's sync paths
-    /// publish, because the effect on every open page is identical: emotes that are gone from 7TV
-    /// are now archived here too. Published only when this call actually archived something (the
-    /// live sync often got there first, and a no-op must not make everyone refetch).
+    /// publish, because the effect on every open page is identical: the database now reflects what
+    /// happened on 7TV (archived after a delete, active again after a restore). Published only when
+    /// the call actually changed rows (the live sync often got there first, and a no-op must not
+    /// make everyone refetch).
     /// <para>
     /// In the endpoint rather than in EmoteService, exactly like the vote event: the notification
     /// belongs to the request that caused it, and IRedisPublisher in a handler is explicitly
@@ -119,3 +156,5 @@ public static class EmoteEndpoints
 }
 
 internal sealed record SyncDeletedRequest(IReadOnlyList<string> EmoteIds);
+
+internal sealed record SyncRestoredRequest(IReadOnlyList<string> EmoteIds);

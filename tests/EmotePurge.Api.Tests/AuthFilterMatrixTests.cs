@@ -58,6 +58,7 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     [InlineData("GET", "/api/channels/mine")]
     [InlineData("GET", "/api/channels/testchannel/usage-stats")]
     [InlineData("GET", "/api/channels/testchannel/emotes/set-warning")]
+    [InlineData("POST", "/api/channels/testchannel/emotes/sync-restored")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions/1/results")]
     [InlineData("POST", "/api/channels/testchannel/vote-sessions/1/votes")]
@@ -280,6 +281,34 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
         var response = await SendAsync("GET", $"/api/channels/{Channel}/emotes/set-warning", NewUserId());
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SyncRestored_Answers403_ForACallerWithoutUsageStatsAccess()
+    {
+        // The write path among the emote-group endpoints, same filter as set-warning above — worth
+        // its own case because a restore call slipping past the filter would write audit rows and
+        // un-archive emotes in someone else's channel.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-restored", NewUserId());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SyncRestored_Answers400_WhenTheBodyCarriesNoEmoteIds()
+    {
+        // The empty-body check must sit before any service work — this is also what keeps the case
+        // runnable without a database behind the test factory.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-restored", NewUserId());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.EmoteIdsEmpty, await ReadErrorCodeAsync(response));
     }
 
     [Fact]
