@@ -1,8 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, input, signal } from '@angular/core';
-import { rxResource, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { Component, computed, inject, input } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { debounceTime } from 'rxjs';
 
 import { AuditLogEntry } from '../../core/audit/audit.model';
 import { ChannelAuditService } from '../../core/channels/channel-audit.service';
@@ -10,6 +9,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { PagedResult } from '../../core/models/paged-result.model';
+import { listQueryState } from '../../core/routing/list-query-state';
 import { ACTION_KEYS, CHANNEL_SCOPED_ACTIONS } from '../../shared/audit/audit-actions';
 import { AuditLogList } from '../../shared/audit/audit-log-list';
 import { toAuditRows } from '../../shared/audit/audit-row';
@@ -146,15 +146,14 @@ export class ChannelActivityPage {
   private readonly channelAuditService = inject(ChannelAuditService);
   private readonly languageService = inject(LanguageService);
 
-  protected readonly page = signal(1);
+  // Page *and* both filters live in the URL, same as the global admin log: a restored "page 3"
+  // without the filter that made page 3 mean anything is worse than useless (core/routing).
+  private readonly query = listQueryState({ action: '', actor: '' });
 
-  protected readonly actionFilter = signal('');
-  protected readonly actorFilter = signal('');
+  protected readonly page = this.query.page;
 
-  private readonly debouncedActorFilter = toSignal(
-    toObservable(this.actorFilter).pipe(debounceTime(FILTER_DEBOUNCE_MS)),
-    { initialValue: '' },
-  );
+  protected readonly actionFilter = computed(() => this.query.params().action);
+  protected readonly actorFilter = this.query.textFilter('actor', FILTER_DEBOUNCE_MS);
 
   /**
    * "All" plus one segment per action a channel's log can actually contain — built from
@@ -176,8 +175,7 @@ export class ChannelActivityPage {
     params: () => ({
       channel: this.channelName(),
       page: this.page(),
-      action: this.actionFilter(),
-      actor: this.debouncedActorFilter(),
+      ...this.query.params(),
     }),
     stream: ({ params }) =>
       this.channelAuditService.listAuditLog(params.channel, params.page, PAGE_SIZE, {
@@ -206,24 +204,20 @@ export class ChannelActivityPage {
   }
 
   protected onPageChange(newPage: number): void {
-    this.page.set(newPage);
+    this.query.goToPage(newPage);
   }
 
-  // Every filter change jumps back to page 1: the old page number belongs to the old result set, and
-  // a filter that shrinks the set below the current page would otherwise show a stray empty page.
+  // The jump back to page 1 is no longer repeated per handler — `setParams` does it for every filter
+  // change, for the same reason as before: the old page number belongs to the old result set.
   protected onActionFilterChange(action: string): void {
-    this.actionFilter.set(action);
-    this.page.set(1);
+    this.query.setParams({ action });
   }
 
   protected onActorFilterInput(event: Event): void {
     this.actorFilter.set((event.target as HTMLInputElement).value);
-    this.page.set(1);
   }
 
   protected resetFilters(): void {
-    this.actionFilter.set('');
-    this.actorFilter.set('');
-    this.page.set(1);
+    this.query.setParams({ action: '', actor: '' });
   }
 }

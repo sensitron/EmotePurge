@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Die URL trägt den Listenzustand: Seite *und* Filter, mit zwei unterschiedlichen Navigationsarten
+
+**Betrifft:** `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`, beide neu) · `web/src/app/features/admin/admin-audit-log-page.ts` · `web/src/app/features/admin/admin-users-page.ts` · `web/src/app/features/channel-workspace/channel-activity-page.ts` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/features/voting/vote-session-list-page.ts` · `web/e2e/channel-activity.e2e.spec.ts` · [UI-Designsprache.md](UI-Designsprache.md) §8.4
+
+**Der Nachtrag zum Eintrag darunter.** Die Reposition beim Seitenwechsel war gebaut, die Seitennummer lag aber weiter in einem lokalen Signal — „Zeile öffnen, zurück" landete auf Seite 1, ein geteilter Link zeigte eine andere Liste als die gemeinte. Der Umbau macht die URL zur Quelle der Wahrheit.
+
+**Seite allein hätte nicht gereicht.** Drei der fünf Seiten haben keine Filter, dort ist `?page=3` die vollständige Antwort. Die beiden Audit-Logs haben welche, und ein wiederhergestelltes „Seite 3" ohne den Filter, der Seite 3 bedeutungsvoll gemacht hat, ist schlechter als nutzlos. Deshalb tragen `action`/`channel`/`actor` genauso in der URL — der eigentliche Aufwandstreiber dieser Runde.
+
+**Zwei Navigationsarten, und der Unterschied ist der ganze Punkt.** `goToPage` navigiert normal und erzeugt einen History-Schritt — dafür ist der Zurück-Button da. `setParams` navigiert mit `replaceUrl` und springt auf Seite 1 zurück. Filter greifen pro Tastenschlag; ohne `replaceUrl` hieße Zurück „einen Buchstaben rückgängig". Der Preis ist, dass Zurück die Filterung in einem Schritt verlässt statt sie aufzudröseln — akzeptiert, dafür gibt es den Zurücksetzen-Button.
+
+**`scroll: 'manual'` löst die Kollision, die diesen Umbau fast verhindert hätte.** Ein Query-Param-Wechsel ist eine Router-Navigation, und `RouterScroller` springt bei imperativen Navigationen auf `[0, 0]` — das hätte bei jedem Tastenschlag gescrollt und beim Seitenwechsel die eben gebaute Anker-Reposition überschrieben, inklusive des `scroll-mt-*`, das den Anker aus dem Sticky-Stapel hält. Die erwogenen Auswege waren beide schlecht: `scrollPositionRestoration: 'disabled'` trifft app-weit auch die Landing-Anker, und die Reposition hinter die Navigation zu hängen hätte den Pager wieder umgebaut. `NavigationExtras.scroll: 'manual'` ist der dokumentierte Per-Navigation-Ausstieg und lässt beide Mechanismen unangetastet nebeneinander stehen.
+
+**Der Helper besitzt die Drafts der Textfilter — das ist eine Korrektur an einem ersten Entwurf, den ein bestehender E2E-Test widerlegt hat.** Textfilter behalten ihren lokalen, sofort sichtbaren Draft und schreiben nur den ausgeruhten Wert in die URL (eine Navigation zwischen Taste und Zeichen frisst Eingaben). Der erste Entwurf ließ `onActionFilterChange` bloß URL-`action` und -`channel` in *einer* Navigation setzen und strich den bisherigen Short-Circuit gegen den nachlaufenden Debounce — mit dem Argument, die atomare Navigation mache ihn überflüssig. Sie macht ihn nur für den Fall überflüssig, in dem der Wert die URL schon erreicht hat: ein Channel, der noch im 300-ms-Fenster hängt, schrieb sich danach zurück, unter einer Aktion ohne Channel-Dimension. Der Test „selecting the channel-less revoke action disables and clears the channel filter" hat das gefangen. Statt die fehlende Zeile in beide Seiten zu kopieren, leert jetzt `setParams` die Drafts der Keys, die es schreibt: Draft und URL sind **ein** Zustand, und `setParams` ist die Stelle, an der sie sich treffen. Aus dem freien `urlTextFilter(fromUrl, toUrl, ms)` wurde dabei `query.textFilter(key, ms)` — die Registrierung des Drafts ist damit nicht mehr vergessbar.
+
+**Default-Werte fliegen aus der URL** statt leer geschrieben zu werden (`?page=3`, nicht `?page=3&action=&channel=&actor=`), Seite 1 steht nie drin. **Nicht abgedeckt:** `?page=9999` wird durchgereicht — das Backend liefert eine leere Seite, die Liste zeigt ihren Leerzustand. Clamping bräuchte `totalPages`, das erst *nach* der Antwort existiert, die mit diesem Zustand angefordert wird. Nichtnumerische und Werte `< 1` werden dagegen auf 1 geklemmt: „Seite -3 von 12" ist kein Zustand, den der Pager rendern soll.
+
+---
+
 ### 2026-08-02 — Ein Seitenwechsel repositioniert den Viewport: der Pager bekommt ein Scroll-/Fokus-Ziel
 
 **Betrifft:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`, neu) · `web/src/app/features/admin/admin-audit-log-page.ts` · `web/src/app/features/admin/admin-users-page.ts` · `web/src/app/features/channel-workspace/channel-activity-page.ts` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/features/voting/vote-session-list-page.html` · beide Locale-Dateien (`pager.label`) · [UI-Designsprache.md](UI-Designsprache.md) §8.4

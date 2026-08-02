@@ -15,6 +15,7 @@ import { Observable } from 'rxjs';
 import { ChannelService } from '../../core/channels/channel.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { PagedResult } from '../../core/models/paged-result.model';
+import { listQueryState } from '../../core/routing/list-query-state';
 import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
@@ -80,7 +81,11 @@ export class VoteSessionListPage {
   private readonly translocoService = inject(TranslocoService);
   private readonly dialog = inject(Dialog);
 
-  protected readonly page = signal(1);
+  // Page in the URL, not in a plain signal: every row links into a session, and the way back out of
+  // one is the back button — which used to return to page 1 (core/routing).
+  private readonly query = listQueryState();
+
+  protected readonly page = this.query.page;
 
   /**
    * Pilot for the rxResource pattern (the other four loader `effect()`s follow once this holds up).
@@ -142,8 +147,9 @@ export class VoteSessionListPage {
   private copyFeedbackTimeout?: ReturnType<typeof setTimeout>;
 
   protected onPageChange(newPage: number): void {
-    // Setting the signal is the whole trigger — `sessionsResource` reads `page()` in its `params`.
-    this.page.set(newPage);
+    // The navigation is the whole trigger — it moves `page()`, which `sessionsResource` reads in its
+    // `params`. No scroll comes out of it either; the pager repositions to its own anchor (§8.4).
+    this.query.goToPage(newPage);
   }
 
   protected createSession(): void {

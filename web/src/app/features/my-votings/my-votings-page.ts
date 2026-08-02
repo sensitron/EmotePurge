@@ -1,11 +1,12 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { PagedResult } from '../../core/models/paged-result.model';
+import { listQueryState } from '../../core/routing/list-query-state';
 import { MyVoteSession } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { Pager } from '../../shared/pagination/pager';
@@ -106,7 +107,11 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
 export class MyVotingsPage {
   private readonly voteSessionService = inject(VoteSessionService);
 
-  protected readonly page = signal(1);
+  // Page in the URL, not in a plain signal: these rows are links, so "open a session, press back"
+  // is the normal way out of this list — and it used to land on page 1 (core/routing).
+  private readonly query = listQueryState();
+
+  protected readonly page = this.query.page;
 
   // Follows the rxResource pilot from VoteSessionListPage (S3-17/S3-30): `params` reads `page()`,
   // so setting the signal is the whole reload trigger — no hand-written load()/effect() pair.
@@ -128,6 +133,6 @@ export class MyVotingsPage {
   });
 
   protected onPageChange(newPage: number): void {
-    this.page.set(newPage);
+    this.query.goToPage(newPage);
   }
 }

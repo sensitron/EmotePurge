@@ -11,6 +11,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { PagedResult } from '../../core/models/paged-result.model';
+import { listQueryState } from '../../core/routing/list-query-state';
 import { Pager } from '../../shared/pagination/pager';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
@@ -162,7 +163,11 @@ export class AdminUsersPage {
   private readonly languageService = inject(LanguageService);
   private readonly translocoService = inject(TranslocoService);
 
-  protected readonly page = signal(1);
+  // Page in the URL, not in a plain signal: the rows carry links out of this list, and coming back
+  // used to land on page 1 (core/routing).
+  private readonly query = listQueryState();
+
+  protected readonly page = this.query.page;
 
   private readonly usersResource = rxResource({
     params: () => ({ page: this.page() }),
@@ -223,7 +228,7 @@ export class AdminUsersPage {
   }
 
   protected onPageChange(newPage: number): void {
-    this.page.set(newPage);
+    this.query.goToPage(newPage);
   }
 
   /** No confirmation dialog on purpose: the cache is derived state that rebuilds itself on the next

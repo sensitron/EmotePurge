@@ -1,8 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
-import { rxResource, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { Component, computed, inject } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { debounceTime } from 'rxjs';
 
 import { AdminService } from '../../core/admin/admin.service';
 import { AuditLogEntry } from '../../core/audit/audit.model';
@@ -10,6 +9,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { PagedResult } from '../../core/models/paged-result.model';
+import { listQueryState } from '../../core/routing/list-query-state';
 import { ACTION_KEYS, CHANNELLESS_ACTIONS } from '../../shared/audit/audit-actions';
 import { AuditLogList } from '../../shared/audit/audit-log-list';
 import { toAuditRows } from '../../shared/audit/audit-row';
@@ -155,23 +155,18 @@ export class AdminAuditLogPage {
   private readonly adminService = inject(AdminService);
   private readonly languageService = inject(LanguageService);
 
-  protected readonly page = signal(1);
+  // Page *and* all three filters live in the URL: a restored "page 3" without the filter that made
+  // page 3 mean anything is worse than useless (core/routing/list-query-state.ts).
+  private readonly query = listQueryState({ action: '', channel: '', actor: '' });
 
-  // Live filter state, updated per keystroke — same feel as the emote grid's filter. That one is
-  // client-side over an in-memory array; here a paged endpoint sits behind every change, so the
-  // text values reach the request only through the debounced signals below.
-  protected readonly actionFilter = signal('');
-  protected readonly channelFilter = signal('');
-  protected readonly actorFilter = signal('');
+  protected readonly page = this.query.page;
 
-  private readonly debouncedChannelFilter = toSignal(
-    toObservable(this.channelFilter).pipe(debounceTime(FILTER_DEBOUNCE_MS)),
-    { initialValue: '' },
-  );
-  private readonly debouncedActorFilter = toSignal(
-    toObservable(this.actorFilter).pipe(debounceTime(FILTER_DEBOUNCE_MS)),
-    { initialValue: '' },
-  );
+  // The action segments are clicks, so they go straight into the URL. The two text filters keep a
+  // local draft updated per keystroke — same feel as the emote grid's filter — and reach the URL
+  // only once the typing settles; the URL value is then also what the request reads.
+  protected readonly actionFilter = computed(() => this.query.params().action);
+  protected readonly channelFilter = this.query.textFilter('channel', FILTER_DEBOUNCE_MS);
+  protected readonly actorFilter = this.query.textFilter('actor', FILTER_DEBOUNCE_MS);
 
   /** True while an action without a channel dimension is selected — the channel input is disabled
    *  then, and a previously typed channel value has already been cleared by the action handler. */
@@ -190,17 +185,14 @@ export class AdminAuditLogPage {
     () => this.actionFilter() !== '' || this.channelFilter() !== '' || this.actorFilter() !== '',
   );
 
-  // Same rxResource shape as vote-session-list-page.ts: setting `page` or a filter is the whole
-  // reload trigger, no hand-written effect. The action segment applies immediately; the text
-  // filters flow in through their debounced counterparts.
+  // Same rxResource shape as vote-session-list-page.ts: a navigation that moves `page` or a filter is
+  // the whole reload trigger, no hand-written effect. Reading the URL rather than the individual
+  // signals is what dropped the old "short-circuit the stale channel" workaround — see
+  // onActionFilterChange.
   private readonly auditLogResource = rxResource({
     params: () => ({
       page: this.page(),
-      action: this.actionFilter(),
-      // Short-circuited while disabled: the debounced signal lags the cleared raw value by one
-      // debounce window, and that window must not produce a request with the stale channel.
-      channel: this.channelFilterDisabled() ? '' : this.debouncedChannelFilter(),
-      actor: this.debouncedActorFilter(),
+      ...this.query.params(),
     }),
     stream: ({ params }) =>
       this.adminService.listAuditLog(params.page, PAGE_SIZE, {
@@ -230,35 +222,28 @@ export class AdminAuditLogPage {
   }
 
   protected onPageChange(newPage: number): void {
-    this.page.set(newPage);
+    this.query.goToPage(newPage);
   }
 
-  // Every filter change jumps back to page 1: the old page number belongs to the old result set,
-  // and a filter that shrinks the set below the current page would otherwise show a stray empty page.
+  // The jump back to page 1 is no longer repeated per handler — `setParams` does it for every filter
+  // change, for the same reason as before: the old page number belongs to the old result set.
   protected onActionFilterChange(action: string): void {
-    this.actionFilter.set(action);
-    if (CHANNELLESS_ACTIONS.has(action)) {
-      // A stale channel value combined with a channel-less action could only ever match nothing;
-      // clearing it here is what makes disabling the input honest.
-      this.channelFilter.set('');
-    }
-    this.page.set(1);
+    // Action and channel move in *one* call. A stale channel combined with a channel-less action
+    // could only ever match nothing; clearing it here is what makes disabling the input honest, and
+    // `setParams` clears the input's pending draft along with the URL — a channel typed inside the
+    // debounce window would otherwise come back 300 ms later.
+    this.query.setParams(CHANNELLESS_ACTIONS.has(action) ? { action, channel: '' } : { action });
   }
 
   protected onChannelFilterInput(event: Event): void {
     this.channelFilter.set((event.target as HTMLInputElement).value);
-    this.page.set(1);
   }
 
   protected onActorFilterInput(event: Event): void {
     this.actorFilter.set((event.target as HTMLInputElement).value);
-    this.page.set(1);
   }
 
   protected resetFilters(): void {
-    this.actionFilter.set('');
-    this.channelFilter.set('');
-    this.actorFilter.set('');
-    this.page.set(1);
+    this.query.setParams({ action: '', channel: '', actor: '' });
   }
 }

@@ -273,8 +273,21 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
   Instant, nie `behavior: 'smooth'`: das ist ein Inhaltsaustausch, kein geführter Rundgang, und mehrere Bildschirmhöhen zu animieren ist langsamer als der Leser und ein Motion-Trigger. Die Seitenzeile des Pagers ist `role="status"` und damit eine Live-Region — die Fokusverschiebung sagt *was* auf dem Schirm steht, nie *welche Seite*.
 - **Der Pager bleibt bewusst im Lade-`@else` und wird nicht während des Ladens weitergerendert.** Angulars `resource` gibt bei einem Params-Wechsel `value()` auf den `defaultValue` zurück (nur ein `reload()` mit gleichen Params behält den Stream), `totalPages()` ist während des Ladens also `0` und der Pager würde sich ohnehin selbst verstecken. Ihn stehen zu lassen bräuchte in jeder Seite einen klebrigen Zweitzustand — und der Fokus ist durch die Reposition bereits gerettet.
-- **Nicht in der URL:** die Seitennummer ist reiner Signal-State, kein Query-Param. Reload und Zurück-Button landen also auf Seite 1. Bewusst offen — ein Query-Param würde den Router in den Scroll-Pfad hängen (`scrollPositionRestoration`, `app.config.ts`) und sich mit der Anker-Reposition überlagern.
-- **Referenz:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`); Verwendung `admin-audit-log-page.ts`, `admin-users-page.ts`, `channel-activity-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (Anker ist die `<ul>` — die Seite hat über den Zeilen keine eigene Überschrift, nur die Anlege-Karte, und genau dorthin darf ein Seitenwechsel *nicht* zurückspringen).
+- **Seite und Filter stehen in der URL, nicht in lokalen Signals** — über `listQueryState()` aus `core/routing/list-query-state.ts`. Ohne das ist „Zeile öffnen, zurück" ein Reset auf Seite 1, und ein geteilter Link zeigt eine andere Liste als die, die gemeint war. **Eine neue paginierte Seite nimmt den Helper, statt `page = signal(1)` zu schreiben.** Was er festlegt:
+
+  | | Navigation | Effekt |
+  |---|---|---|
+  | `goToPage(n)` | `replaceUrl: false` | ein echter History-Schritt — dafür ist der Zurück-Button da |
+  | `setParams(patch)` | `replaceUrl: true` | ersetzt den Eintrag, springt auf Seite 1 zurück, leert die Drafts der geschriebenen Keys |
+
+  Filter dürfen **keinen** History-Schritt erzeugen: sie greifen pro Tastenschlag, der Zurück-Button würde sonst „einen Buchstaben rückgängig" bedeuten. Der Preis ist, dass Zurück die Filterung in einem Schritt verlässt statt sie aufzudröseln — dafür gibt es den Zurücksetzen-Button.
+
+  Beide Navigationen tragen **`scroll: 'manual'`**. Das ist der Per-Navigation-Ausstieg aus der Scroll-Restoration und der Grund, warum die Anker-Reposition oben überhaupt noch greift: der Router würde sonst auf `[0, 0]` springen — bei jedem Tastenschlag, und beim Seitenwechsel *nach* dem Pager, unter Missachtung des `scroll-mt-*`.
+
+  Default-Werte werden aus der URL **entfernt** statt leer geschrieben (`?page=3`, nicht `?page=3&action=&channel=&actor=`); Seite 1 steht nie drin.
+- **Textfilter laufen über `query.textFilter(key, debounceMs)`, nie über ein eigenes `signal()` + `debounceTime`.** Das Tippen bleibt lokal und sofort sichtbar, die URL bekommt erst den ausgeruhten Wert — eine Router-Navigation zwischen Taste und Zeichen frisst Eingaben, und ein Wert, der mitten im Wort aus der URL zurückkommt, überschreibt den Cursor. Dass `setParams` die Drafts der Keys mitleert, die es schreibt, ist Teil des Vertrags und kein Detail: ein Wert, der noch im Debounce-Fenster hängt, hat die URL nie erreicht und würde sich sonst 300 ms später selbst zurückschreiben — unter einer Filterkombination, die die Seite gerade ausgeschlossen hat.
+- **Nicht abgedeckt:** eine Seitennummer außerhalb des Bereichs (`?page=9999`) wird durchgereicht — das Backend antwortet mit einer leeren Seite und die Liste zeigt ihren Leerzustand. Clamping bräuchte `totalPages`, das es erst *nach* der Antwort gibt, die mit diesem Zustand angefordert wird.
+- **Referenz:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`), `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`); Verwendung `admin-audit-log-page.ts` (drei Filter), `channel-activity-page.ts` (zwei), `admin-users-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (Anker ist die `<ul>` — die Seite hat über den Zeilen keine eigene Überschrift, nur die Anlege-Karte, und genau dorthin darf ein Seitenwechsel *nicht* zurückspringen). Flow-Test `web/e2e/channel-activity.e2e.spec.ts`.
 
 ### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
 
