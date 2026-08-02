@@ -1,16 +1,21 @@
 import { Component, computed, inject, input, output } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
+import { RunQueueItem } from '../../core/seven-tv/seven-tv-run-engine';
+import { SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
 
+/** Renamed from DeleteProgressPanel when the restore run (A6) became its second consumer — the
+ *  mechanics (bar, cancel, rate-limit countdown, failure list) are run-generic; only the wording
+ *  differs, selected via `labelPrefix`. Dynamic Transloco keys follow the established
+ *  `'prefix.' + key` pattern, and the input union keeps them findable. */
 @Component({
-  selector: 'app-delete-progress-panel',
+  selector: 'app-run-progress-panel',
   imports: [TranslocoPipe],
   template: `
     <div class="rounded-md bg-surface-inset px-4 py-3" role="status">
       <div class="mb-2 flex items-center justify-between text-sm">
         <span>{{
-          'massDelete.progress' | transloco: { finished: finished(), total: total() }
+          labelPrefix() + '.progress' | transloco: { finished: finished(), total: total() }
         }}</span>
         @if (isRunning()) {
           <button type="button" class="text-danger-fg hover:underline" (click)="cancelled.emit()">
@@ -36,16 +41,28 @@ import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-d
       <!-- Without this the bar just stops for up to a minute, which reads as a crash. -->
       @if (rateLimitPauseSeconds() !== null) {
         <p class="mt-2 text-sm text-warning-fg">
-          {{ 'massDelete.rateLimitPaused' | transloco: { seconds: rateLimitPauseSeconds() } }}
+          {{ labelPrefix() + '.rateLimitPaused' | transloco: { seconds: rateLimitPauseSeconds() } }}
         </p>
       }
 
       @if (failedItems().length > 0) {
         <ul class="mt-3 space-y-1 text-sm text-danger-fg" role="alert">
           @for (item of failedItems(); track item.emoteId) {
-            <li>{{ item.name }}: {{ item.errorMessage ?? deleteFailedFallback() }}</li>
+            <li>{{ item.name }}: {{ item.errorMessage ?? failedFallback() }}</li>
           }
         </ul>
+      }
+
+      <!-- Post-run summary (A6): the counts as text, plus whatever run-scoped actions the host
+           projects (protocol download, restore). Rendered only once the run has settled — during
+           the run the bar and the failure list already say everything. -->
+      @if (!isRunning() && total() > 0) {
+        <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+          <span class="text-fg-secondary">
+            {{ labelPrefix() + '.summary.counts' | transloco: summaryCounts() }}
+          </span>
+          <ng-content select="[run-actions]" />
+        </div>
       }
 
       @if (syncReportFailed()) {
@@ -69,10 +86,14 @@ import { DeleteQueueItem, SyncReportState } from '../../core/seven-tv/seven-tv-d
     </div>
   `,
 })
-export class DeleteProgressPanel {
-  readonly items = input.required<DeleteQueueItem[]>();
+export class RunProgressPanel {
+  readonly items = input.required<RunQueueItem[]>();
   readonly isRunning = input.required<boolean>();
-  readonly syncReport = input.required<SyncReportState>();
+  /** Which wording family the panel speaks — the union keeps the dynamic keys findable. */
+  readonly labelPrefix = input<'massDelete' | 'restore'>('massDelete');
+  /** Delete-run only: state of the closing sync-deleted call. The restore run reports its resync
+   *  outside the panel, so this defaults to the state that renders nothing. */
+  readonly syncReport = input<SyncReportState>('idle');
   /** Seconds left on a 7TV rate-limit pause, null while running normally. */
   readonly rateLimitPauseSeconds = input<number | null>(null);
   readonly cancelled = output<void>();
@@ -92,13 +113,22 @@ export class DeleteProgressPanel {
     this.items().filter((item) => item.status === 'failed'),
   );
 
+  protected readonly summaryCounts = computed(() => {
+    const statuses = this.items().map((item) => item.status);
+    return {
+      done: statuses.filter((status) => status === 'done').length,
+      failed: statuses.filter((status) => status === 'failed').length,
+      cancelled: statuses.filter((status) => status === 'cancelled').length,
+    };
+  });
+
   // 'partial' shares the notice with 'failed': in both cases the backend's view of the set differs
   // from what was actually deleted, and the remedy (retry, or wait for the periodic resync) is the same.
   protected readonly syncReportFailed = computed(
     () => this.syncReport() === 'failed' || this.syncReport() === 'partial',
   );
 
-  protected deleteFailedFallback(): string {
-    return this.translocoService.translate('massDelete.deleteFailedFallback');
+  protected failedFallback(): string {
+    return this.translocoService.translate(`${this.labelPrefix()}.deleteFailedFallback`);
   }
 }
