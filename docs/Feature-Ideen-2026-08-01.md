@@ -9,8 +9,35 @@ Jede Idee ist gegen `docs/DECISIONS.md` geprüft — bereits verworfene Ansätze
 Ja-Listen, und wo eine Idee an eine getroffene Entscheidung grenzt, ist das unter „Risiko" benannt.
 Nichts hiervon ist ein Ticket; die Aufwandsangaben sind Größenordnungen, keine Schätzungen.
 
+> **Statuspflege (nachgetragen am 2026-08-02).** Die Ideentexte selbst bleiben im Stand vom
+> 2026-08-01 stehen — sie sind die Begründung, nicht der Bauplan. Was davon umgesetzt wurde, steht
+> ausschließlich in der Statuszeile direkt unter der jeweiligen Überschrift und in der Tabelle unten.
+> **Wer eine dieser Ideen umsetzt, pflegt seine Statuszeile im selben Commit**, so wie Regel 3 es für
+> `DECISIONS.md` verlangt. Die Begründung *warum* etwas so gebaut wurde, gehört weiterhin
+> ausschließlich nach [DECISIONS.md](DECISIONS.md); hier steht nur *ob*.
+
+## Umsetzungsstand
+
+Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
+
+| Idee | Stand | Wo |
+|---|---|---|
+| **A1** Slot-Budget | ✅ 2026-08-01 | DECISIONS „Das Slot-Budget kommt aus unserer DB …" |
+| **A2** Zuletzt/nie benutzt | ✅ 2026-08-01 | DECISIONS „Nutzungs-Kontext statt nackter Summe …" |
+| **A3** Getrackt-seit + Karenz | ✅ 2026-08-01 | dito — als Paket mit A2/A4 ausgeliefert |
+| **A4** Trend-Label | ✅ 2026-08-01 | dito |
+| **A5** Emote-Drilldown | ⬜ | — |
+| **A6** Purge-Sicherheitsnetz | ⬜ | — |
+| **A7** Kanal-Aktivitätsverlauf | ⬜ | — |
+| **A8** Resync für Channel-Manager | ⬜ | — |
+| **A9**–**A15** | ⬜ | — |
+| **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
+| **B2** Soll/Ist-Roster | 🟡 2026-08-01 | Frühwarn-Schwellen fehlen |
+| **B3**–**B9** | ⬜ | — |
+
 ## Inhalt
 
+- [Umsetzungsstand](#umsetzungsstand)
 - [Zwei Befunde vorweg](#zwei-befunde-vorweg)
 - [A) Nutzer-Features](#a-nutzer-features)
 - [B) Admin-Panel](#b-admin-panel)
@@ -75,6 +102,11 @@ Sortiert nach Wirkung ÷ Aufwand.
 
 ### A1 — Slot-Budget: „847 / 1000 belegt, nach der Purge 612"
 
+**Status: ✅ umgesetzt am 2026-08-01.** Wie beschrieben, mit einer Abweichung: `emote_count` aus dem
+7TV-Response wird bewusst **nicht** übernommen — die belegten Slots zählt die eigene DB, nur
+`capacity` kommt von 7TV. Begründung im DECISIONS-Eintrag „Das Slot-Budget kommt aus unserer DB, die
+Kapazität aus 7TV".
+
 Ein Kapazitätsbalken im Channel-Workspace und im Mass-Delete-Panel, der live mitrechnet, wie viele
 Slots die aktuelle Auswahl freiräumt. Für Mods, Broadcaster und 7TV-Editoren.
 
@@ -93,6 +125,9 @@ hart 1000 annehmen, immer den gelieferten Wert verwenden.
 
 ### A2 — „Zuletzt benutzt" und „nie benutzt" als erstklassige Spalte
 
+**Status: ✅ umgesetzt am 2026-08-01**, gemeinsam mit A3 und A4 als ein Paket ausgeliefert (Commits
+`fc2c74c`…`6c668c3`). DECISIONS-Eintrag „Nutzungs-Kontext statt nackter Summe".
+
 Pro Emote das Datum der letzten Nutzung bzw. ein Badge „nie benutzt (seit Tracking-Beginn)".
 Sortier- und filterbar im Usage-Grid und als Vorauswahl für eine Vote-Session.
 
@@ -109,6 +144,10 @@ eine skalare Emote-ID-Liste reduzieren, dann gruppieren. Neue Methode auf `IUsag
 Angabe gefährlich irreführend — die beiden gehören zusammen ausgeliefert.
 
 ### A3 — Vertrauens-Kontext: „getrackt seit" + Karenz für neue Emotes
+
+**Status: ✅ umgesetzt am 2026-08-01**, als Paket mit A2/A4. Von den beiden Wegen für die Emote-Seite
+wurde wie empfohlen **(b)** gewählt: `ActiveEmote.timestamp` aus dem 7TV-Set-Response wird
+mitgeschrieben, die Karenz ist damit auch rückwirkend korrekt.
 
 Zwei zusammengehörige Angaben: pro Channel „wir zählen seit dem 12.07.2026" (mit Warnung, wenn der
 gewählte Zeitraum davor beginnt), und pro Emote „seit vier Tagen im Set — noch in Beobachtung",
@@ -131,6 +170,9 @@ keine Schwäche.
 **Aufwand.** S–M · **Risiko.** Technisch keins. Bewusst als Ehrlichkeit framen, nicht verstecken.
 
 ### A4 — Trend-Label statt nackter Summe
+
+**Status: ✅ umgesetzt am 2026-08-01**, als Paket mit A2/A3. Bei zu kurzer Historie wird das Label
+wie gefordert unterdrückt statt geraten.
 
 Pro Emote ein Momentum-Signal: letzte 30 Tage gegen die 30 davor → „im Sinkflug / stabil / im
 Aufwind", als Filter und als Kontextspalte in der Voting-UI.
@@ -363,6 +405,15 @@ Sortiert nach Wirkung ÷ Aufwand.
 
 ### B1 — Support-Drilldown pro Channel: „warum syncht der nicht?"
 
+**Status: 🟡 teilweise umgesetzt am 2026-08-01** (Commits `de97e07`…`76cb5d6`, DECISIONS-Eintrag
+„Der Worker sagt, in welchen Channels er wirklich ist"). `GET /api/admin/channels/{name}` plus
+`admin-channel-detail-page.ts` beantworten die IRC-Frage und die EventAPI-Frage (Subscriptions inkl.
+`acked`, dazu ein Set-ID-Abgleich DB gegen Worker, der über die ursprüngliche Anforderung hinausgeht)
+sowie den letzten erfolgreichen Sync. **Offen:** der letzte Flush **mit Zeilen für diesen Channel**
+(Flush-Zahlen liegen bis heute nur global im Health-Snapshot) und die letzten ~20 **Audit-Zeilen**
+(der Endpoint zieht `IAuditLogQueryService` nicht, und die Admin-Audit-Log-Seite nimmt keine
+Query-Parameter an, ist also auch nicht channel-gefiltert verlinkbar).
+
 Eine Detailansicht je Channel, die die vier Frageketten eines Support-Falls auf einer Seite
 beantwortet: Ist der Channel im IRC gejoint? Existiert eine EventAPI-Subscription für sein Emote-Set,
 und ist sie acked? Wann war der letzte erfolgreiche Sync, wann der letzte Flush mit Zeilen für diesen
@@ -383,6 +434,17 @@ geschrieben. Bei 100 Channels ist eine Zeile pro Channel unkritisch, bei 1.000 n
 Roster in jeden Heartbeat packen, sondern einen zweiten Key mit längerem Takt.
 
 ### B2 — Soll/Ist-Abgleich des IRC-Rosters + Kapazitäts-Frühwarnung
+
+**Status: 🟡 teilweise umgesetzt am 2026-08-01** (`GET /api/admin/roster` + `admin-roster-card.ts`).
+Der Soll/Ist-Abgleich ist vollständig da, inklusive der Gegenrichtung („Worker hat Channel, DB nicht
+mehr aktiv") und mit Boot-Recovery- und Staleness-Gate gegen Fehlalarme. Bei den Decken weicht die
+Umsetzung bewusst ab: der Twitch-Balken läuft gegen ein **Join-Budget von 20** (TwitchLibs
+Rejoin-Burst nach einem Reconnect, begründet in `Api/Health/WorkerCapacity.cs`), die 100er-Decke
+steht als Hinweistext daneben; 7TV wird gegen das gemeldete `subscription_limit` gezeigt statt gegen
+eine abgeleitete 250er-Channel-Decke; für 7TV-REST gibt es bewusst nur eine Rate ohne Balken, weil es
+kein veröffentlichtes Quota als ehrlichen Nenner gibt. **Offen:** die eigentliche *Frühwarnung* —
+es gibt keine Schwelle, die vor dem Anschlag warnt (der Twitch-Balken färbt sich erst bei echter
+Überschreitung, der 7TV-Balken gar nicht).
 
 Ein Panel im Monitoring: „DB sagt 34 aktive Channels, IRC ist in 31 gejoint — diese drei fehlen",
 plus Auslastungsbalken gegen die drei harten Decken:
@@ -584,6 +646,10 @@ unzureichend erweist, hat man Daten für die Entscheidung.
 ---
 
 ## Die drei Top-Kandidaten
+
+> **Alle drei wurden am 2026-08-01 angegangen**, die ersten beiden vollständig, der dritte mit den
+> oben bei B1/B2 benannten Lücken. Die Begründungen darunter stehen unverändert im Stand vom
+> 2026-08-01.
 
 ### 1. A1 — Slot-Budget (`capacity` / `emote_count`)
 

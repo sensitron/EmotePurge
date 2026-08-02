@@ -1,9 +1,10 @@
 # CLAUDE.md
 
-Schneller Einstieg für Claude Code. Zwei Dokumente daneben, beide verbindlich:
+Schneller Einstieg für Claude Code. Drei Dokumente daneben, alle verbindlich:
 
 - **[docs/Architectur.md](docs/Architectur.md)** — die vollständige Spezifikation (Module A–D, DB-Schema, Docker-Topologie, Kommunikationsfluss). **Bei Architektur-Fragen zuerst dort lesen.**
 - **[docs/DECISIONS.md](docs/DECISIONS.md)** — die vollständige Historie aller Architektur-/Infrastruktur-Entscheidungen, absteigend nach Datum, jeder Eintrag mit `**Betrifft:**`-Zeile. Durchsuchbar per `grep <dateiname> docs/DECISIONS.md`. **„Warum ist X so gebaut?"** steht dort, nicht hier.
+- **[docs/Feature-Ideen-2026-08-01.md](docs/Feature-Ideen-2026-08-01.md)** — der Produkt-Backlog (Ideen `A1`–`A15`, `B1`–`B9`, plus eine begründete „würde ich nicht bauen"-Liste). Der Umsetzungsstand steht in der Tabelle oben im Dokument und in einer Statuszeile je Idee. **„Was bauen wir als Nächstes?"** und **„haben wir das schon?"** stehen dort. Wer eine Idee umsetzt, pflegt ihre Statuszeile im selben Commit (analog Regel 3).
 
 ## Projekt-Überblick
 

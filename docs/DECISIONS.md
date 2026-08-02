@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Der Produkt-Backlog wird zum dritten verbindlichen Dokument und trägt seinen Umsetzungsstand selbst
+
+**Betrifft:** `docs/Feature-Ideen-2026-08-01.md` · `CLAUDE.md` (Kopf-Dokumentenliste)
+
+**Der Auslöser war eine Frage, die niemand beantworten konnte:** „welche Ideen haben wir eigentlich schon umgesetzt?" Von den drei Top-Kandidaten der Ideenfindung vom 2026-08-01 waren zu dem Zeitpunkt zwei vollständig und einer teilweise gebaut — sichtbar war das nirgends. Das Ideen-Dokument stand unverändert seit dem Tag seiner Erstellung, kannte keinen einzigen Statusmarker, und war in `CLAUDE.md` nicht einmal verlinkt. Der Stand ließ sich nur rekonstruieren, indem man `DECISIONS.md` und das Git-Log gegeneinanderlas — und selbst dort nannten nur zwei Einträge eine Ideen-Kennung; der dritte (Roster/Drilldown) beschrieb inhaltlich `B1`/`B2`, ohne sie zu benennen. Wer allein das Ideen-Dokument las, hielt alles für offen.
+
+**Die Ideentexte bleiben eingefroren, der Status kommt daneben.** Der naheliegende Weg wäre gewesen, die umgesetzten Abschnitte zu überarbeiten oder zu entfernen. Bewusst nicht: die Texte sind die *Begründung* einer Priorisierung zu einem Zeitpunkt, mit Marktbelegen und Recherchestand. Sie nachträglich anzupassen macht aus einer nachvollziehbaren Entscheidung eine geschönte. Stattdessen trägt jede umgesetzte Idee eine **Statuszeile direkt unter ihrer Überschrift** und das Dokument oben eine **Tabelle über alle 24 Ideen**. Dasselbe Muster wie beim Verschieben des Logs am 2026-07-30: Original unangetastet, Navigationshilfe außen herum.
+
+**Die Statuszeile benennt Abweichungen, nicht nur den Vollzug.** Drei der vier fertigen Features weichen von ihrer Idee ab, und genau das ist die interessante Information: `A1` übernimmt `emote_count` von 7TV nicht, `A3` hat von zwei vorgeschlagenen Wegen den rückwirkend korrekten genommen, `B2` misst gegen ein Join-Budget von 20 statt gegen die 100er-Decke. Ein reines „✅" hätte drei Mal etwas anderes behauptet, als gebaut wurde. Bei `B1` und `B2` steht entsprechend explizit, was **fehlt** — bei `B1` die Audit-Zeilen und der Per-Channel-Flush, bei `B2` die Frühwarn-Schwellen. Das ist der eigentliche Gewinn: aus „teilweise" wird ein Rest, den man einplanen kann.
+
+**Neue Pflicht, analog zur Regel oben:** wer eine Idee umsetzt, pflegt ihre Statuszeile im selben Commit. Bewusst **keine** neue nummerierte Regel in `CLAUDE.md` — die Regelliste beschreibt Code-Konventionen, und eine zwanzigste Regel für Dokumentationspflege würde sie verwässern. Der Hinweis steht dort, wo er gebraucht wird: im Dokument selbst und in seiner Kopfzeile.
+
+**Die Arbeitsteilung der drei Dokumente ist damit trennscharf:** `Architectur.md` sagt, *wie es gebaut ist*, `DECISIONS.md` sagt, *warum es so gebaut ist*, `Feature-Ideen-…md` sagt, *was noch nicht gebaut ist und warum es sich lohnen würde*. Das dritte fehlte in der Kopfzeile von `CLAUDE.md`, obwohl es die am häufigsten gestellte Frage beantwortet — „was machen wir als Nächstes?".
+
+---
+
 ### 2026-08-02 — Das Manifest bekommt maskable Icons, damit Android das App-Icon nicht auf eine weiße Platte legt
 
 **Betrifft:** `web/public/manifest.webmanifest` · `web/public/icon-maskable-{192,512}.png` (neu) · `web/branding/{make-icons.ps1,README.md}`
