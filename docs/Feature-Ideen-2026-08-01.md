@@ -26,7 +26,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A2** Zuletzt/nie benutzt | ✅ 2026-08-01 | DECISIONS „Nutzungs-Kontext statt nackter Summe …" |
 | **A3** Getrackt-seit + Karenz | ✅ 2026-08-01 | dito — als Paket mit A2/A4 ausgeliefert |
 | **A4** Trend-Label | ✅ 2026-08-01 | dito |
-| **A5** Emote-Drilldown | ⬜ | — |
+| **A5** Emote-Drilldown | ✅ 2026-08-02 | DECISIONS „Der Emote-Drilldown bekommt einen eigenen … Endpoint" |
 | **A6** Purge-Sicherheitsnetz | ⬜ | — |
 | **A7** Kanal-Aktivitätsverlauf | ✅ 2026-08-02 | DECISIONS „Der Channel bekommt seinen eigenen Audit-Log" |
 | **A8** Resync für Channel-Manager | ✅ 2026-08-02 | DECISIONS „Resync als Self-Service" |
@@ -192,6 +192,14 @@ unterdrücken statt raten. Sauber abgrenzen gegen die Entscheidung vom 2026-08-0
 **Kontextspalte**, kein Rückweg von Chat-Nutzung in den Beliebtheits-Score.
 
 ### A5 — Emote-Drilldown mit Tages-Sparkline
+
+**Status: ✅ umgesetzt am 2026-08-02** — neuer Endpoint `GET …/usage-stats/daily?emoteId=` (der
+Debug-Endpoint blieb unangetastet), CDK-Dialog mit SVG-Sparkline über ein Info-Icon in der Karte,
+auf der Usage-Stats- **und** der Vote-Session-Detailseite. Zwei bewusste Abweichungen: der
+Vote-Stand kommt aus den ohnehin geladenen Kartenwerten der Vote-Seite (keine eigene Tally-Query),
+und auf der Vote-Seite ist das Icon auf Nutzer mit Usage-Zugriff beschränkt (der Endpoint hängt
+hinter dem Usage-Stats-Filter). Begründung in DECISIONS „Der Emote-Drilldown bekommt einen eigenen,
+auf ein Emote gefilterten Endpoint".
 
 Klick auf ein Emote öffnet ein Panel mit Tagesverlauf, erstem und letztem Auftreten, Trend und dem
 Vote-Stand in laufenden Sessions.

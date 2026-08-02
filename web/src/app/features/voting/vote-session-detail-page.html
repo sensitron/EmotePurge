@@ -198,7 +198,7 @@
             [attr.tabindex]="canSelectForDelete() ? 0 : null"
             [attr.aria-pressed]="canSelectForDelete() ? selection.isSelected(emote) : null"
             [class]="
-              'flex h-44 flex-col gap-1 rounded-md border border-border p-2 text-center transition ' +
+              'relative flex h-44 flex-col gap-1 rounded-md border border-border p-2 text-center transition ' +
               (canSelectForDelete() ? 'cursor-pointer hover:bg-surface-inset/70 ' : '') +
               (selection.isSelected(emote)
                 ? 'inset-ring-2 inset-ring-accent bg-accent-wash'
@@ -209,7 +209,24 @@
             (keydown.enter)="onCardActivate(emote, $any($event))"
             (keydown.space)="onCardActivate(emote, $any($event))"
           >
-            <app-emote-card-header [name]="emote.emoteName" />
+            <!-- Drilldown affordance (A5), gated on hasUsageData(): the /daily endpoint sits behind
+                 the usage-stats access filter, so a plain voter's click could only earn a 403.
+                 stopPropagation on click *and* keydown keeps it out of the selection handler. -->
+            @if (hasUsageData()) {
+              <button
+                type="button"
+                class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition hover:bg-surface-inset hover:text-fg-body"
+                [attr.aria-label]="
+                  'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
+                "
+                (click)="$event.stopPropagation(); openDrilldown(emote)"
+                (keydown)="$event.stopPropagation()"
+                (mousedown)="$event.stopPropagation()"
+              >
+                ⓘ
+              </button>
+            }
+            <app-emote-card-header [name]="emote.emoteName" [class]="hasUsageData() ? 'pr-6' : ''" />
             <!-- The archived badge overlays the image block (relative/absolute) instead of adding a
                  line — the h-44 card contract that ROW_HEIGHT_PX budgets for stays untouched.
                  bg-emote-canvas is the plate an emote is drawn on — its own role, not surface-inset,

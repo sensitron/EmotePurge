@@ -23,6 +23,10 @@ import {
 } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
+import {
+  EmoteDrilldownData,
+  EmoteDrilldownDialog,
+} from '../../shared/emotes/emote-drilldown-dialog';
 import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialog, ExportDialogData, ExportFormat } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
@@ -335,6 +339,37 @@ export class VoteSessionDetailPage {
 
   protected refresh(): void {
     this.load();
+  }
+
+  // Opened from the card's info icon; only rendered for viewers with usage access (hasUsageData),
+  // since /usage-stats/daily sits behind the usage-stats authorization filter. The range is the
+  // session's own usage window; the vote block carries the card's tallies — null inside stays
+  // "withheld" and the dialog renders nothing for it.
+  protected openDrilldown(emote: VoteSessionResult): void {
+    const results = this.results();
+    if (!results) {
+      return;
+    }
+    const data: EmoteDrilldownData = {
+      channelName: this.channelName(),
+      from: results.startedAt.slice(0, 10),
+      to: (results.endedAt ?? new Date().toISOString()).slice(0, 10),
+      emoteId: emote.emoteId,
+      emoteName: emote.emoteName,
+      imageUrl: emote.imageUrl,
+      vote: {
+        keepVotes: emote.keepVotes,
+        deleteVotes: emote.deleteVotes,
+        score: emote.score,
+        myVote: emote.myVote,
+      },
+    };
+    this.dialog.open<void>(EmoteDrilldownDialog, {
+      data,
+      backdropClass: 'app-dialog-backdrop',
+      panelClass: 'app-dialog-panel',
+      ariaLabelledBy: 'emote-drilldown-title',
+    });
   }
 
   // Exports the *visible* list (filtered + frozen order). Client-side serialization of the loaded
