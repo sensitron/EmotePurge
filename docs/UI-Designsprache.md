@@ -27,9 +27,11 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   | Text | `text-fg` · `text-fg-body` · `text-fg-secondary` · `text-fg-muted` · `text-fg-disabled` |
   | Akzent | `bg-accent` · `bg-accent-solid` (+`-hover`) · `bg-accent-selected` · `text-accent-fg` (Akzent **als Text**) · `bg-accent-wash` · `text-on-accent` (Text **auf** gefüllter Akzentfläche) |
   | Töne | `{success,warning,danger,info,neutral}-{wash,fg,solid,dot}` — `wash` = getönte Fläche, `fg` = Schrift darauf, `solid` = gefüllte Fläche mit `on-accent`-Schrift, `dot` = kleine bedeutungstragende Grafik (Statuspunkt, Balkenfüllung; schuldet 3:1, nicht 4,5:1) |
-  | Sonstiges | `shadow-overlay` (Popover/Dialog) · `bg-emote-canvas` (themefest, s. u.) · `.app-page-glow` |
+  | Sonstiges | `shadow-overlay` (Popover/Dialog) · `bg-emote-canvas` (Bildfläche einer Emote-Kachel) · `.app-page-glow` |
 
-- **Wann anwenden:** Immer. Braucht eine neue UI eine Farbe, die es als Token nicht gibt, wird **das Token ergänzt** — mit Wert für **beide** Modi und mit gerechnetem Kontrastnachweis in der Commit-Message — nicht die Palette benutzt. Unterscheiden sich die Modi strukturell statt nur im Wert, ist das zuerst ein Hinweis, dass das Token falsch geschnitten ist; erst danach eine CSS-Variante. Genau **eine** Ausnahme von der Themefähigkeit ist dokumentiert und darf nicht vermehrt werden: `bg-emote-canvas` bleibt in beiden Modi dunkel, weil 7TV-Emotes für dunkle Chats gezeichnet sind (weiße Schrift, helle Outlines) und wir das Fremdmaterial weder beeinflussen noch pauschal invertieren können.
+- **Wann anwenden:** Immer. Braucht eine neue UI eine Farbe, die es als Token nicht gibt, wird **das Token ergänzt** — mit Wert für **beide** Modi und mit gerechnetem Kontrastnachweis in der Commit-Message — nicht die Palette benutzt. Unterscheiden sich die Modi strukturell statt nur im Wert, ist das zuerst ein Hinweis, dass das Token falsch geschnitten ist; erst danach eine CSS-Variante. **Es gibt keine themefeste Farbe mehr** — `bg-emote-canvas` war die eine dokumentierte Ausnahme und wurde nach dem Ansehen zurückgenommen (s. 2.4). Ein eigenes Token heißt „eigene Rolle", nicht „fester Wert".
+- **Tone-Namen sind Bedeutungen, keine Farben.** `StatusBadgeTone` und `SlotBudgetTone` heißen `accent · info · success · neutral · warning · danger` — nicht `purple`/`blue`/`emerald`. Ein Aufrufer, der `red` verlangt, verlangt einen Farbwert, den es seit dem hellen Modus nicht mehr gibt (`danger` ist dunkel `red-950`/`red-300`, hell `red-50`/`red-700`). Das gilt für jede neue Ton-Union.
+- **Gefüllte Buttons werden im Hover dunkler — in beiden Modi.** `*-solid-hover` liegt immer eine Stufe unter `*-solid`. Die Regel ist keine Optik, sondern der einzige Weg, den Hover kontrastsicher zu halten: `on-accent` ist in beiden Modi weiß, ein *hellerer* Hover kann Kontrast also nur wegnehmen. Genau daran waren im Dunkeln `accent` (4,1:1) und `success` (3,7:1) unter AA gerutscht, und zwar unbemerkt, weil axe keinen Hover auswerten kann.
 - **Die Werte stehen bewusst nicht hier**, sondern nur in `web/src/styles.css`. Eine zweite Wertetabelle in Markdown driftet ab dem ersten nachgezogenen Token; der Tokenblock im Code wird bei jeder Farbänderung zwangsläufig angefasst und kann von sich selbst nicht abweichen. Dieses Dokument führt die **Rollen**, der Code die Werte, `docs/Konzept-Light-Mode.md` §5 den datierten Kontrastnachweis.
 - **Erzwungen**, nicht erbeten: `npm run lint` fährt `web/scripts/check-color-tokens.mjs` mit und verbietet Paletten-Utilities unterhalb `web/src/app/`.
 - **Referenz:** `web/src/styles.css` (Tokenblock), `docs/Konzept-Light-Mode.md` §4.
@@ -67,6 +69,13 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 - **Wann anwenden:** Jede Listen-Karte, deren primäre Aktion „öffnen/ansehen" ist. **Nicht:** die ganze Karte als `<a>` wrappen (ungültig bei inneren Buttons, aufgeblähter Accessible Name) oder ein JS-Klick-Handler auf dem Container.
 - **Referenz:** `web/src/app/features/overview/overview-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/voting/vote-session-list-page.html`.
+
+### 2.4 Bildfläche einer Emote-Kachel
+
+- **Was gilt:** Die Fläche, auf der ein 7TV-Emote gezeichnet wird, ist `bg-emote-canvas` — ein **eigenes Token**, nicht `surface-inset`. Grund: das Bildmaterial ist fremd, für dunkle Chats gezeichnet und enthält weiße Schrift und helle Outlines. Diese Fläche wird deshalb irgendwann anders entschieden werden müssen als „irgendeine eingelassene Fläche", und dann muss es eine Zeile sein.
+- **Sie folgt dem Theme.** Der erste Entwurf hielt sie in beiden Modi dunkel, um das Fremdmaterial zu schützen. Nach dem Ansehen zurückgenommen: ein fast schwarzer Balken auf **jeder** Karte ist auf einer hellen Seite das lauteste Element, und er steht auf jeder Kachel — während die Emotes, die er schützt, die Minderheit sind. Preis der Rücknahme: ein weiß umrandetes Emote verliert im Hellen seine Kontur. Der Handel ist bewusst und steht an genau einer Stelle.
+- **Der Selektions-Wash liegt auf der Karte, nicht unter dem Bild.** Sonst kämpfen Wash und Bildmaterial um dieselben Pixel — der `inset-ring` (8.5) trägt die Auswahl, die Fläche verstärkt sie nur.
+- **Referenz:** `web/src/styles.css` (`--color-emote-canvas`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
 
 ## 3. Typografie-Hierarchie
 
@@ -116,12 +125,14 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
   | Tone | Verwendung im Bestand |
   |---|---|
-  | `purple` | Broadcaster |
-  | `blue` | Moderator |
-  | `emerald` | 7TV-Editor · Bot aktiv · „läuft"-Zustände |
-  | `slate` | inaktiv/neutral |
-  | `amber` | degradiert/Warnung |
-  | `red` | Fehler/getrennt |
+  | `accent` | Broadcaster |
+  | `info` | Moderator |
+  | `success` | 7TV-Editor · Bot aktiv · „läuft"-Zustände |
+  | `neutral` | inaktiv/neutral |
+  | `warning` | degradiert/Warnung |
+  | `danger` | Fehler/getrennt |
+
+  Die Tones hießen bis 2026-08-02 `purple`/`blue`/`emerald`/`slate`/`amber`/`red`. Die Namen sind mit dem hellen Modus zu Bedeutungen geworden, weil der Wert dahinter pro Modus ein anderer ist — s. 2.0.
 
 - **Referenz:** `web/src/app/shared/ui/status-badge.ts`; Verwendung `overview-page.html`, `admin-channels-page.ts`.
 
@@ -298,6 +309,7 @@ Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.*
 - [ ] **Dekoratives versteckt:** Emoji-Icons und Skeleton-Schimmer `aria-hidden="true"`.
 - [ ] **Accessible Names kurz:** Stretched-Link-Karten lassen den Screenreader nur den kurzen Titel hören (2.3), keine ganze Karte als Linktext.
 - [ ] **Kontrast, in beiden Modi:** Text 4,5:1, Ränder/Fokusringe/bedeutungstragende Grafiken 3:1 — **gerechnet für hell UND dunkel, nicht geschätzt** (2.0: ein neues Token bringt beide Werte plus den Nachweis in der Commit-Message mit). Die schwächste zulässige Textstufe ist `text-fg-muted` (7,0:1 auf der Karte im Dunkeln, 7,6:1 im Hellen); die frühere `slate-500`-Stufe erreichte nur 3,7:1 und existiert nicht mehr. Input-Ränder: `border-border-field`, s. 5.1.
+- [ ] **Hover-Zustände mitrechnen:** Ein Hover ist ein eigener Zustand und schuldet denselben Kontrast wie der Ruhezustand. **Kein Werkzeug prüft das** — axe kennt nur, was gerade gerendert ist. Für gefüllte Buttons erledigt die Regel aus 2.0 das (`*-solid-hover` immer eine Stufe dunkler); alles Handgebaute rechnet selbst nach.
 - [ ] **axe-Kontrastgate:** Der Audit-Harness (12) fährt `@axe-core/playwright` mit der Regel `color-contrast` pro Zustand und schreibt `contrastViolations`. **Gate: 0 auf `serious`/`critical`.** Grenze, die man kennen muss: axe rechnet nur, was es als Text über einer bestimmbaren Fläche erkennt — halbtransparente Stapel verweigert es, und Grafik-Kontrast (1.4.11: Ampelpunkte, Balkenfüllungen, Ränder) deckt die Regel gar nicht ab. Beides bleibt Handarbeit.
 - [ ] **Kontrast/nativ:** `color-scheme` wird **pro Theme** im Tokenblock auf `:root` gesetzt (nicht mehr fest auf `body`) — dadurch folgen `input[type="time"]`, Scrollbars und Autofill dem Modus von selbst. Farbpaare der Primitives (Badge-Tones, Banner-Varianten) nicht ad hoc neu mischen — sie sind Tokens (2.0).
 

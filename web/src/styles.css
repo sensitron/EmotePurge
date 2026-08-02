@@ -64,7 +64,13 @@
      on-accent  = the text drawn ON a filled accent surface (white). */
   --ep-accent: var(--color-purple-500);
   --ep-accent-solid: var(--color-purple-600);
-  --ep-accent-solid-hover: var(--color-purple-500);
+  /* Hover DARKENS, in both modes — see the note at --ep-danger-solid-hover. White on purple-600 is
+     5,5:1, on purple-700 7,1:1. The earlier "brighten in dark" step landed on purple-500, where
+     white only reaches 4,1:1: a hover state that quietly drops below AA.
+     All ratios in this block that carry a date of 2026-08-02 are MEASURED in a browser (canvas
+     round-trip of the resolved colour), not computed from hex. Tailwind v4 defines the palette in
+     oklch; the older annotations here were figured from the legacy hex values and read ~0,2 low. */
+  --ep-accent-solid-hover: var(--color-purple-700);
   --ep-accent-selected: var(--color-purple-700);
   --ep-accent-fg: var(--color-purple-400);
   --ep-accent-wash: var(--color-purple-950);
@@ -81,7 +87,9 @@
   --ep-success-wash: var(--color-emerald-950);
   --ep-success-fg: var(--color-emerald-300);
   --ep-success-solid: var(--color-emerald-700);
-  --ep-success-solid-hover: var(--color-emerald-600);
+  /* White on emerald-700 is 5,4:1, on emerald-800 7,6:1. emerald-600 (the former hover) gives white
+     only 3,7:1 — the keep-vote button's hover was the second state below AA. */
+  --ep-success-solid-hover: var(--color-emerald-800);
   --ep-success-dot: var(--color-emerald-500);
 
   --ep-warning-wash: var(--color-amber-950);
@@ -97,9 +105,14 @@
      which is a FILL that carries on-accent text — reusing that as a border reads wrong. */
   --ep-danger-border: var(--color-red-800);
   --ep-danger-solid: var(--color-red-800);
-  /* Flips direction like accent-solid-hover does: lighter in dark, darker in light. White holds
-     6,5:1 on red-700 and 8,5:1 on red-800, so both ends of the flip clear AA. */
-  --ep-danger-solid-hover: var(--color-red-700);
+  /* THE RULE FOR ALL THREE FILLED VARIANTS: hover moves one step DARKER, in dark mode too. The
+     token set used to brighten filled buttons on hover in dark and darken them in light — two rules,
+     and the dark one silently costs contrast, because `on-accent` is white in both modes and a
+     brighter fill can only take contrast away from it. accent and success both fell under 4,5:1 on
+     hover that way. One direction is easier to hold and cannot regress: the hover state is now
+     always the higher-contrast one. White holds 8,4:1 on red-800 and 10,0:1 on red-900.
+     (Darkening on hover in a dark UI is not exotic — it is what Discord's primary button does.) */
+  --ep-danger-solid-hover: var(--color-red-900);
   --ep-danger-dot: var(--color-red-500);
 
   --ep-info-wash: var(--color-blue-950);
@@ -107,6 +120,9 @@
 
   --ep-neutral-wash: var(--color-slate-800);
   --ep-neutral-fg: var(--color-slate-300);
+
+  /* Dark's emote canvas — see the note at --color-emote-canvas. */
+  --ep-emote-canvas: var(--color-slate-800);
 
   /* Not colours */
   --ep-shadow-card: none;
@@ -143,8 +159,8 @@
   --ep-fg-disabled: var(--color-slate-400);
 
   /* purple-500 would clear 3:1 on white (4,0:1), but with no reserve at all —
-     purple-600 gets 5,2:1 for the same job. accent-solid-hover is the one
-     accent step whose direction flips: lighter in dark, darker in light. */
+     purple-600 gets 5,2:1 for the same job. The *-solid-hover steps below are
+     identical to the dark ones now: one hover direction for both modes. */
   --ep-accent: var(--color-purple-600);
   --ep-accent-solid: var(--color-purple-600);
   --ep-accent-solid-hover: var(--color-purple-700);
@@ -177,6 +193,9 @@
   --ep-danger-solid: var(--color-red-700);
   --ep-danger-solid-hover: var(--color-red-800);
   --ep-danger-dot: var(--color-red-600);
+
+  /* Light's emote canvas — see the note at --color-emote-canvas. */
+  --ep-emote-canvas: var(--color-slate-200);
 
   --ep-info-wash: var(--color-blue-50);
   --ep-info-fg: var(--color-blue-700);
@@ -252,13 +271,22 @@
   --color-neutral-wash: var(--ep-neutral-wash);
   --color-neutral-fg: var(--ep-neutral-fg);
 
-  /* Theme-fixed on purpose (docs/Konzept-Light-Mode.md §2.1): 7TV emotes are
-     drawn for dark chat backgrounds — white lettering, light outlines, white
-     glow edges — and a good share of them simply disappears on a white card.
-     We cannot influence the material and cannot blanket-invert it without
-     destroying the coloured ones, so the image area stays a deliberate dark
-     "canvas" in both modes. Everything else on the tile follows the theme. */
-  --color-emote-canvas: var(--color-slate-800);
+  /* The plate an emote image is drawn on. It was theme-FIXED at slate-800 first
+     (Konzept-Light-Mode.md §2.1): 7TV emotes are drawn for dark chat, so some of
+     them carry white lettering or light outlines that vanish on a bright ground,
+     and we can neither influence the material nor blanket-invert it without
+     wrecking the coloured ones.
+
+     Reverted after looking at it: a full-width near-black bar on every card is
+     the loudest element on a light page, and it is loud on every tile — while
+     the artwork it protects is a minority. So the canvas follows the theme after
+     all, one step below surface-inset so the image area still reads as its own
+     plate on a white card. The trade is explicit and reversible: this one line
+     is the whole switch. Its cost is a white-outlined emote losing its outline
+     in light mode; its benefit is that the other several hundred stop sitting in
+     a dark trough. Judge it against real 7TV artwork, not against the harness —
+     the audit stubs the CDN with a 1×1 pixel. */
+  --color-emote-canvas: var(--ep-emote-canvas);
 
   --color-heading-gradient-from: var(--ep-heading-gradient-from);
   --color-heading-gradient-to: var(--ep-heading-gradient-to);

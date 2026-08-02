@@ -93,6 +93,8 @@ Top-Dateien: `landing-page.html` 52 · `vote-session-detail-page.html` 28 · `us
 Die Emote-Kacheln im Usage-Stats-Grid und in der Voting-UI zeigen transparente PNG/WebP vom 7TV-CDN. Ein großer Teil dieser Emotes ist für dunkle Chat-Hintergründe gezeichnet: weiße Schrift, weiße Outlines, helle Glow-Kanten. Auf einer weißen Karte verschwinden sie schlicht. Wir haben keinen Einfluss auf das Material und können es nicht pauschal invertieren (das zerstört farbige Emotes).
 
 **Vorschlag:** Die Emote-Kachel bekommt ein eigenes, **themefestes** Token `--emote-canvas` (in beiden Modi `slate-800`), die Bildfläche bleibt also in beiden Modi dunkel — als bewusst gesetzte, abgerundete „Leinwand", nicht als Versehen. Der Rest der Karte (Name, Zahlen, Rand, Selektionszustand) folgt dem Theme. Das ist in hellen UIs ein etabliertes Muster für Fremd-Assets mit Alpha-Kanal.
+> **Revidiert am 2026-08-02, nach dem Ansehen im Browser.** Umgesetzt wurde zuerst genau das hier Vorgeschlagene; die dunkle Leinwand ist danach zurückgenommen worden, weil sie auf **jeder** Kachel steht und ein fast schwarzer Balken quer über jede Karte im Hellen das lauteste Element der Seite ist — während das Material, das er schützt, die Minderheit ist. `--ep-emote-canvas` gibt es jetzt pro Modus (hell `slate-200`). Begründung im Entscheidungslog, Regel in der Designsprache §2.4. Der Rest dieses Abschnitts — eigenes Token statt `surface-inset`, Selektions-Wash weg vom Bild — gilt unverändert.
+
 Nebenwirkung: der Selektionszustand `bg-purple-950/40` liegt heute **unter** dem Bild; er muss im Hellen auf den Kartenrahmen wandern (`inset-ring` bleibt, Wash wechselt auf `--accent-wash`), sonst kämpft er mit der dunklen Leinwand.
 
 ### 2.2 Das Logo ist weniger kaputt als gedacht — aber tonal falsch
@@ -240,7 +242,7 @@ Flächen und Ränder:
 | `--color-border` | `slate-800` | `slate-200` | Kartenrand, Divider, `border-b` der Tab-Leisten |
 | `--color-border-strong` | `slate-700` | `slate-300` | Popover-Rand, `outline`-Button, EmptyState-Strichrand |
 | `--color-border-field` | `slate-500` `#64748b` | `slate-500` `#64748b` | Eingabefeld-/Control-Ränder — **einziges Token mit identischem Wert in beiden Modi**, weil es in beiden 3:1 erreicht (§5.3) |
-| `--color-emote-canvas` | `slate-800` | `slate-800` | Bildfläche der Emote-Kacheln, bewusst themefest (§2.1) |
+| `--color-emote-canvas` | `slate-800` | ~~`slate-800`~~ `slate-200` | Bildfläche der Emote-Kacheln; die Themefestigkeit ist am 2026-08-02 zurückgenommen worden (§2.1) |
 
 Text:
 
@@ -258,7 +260,7 @@ Akzent:
 |---|---|---|---|
 | `--color-accent` | `purple-500` | `purple-600` | Fokusring, aktive Tab-Unterkante, Fortschrittsfüllung, Input-Fokusrand |
 | `--color-accent-solid` | `purple-600` | `purple-600` | `appButton="primary"`, gewählter Kalendertag |
-| `--color-accent-solid-hover` | `purple-500` | `purple-700` | Hover darauf — **hier dreht die Richtung**, im Dunkeln heller, im Hellen dunkler |
+| `--color-accent-solid-hover` | ~~`purple-500`~~ `purple-700` | `purple-700` | Hover darauf. Die hier vorgeschlagene Richtungsumkehr ist am 2026-08-02 zurückgenommen worden: `purple-500` gibt weißer Schrift nur 4,1:1, der Hover wäre also unter AA gefallen. Gefüllte Buttons dunkeln jetzt in **beiden** Modi ab |
 | `--color-accent-selected` | `purple-700` | `purple-700` | SegmentedControl/Filter-Toggle „ausgewählt" |
 | `--color-accent-text` | `purple-400` | `purple-700` | Akzent-Linktext, „heute", BackLink |
 | `--color-accent-wash` | `purple-950` | `purple-50` `#faf5ff` | EmptyState-Icon-Kachel, Selektions-Wash, BackLink-Hover |
@@ -456,7 +458,7 @@ Die Zahlen setzen voraus, dass die Ersetzungen mit Kopf statt per `sed` passiere
 | # | Frage | Meine Empfehlung |
 |---|---|---|
 | 1 | ~~**Logo im hellen Modus**~~ — **erledigt.** Nachgemessen (§2.2): kein Blocker, der Verlaufskorpus trägt auch auf Weiß. Helle Varianten werden separat per ChatGPT erstellt und nachgereicht | Welle 4 läuft ohne sie an; Umschaltung per `<picture>`/`[ngSrc]`, sobald die Dateien da sind |
-| 2 | **Emote-Kachel** (§2.1): dauerhaft dunkle Leinwand in beiden Modi, oder helle Kachel mit Karomuster/Rand? | Dunkle Leinwand. Sie ist ehrlich gegenüber dem Material und in hellen UIs für Alpha-Assets üblich |
+| 2 | **Emote-Kachel** (§2.1): dauerhaft dunkle Leinwand in beiden Modi, oder helle Kachel mit Karomuster/Rand? | Dunkle Leinwand — **am 2026-08-02 nach dem Ansehen zurückgenommen**, s. §2.1 |
 | 3 | **Default-Modus**: `'system'` oder weiterhin fest dunkel bis zur expliziten Wahl? | `'system'` |
 | 4 | **AA-Fixes am Bestand** (§5.3: `text-slate-500` 13×, Input-Ränder 1,7:1, dazu die drei uneinheitlichen Purple-Stufen für „ausgewählt"): im Zuge des Umbaus mitnehmen oder als eigener, vorgelagerter `fix:`-Commit? | Vorgelagerter eigener Commit vor Welle 0. Dann bleibt das Theming-Diff frei von „warum sieht Dark plötzlich anders aus?" |
 | 5 | **Landing-Page**: mitziehen (Welle 4) oder bewusst dauerhaft dunkel als Marketing-Fläche? | Mitziehen. Eine helle App hinter einer dunklen Landing wirkt wie ein Bruch, nicht wie Absicht |

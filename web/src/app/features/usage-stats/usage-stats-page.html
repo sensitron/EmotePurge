@@ -230,13 +230,12 @@
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
             <app-emote-card-header [name]="emote.emoteName" />
-            <!-- The image area stays dark in BOTH modes (bg-emote-canvas, design doc §2.0). 7TV
-                 emotes are drawn for dark chat backgrounds — white lettering, light outlines, white
-                 glow edges — and a good share of them is simply invisible on a white card. We have
-                 no influence over the material and cannot blanket-invert it without wrecking the
-                 coloured ones, so this is a deliberate canvas, not an oversight. It also gives the
-                 selection wash somewhere to live: the wash is on the card now, not under the image,
-                 where it used to fight for the same pixels. -->
+            <!-- bg-emote-canvas is its own token rather than surface-inset: the plate an emote is
+                 drawn on is a distinct role, because 7TV artwork is authored for dark chat and some
+                 of it carries white outlines. It follows the theme (the reasoning, and how to make
+                 it theme-fixed again in one line, is at the token in web/src/styles.css). Separate
+                 from the selection wash on purpose — that one lives on the card now, not under the
+                 image, where it used to fight the artwork for the same pixels. -->
             <div class="flex h-10 shrink-0 items-center justify-center rounded bg-emote-canvas">
               <img
                 [ngSrc]="emote.imageUrl"
