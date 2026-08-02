@@ -52,6 +52,7 @@ import {
 } from '../../shared/export/usage-export';
 import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
+import { RestorePanel } from '../../shared/seven-tv/restore-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
@@ -102,6 +103,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     ScrollingModule,
     NgOptimizedImage,
     MassDeletePanel,
+    RestorePanel,
     EmoteCardHeader,
     SlotBudgetBar,
     DateRangeMenu,

@@ -516,6 +516,49 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The A6 import path in its refusal state: a protocol from another channel renders the error
+    // banner under the import trigger — deterministic (no token prompt, no dialog).
+    slug: 'usage-stats-restore-import-error',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockActiveEmoteSet(page, 'sensitron');
+      await mockUsageTotals(page, 'sensitron', usageEmotes(8));
+    },
+    afterLoad: async (page) => {
+      const foreignProtocol = JSON.stringify({
+        source: 'emotepurge',
+        kind: 'purge-run',
+        formatVersion: 1,
+        exportedAt: '2026-08-02T10:00:00Z',
+        channelName: 'handofblood',
+        withheld: [],
+        meta: {
+          emoteSetId: 'set-1',
+          startedAt: '2026-08-02T10:00:00Z',
+          finishedAt: '2026-08-02T10:05:00Z',
+          counts: { requested: 1, succeeded: 1, failed: 0, cancelled: 0 },
+        },
+        rows: [
+          {
+            emoteId: 'i1',
+            sevenTvEmoteId: '7tv-1',
+            name: 'PogU',
+            status: 'done',
+            errorMessage: null,
+          },
+        ],
+      });
+      await page.locator('input[type="file"]').setInputFiles({
+        name: 'emotepurge_handofblood_purge.json',
+        mimeType: 'application/json',
+        buffer: Buffer.from(foreignProtocol, 'utf-8'),
+      });
+      await page.getByRole('alert').waitFor();
+    },
+  },
+  {
     // The drilldown dialog with a real series: sparkline, peak line and the stats grid.
     slug: 'usage-stats-drilldown',
     path: '/channels/sensitron/usage-stats',
@@ -565,7 +608,10 @@ const SCENARIOS: Scenario[] = [
     afterLoad: async (page) => {
       // Locale-independent handle: the visible label is translated, the aria-label key is not
       // unique — the export trigger is the only button of the toolbar that opens a CDK dialog.
-      await page.getByRole('button', { name: /export/i }).first().click();
+      await page
+        .getByRole('button', { name: /export/i })
+        .first()
+        .click();
       await page.locator('#export-dialog-title').waitFor();
     },
   },

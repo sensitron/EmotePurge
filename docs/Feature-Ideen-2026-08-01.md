@@ -27,7 +27,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A3** Getrackt-seit + Karenz | ✅ 2026-08-01 | dito — als Paket mit A2/A4 ausgeliefert |
 | **A4** Trend-Label | ✅ 2026-08-01 | dito |
 | **A5** Emote-Drilldown | ✅ 2026-08-02 | DECISIONS „Der Emote-Drilldown bekommt einen eigenen … Endpoint" |
-| **A6** Purge-Sicherheitsnetz | ⬜ | — |
+| **A6** Purge-Sicherheitsnetz | ✅ 2026-08-02 | DECISIONS „Restore läuft im Browser …" + „`Emote.ArchivedAt` wird geschrieben …" |
 | **A7** Kanal-Aktivitätsverlauf | ✅ 2026-08-02 | DECISIONS „Der Channel bekommt seinen eigenen Audit-Log" |
 | **A8** Resync für Channel-Manager | ✅ 2026-08-02 | DECISIONS „Resync als Self-Service" |
 | **A9**–**A11** | ⬜ | — |
@@ -216,6 +216,15 @@ Channel.
 900 Emotes × 90 Tagen ist eine große Antwort — serverseitig filtern, nicht clientseitig zerlegen.
 
 ### A6 — Purge-Sicherheitsnetz: Vorschau, Protokoll, Restore-Liste
+
+**Status: ✅ umgesetzt am 2026-08-02** — Vorschau gab es bereits (DeleteConfirmDialog); neu sind
+Post-Run-Zusammenfassung, Protokoll-Download (JSON/CSV, `kind: 'purge-run'` im geteilten
+Export-Envelope), **In-App-Restore** (Post-Run-Button + Protokoll-Import, GQL-ADD im Browser über
+die aus dem Delete extrahierte `SevenTvRunEngine`) und die additive Spalte `Emote.ArchivedAt`.
+Bewusst nicht gebaut: eine DB-gestützte Archiv-Liste (böte Emotes an, die jemand auf 7TV absichtlich
+entfernt hat) und ein `sync-restored`-Endpoint (der A8-Resync genügt, die Richtung ist konservativ).
+Begründungen in DECISIONS „Restore läuft im Browser über dieselbe Lauf-Mechanik wie der Delete" und
+„`Emote.ArchivedAt` wird geschrieben, aber noch nicht ausgeliefert".
 
 Vor dem Mass-Delete eine Bestätigungsliste; nach dem Lauf ein Ergebnisprotokoll mit allen entfernten
 7TV-IDs und -Namen, als JSON/CSV herunterladbar und als „diese wieder hinzufügen"-Liste nutzbar.

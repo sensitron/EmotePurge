@@ -175,6 +175,9 @@
       (reloadRequested)="onReloadRequested()"
       (selectionCleared)="selection.clear()"
     />
+    <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
+         Usage page only — this is where the purge decision lives. -->
+    <app-restore-panel [setId]="setId" [channelName]="channelName()" />
   }
 
   @if (errorMessage(); as message) {
