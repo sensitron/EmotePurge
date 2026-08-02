@@ -32,6 +32,32 @@ public record EmoteUsageContextDto(
     int PreviousWindowUseCount,
     DateTime? FirstSeenAt);
 
+public record EmoteDailyUsageDto(DateOnly Date, int UseCount);
+
+/// <summary>
+/// One emote's day-by-day usage series for the drilldown (idea A5).
+/// </summary>
+/// <param name="Days">
+/// Only days with actual usage, ascending. A missing day inside [From, To] means 0 — the flush
+/// only ever writes rows for days with real usage, and inventing zero rows server-side just to
+/// transport them would be the expensive way to say nothing; the client zero-fills for rendering.
+/// </param>
+/// <param name="TotalUseCount">Sum over [From, To].</param>
+/// <param name="FirstUsedDate">
+/// First use ever, deliberately not bounded by the range — same reasoning as
+/// <see cref="EmoteUsageContextDto.LastUsedDate"/>. <c>null</c> = never used since tracking began.
+/// </param>
+/// <param name="LastUsedDate">Last use ever, equally unbounded.</param>
+public record EmoteUsageSeriesDto(
+    string EmoteId,
+    string EmoteName,
+    DateOnly From,
+    DateOnly To,
+    int TotalUseCount,
+    DateOnly? FirstUsedDate,
+    DateOnly? LastUsedDate,
+    IReadOnlyList<EmoteDailyUsageDto> Days);
+
 public interface IUsageStatQueryService
 {
     Task<IReadOnlyList<EmoteUsageDto>> GetUsageStatsAsync(string channelName, CancellationToken cancellationToken = default);
@@ -43,6 +69,15 @@ public interface IUsageStatQueryService
     /// </summary>
     Task<IReadOnlyList<EmoteUsageContextDto>> GetUsageContextAsync(
         string channelName, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The daily usage series of a single emote, resolved against the channel — <c>null</c> when
+    /// the emote id is unknown or belongs to a different channel (the caller answers 404). Archived
+    /// emotes deliberately keep their series: they are unreachable from the usage grid, but a
+    /// subset vote session still lists them as ballot members, and their history is real.
+    /// </summary>
+    Task<EmoteUsageSeriesDto?> GetDailySeriesAsync(
+        string channelName, string emoteId, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Range totals for a known set of emote ids, keyed by id and omitting the ones without usage.

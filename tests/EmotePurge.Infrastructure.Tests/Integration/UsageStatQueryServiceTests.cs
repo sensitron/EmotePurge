@@ -210,6 +210,122 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
         Assert.Empty(totals);
     }
 
+    [Fact]
+    public async Task GetDailySeriesAsync_ReturnsOnlyDaysWithUsage_Ascending_InclusiveBounds()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Daily");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 6, 30), UseCount = 50 }, // before range
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 1), UseCount = 3 },   // first range day
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 5), UseCount = 8 },
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 7), UseCount = 2 },   // last range day
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 8), UseCount = 60 }); // after range
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        // Sparse (no zero rows for 07-02..07-04, 07-06) and strictly ascending; both boundary days
+        // included, both neighbours excluded.
+        Assert.Equal(
+            [new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 5), new DateOnly(2026, 7, 7)],
+            series.Days.Select(d => d.Date).ToArray());
+        Assert.Equal(13, series.TotalUseCount);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_FirstAndLastUsedDate_AreNotBoundedByTheRange()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "OldTimer");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 5, 1), UseCount = 1 },
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Empty(series.Days);
+        Assert.Equal(0, series.TotalUseCount);
+        Assert.Equal(new DateOnly(2026, 5, 1), series.FirstUsedDate);
+        Assert.Equal(new DateOnly(2026, 8, 1), series.LastUsedDate);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_ReturnsNull_ForAnEmoteOfAnotherChannel()
+    {
+        // The security-relevant case: emoteId is a client-supplied value, and without the channel
+        // join a caller with access to channel A could read channel B's series.
+        await using var db = fixture.CreateDbContext();
+        var channelA = await SeedChannelAsync(db, "dailytest3a");
+        var channelB = await SeedChannelAsync(db, "dailytest3b");
+        var foreignEmote = await SeedEmoteAsync(db, channelB.Id, "Foreign");
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channelA.ChannelName, foreignEmote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Null(series);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_ReturnsNull_ForAnUnknownEmoteId()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest4");
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, "no-such-id", new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Null(series);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_ForAnEmoteWithoutAnyUsage_ReturnsEmptySeries()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest5");
+        var emote = await SeedEmoteAsync(db, channel.Id, "NeverUsed");
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Empty(series.Days);
+        Assert.Equal(0, series.TotalUseCount);
+        Assert.Null(series.FirstUsedDate);
+        Assert.Null(series.LastUsedDate);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_KeepsTheHistoryOfAnArchivedEmote()
+    {
+        // Unlike GetUsageContextAsync: an archived emote is unreachable from the usage grid, but a
+        // subset vote session still lists it as a ballot member, and its history is real.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest6");
+        var archived = await SeedEmoteAsync(db, channel.Id, "GoneButReal", isArchived: true);
+        db.UsageStats.Add(new UsageStat { EmoteId = archived.Id, Date = new DateOnly(2026, 7, 2), UseCount = 4 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, archived.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Equal(4, Assert.Single(series.Days).UseCount);
+    }
+
     private static async Task<Channel> SeedChannelAsync(AppDbContext db, string channelName)
     {
         var channel = new Channel { ChannelName = channelName, IsBotActive = true };

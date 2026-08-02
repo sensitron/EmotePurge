@@ -35,25 +35,71 @@ public static class UsageStatsEndpoints
             IUsageStatQueryService usageStatQueryService,
             CancellationToken ct) =>
         {
-            if (!DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var fromDate) ||
-                !DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var toDate))
+            var rangeError = ValidateRange(from, to, out var fromDate, out var toDate);
+            if (rangeError is not null)
             {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidDateFormat });
-            }
-
-            if (fromDate > toDate)
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.FromAfterTo });
-            }
-
-            const int maxRangeDays = 366;
-            if (toDate.DayNumber - fromDate.DayNumber > maxRangeDays)
-            {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays });
+                return rangeError;
             }
 
             var totals = await usageStatQueryService.GetUsageContextAsync(channelName, fromDate, toDate, ct);
             return Results.Ok(totals);
         });
+
+        // The drilldown series (idea A5): one emote, server-side filtered — the whole-channel
+        // per-day endpoint above stays the unfiltered debug view it always was. Deliberately on the
+        // group's ExternalApi policy rather than a laxer one: the expensive part of a call here is
+        // the authorization filter's 7TV lookups, and raising the ceiling would licence more of
+        // exactly those. The client caches per (channel, emote, range) instead.
+        group.MapGet("/daily", async (
+            string channelName,
+            string emoteId,
+            string from,
+            string to,
+            IUsageStatQueryService usageStatQueryService,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(emoteId))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdEmpty });
+            }
+
+            var rangeError = ValidateRange(from, to, out var fromDate, out var toDate);
+            if (rangeError is not null)
+            {
+                return rangeError;
+            }
+
+            // Null covers both "unknown id" and "someone else's emote" — a bare 404 either way, so
+            // the response does not confirm that a guessed id exists elsewhere.
+            var series = await usageStatQueryService.GetDailySeriesAsync(channelName, emoteId, fromDate, toDate, ct);
+            return series is null ? Results.NotFound() : Results.Ok(series);
+        });
+    }
+
+    /// <summary>
+    /// The one from/to ladder shared by /totals and /daily: invalid_date_format → from_after_to →
+    /// range_too_large (366 days). Returns the 400 to send, or null when the range is valid.
+    /// </summary>
+    private static IResult? ValidateRange(string from, string to, out DateOnly fromDate, out DateOnly toDate)
+    {
+        toDate = default;
+        if (!DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out fromDate) ||
+            !DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out toDate))
+        {
+            return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidDateFormat });
+        }
+
+        if (fromDate > toDate)
+        {
+            return Results.BadRequest(new { errorCode = ApiErrorCodes.FromAfterTo });
+        }
+
+        const int maxRangeDays = 366;
+        if (toDate.DayNumber - fromDate.DayNumber > maxRangeDays)
+        {
+            return Results.BadRequest(new { errorCode = ApiErrorCodes.RangeTooLarge, maxRangeDays });
+        }
+
+        return null;
     }
 }

@@ -87,6 +87,61 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .ToList();
     }
 
+    public async Task<EmoteUsageSeriesDto?> GetDailySeriesAsync(
+        string channelName, string emoteId, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        if (from > to)
+        {
+            throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
+        }
+
+        var normalized = ChannelName.Normalize(channelName);
+
+        // Resolved against the channel, not looked up by id alone: emoteId is a client-supplied
+        // value, and without the join a caller with access to channel A could read the series of an
+        // emote from channel B. IsArchived is deliberately not filtered — an archived emote is
+        // unreachable from the usage grid, but a subset vote session still lists it as a ballot
+        // member, and its history is real.
+        var emote = await db.Emotes
+            .Where(e => e.Id == emoteId && e.Channel.ChannelName == normalized)
+            .Select(e => new { e.Id, e.Name })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (emote is null)
+        {
+            return null;
+        }
+
+        // Sparse on purpose (only days with usage) — served by the covering index
+        // (EmoteId, Date) INCLUDE (UseCount) as an index-only scan.
+        var days = await db.UsageStats
+            .Where(u => u.EmoteId == emote.Id && u.Date >= from && u.Date <= to)
+            .OrderBy(u => u.Date)
+            .Select(u => new EmoteDailyUsageDto(u.Date, u.UseCount))
+            .ToListAsync(cancellationToken);
+
+        // First/last use ever, unbounded in time — same reasoning as LastUsedDate in
+        // GetUsageContextAsync. Single-table GroupBy, so rule 10 is not even touched.
+        var bounds = await db.UsageStats
+            .Where(u => u.EmoteId == emote.Id)
+            .GroupBy(u => u.EmoteId)
+            .Select(g => new
+            {
+                First = g.Min(u => (DateOnly?)u.Date),
+                Last = g.Max(u => (DateOnly?)u.Date)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new EmoteUsageSeriesDto(
+            emote.Id,
+            emote.Name,
+            from,
+            to,
+            days.Sum(d => d.UseCount),
+            bounds?.First,
+            bounds?.Last,
+            days);
+    }
+
     public async Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(
         IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
     {
