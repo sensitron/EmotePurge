@@ -112,6 +112,7 @@ test.describe('channel activity tab', () => {
 
     await page.getByRole('navigation', { name: 'Seitennummerierung' }).getByText('Weiter').click();
     await expect(page.getByRole('listitem')).toHaveCount(5);
+    await expect(page).toHaveURL(/[?&]page=2/);
 
     expect(await page.evaluate(() => window.scrollY)).toBeLessThan(scrolledDown);
 
@@ -125,6 +126,61 @@ test.describe('channel activity tab', () => {
     // And the keyboard user came along — without this the focus would have fallen to <body> when the
     // clicked button left the DOM with the old page.
     await expect(heading).toBeFocused();
+  });
+
+  // Page and filters live in the URL so that leaving a list and coming back is not a reset. The two
+  // navigate differently on purpose, and this is where that difference is visible.
+  test('the back button undoes the page change and keeps the filter', async ({ page }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelAuditLog(page, 'sensitron', {
+      1: Array.from({ length: 25 }, (_, i) => ({ id: 100 - i, action: 'voteSession.delete' })),
+      2: Array.from({ length: 5 }, (_, i) => ({ id: 20 - i, action: 'voteSession.delete' })),
+    });
+
+    await page.goto('/channels/sensitron/activity');
+    await page.getByRole('radio', { name: 'Abstimmung gelöscht' }).click();
+    await expect(page).toHaveURL(/[?&]action=voteSession\.delete/);
+    // A filter replaces its history entry — otherwise back would mean "undo one keystroke".
+    await expect(page).not.toHaveURL(/[?&]page=/);
+
+    await page.getByRole('navigation', { name: 'Seitennummerierung' }).getByText('Weiter').click();
+    await expect(page.getByRole('listitem')).toHaveCount(5);
+    await expect(page).toHaveURL(/[?&]page=2/);
+
+    await page.goBack();
+
+    await expect(page.getByRole('listitem')).toHaveCount(25);
+    await expect(page).toHaveURL(/[?&]action=voteSession\.delete/);
+    await expect(page).not.toHaveURL(/[?&]page=/);
+
+    await page.goForward();
+    await expect(page.getByRole('listitem')).toHaveCount(5);
+  });
+
+  test('a deep link restores both the page and the filter it belongs to', async ({ page }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelAuditLog(page, 'sensitron', {
+      1: Array.from({ length: 25 }, (_, i) => ({
+        id: 100 - i,
+        action: 'voteSession.delete',
+        actorLogin: 'somemod',
+      })),
+      2: Array.from({ length: 5 }, (_, i) => ({
+        id: 20 - i,
+        action: 'voteSession.delete',
+        actorLogin: 'somemod',
+      })),
+    });
+
+    await page.goto('/channels/sensitron/activity?page=2&action=voteSession.delete&actor=somemod');
+
+    await expect(page.getByRole('listitem')).toHaveCount(5);
+    // The controls show the restored state, not just the request: a filter the reader cannot see is
+    // a list they cannot explain.
+    await expect(page.getByRole('radio', { name: 'Abstimmung gelöscht' })).toBeChecked();
+    await expect(
+      page.getByRole('textbox', { name: 'Nach ausführender Person filtern' }),
+    ).toHaveValue('somemod');
   });
 
   // The permission boundary that separates this tab from every other channel page: a 7TV editor may
