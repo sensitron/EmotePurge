@@ -10,6 +10,32 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Eine Tokenebene für Farbe, und warum der FOUC-Wächter eine eigene Datei ist
+
+**Betrifft:** `web/src/styles.css` · `web/public/theme-init.js` (neu) · `web/src/index.html` · `web/src/app/core/theme/theme.service.{ts,spec.ts}` (neu) · `web/src/app/shared/ui/theme-menu.ts` (neu) · `web/public/i18n/{de,en}.json` · `web/src/app/features/{shell/app-shell.ts,landing/landing-page.html,login/login-page.ts}` · `docs/UI-Designsprache.md` (§2.0, §2.1, §10)
+
+**Farbe ist ab jetzt eine Rolle, kein Palettenwert.** `web/src/styles.css` bekommt einen Tokenblock — Rohwerte als `--ep-*` unter `:root, :root[data-theme='dark']` bzw. `:root[data-theme='light']`, registriert über `@theme inline`. Damit heißt es `bg-surface` statt `bg-slate-900`, und die Kartenfläche ist wieder *eine* Entscheidung statt einer, die an 36 Stellen erneut getroffen wird. Bewusst **kein** `dark:`-Variantenansatz: der hätte 428 Utilities auf ~850 verdoppelt, jede spätere Farbänderung zu einer Suche über 36 Dateien gemacht und vor allem die Regel „es gibt genau eine Kartenfläche" (Designsprache §2.1) an jeder Verwendungsstelle zur Disposition gestellt — genau die Divergenz („warum ist diese Karte `bg-slate-50`, jene `bg-white`?"), an der `dark:`-Codebasen verfallen. Er hätte die harten Fälle auch gar nicht gelöst: Glow, Backdrop und Sticky-Bar sind keine Utilities und hätten ohnehin Variablen gebraucht.
+
+**`@theme inline` ist Pflicht, nicht Geschmack.** Ohne `inline` backt Tailwind den Wert zur Build-Zeit in jedes Utility ein, und die Umschaltung erreicht sie nie. Die Kehrseite: mit `inline` emittiert Tailwind die `--color-*`-Namen **nicht** ins Ergebnis, handgeschriebenes CSS in derselben Datei muss also `var(--ep-*)` referenzieren und nicht `var(--color-surface)`. Verifiziert am kompilierten Stylesheet: alle 38 Utilities lösen auf `var(--ep-…)` auf, und der Alpha-Modifier (`bg-surface/70` → `color-mix`) funktioniert über Variablen hinweg.
+
+**Das `data-theme`-Attribut sitzt auf `<html>`, nicht auf dem Shell-`<div>`.** Der CDK-Overlay-Container hängt als Geschwister der App **außerhalb** der Shell-DOM — das ist dieselbe Eigenschaft, die schon die explizite Textfarbe in `.cdk-overlay-pane.app-dialog-panel` erzwungen hat (§7, CDK-Falle 1). Säße das Attribut auf der Shell, behielten Dialoge und Popover den Modus, in dem sie *nicht* geöffnet wurden.
+
+**Der Anti-FOUC-Wächter ist eine externe Datei, weil die Api eine CSP ausliefert.** `Program.cs` setzt auf **jeder** Response `script-src 'self'` ohne `'unsafe-inline'` — auch auf `wwwroot` und dem SPA-Fallback. Ein Inline-`<script>` in `index.html` wäre schlicht blockiert. Ein `'sha256-…'`-Eintrag in der CSP-Zeile wäre möglich, aber still brüchig: jede Reformatierung des Skripts bräche die Seite **ausschließlich im Container**, nie unter `ng serve`, wo keine CSP greift. `web/public/theme-init.js` fällt unter `'self'`, wird von `angular.json` unverändert nach `wwwroot` kopiert und bekommt von `ApplyStaticCacheHeaders` korrekt `no-cache`. Keine CSP-Änderung nötig — und das ist der Punkt.
+
+**Drei Zustände, nicht zwei.** `'system' | 'light' | 'dark'`, Default `'system'`. Ein reiner Zweizustand-Toggle kann „folge dem System" nicht ausdrücken; wer einmal umgeschaltet hat, säße für immer fest — auch durch eine systemweite Änderung hindurch, die er absichtlich vorgenommen hat. `localStorage['emotepurge.theme']` ist dafür in Ordnung: eine Darstellungspräferenz ist keine Sitzungsinformation, die Regel „Auth-Session gehört nicht in `localStorage`" bleibt unberührt.
+
+**`theme-color` sind zwei Tags mit `media`, und der Service korrigiert nur deren `media`.** Zwei Tags decken den `'system'`-Fall ganz ohne JavaScript ab. Bei expliziter Wahl gegen die Systempräferenz zeigte aber weiterhin das falsche Tag; der `ThemeService` schaltet deshalb `media` auf `all` bzw. `not all` und gibt sie bei `'system'` an die Media-Queries zurück. Die Farbwerte selbst bleiben in `index.html` und existieren dadurch an genau einer Stelle.
+
+**Der Umschalter existiert, wird aber noch nicht gerendert.** `<app-theme-menu>` ist gebaut und über `<app-popover>` gelöst (kein `SegmentedControl` — drei Textsegmente kosten in einer `h-14`-Kopfzeile zu viel Breite; kein durchklickender Icon-Button — bei drei Zuständen ist der nächste nicht ansagbar). Eingebunden wird er erst, wenn die eingeloggte App themefähig ist, damit niemand in einen halb migrierten Zustand schalten kann.
+
+**`.app-page-glow` ersetzt drei byte-identische Kopien** des Radial-Gradients (Shell, Landing, Login). Das war Voraussetzung, nicht Kür: was dreimal wortgleich dasteht, kann man nicht an einer Stelle themen. Im Hellen fallen die beiden Stops von `.14`/`.10` auf `.06`/`.04` — eine additive Lichtsimulation hat auf hellem Grund kein Äquivalent und wird zur Papierfärbung statt zum Leuchten.
+
+**Keine `light:`-Variante registriert.** Das Konzept sah eine vor, für Fälle, in denen sich die Modi *strukturell* statt nur im Wert unterscheiden. Beim Bauen ist keiner übrig geblieben: Glow, Karten- und Overlay-Schatten sowie die Kalenderleiter sind Wertunterschiede und laufen über `--ep-page-glow` / `--ep-shadow-*` / Tokens, und der Logo-Tausch in Welle 4 läuft über ein Signal aus dem `ThemeService` statt über CSS — was dem Variantenweg überlegen ist, weil ein `prefers-color-scheme`-`<picture>` eine *explizite* Nutzerwahl nicht überstimmen kann. Eine Variante mit null Verwendungen ist toter Code; sie wird registriert, wenn ein echter Fall auftaucht.
+
+**`color-scheme` wandert von `body` in den Tokenblock** und wird pro Modus gesetzt. Damit folgen `input[type="time"]` im DateTime-Picker, Scrollbars und Autofill-Hintergründe dem Modus von selbst — eine Zeile, die eine Menge Handarbeit ersetzt. Die entsprechende Zeile in §10 der Designsprache war damit falsch und ist korrigiert.
+
+---
+
 ### 2026-08-02 — Der dunkle Modus verfehlte an zwei Stellen AA, bevor der helle überhaupt anfängt
 
 **Betrifft:** `web/src/styles.css` (`.app-input`, `.app-input-sm`) · `web/src/app/shared/datetime/datetime-picker.ts` · 13 Vorkommen `text-slate-500` unter `web/src/app/` · `docs/UI-Designsprache.md` (§5.1, §10) · `docs/Konzept-Light-Mode.md` (neu)

@@ -4,20 +4,244 @@
 /* Positioning/backdrop base styles for @angular/cdk/dialog (S3-16). */
 @import '@angular/cdk/overlay-prebuilt.css';
 
+/* ---------------------------------------------------------------------------
+   COLOUR TOKENS — the only place in web/ that is allowed to name a Tailwind
+   palette colour. Everything else writes the semantic utilities registered in
+   the @theme inline block below (bg-surface, text-fg-muted, border-border, …).
+   Rationale and the full contrast proof: docs/Konzept-Light-Mode.md §4/§5,
+   the rule itself: docs/UI-Designsprache.md §2.0.
+
+   Two-stage on purpose. The RAW values live in plain custom properties under a
+   selector, once per mode — that is what makes switching a selector swap. The
+   REGISTRATION happens in `@theme inline`, and `inline` is mandatory: without
+   it Tailwind bakes the value into every utility at build time and the switch
+   never reaches them. The flip side of `inline` is that Tailwind does NOT emit
+   the --color-* names into the output, so hand-written CSS in this file must
+   reference the raw --ep-* variables, never var(--color-surface).
+
+   The attribute sits on <html>, not on the app shell's root div: the CDK
+   overlay container is a sibling of the app, outside the shell's DOM, and
+   dialogs/popovers would otherwise keep the mode they were not opened in.
+
+   Depth works differently per mode, and that is deliberate rather than a
+   compromise: dark separates surfaces by lightness (the border is barely
+   visible at 1,4:1 and does not carry the card), light separates them by a
+   real elevation shadow, because white on slate-50 is 1,05:1 and could not.
+   The direction stays stable though — a raised surface moves AWAY from the
+   page ground in both modes, an inset surface moves back towards it. Only the
+   physical direction of "inset" flips, which is exactly what role names are
+   for. --ep-shadow-card is `none` in dark for that reason.
+   --------------------------------------------------------------------------- */
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --ep-page: var(--color-slate-950);
+  --ep-surface: var(--color-slate-900);
+  --ep-surface-inset: var(--color-slate-800);
+  --ep-surface-inset-hover: var(--color-slate-700);
+  --ep-field: var(--color-slate-950);
+
+  /* Borders. --ep-border-field is the one token with the SAME value in both
+     modes: it is the only border with a hard 3:1 obligation (WCAG 1.4.11) and
+     slate-500 happens to clear it against both a dark and a light fill. */
+  --ep-border: var(--color-slate-800);
+  --ep-border-strong: var(--color-slate-700);
+  --ep-border-field: var(--color-slate-500);
+
+  /* Text. `fg` = foreground on a normal surface. The former text-slate-500
+     step is gone — it never cleared 4,5:1 and folded into fg-muted. */
+  --ep-fg: var(--color-slate-100);
+  --ep-fg-body: var(--color-slate-200);
+  --ep-fg-secondary: var(--color-slate-300);
+  --ep-fg-muted: var(--color-slate-400);
+  --ep-fg-disabled: var(--color-slate-600);
+
+  /* Accent. Four steps with names, replacing five nameless purple steps.
+     accent-fg  = the accent used AS TEXT on a normal surface (links, "today").
+     on-accent  = the text drawn ON a filled accent surface (white). */
+  --ep-accent: var(--color-purple-500);
+  --ep-accent-solid: var(--color-purple-600);
+  --ep-accent-solid-hover: var(--color-purple-500);
+  --ep-accent-selected: var(--color-purple-700);
+  --ep-accent-fg: var(--color-purple-400);
+  --ep-accent-wash: var(--color-purple-950);
+  --ep-on-accent: #fff;
+
+  /* Semantic tones — wash = tinted area, fg = text on that wash,
+     solid = filled area carrying on-accent text, dot = small meaning-bearing
+     graphic (status dot, meter fill) which owes 3:1, not 4,5:1. */
+  --ep-success-wash: var(--color-emerald-950);
+  --ep-success-fg: var(--color-emerald-300);
+  --ep-success-solid: var(--color-emerald-700);
+  --ep-success-dot: var(--color-emerald-500);
+
+  --ep-warning-wash: var(--color-amber-950);
+  --ep-warning-fg: var(--color-amber-300);
+  --ep-warning-dot: var(--color-amber-500);
+
+  --ep-danger-wash: var(--color-red-950);
+  --ep-danger-fg: var(--color-red-300);
+  --ep-danger-solid: var(--color-red-800);
+  --ep-danger-dot: var(--color-red-500);
+
+  --ep-info-wash: var(--color-blue-950);
+  --ep-info-fg: var(--color-blue-300);
+
+  --ep-neutral-wash: var(--color-slate-800);
+  --ep-neutral-fg: var(--color-slate-300);
+
+  /* Not colours */
+  --ep-shadow-card: none;
+  --ep-shadow-card-hover: 0 8px 24px -12px rgb(88 28 135 / 0.55);
+  --ep-shadow-overlay: 0 10px 30px -12px rgb(0 0 0 / 0.6);
+  --ep-backdrop: rgb(0 0 0 / 0.6);
+  --ep-sticky-alpha: 85%;
+  --ep-page-glow-1: rgb(147 51 234 / 0.14);
+  --ep-page-glow-2: rgb(236 72 153 / 0.1);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --ep-page: var(--color-slate-50);
+  --ep-surface: #fff;
+  --ep-surface-inset: var(--color-slate-100);
+  --ep-surface-inset-hover: var(--color-slate-200);
+  --ep-field: #fff;
+
+  --ep-border: var(--color-slate-200);
+  --ep-border-strong: var(--color-slate-300);
+  --ep-border-field: var(--color-slate-500);
+
+  --ep-fg: var(--color-slate-900);
+  --ep-fg-body: var(--color-slate-800);
+  --ep-fg-secondary: var(--color-slate-700);
+  --ep-fg-muted: var(--color-slate-600);
+  --ep-fg-disabled: var(--color-slate-400);
+
+  /* purple-500 would clear 3:1 on white (4,0:1), but with no reserve at all —
+     purple-600 gets 5,2:1 for the same job. accent-solid-hover is the one
+     accent step whose direction flips: lighter in dark, darker in light. */
+  --ep-accent: var(--color-purple-600);
+  --ep-accent-solid: var(--color-purple-600);
+  --ep-accent-solid-hover: var(--color-purple-700);
+  --ep-accent-selected: var(--color-purple-700);
+  --ep-accent-fg: var(--color-purple-700);
+  --ep-accent-wash: var(--color-purple-50);
+  --ep-on-accent: #fff;
+
+  --ep-success-wash: var(--color-emerald-50);
+  --ep-success-fg: var(--color-emerald-700);
+  --ep-success-solid: var(--color-emerald-700);
+  --ep-success-dot: var(--color-emerald-600);
+
+  --ep-warning-wash: var(--color-amber-50);
+  --ep-warning-fg: var(--color-amber-700);
+  /* amber-700, not amber-500/600 like everywhere else: amber is mid-light by
+     nature and has no reserve on a light track. Against surface-inset,
+     amber-500 reaches 2,0:1 and amber-600 2,9:1 — both fail the 3:1 gate for
+     meaning-bearing graphics. amber-700 gets 4,6:1. It reads brownish rather
+     than warning-ish; orange-600 would read better but would introduce a
+     seventh colour family for a single token, which was decided against. */
+  --ep-warning-dot: var(--color-amber-700);
+
+  --ep-danger-wash: var(--color-red-50);
+  --ep-danger-fg: var(--color-red-700);
+  --ep-danger-solid: var(--color-red-700);
+  --ep-danger-dot: var(--color-red-600);
+
+  --ep-info-wash: var(--color-blue-50);
+  --ep-info-fg: var(--color-blue-700);
+
+  --ep-neutral-wash: var(--color-slate-100);
+  --ep-neutral-fg: var(--color-slate-700);
+
+  /* Neutral, not purple: the dark mode's glow shadow is additive light, which
+     turns into a dirty smudge on white rather than into depth. */
+  --ep-shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.1);
+  --ep-shadow-card-hover: 0 8px 24px -12px rgb(15 23 42 / 0.18);
+  --ep-shadow-overlay: 0 10px 30px -10px rgb(15 23 42 / 0.22);
+  --ep-backdrop: rgb(15 23 42 / 0.35);
+  /* Light needs more coverage than dark, otherwise text bleeds through the blur. */
+  --ep-sticky-alpha: 92%;
+  --ep-page-glow-1: rgb(147 51 234 / 0.06);
+  --ep-page-glow-2: rgb(236 72 153 / 0.04);
+}
+
+@theme inline {
+  --color-page: var(--ep-page);
+  --color-surface: var(--ep-surface);
+  --color-surface-inset: var(--ep-surface-inset);
+  --color-surface-inset-hover: var(--ep-surface-inset-hover);
+  --color-field: var(--ep-field);
+
+  --color-border: var(--ep-border);
+  --color-border-strong: var(--ep-border-strong);
+  --color-border-field: var(--ep-border-field);
+
+  --color-fg: var(--ep-fg);
+  --color-fg-body: var(--ep-fg-body);
+  --color-fg-secondary: var(--ep-fg-secondary);
+  --color-fg-muted: var(--ep-fg-muted);
+  --color-fg-disabled: var(--ep-fg-disabled);
+
+  --color-accent: var(--ep-accent);
+  --color-accent-solid: var(--ep-accent-solid);
+  --color-accent-solid-hover: var(--ep-accent-solid-hover);
+  --color-accent-selected: var(--ep-accent-selected);
+  --color-accent-fg: var(--ep-accent-fg);
+  --color-accent-wash: var(--ep-accent-wash);
+  --color-on-accent: var(--ep-on-accent);
+
+  --color-success-wash: var(--ep-success-wash);
+  --color-success-fg: var(--ep-success-fg);
+  --color-success-solid: var(--ep-success-solid);
+  --color-success-dot: var(--ep-success-dot);
+
+  --color-warning-wash: var(--ep-warning-wash);
+  --color-warning-fg: var(--ep-warning-fg);
+  --color-warning-dot: var(--ep-warning-dot);
+
+  --color-danger-wash: var(--ep-danger-wash);
+  --color-danger-fg: var(--ep-danger-fg);
+  --color-danger-solid: var(--ep-danger-solid);
+  --color-danger-dot: var(--ep-danger-dot);
+
+  --color-info-wash: var(--ep-info-wash);
+  --color-info-fg: var(--ep-info-fg);
+
+  --color-neutral-wash: var(--ep-neutral-wash);
+  --color-neutral-fg: var(--ep-neutral-fg);
+
+  /* Theme-fixed on purpose (docs/Konzept-Light-Mode.md §2.1): 7TV emotes are
+     drawn for dark chat backgrounds — white lettering, light outlines, white
+     glow edges — and a good share of them simply disappears on a white card.
+     We cannot influence the material and cannot blanket-invert it without
+     destroying the coloured ones, so the image area stays a deliberate dark
+     "canvas" in both modes. Everything else on the tile follows the theme. */
+  --color-emote-canvas: var(--color-slate-800);
+
+  --shadow-overlay: var(--ep-shadow-overlay);
+}
+
 @layer base {
   /* The app background lives on the body, not only on each page's root div: absolutely
      positioned popups (e.g. the datetime picker) extend the document's scrollable area past
      that div, and the strip below it would flash the browser's white default otherwise.
-     color-scheme makes native controls (time input, scrollbars) render dark to match. */
+     color-scheme is no longer set here but per theme in the token block above, so that native
+     controls (time input, scrollbars, autofill) follow the mode instead of being pinned dark. */
   body {
-    background-color: var(--color-slate-950);
-    color-scheme: dark;
+    background-color: var(--ep-page);
+    color: var(--ep-fg);
   }
 
   /* Single global keyboard-focus indicator (WCAG 2.4.7 / 1.4.11): every interactive element
      gets the same visible ring; individual components must not remove it without replacement. */
   :focus-visible {
-    outline: 2px solid var(--color-purple-500);
+    outline: 2px solid var(--ep-accent);
     outline-offset: 2px;
   }
 }
@@ -37,14 +261,14 @@
   /* The app's single text/number/date input look — the utility chain used to be copy-pasted per
      template. `-sm` is the compact variant for filter toolbars.
 
-     The border is slate-500, not the slate-700 it used to be: WCAG 1.4.11 wants 3:1 for the visual
-     boundary that makes a control recognisable as one, and slate-700 on the card surface reached
-     1,7:1. slate-500 gets 3,7:1 on the card and 3,6:1 on the field's own fill. */
+     The border is its own token rather than the card border: WCAG 1.4.11 wants 3:1 for the visual
+     boundary that makes a control recognisable as one, which the decorative card border does not
+     owe and does not reach. See docs/UI-Designsprache.md §5.1. */
   .app-input {
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-slate-500);
-    background-color: var(--color-slate-950);
-    color: var(--color-slate-100);
+    border: 1px solid var(--ep-border-field);
+    background-color: var(--ep-field);
+    color: var(--ep-fg);
     padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
@@ -52,9 +276,9 @@
 
   .app-input-sm {
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-slate-500);
-    background-color: var(--color-slate-950);
-    color: var(--color-slate-100);
+    border: 1px solid var(--ep-border-field);
+    background-color: var(--ep-field);
+    color: var(--ep-fg);
     padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2);
     font-size: var(--text-sm);
     line-height: var(--text-sm--line-height);
@@ -62,23 +286,27 @@
 
   .app-input::placeholder,
   .app-input-sm::placeholder {
-    color: var(--color-slate-400);
+    color: var(--ep-fg-muted);
   }
 
   .app-input:focus,
   .app-input-sm:focus {
-    border-color: var(--color-purple-500);
+    border-color: var(--ep-accent);
   }
 
   /* The app's card surface, pulled from the landing page's design language: page-level boxes
      were borderless bg-slate-900 rectangles before, the landing's cards carry a fine border.
-     `.app-card-interactive` adds the landing hover affordance (purple border + soft glow) and
+     `.app-card-interactive` adds the landing hover affordance (accent border + soft glow) and
      belongs ONLY on cards that are actually clickable (stretched-link rows) — static sections
-     use the base class alone, so hover never promises a click that does not exist. */
+     use the base class alone, so hover never promises a click that does not exist.
+
+     The elevation shadow is `none` in dark and real in light: see the depth note in the token
+     block. Without it a white card on a slate-50 page is a 1,05:1 non-event. */
   .app-card {
     border-radius: var(--radius-lg);
-    border: 1px solid var(--color-slate-800);
-    background-color: var(--color-slate-900);
+    border: 1px solid var(--ep-border);
+    background-color: var(--ep-surface);
+    box-shadow: var(--ep-shadow-card);
   }
 
   .app-card-interactive {
@@ -89,9 +317,9 @@
   }
 
   .app-card-interactive:hover {
-    border-color: color-mix(in oklab, var(--color-purple-500) 55%, transparent);
-    background-color: color-mix(in oklab, var(--color-slate-800) 70%, var(--color-slate-900));
-    box-shadow: 0 8px 24px -12px rgb(88 28 135 / 0.55);
+    border-color: color-mix(in oklab, var(--ep-accent) 55%, transparent);
+    background-color: color-mix(in oklab, var(--ep-surface-inset) 70%, var(--ep-surface));
+    box-shadow: var(--ep-shadow-card-hover);
   }
 
   /* Sticky bar for the in-page layers that stay visible while content scrolls (tab navs at
@@ -99,12 +327,33 @@
      because it depends on which layers sit above). z-index 20 places these above the content's
      z-10 action containers and below the shell header's z-30 (its mobile disclosure must drop
      OVER a sticky tab bar). color-mix instead of a `/85` utility for consistency with the other
-     var()-based component classes in this file. */
+     var()-based component classes in this file; the alpha itself is a token because light needs
+     more coverage than dark to keep the blurred text underneath from showing through. */
   .app-sticky-bar {
     position: sticky;
     z-index: 20;
-    background-color: color-mix(in srgb, var(--color-slate-950) 85%, transparent);
+    background-color: color-mix(in srgb, var(--ep-page) var(--ep-sticky-alpha), transparent);
     backdrop-filter: blur(8px);
+  }
+
+  /* Decorative brand glow behind the hero areas. Extracted from three byte-identical copies
+     (app shell, landing, login) — it had to become one class before it could become themeable.
+     In light mode the two stops drop from .14/.10 to .06/.04: an additive light simulation has
+     no equivalent on a light ground, so it degrades to a faint paper tint rather than pretending
+     to glow. Belongs on an aria-hidden element inside an `isolate` parent (design doc §8.5
+     z-ladder: decorative glow is the -z-10 rung). */
+  .app-page-glow {
+    pointer-events: none;
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    z-index: -10;
+    height: calc(var(--spacing) * 96);
+    background-image:
+      radial-gradient(circle at 25% 0%, var(--ep-page-glow-1), transparent 55%),
+      radial-gradient(circle at 80% 0%, var(--ep-page-glow-2), transparent 50%);
+    -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent);
+    mask-image: linear-gradient(to bottom, black 30%, transparent);
   }
 
   /* Skeleton block for page-level loading (NN/g: skeletons for page loads, spinners only for
@@ -112,7 +361,7 @@
      plain CSS without depending on a utility being emitted elsewhere. */
   .app-skeleton {
     border-radius: var(--radius-md);
-    background-color: var(--color-slate-800);
+    background-color: var(--ep-surface-inset);
     animation: app-skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
@@ -127,15 +376,17 @@
    the CDK injects its structural overlay styles as a runtime <style> tag AFTER this stylesheet,
    so its `.cdk-overlay-pane { max-width: 100% }` beats any equal-specificity rule regardless of
    source order. `.cdk-overlay-pane.app-dialog-panel` (0,2,0) outranks it. The overlay container
-   also lives outside the app shell's DOM, hence the explicit text color. */
+   also lives outside the app shell's DOM, hence the explicit text color — it now inherits the
+   right tokens because the theme attribute sits on <html> rather than on the shell div, but the
+   explicit colour stays: the shell is what sets the text colour for the app, not <body>. */
 .app-dialog-backdrop {
-  background: rgb(0 0 0 / 0.6);
+  background: var(--ep-backdrop);
 }
 
 .cdk-overlay-pane.app-dialog-panel {
   width: 100%;
   max-width: min(28rem, calc(100vw - 2rem));
-  color: var(--color-slate-100);
+  color: var(--ep-fg);
 }
 
 /* Window-scrolled virtual-scroll chrome — UNlayered for the same reason as the dialog rules

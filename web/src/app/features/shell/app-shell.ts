@@ -29,14 +29,10 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
   },
   template: `
     <div class="isolate min-h-screen bg-slate-950 text-slate-100">
-      <!-- Subtle top glow, same radial-gradient technique as the landing hero but far dimmer —
-           decorative only, sits behind everything via -z-10 (root is isolate). The mask fades the
-           whole layer to zero towards its bottom edge; without it the radial circles are still
-           visibly colored where the container ends, which reads as a hard horizontal cut. -->
-      <div
-        class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(circle_at_25%_0%,rgba(147,51,234,0.14),transparent_55%),radial-gradient(circle_at_80%_0%,rgba(236,72,153,0.1),transparent_50%)] mask-[linear-gradient(to_bottom,black_30%,transparent)]"
-        aria-hidden="true"
-      ></div>
+      <!-- Subtle top glow — decorative only, sits behind everything via -z-10 (root is isolate).
+           The class is shared with the landing hero and the login page, which carried three
+           byte-identical copies of the gradient before; it also carries the per-theme dimming. -->
+      <div class="app-page-glow" aria-hidden="true"></div>
       <!-- h-14 is a contract, not styling: the sticky tab bars pin at top-14 and the sticky
            filter toolbars at top-24, both assuming exactly this header height (design doc §8.5).
            z-30 keeps the header (and its mobile disclosure) above the z-20 sticky bars. -->

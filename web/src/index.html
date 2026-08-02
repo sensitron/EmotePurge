@@ -4,11 +4,31 @@
     <meta charset="utf-8" />
     <title>Emote Purge</title>
     <base href="/" />
+    <!-- After <base>, so the relative src resolves against it; synchronous and render-blocking on
+         purpose, so <html data-theme> is set before the first paint. See the file's own comment
+         for why it is not inline. -->
+    <script src="theme-init.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <meta name="theme-color" content="#020617" />
+    <!-- Two tags with a media query cover the "follow the system" case with no JavaScript at all.
+         On an explicit user choice ThemeService rewrites the two `media` attributes (all / not all),
+         because otherwise the system preference would still pick the wrong one. The colours live
+         here and only here — the service never hardcodes them. The PWA manifest deliberately keeps
+         a single dark value: its splash belongs to the icon, which has #020617 baked in. -->
+    <meta
+      name="theme-color"
+      data-theme-mode="dark"
+      content="#020617"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      data-theme-mode="light"
+      content="#f8fafc"
+      media="(prefers-color-scheme: light)"
+    />
   </head>
   <body>
     <app-root></app-root>

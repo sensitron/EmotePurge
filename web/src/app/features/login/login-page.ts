@@ -14,11 +14,8 @@ import { Button } from '../../shared/ui/button';
       class="relative isolate flex min-h-screen flex-col items-center justify-center gap-6 bg-slate-950 px-4 text-slate-100"
     >
       <!-- Same subtle top glow as the app shell — the login page renders outside the shell,
-           so it carries its own copy of the brand background. -->
-      <div
-        class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(circle_at_25%_0%,rgba(147,51,234,0.14),transparent_55%),radial-gradient(circle_at_80%_0%,rgba(236,72,153,0.1),transparent_50%)] mask-[linear-gradient(to_bottom,black_30%,transparent)]"
-        aria-hidden="true"
-      ></div>
+           so it brings the brand background along itself. -->
+      <div class="app-page-glow" aria-hidden="true"></div>
       <div class="absolute top-4 right-4">
         <app-language-switcher />
       </div>

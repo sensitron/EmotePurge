@@ -16,9 +16,28 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ## 2. Flächen & Karten
 
+### 2.0 Farbe kommt aus Tokens, nicht aus der Palette
+
+- **Was gilt:** Kein Template, keine Varianten-Map und keine Komponentenklasse schreibt eine Tailwind-Paletten-Farbe (`slate-*`, `purple-*`, `red-*`, `amber-*`, `emerald-*`, `blue-*`, `pink-*`, `white`, `black`) direkt. Erlaubt sind ausschließlich die semantischen Utilities aus dem Tokensatz. Paletten-Namen stehen an genau **einer** Stelle: im Tokenblock von `web/src/styles.css`.
+
+  | Rolle | Utilities |
+  |---|---|
+  | Flächen | `bg-page` · `bg-surface` (die eine Kartenfläche, s. 2.1) · `bg-surface-inset` · `bg-surface-inset-hover` · `bg-field` |
+  | Ränder | `border-border` · `border-border-strong` · `border-border-field` (Bedienelemente, 3:1-Pflicht — s. 5.1) |
+  | Text | `text-fg` · `text-fg-body` · `text-fg-secondary` · `text-fg-muted` · `text-fg-disabled` |
+  | Akzent | `bg-accent` · `bg-accent-solid` (+`-hover`) · `bg-accent-selected` · `text-accent-fg` (Akzent **als Text**) · `bg-accent-wash` · `text-on-accent` (Text **auf** gefüllter Akzentfläche) |
+  | Töne | `{success,warning,danger,info,neutral}-{wash,fg,solid,dot}` — `wash` = getönte Fläche, `fg` = Schrift darauf, `solid` = gefüllte Fläche mit `on-accent`-Schrift, `dot` = kleine bedeutungstragende Grafik (Statuspunkt, Balkenfüllung; schuldet 3:1, nicht 4,5:1) |
+  | Sonstiges | `shadow-overlay` (Popover/Dialog) · `bg-emote-canvas` (themefest, s. u.) · `.app-page-glow` |
+
+- **Wann anwenden:** Immer. Braucht eine neue UI eine Farbe, die es als Token nicht gibt, wird **das Token ergänzt** — mit Wert für **beide** Modi und mit gerechnetem Kontrastnachweis in der Commit-Message — nicht die Palette benutzt. Unterscheiden sich die Modi strukturell statt nur im Wert, ist das zuerst ein Hinweis, dass das Token falsch geschnitten ist; erst danach eine CSS-Variante. Genau **eine** Ausnahme von der Themefähigkeit ist dokumentiert und darf nicht vermehrt werden: `bg-emote-canvas` bleibt in beiden Modi dunkel, weil 7TV-Emotes für dunkle Chats gezeichnet sind (weiße Schrift, helle Outlines) und wir das Fremdmaterial weder beeinflussen noch pauschal invertieren können.
+- **Die Werte stehen bewusst nicht hier**, sondern nur in `web/src/styles.css`. Eine zweite Wertetabelle in Markdown driftet ab dem ersten nachgezogenen Token; der Tokenblock im Code wird bei jeder Farbänderung zwangsläufig angefasst und kann von sich selbst nicht abweichen. Dieses Dokument führt die **Rollen**, der Code die Werte, `docs/Konzept-Light-Mode.md` §5 den datierten Kontrastnachweis.
+- **Erzwungen**, nicht erbeten: `npm run lint` fährt `web/scripts/check-color-tokens.mjs` mit und verbietet Paletten-Utilities unterhalb `web/src/app/`.
+- **Referenz:** `web/src/styles.css` (Tokenblock), `docs/Konzept-Light-Mode.md` §4.
+
 ### 2.1 Kartenfläche
 
-- **Was gilt:** `.app-card` (in `web/src/styles.css`) ist die **einzige** Kartenoberfläche: `border-slate-800`-Rand, `bg-slate-900`-Fläche, `radius-lg`. Keine randlosen `bg-slate-900`-Rechtecke, keine eigenen Karten-Klassenketten.
+- **Was gilt:** `.app-card` (in `web/src/styles.css`) ist die **einzige** Kartenoberfläche: `border`-Rand, `surface`-Fläche, `radius-lg`, plus die Elevation aus `--ep-shadow-card`. Keine randlosen `bg-surface`-Rechtecke, keine eigenen Karten-Klassenketten.
+- **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit (der Rand liegt bei 1,4:1 und trägt die Karte nicht), hell über einen echten Elevationsschatten (Weiß auf `slate-50` sind 1,05:1 und könnten es nicht). Die *Richtung* bleibt in beiden Modi gleich — eine erhöhte Fläche entfernt sich vom Grund, eine eingelassene (`surface-inset`) geht zu ihm zurück. Nur die physikalische Richtung von „eingelassen" dreht sich; genau dafür sind Rollennamen da.
 - **Wann anwenden:** Jede abgegrenzte Inhaltsfläche — Listen-Zeilen, Formular-Boxen, Monitoring-Karten, statische Sektionen.
 - **Referenz:** `web/src/styles.css` (`.app-card`), Verwendung überall unter `web/src/app/features/`.
 
@@ -279,7 +298,7 @@ Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.*
 - [ ] **Dekoratives versteckt:** Emoji-Icons und Skeleton-Schimmer `aria-hidden="true"`.
 - [ ] **Accessible Names kurz:** Stretched-Link-Karten lassen den Screenreader nur den kurzen Titel hören (2.3), keine ganze Karte als Linktext.
 - [ ] **Kontrast:** Text 4,5:1, Ränder/Fokusringe/bedeutungstragende Grafiken 3:1 — **gerechnet, nicht geschätzt**. Die schwächste zulässige Textstufe auf Karten- und Seitenfläche ist `slate-400` (7,0:1); `slate-500` erreicht nur 3,7:1 und ist deshalb keine Textfarbe mehr. Input-Ränder: `slate-500`, s. 5.1.
-- [ ] **Kontrast/nativ:** `color-scheme: dark` bleibt auf `body`; Farbpaare der Primitives (Badge-Tones, Banner-Varianten) nicht ad hoc neu mischen.
+- [ ] **Kontrast/nativ:** `color-scheme` wird **pro Theme** im Tokenblock auf `:root` gesetzt (nicht mehr fest auf `body`) — dadurch folgen `input[type="time"]`, Scrollbars und Autofill dem Modus von selbst. Farbpaare der Primitives (Badge-Tones, Banner-Varianten) nicht ad hoc neu mischen — sie sind Tokens (2.0).
 
 ## 11. Checkliste „Neue UI bauen"
 

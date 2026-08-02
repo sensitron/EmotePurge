@@ -2,6 +2,13 @@
   "languageSwitcher": {
     "ariaLabel": "Sprache auf {{ lang }} umstellen"
   },
+  "theme": {
+    "label": "Darstellung",
+    "ariaLabel": "Darstellung wählen",
+    "system": "System",
+    "light": "Hell",
+    "dark": "Dunkel"
+  },
   "shell": {
     "workerStatus": {
       "connected": "Worker verbunden",
