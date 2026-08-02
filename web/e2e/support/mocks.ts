@@ -635,6 +635,27 @@ export async function mockUsageTotals(
   );
 }
 
+/** GET /api/channels/{channelName}/usage-stats/daily — the drilldown's per-emote series (A5). */
+export async function mockUsageDaily(
+  page: Page,
+  channelName: string,
+  days: { date: string; useCount: number }[],
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/usage-stats/daily**`, (route) => {
+    const url = new URL(route.request().url());
+    return fulfillJson(route, 200, {
+      emoteId: url.searchParams.get('emoteId') ?? 'emote-1',
+      emoteName: 'MockEmote',
+      from: url.searchParams.get('from') ?? '2026-07-01',
+      to: url.searchParams.get('to') ?? '2026-07-28',
+      totalUseCount: days.reduce((sum, day) => sum + day.useCount, 0),
+      firstUsedDate: days[0]?.date ?? null,
+      lastUsedDate: days[days.length - 1]?.date ?? null,
+      days,
+    });
+  });
+}
+
 /**
  * GET /api/channels/{channelName}/emotes/active-set — needed for the mass-delete panel to render,
  * and the source of the slot-budget bar above the grid.

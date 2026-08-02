@@ -230,7 +230,7 @@
             tabindex="0"
             [attr.aria-pressed]="selection.isSelected(emote)"
             [class]="
-              'flex h-36 cursor-pointer flex-col gap-1 rounded-md border border-border p-2 text-center transition hover:bg-surface-inset/70 ' +
+              'relative flex h-36 cursor-pointer flex-col gap-1 rounded-md border border-border p-2 text-center transition hover:bg-surface-inset/70 ' +
               (selection.isSelected(emote)
                 ? 'inset-ring-2 inset-ring-accent bg-accent-wash'
                 : 'bg-surface')
@@ -240,7 +240,22 @@
             (keydown.enter)="selection.onRowClick(emote, $any($event))"
             (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
           >
-            <app-emote-card-header [name]="emote.emoteName" />
+            <!-- Second affordance beside the selection click (A5): stopPropagation on click *and*
+                 keydown, because Enter on the button would otherwise bubble into the card's
+                 selection handler — same isolation the vote buttons use on the voting cards.
+                 Absolutely positioned so ROW_HEIGHT_PX stays untouched; the name row keeps pr-6
+                 clear of it. -->
+            <button
+              type="button"
+              class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition hover:bg-surface-inset hover:text-fg-body"
+              [attr.aria-label]="'usageStats.drilldown.open' | transloco: { name: emote.emoteName }"
+              (click)="$event.stopPropagation(); openDrilldown(emote)"
+              (keydown)="$event.stopPropagation()"
+              (mousedown)="$event.stopPropagation()"
+            >
+              ⓘ
+            </button>
+            <app-emote-card-header [name]="emote.emoteName" class="pr-6" />
             <!-- bg-emote-canvas is its own token rather than surface-inset: the plate an emote is
                  drawn on is a distinct role, because 7TV artwork is authored for dark chat and some
                  of it carries white outlines. It follows the theme (the reasoning, and how to make

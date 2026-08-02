@@ -18,3 +18,25 @@ export interface EmoteUsageTotal {
   /** ISO timestamp of when the emote entered the 7TV set. `null` = unknown, never "new". */
   firstSeenAt: string | null;
 }
+
+/** One day with actual usage — days without usage are absent, not zero (see EmoteUsageSeries). */
+export interface EmoteDailyUsage {
+  /** ISO date, `yyyy-MM-dd`. */
+  date: string;
+  useCount: number;
+}
+
+/** GET /api/channels/{c}/usage-stats/daily — one emote's series for the drilldown (A5). */
+export interface EmoteUsageSeries {
+  emoteId: string;
+  emoteName: string;
+  /** The requested range, both inclusive, echoed back. */
+  from: string;
+  to: string;
+  totalUseCount: number;
+  /** First/last use ever, deliberately not bounded by the range. `null` = never used. */
+  firstUsedDate: string | null;
+  lastUsedDate: string | null;
+  /** Sparse: only days with usage, ascending — the client zero-fills for rendering. */
+  days: EmoteDailyUsage[];
+}

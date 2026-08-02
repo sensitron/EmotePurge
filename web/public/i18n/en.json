@@ -421,6 +421,28 @@
     "sortByLastUsed": "Last used",
     "lastUsed": "last {{ date }}",
     "neverUsed": "never used",
+    "drilldown": {
+      "open": "Show details for {{name}}",
+      "chartLabel": "Daily usage history",
+      "range": "{{from}} to {{to}}",
+      "loading": "Loading daily history",
+      "peak": "Peak of {{count}} on {{date}}",
+      "noUsage": "Never used in this range.",
+      "totalInRange": "Total in range",
+      "inSet": "In the set",
+      "inSetDays": {
+        "one": "for {{days}} day",
+        "other": "for {{days}} days"
+      },
+      "firstUsed": "First used",
+      "lastUsed": "Last used",
+      "votes": "Vote",
+      "keepVotes": "Keep: {{count}}",
+      "deleteVotes": "Delete: {{count}}",
+      "myVoteKeep": "Your vote: keep",
+      "myVoteDelete": "Your vote: delete",
+      "myVoteNone": "You have not voted yet."
+    },
     "trackedSince": "We have been counting for this channel since {{ date }}.",
     "rangeBeforeTracking": "The selected range starts before {{ date }} — we counted nothing for this channel before then. For the earlier part the numbers aren't incomplete, they don't exist.",
     "observationToday": "New · today",

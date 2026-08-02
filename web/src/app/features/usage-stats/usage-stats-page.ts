@@ -29,6 +29,10 @@ import {
 } from '../../shared/datetime/date-range-menu';
 import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import {
+  EmoteDrilldownData,
+  EmoteDrilldownDialog,
+} from '../../shared/emotes/emote-drilldown-dialog';
+import {
   UsageTrend,
   daysInSet,
   isUnderObservation,
@@ -372,6 +376,29 @@ export class UsageStatsPage {
       });
   }
 
+  // Opened from the card's info icon — the card click itself belongs to the selection. The dialog
+  // loads the series on its own through the service cache; this only hands over what the page
+  // already knows (trend inputs), so nothing is fetched before the user explicitly opens it.
+  protected openDrilldown(emote: EmoteUsageTotal): void {
+    const data: EmoteDrilldownData = {
+      channelName: this.channelName(),
+      from: this.from(),
+      to: this.to(),
+      emoteId: emote.emoteId,
+      emoteName: emote.emoteName,
+      imageUrl: emote.imageUrl,
+      firstSeenAt: emote.firstSeenAt,
+      previousWindowUseCount: emote.previousWindowUseCount,
+      trackedSince: this.trackedSince(),
+    };
+    this.dialog.open<void>(EmoteDrilldownDialog, {
+      data,
+      backdropClass: 'app-dialog-backdrop',
+      panelClass: 'app-dialog-panel',
+      ariaLabelledBy: 'emote-drilldown-title',
+    });
+  }
+
   // Exports the *visible* list (filtered + sorted): the button sits with the filters, and shipping
   // 900 rows while the user looks at 12 would surprise. Client-side serialization on purpose — the
   // read model is already loaded, and a download must never see more than the page does (A12).
@@ -424,7 +451,9 @@ export class UsageStatsPage {
   }
 
   private load(channelName: string, from: string, to: string): void {
-    // A poll from a previous channel or date range must not survive into this one.
+    // A poll from a previous channel or date range must not survive into this one — and neither
+    // must a drilldown series cached against the previous channel or range.
+    this.usageStatService.clearSeriesCache();
     this.syncPoll?.unsubscribe();
     this.isAwaitingSync.set(false);
     this.isLoading.set(true);

@@ -19,6 +19,7 @@ import {
   mockChannelAuditLog,
   mockChannelPermissions,
   mockChannelStatus,
+  mockUsageDaily,
   mockUsageTotals,
   mockWorkerHealth,
 } from '../support/mocks';
@@ -512,6 +513,43 @@ const SCENARIOS: Scenario[] = [
       // Locale-independent handles: the label is translated, these are not.
       await page.locator('[aria-haspopup="dialog"]').first().click();
       await page.getByRole('radio').last().click();
+    },
+  },
+  {
+    // The drilldown dialog with a real series: sparkline, peak line and the stats grid.
+    slug: 'usage-stats-drilldown',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+      await mockUsageDaily(page, 'sensitron', [
+        { date: '2026-07-02', useCount: 4 },
+        { date: '2026-07-05', useCount: 19 },
+        { date: '2026-07-06', useCount: 7 },
+        { date: '2026-07-12', useCount: 11 },
+      ]);
+    },
+    afterLoad: async (page) => {
+      // Locale-independent handle: the emote name is part of the button's aria-label in both
+      // languages, and Emote1PogU sorts first (highest mocked usage).
+      await page.locator('[aria-label*="Emote1PogU"]').first().click();
+      await page.locator('#emote-drilldown-title').waitFor();
+    },
+  },
+  {
+    // The same dialog on an emote without any usage — the empty state is its own layout.
+    slug: 'usage-stats-drilldown-empty',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+      await mockUsageDaily(page, 'sensitron', []);
+    },
+    afterLoad: async (page) => {
+      await page.locator('[aria-label*="Emote1PogU"]').first().click();
+      await page.locator('#emote-drilldown-title').waitFor();
     },
   },
   {
