@@ -20,28 +20,28 @@ export interface DeleteConfirmDialogData {
   selector: 'app-delete-confirm-dialog',
   imports: [Button, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-slate-900 p-6 shadow-xl">
+    <div class="rounded-lg bg-surface p-6 shadow-overlay">
       <h2 id="delete-confirm-dialog-title" class="mb-3 text-lg font-semibold">
         {{ confirmTitleKey() | transloco: { count: data.emotes().length } }}
       </h2>
-      <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-slate-300">
+      <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-fg-secondary">
         @for (emote of previewEmotes(); track emote) {
           <li>{{ emote }}</li>
         }
         @if (data.emotes().length > previewEmotes().length) {
-          <li class="text-slate-400">
+          <li class="text-fg-muted">
             {{ andMoreKey() | transloco: { count: data.emotes().length - previewEmotes().length } }}
           </li>
         }
       </ul>
 
       @if (data.warningLoading()) {
-        <p class="mb-4 text-sm text-slate-400" role="status">
+        <p class="mb-4 text-sm text-fg-muted" role="status">
           {{ 'massDelete.checkingSharedSets' | transloco }}
         </p>
       } @else if (hasSharedSetWarning(); as warning) {
         <div
-          class="mb-4 rounded-md border border-red-800 bg-red-950/50 px-3 py-2 text-sm text-red-300"
+          class="mb-4 rounded-md border border-danger-border bg-danger-wash px-3 py-2 text-sm text-danger-fg"
           role="alert"
         >
           <p class="font-medium">{{ 'massDelete.sharedSetWarningTitle' | transloco }}</p>
@@ -67,17 +67,17 @@ export interface DeleteConfirmDialogData {
         </div>
       } @else if (ownershipCheckUnavailable()) {
         <div
-          class="mb-4 rounded-md border border-amber-700 bg-amber-950/40 px-3 py-2 text-sm text-amber-200"
+          class="mb-4 rounded-md border border-warning-border bg-warning-wash px-3 py-2 text-sm text-warning-fg"
           role="alert"
         >
           <p>{{ 'massDelete.ownershipCheckUnavailable' | transloco }}</p>
         </div>
       }
 
-      <p class="mb-1 text-sm text-amber-400">
+      <p class="mb-1 text-sm text-warning-fg">
         {{ 'massDelete.irreversibleNotice' | transloco }}
       </p>
-      <p class="mb-4 text-xs text-slate-400">
+      <p class="mb-4 text-xs text-fg-muted">
         {{ 'massDelete.undetectableChannelsNotice' | transloco }}
       </p>
       <div class="flex justify-end gap-2">

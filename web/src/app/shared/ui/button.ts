@@ -4,17 +4,27 @@ export type ButtonVariant = 'primary' | 'neutral' | 'outline' | 'danger' | 'dang
 export type ButtonSize = 'md' | 'lg';
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-purple-600 font-medium text-white hover:bg-purple-500',
-  neutral: 'bg-slate-800 text-slate-200 hover:bg-slate-700',
-  outline: 'border border-slate-700 text-slate-300 hover:bg-slate-800',
+  primary: 'bg-accent-solid font-medium text-on-accent hover:bg-accent-solid-hover',
+  neutral: 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover',
+  outline: 'border border-border-strong text-fg-secondary hover:bg-surface-inset',
   // Two destructive intensities on purpose, keyed to flow position rather than severity:
   // outline for the triggering button that sits in page context next to other controls
   // (leave channel, delete one session, open the purge dialog), solid for the executing
   // confirm button inside a dialog and for a page's primary destructive CTA (mass-delete).
   // See docs/UI-Designsprache.md §4.2.
-  danger: 'border border-red-800 text-red-400 hover:bg-red-950',
-  'danger-solid': 'bg-red-800 font-medium text-white hover:bg-red-700',
+  danger: 'border border-danger-solid text-danger-fg hover:bg-danger-wash',
+  'danger-solid': 'bg-danger-solid font-medium text-on-accent hover:bg-danger-solid-hover',
 };
+
+/**
+ * A real disabled appearance rather than `disabled:opacity-50`. Half-opacity white over a
+ * half-opacity purple over white lands at 2,3:1 in light mode — that reads as broken rather than as
+ * unavailable. Flattening to the inset surface plus the disabled text token says the same thing at
+ * a contrast that survives both modes, and it does not depend on what is behind the button.
+ * (Disabled controls are exempt from 1.4.3, but "exempt" is not a licence to look defective.)
+ */
+const DISABLED_CLASSES =
+  'disabled:border-transparent disabled:bg-surface-inset disabled:text-fg-disabled';
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
   md: 'px-3 py-1.5',
@@ -36,6 +46,6 @@ export class Button {
 
   protected readonly classes = computed(
     () =>
-      `rounded-md text-sm whitespace-nowrap transition disabled:opacity-50 ${SIZE_CLASSES[this.buttonSize()]} ${VARIANT_CLASSES[this.appButton()]}`,
+      `rounded-md text-sm whitespace-nowrap transition ${DISABLED_CLASSES} ${SIZE_CLASSES[this.buttonSize()]} ${VARIANT_CLASSES[this.appButton()]}`,
   );
 }

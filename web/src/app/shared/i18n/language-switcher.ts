@@ -16,8 +16,8 @@ import { LanguageService, SUPPORTED_LANGS } from '../../core/i18n/language.servi
           [attr.aria-label]="'languageSwitcher.ariaLabel' | transloco: { lang: lang.toUpperCase() }"
           [class]="
             languageService.lang() === lang
-              ? 'rounded px-1.5 py-0.5 font-semibold uppercase text-slate-100'
-              : 'rounded px-1.5 py-0.5 uppercase text-slate-400 transition hover:text-slate-100'
+              ? 'rounded px-1.5 py-0.5 font-semibold uppercase text-fg'
+              : 'rounded px-1.5 py-0.5 uppercase text-fg-muted transition hover:text-fg'
           "
         >
           {{ lang }}

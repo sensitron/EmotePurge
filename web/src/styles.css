@@ -68,6 +68,11 @@
   --ep-accent-selected: var(--color-purple-700);
   --ep-accent-fg: var(--color-purple-400);
   --ep-accent-wash: var(--color-purple-950);
+  /* Accent text ON the accent wash (the badge), as opposed to accent-fg which is accent text on a
+     normal surface. Two tokens because the two grounds are different: purple-300 on purple-950 is
+     8,4:1, purple-400 on it only 5,7:1 — both pass, but the badge has no reason to give that up.
+     In light both collapse onto purple-700 (6,5:1 on the wash, 7,0:1 on the surface). */
+  --ep-accent-wash-fg: var(--color-purple-300);
   --ep-on-accent: #fff;
 
   /* Semantic tones — wash = tinted area, fg = text on that wash,
@@ -80,11 +85,20 @@
 
   --ep-warning-wash: var(--color-amber-950);
   --ep-warning-fg: var(--color-amber-300);
+  /* Outline of a tinted warning box — decorative reinforcement of a wash that already carries the
+     meaning, so no 3:1 obligation. One step in from the wash towards the tone in either mode. */
+  --ep-warning-border: var(--color-amber-800);
   --ep-warning-dot: var(--color-amber-500);
 
   --ep-danger-wash: var(--color-red-950);
   --ep-danger-fg: var(--color-red-300);
+  /* Same role as warning-border: outline of a tinted box, decorative. Distinct from danger-solid,
+     which is a FILL that carries on-accent text — reusing that as a border reads wrong. */
+  --ep-danger-border: var(--color-red-800);
   --ep-danger-solid: var(--color-red-800);
+  /* Flips direction like accent-solid-hover does: lighter in dark, darker in light. White holds
+     6,5:1 on red-700 and 8,5:1 on red-800, so both ends of the flip clear AA. */
+  --ep-danger-solid-hover: var(--color-red-700);
   --ep-danger-dot: var(--color-red-500);
 
   --ep-info-wash: var(--color-blue-950);
@@ -131,6 +145,7 @@
   --ep-accent-selected: var(--color-purple-700);
   --ep-accent-fg: var(--color-purple-700);
   --ep-accent-wash: var(--color-purple-50);
+  --ep-accent-wash-fg: var(--color-purple-700);
   --ep-on-accent: #fff;
 
   --ep-success-wash: var(--color-emerald-50);
@@ -140,6 +155,7 @@
 
   --ep-warning-wash: var(--color-amber-50);
   --ep-warning-fg: var(--color-amber-700);
+  --ep-warning-border: var(--color-amber-300);
   /* amber-700, not amber-500/600 like everywhere else: amber is mid-light by
      nature and has no reserve on a light track. Against surface-inset,
      amber-500 reaches 2,0:1 and amber-600 2,9:1 — both fail the 3:1 gate for
@@ -150,7 +166,9 @@
 
   --ep-danger-wash: var(--color-red-50);
   --ep-danger-fg: var(--color-red-700);
+  --ep-danger-border: var(--color-red-300);
   --ep-danger-solid: var(--color-red-700);
+  --ep-danger-solid-hover: var(--color-red-800);
   --ep-danger-dot: var(--color-red-600);
 
   --ep-info-wash: var(--color-blue-50);
@@ -194,6 +212,7 @@
   --color-accent-selected: var(--ep-accent-selected);
   --color-accent-fg: var(--ep-accent-fg);
   --color-accent-wash: var(--ep-accent-wash);
+  --color-accent-wash-fg: var(--ep-accent-wash-fg);
   --color-on-accent: var(--ep-on-accent);
 
   --color-success-wash: var(--ep-success-wash);
@@ -203,11 +222,14 @@
 
   --color-warning-wash: var(--ep-warning-wash);
   --color-warning-fg: var(--ep-warning-fg);
+  --color-warning-border: var(--ep-warning-border);
   --color-warning-dot: var(--ep-warning-dot);
 
   --color-danger-wash: var(--ep-danger-wash);
   --color-danger-fg: var(--ep-danger-fg);
+  --color-danger-border: var(--ep-danger-border);
   --color-danger-solid: var(--ep-danger-solid);
+  --color-danger-solid-hover: var(--ep-danger-solid-hover);
   --color-danger-dot: var(--ep-danger-dot);
 
   --color-info-wash: var(--ep-info-wash);

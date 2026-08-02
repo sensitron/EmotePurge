@@ -2,13 +2,20 @@ import { Component, computed, input } from '@angular/core';
 
 export type StatusBadgeTone = 'purple' | 'blue' | 'emerald' | 'slate' | 'amber' | 'red';
 
+/**
+ * The tone names are historical (they were palette names when the badge only had one mode) and the
+ * meaning attached to each lives in docs/UI-Designsprache.md §4.3. What changed here is only the
+ * right-hand side: every pair is now a semantic wash + its own foreground, which is what lets a
+ * near-black `-950` area become a tinted `-50` one in light mode. Reading a nearly black rectangle
+ * on a white page as "error" is what the inversion avoids — regardless of which hue it is.
+ */
 const TONE_CLASSES: Record<StatusBadgeTone, string> = {
-  purple: 'bg-purple-950 text-purple-300',
-  blue: 'bg-blue-950 text-blue-300',
-  emerald: 'bg-emerald-950 text-emerald-300',
-  slate: 'bg-slate-800 text-slate-300',
-  amber: 'bg-amber-950 text-amber-300',
-  red: 'bg-red-950 text-red-300',
+  purple: 'bg-accent-wash text-accent-wash-fg',
+  blue: 'bg-info-wash text-info-fg',
+  emerald: 'bg-success-wash text-success-fg',
+  slate: 'bg-neutral-wash text-neutral-fg',
+  amber: 'bg-warning-wash text-warning-fg',
+  red: 'bg-danger-wash text-danger-fg',
 };
 
 /**

@@ -21,7 +21,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
     <a
       [routerLink]="link()"
       [attr.aria-label]="'nav.backTo' | transloco: { target: label() }"
-      class="inline-flex items-center gap-1 rounded-md border border-purple-700 px-3 py-1.5 text-sm whitespace-nowrap text-purple-400 transition hover:bg-purple-950"
+      class="inline-flex items-center gap-1 rounded-md border border-accent-selected px-3 py-1.5 text-sm whitespace-nowrap text-accent-fg transition hover:bg-accent-wash"
     >
       <span aria-hidden="true">←</span>{{ label() }}
     </a>

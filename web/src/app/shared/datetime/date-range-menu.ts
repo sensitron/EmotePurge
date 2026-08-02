@@ -116,7 +116,7 @@ function shiftIsoDate(iso: string, days: number): string {
         } @else {
           {{ selectedLabelKey() | transloco }}
         }
-        <span aria-hidden="true" class="ml-1 text-slate-400">▾</span>
+        <span aria-hidden="true" class="ml-1 text-fg-muted">▾</span>
       </button>
 
       @if (isOpen()) {
@@ -137,8 +137,8 @@ function shiftIsoDate(iso: string, days: number): string {
                 [class]="
                   'flex min-h-11 items-center justify-between gap-3 rounded px-3 text-left text-sm transition sm:min-h-9 ' +
                   (preset() === option.value
-                    ? 'bg-purple-700 font-medium text-white'
-                    : 'text-slate-200 hover:bg-slate-800')
+                    ? 'bg-accent-selected font-medium text-on-accent'
+                    : 'text-fg-body hover:bg-surface-inset')
                 "
                 (click)="select(option.value)"
                 (keydown)="onKeydown($event, index)"
@@ -154,8 +154,8 @@ function shiftIsoDate(iso: string, days: number): string {
           <!-- Same panel, swapped contents: choosing "custom" reveals the fields instead of opening
                a second surface, so there is only ever one thing on screen to dismiss. -->
           @if (preset() === 'custom') {
-            <div class="border-t border-slate-800 p-3">
-              <label for="date-range-from" class="block text-xs text-slate-400">
+            <div class="border-t border-border p-3">
+              <label for="date-range-from" class="block text-xs text-fg-muted">
                 {{ 'dateRange.from' | transloco }}
               </label>
               <!-- The two fields bound each other rather than sitting free: the endpoint rejects a
@@ -172,7 +172,7 @@ function shiftIsoDate(iso: string, days: number): string {
                 (change)="from.set($any($event.target).value)"
                 class="app-input-sm mt-1 w-full"
               />
-              <label for="date-range-to" class="mt-3 block text-xs text-slate-400">
+              <label for="date-range-to" class="mt-3 block text-xs text-fg-muted">
                 {{ 'dateRange.to' | transloco }}
               </label>
               <input

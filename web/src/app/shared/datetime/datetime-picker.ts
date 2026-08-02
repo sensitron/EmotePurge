@@ -3,6 +3,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
+import { Button } from '../ui/button';
 
 function pad(n: number): string {
   return n.toString().padStart(2, '0');
@@ -69,7 +70,7 @@ const WEEKDAY_LABEL_KEYS = [
  */
 @Component({
   selector: 'app-datetime-picker',
-  imports: [TranslocoPipe],
+  imports: [Button, TranslocoPipe],
   host: {
     '(document:click)': 'onDocumentClick($event)',
     '(keydown.escape)': 'onEscape()',
@@ -78,7 +79,7 @@ const WEEKDAY_LABEL_KEYS = [
     <div class="relative inline-block">
       <button
         type="button"
-        class="rounded-md border border-slate-500 bg-slate-950 px-3 py-2 text-left text-sm text-slate-100 hover:border-slate-400"
+        class="rounded-md border border-border-field bg-field px-3 py-2 text-left text-sm text-fg hover:border-fg-muted"
         (click)="togglePanel()"
       >
         {{ displayValue() }}
@@ -88,12 +89,12 @@ const WEEKDAY_LABEL_KEYS = [
         <!-- z-30: must clear the session cards' secondary actions, which sit at relative z-10
              per the stretched-link contract (see .app-card-link) and come later in the DOM. -->
         <div
-          class="absolute z-30 mt-1 w-64 rounded-md border border-slate-700 bg-slate-900 p-3 shadow-xl"
+          class="absolute z-30 mt-1 w-64 rounded-md border border-border-strong bg-surface p-3 shadow-overlay"
         >
           <div class="mb-2 flex items-center justify-between">
             <button
               type="button"
-              class="rounded px-2 py-1 text-slate-400 hover:bg-slate-800"
+              class="rounded px-2 py-1 text-fg-muted hover:bg-surface-inset"
               (click)="previousMonth()"
             >
               ‹
@@ -101,14 +102,14 @@ const WEEKDAY_LABEL_KEYS = [
             <span class="text-sm font-medium">{{ monthLabel() }}</span>
             <button
               type="button"
-              class="rounded px-2 py-1 text-slate-400 hover:bg-slate-800"
+              class="rounded px-2 py-1 text-fg-muted hover:bg-surface-inset"
               (click)="nextMonth()"
             >
               ›
             </button>
           </div>
 
-          <div class="grid grid-cols-7 gap-1 text-center text-xs text-slate-400">
+          <div class="grid grid-cols-7 gap-1 text-center text-xs text-fg-muted">
             @for (labelKey of weekdayLabelKeys; track labelKey) {
               <span>{{ labelKey | transloco }}</span>
             }
@@ -131,18 +132,17 @@ const WEEKDAY_LABEL_KEYS = [
             type="time"
             [value]="timeValue()"
             (change)="setTime($any($event.target).value)"
-            class="mt-3 w-full rounded-md border border-slate-500 bg-slate-950 px-2 py-1.5 text-sm"
+            class="mt-3 w-full rounded-md border border-border-field bg-field px-2 py-1.5 text-sm"
           />
 
           <div class="mt-3 flex items-center justify-between text-sm">
-            <button type="button" class="text-slate-400 hover:underline" (click)="clear()">
+            <button type="button" class="text-fg-muted hover:underline" (click)="clear()">
               {{ 'datetimePicker.reset' | transloco }}
             </button>
-            <button
-              type="button"
-              class="rounded-md bg-purple-600 px-3 py-1.5 text-white hover:bg-purple-500"
-              (click)="close()"
-            >
+            <!-- appButton instead of the hand-copied utility chain it used to carry (design doc
+                 §4.1): the copy had drifted out of reach of every later change to the primary look,
+                 and it would have had to be tokenised separately here for no benefit. -->
+            <button type="button" appButton="primary" (click)="close()">
               {{ 'datetimePicker.done' | transloco }}
             </button>
           </div>
@@ -271,19 +271,25 @@ export class DateTimePicker {
     this.value.set('');
   }
 
+  /**
+   * A three-rung legibility ladder, expressed as roles rather than as greys. It used to read
+   * slate-700 < slate-600 < slate-200, which only makes sense downwards from a dark ground — in
+   * light mode every rung would have inverted and the least important day would have become the
+   * most prominent one. disabled < muted < body holds its order in both modes by construction.
+   */
   protected dayClass(day: CalendarDay): string {
     if (day.isDisabled) {
-      return 'cursor-not-allowed text-slate-700';
+      return 'cursor-not-allowed text-fg-disabled';
     }
     if (day.isSelected) {
-      return 'bg-purple-600 text-white';
+      return 'bg-accent-solid text-on-accent';
     }
     if (!day.inCurrentMonth) {
-      return 'text-slate-600 hover:bg-slate-800';
+      return 'text-fg-muted hover:bg-surface-inset';
     }
     if (day.isToday) {
-      return 'text-purple-400 hover:bg-slate-800';
+      return 'text-accent-fg hover:bg-surface-inset';
     }
-    return 'text-slate-200 hover:bg-slate-800';
+    return 'text-fg-body hover:bg-surface-inset';
   }
 }

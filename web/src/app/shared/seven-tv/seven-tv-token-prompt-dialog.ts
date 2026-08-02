@@ -12,11 +12,11 @@ import { SevenTvTokenInput } from './seven-tv-token-input';
   selector: 'app-seven-tv-token-prompt-dialog',
   imports: [SevenTvTokenInput, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-slate-900 p-6 shadow-xl">
+    <div class="rounded-lg bg-surface p-6 shadow-overlay">
       <app-seven-tv-token-input />
       <button
         type="button"
-        class="mt-4 text-sm text-slate-400 hover:underline"
+        class="mt-4 text-sm text-fg-muted hover:underline"
         (click)="dialogRef.close(false)"
       >
         {{ 'common.cancel' | transloco }}

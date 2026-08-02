@@ -17,8 +17,8 @@ export interface ConfirmDialogData {
   selector: 'app-confirm-dialog',
   imports: [Button, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-slate-900 p-6 shadow-xl">
-      <p class="mb-5 text-sm whitespace-pre-line text-slate-200">{{ data.message }}</p>
+    <div class="rounded-lg bg-surface p-6 shadow-overlay">
+      <p class="mb-5 text-sm whitespace-pre-line text-fg-body">{{ data.message }}</p>
       <div class="flex justify-end gap-2">
         <button type="button" appButton="outline" buttonSize="lg" (click)="dialogRef.close(false)">
           {{ 'common.cancel' | transloco }}

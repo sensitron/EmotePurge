@@ -3,10 +3,16 @@ import { TranslocoPipe } from '@jsverse/transloco';
 
 import { SlotBudgetTone, slotBudget } from './slot-budget';
 
+/**
+ * The `dot` role: a small graphic that carries meaning on its own and therefore owes 3:1 against
+ * the track, not 4,5:1. Amber is the one that needs a different step per mode — on a light track
+ * amber-500 manages 2,0:1 and amber-600 only 2,9:1, so the light token drops to amber-700. The
+ * numbers above the bar are text as well, so none of this is the sole carrier of the message.
+ */
 const TONE_CLASSES: Record<SlotBudgetTone, string> = {
-  emerald: 'bg-emerald-500',
-  amber: 'bg-amber-500',
-  red: 'bg-red-500',
+  emerald: 'bg-success-dot',
+  amber: 'bg-warning-dot',
+  red: 'bg-danger-dot',
 };
 
 /**
@@ -25,20 +31,20 @@ const TONE_CLASSES: Record<SlotBudgetTone, string> = {
       <div class="flex flex-col gap-1">
         <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
           <!-- The numbers are text as well, so the bar never carries meaning on its own. -->
-          <span class="text-slate-300">
+          <span class="text-fg-secondary">
             {{
               'usageStats.slots.occupied'
                 | transloco: { occupied: slots.occupied, capacity: slots.capacity }
             }}
           </span>
           @if (slots.hasPendingRemoval) {
-            <span class="font-medium text-purple-300">
+            <span class="font-medium text-accent-fg">
               {{ 'usageStats.slots.afterDelete' | transloco: { projected: slots.projected } }}
             </span>
           }
         </div>
         <div
-          class="flex h-2 w-full overflow-hidden rounded-full bg-slate-800"
+          class="flex h-2 w-full overflow-hidden rounded-full bg-surface-inset"
           role="progressbar"
           [attr.aria-valuenow]="slots.occupied"
           aria-valuemin="0"
@@ -50,7 +56,7 @@ const TONE_CLASSES: Record<SlotBudgetTone, string> = {
                shrinking the bar — the user has to see both states at once to judge the trade. -->
           @if (slots.hasPendingRemoval) {
             <div
-              class="h-full bg-purple-500/50"
+              class="h-full bg-accent/50"
               [style.width.%]="slots.occupiedPercent - slots.projectedPercent"
             ></div>
           }

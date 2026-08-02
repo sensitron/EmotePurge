@@ -8,7 +8,7 @@ import { Button } from '../ui/button';
   imports: [Button, TranslocoPipe],
   template: `
     @if (totalPages() > 1) {
-      <div class="flex items-center justify-between text-sm text-slate-400">
+      <div class="flex items-center justify-between text-sm text-fg-muted">
         <button
           type="button"
           appButton="outline"

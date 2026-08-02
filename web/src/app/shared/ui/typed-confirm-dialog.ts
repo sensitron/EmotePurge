@@ -31,15 +31,15 @@ export interface TypedConfirmDialogData {
   selector: 'app-typed-confirm-dialog',
   imports: [Button, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-slate-900 p-6 shadow-xl">
+    <div class="rounded-lg bg-surface p-6 shadow-overlay">
       @if (data.title; as title) {
-        <h2 id="typed-confirm-dialog-title" class="mb-3 text-lg font-semibold text-slate-100">
+        <h2 id="typed-confirm-dialog-title" class="mb-3 text-lg font-semibold text-fg">
           {{ title }}
         </h2>
       }
-      <p class="mb-4 text-sm whitespace-pre-line text-slate-200">{{ data.message }}</p>
+      <p class="mb-4 text-sm whitespace-pre-line text-fg-body">{{ data.message }}</p>
 
-      <label class="mb-1 block text-sm text-slate-300" for="typed-confirm-input">
+      <label class="mb-1 block text-sm text-fg-secondary" for="typed-confirm-input">
         {{ data.inputLabel }}
       </label>
       <input
@@ -60,7 +60,7 @@ export interface TypedConfirmDialogData {
         <!-- The reason the confirm button is disabled, in text — a greyed-out button alone is not a
              perceivable explanation (WCAG), and it is the whole point of this dialog. -->
         @if (!matches()) {
-          <p id="typed-confirm-hint" class="mr-auto text-xs text-slate-400">
+          <p id="typed-confirm-hint" class="mr-auto text-xs text-fg-muted">
             {{ 'common.typedConfirmHint' | transloco: { text: data.requiredText } }}
           </p>
         }

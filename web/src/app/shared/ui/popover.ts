@@ -51,8 +51,11 @@ export class Popover {
   // overflow, which the UI audit gates on.
   protected readonly panelClass = computed(
     () =>
+      // shadow-overlay rather than Tailwind's shadow-xl: a black-based drop shadow is close to
+      // invisible on a dark page and is the only thing lifting the panel off a light one, so the
+      // two modes need different shadows, not a different opacity of the same one.
       'absolute top-full z-30 mt-1 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border ' +
-      'border-slate-700 bg-slate-900 shadow-xl ' +
+      'border-border-strong bg-surface shadow-overlay ' +
       (this.align() === 'end' ? 'right-0 ' : 'left-0 ') +
       this.width(),
   );

@@ -18,11 +18,16 @@ export interface SegmentedControlOption {
     <div
       role="radiogroup"
       [attr.aria-label]="ariaLabel()"
-      class="inline-flex flex-wrap gap-px overflow-hidden rounded-md border border-slate-700 bg-slate-700"
+      class="inline-flex flex-wrap gap-px overflow-hidden rounded-md border border-surface-inset-hover bg-surface-inset-hover"
     >
       <!-- Separators come from the container background showing through the 1px gaps, not from
            per-button borders: with flex-wrap (long option sets on narrow screens) that draws the
-           dividers between rows too, which a border-l on each button cannot. -->
+           dividers between rows too, which a border-l on each button cannot.
+
+           The trick depends on the carrier contrasting with the segments, and the direction of that
+           contrast flips between modes: inset-hover is LIGHTER than inset in dark and DARKER than it
+           in light. Naming the two roles instead of two greys is what makes the flip automatic —
+           hardcoded slate-700-over-slate-800 would have inverted into an invisible divider. -->
       @for (option of options(); track option.value; let index = $index) {
         <button
           type="button"
@@ -32,8 +37,8 @@ export interface SegmentedControlOption {
           [class]="
             'grow px-3 py-1.5 text-sm whitespace-nowrap transition ' +
             (value() === option.value
-              ? 'bg-purple-700 font-medium text-white'
-              : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
+              ? 'bg-accent-selected font-medium text-on-accent'
+              : 'bg-surface-inset text-fg-secondary hover:bg-surface-inset-hover')
           "
           (click)="value.set(option.value)"
           (keydown)="onKeydown($event, index)"

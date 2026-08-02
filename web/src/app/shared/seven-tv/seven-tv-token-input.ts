@@ -10,33 +10,35 @@ import { Button } from '../ui/button';
   imports: [Button, ReactiveFormsModule, TranslocoPipe],
   template: `
     @if (tokenService.hasToken()) {
-      <div class="flex items-center justify-between rounded-md bg-slate-800 px-3 py-2 text-sm">
-        <span class="text-emerald-400">{{ 'sevenTvToken.tokenSet' | transloco }}</span>
+      <div class="flex items-center justify-between rounded-md bg-surface-inset px-3 py-2 text-sm">
+        <span class="text-success-fg">{{ 'sevenTvToken.tokenSet' | transloco }}</span>
         <button
           type="button"
-          class="text-slate-400 hover:underline"
+          class="text-fg-muted hover:underline"
           (click)="tokenService.clearToken()"
         >
           {{ 'sevenTvToken.remove' | transloco }}
         </button>
       </div>
     } @else {
-      <div class="rounded-md bg-slate-800 px-3 py-3 text-sm">
-        <p class="mb-2 text-slate-300">
+      <div class="rounded-md bg-surface-inset px-3 py-3 text-sm">
+        <p class="mb-2 text-fg-secondary">
           {{ 'sevenTvToken.intro' | transloco }}
         </p>
-        <ol class="mb-3 list-decimal space-y-1 pl-5 text-slate-400">
+        <ol class="mb-3 list-decimal space-y-1 pl-5 text-fg-muted">
           <li>{{ 'sevenTvToken.step1' | transloco }}</li>
           <li>{{ 'sevenTvToken.step2' | transloco }}</li>
           <li>
             {{ 'sevenTvToken.step3Prefix' | transloco }}
-            <code class="rounded bg-slate-900 px-1 py-0.5 text-slate-200">7tv-token</code>
+            <!-- One step further from the surface than the panel around it, so the chip separates
+                 from its container in whichever direction "further" runs in the current mode. -->
+            <code class="rounded bg-surface-inset-hover px-1 py-0.5 text-fg-body">7tv-token</code>
             {{ 'sevenTvToken.step3Suffix' | transloco }}
           </li>
           <li>{{ 'sevenTvToken.step4' | transloco }}</li>
         </ol>
         <p
-          class="mb-3 rounded-md border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-300"
+          class="mb-3 rounded-md border border-warning-border bg-warning-wash px-3 py-2 text-xs text-warning-fg"
         >
           {{ 'sevenTvToken.securityWarning' | transloco }}
         </p>
