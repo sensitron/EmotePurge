@@ -1,8 +1,6 @@
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
-using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Worker.SevenTv;
-using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Worker;
 
@@ -46,17 +44,14 @@ public class SevenTvPeriodicResyncWorker(
         try
         {
             using var scope = scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var channelService = scope.ServiceProvider.GetRequiredService<IChannelService>();
             var syncService = scope.ServiceProvider.GetRequiredService<ISevenTvSyncService>();
 
             // Runs every minute forever, so anything unguarded here is a permanent liability: a
             // Postgres restart, a failover, an exhausted connection pool or a hiccup in the Docker
             // bridge network would escape ExecuteAsync and stop the whole host (StopHost default),
             // taking the buffered usage counts of the current flush window with it.
-            var activeChannels = await db.Channels
-                .Where(c => c.IsBotActive)
-                .Select(c => c.ChannelName)
-                .ToListAsync(ct);
+            var activeChannels = await channelService.ListActiveChannelNamesAsync(ct);
 
             foreach (var channelName in activeChannels)
             {

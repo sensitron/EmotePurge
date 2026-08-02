@@ -123,10 +123,10 @@ Verbindlich, und beim Review vom 2026-07-29 über alle `using`-Direktiven geprü
 
 | Schicht | Erlaubt | Verboten |
 |---|---|---|
-| **`EmotePurge.Core`** | nur BCL | EF Core, StackExchange.Redis, `System.Net.Http`, ASP.NET Core — auch transitiv. 0 `PackageReference`, 0 `ProjectReference` |
+| **`EmotePurge.Core`** | nur BCL | EF Core, StackExchange.Redis, `System.Net.Http`, ASP.NET Core — auch transitiv. 0 `PackageReference`, 0 `ProjectReference`. **Seit 2026-08-02 von `CoreAssemblyReferenceTests` erzwungen**, nicht mehr nur Review-Disziplin |
 | **`EmotePurge.Infrastructure`** | → Core; EF/Redis/HTTP | ASP.NET-Core-Typen, Rückverweis auf Api/Worker |
 | **`EmotePurge.Api`** | → Infrastructure, → Core | direkter `AppDbContext`- **oder** `IConnectionMultiplexer`-Zugriff aus Handlern; alles über Service-Interfaces |
-| **`EmotePurge.Worker`** | → Infrastructure, → Core | direkter `AppDbContext`-Zugriff (aktuell noch 2 Verstöße, s. Review S3-28) |
+| **`EmotePurge.Worker`** | → Infrastructure, → Core | direkter `AppDbContext`-Zugriff — seit 2026-08-02 verstoßfrei (die zwei Stellen laufen über `IChannelService.ListActiveChannelNamesAsync`) |
 | **`web/core/`** | nichts aus `features/` oder `shared/` | Verweise „nach oben" |
 | **`web/shared/`** | → `core/` | nichts aus `features/` |
 | **`web/features/`** | → `core/` + `shared/` | — |

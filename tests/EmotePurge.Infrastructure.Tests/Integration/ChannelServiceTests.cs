@@ -308,6 +308,26 @@ public class ChannelServiceTests(PostgresFixture fixture)
         Assert.Equal([AuditActions.ChannelJoin, AuditActions.ChannelLeave], entries.Select(e => e.Action));
     }
 
+    [Fact]
+    public async Task ListActiveChannelNamesAsync_ReturnsOnlyActiveChannels_Sorted()
+    {
+        // The worker's boot recovery and its once-a-minute 7TV resync both start from this list, so
+        // a left channel leaking into it would mean rejoining a chat the broadcaster removed us from.
+        await using var db = fixture.CreateDbContext();
+        var service = new ChannelService(db, Substitute.For<IRedisPublisher>());
+        await service.JoinAsync("channelserviceactive2", Actor);
+        await service.JoinAsync("channelserviceactive1", Actor);
+        await service.JoinAsync("channelserviceactive3", Actor);
+        await service.LeaveAsync("channelserviceactive3", Actor);
+
+        var names = await service.ListActiveChannelNamesAsync();
+
+        Assert.Contains("channelserviceactive1", names);
+        Assert.Contains("channelserviceactive2", names);
+        Assert.DoesNotContain("channelserviceactive3", names);
+        Assert.Equal(names.OrderBy(n => n, StringComparer.Ordinal), names);
+    }
+
     private static async Task<IReadOnlyList<AuditLogEntry>> LoadAuditEntriesAsync(AppDbContext db, string channelName)
     {
         return await db.AuditLogEntries

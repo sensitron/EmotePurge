@@ -100,6 +100,18 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         return await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<string>> ListActiveChannelNamesAsync(CancellationToken cancellationToken = default)
+    {
+        // AsNoTracking because both callers only ever read the names: this runs once per minute
+        // forever in SevenTvPeriodicResyncWorker, and tracking entities nobody mutates is pure cost.
+        return await db.Channels
+            .AsNoTracking()
+            .Where(c => c.IsBotActive)
+            .Select(c => c.ChannelName)
+            .OrderBy(name => name)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<ChannelResyncResult> TriggerResyncAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);

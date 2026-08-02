@@ -10,6 +10,16 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-02 — Die Schichtenregel für Core ist ein roter Build, und der Worker kennt EF Core nicht mehr
+
+**Betrifft:** `tests/EmotePurge.Infrastructure.Tests/Unit/CoreAssemblyReferenceTests.cs` (neu) · `src/EmotePurge.Core/Services/IChannelService.cs` · `src/EmotePurge.Infrastructure/Services/ChannelService.cs` · `src/EmotePurge.Worker/Worker.cs` · `src/EmotePurge.Worker/SevenTvPeriodicResyncWorker.cs` · `CLAUDE.md`
+
+**Die Schichtenregel für `EmotePurge.Core` ist ab jetzt ein roter Build.** `CoreAssemblyReferenceTests` prüft per Reflection, dass `typeof(Channel).Assembly.GetReferencedAssemblies()` nichts enthält, das mit `Microsoft.EntityFrameworkCore`, `StackExchange.Redis`, `Microsoft.AspNetCore` oder `System.Net.Http` beginnt — und in einem zweiten Fall, dass Core kein Geschwisterprojekt referenziert (die Gegenrichtung derselben Regel: eine Referenz auf `EmotePurge.Infrastructure` würde die Abhängigkeitsrichtung umdrehen, ohne eine der vier Technologien zu nennen). Bewusst **kein** NetArchTest: zwanzig Zeilen Reflection kosten kein Paket, und die Assert-Message nennt die verletzende Assembly beim Namen. Läuft im bestehenden CI-Gate mit, weil `publish.yml` die Solution fährt.
+
+**`IChannelService.ListActiveChannelNamesAsync` ersetzt die letzten zwei direkten `AppDbContext`-Zugriffe außerhalb der Infrastructure.** `Worker.cs` und `SevenTvPeriodicResyncWorker.cs` schrieben zeichengleich dieselbe Query; „welche Channels sind aktiv" ist eine fachliche Frage und gehört hinter ein Interface. Beide `using`-Direktiven auf `EmotePurge.Infrastructure.Persistence` sind damit aus dem Worker verschwunden — er kennt EF Core nicht mehr. Die Schichtentreue-Tabelle in `CLAUDE.md` verliert ihre „aktuell noch 2 Verstöße"-Fußnote. `AsNoTracking`, weil der Resync-Worker die Query jede Minute für immer ausführt und niemand die Entitäten mutiert.
+
+---
+
 ### 2026-08-01 — Ein Popover-Primitive, ein Zeitraum-Dropdown, und „Neu" hört auf, das Emote zu verdecken
 
 **Betrifft:** `web/src/app/shared/ui/popover.ts` (neu) · `web/src/app/shared/datetime/date-range-menu.ts` (neu) · `web/src/app/shared/datetime/date-range-popover.ts` (gelöscht) · `web/src/app/shared/ui/segmented-control.ts` · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/src/app/features/admin/admin-monitoring-page.ts` · `web/e2e/audit/ui-audit.audit.ts` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md`

@@ -1,9 +1,7 @@
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
-using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Worker.SevenTv;
-using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Worker;
 
@@ -69,11 +67,8 @@ public class Worker(
         try
         {
             using var scope = scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var activeChannels = await db.Channels
-                .Where(c => c.IsBotActive)
-                .Select(c => c.ChannelName)
-                .ToListAsync(stoppingToken);
+            var channelService = scope.ServiceProvider.GetRequiredService<IChannelService>();
+            var activeChannels = await channelService.ListActiveChannelNamesAsync(stoppingToken);
 
             foreach (var channelName in activeChannels)
             {

@@ -27,6 +27,13 @@ public interface IChannelService
 
     Task<Channel?> GetByNameAsync(string channelName, CancellationToken cancellationToken = default);
 
+    // The normalized names of every channel the bot is currently meant to be in — the worker's
+    // boot recovery and its periodic 7TV resync both start from this list. Exists as a service
+    // method rather than as the identical inline query both hosted services used to carry, because
+    // "which channels are active?" is a domain question and because the direct AppDbContext access
+    // it replaced was the one place in the repo that stepped around the layering rule.
+    Task<IReadOnlyList<string>> ListActiveChannelNamesAsync(CancellationToken cancellationToken = default);
+
     // Publishes a RESYNC command for an active channel, making the worker re-resolve the full 7TV
     // truth immediately instead of waiting for the next periodic tick. Fire-and-forget by design:
     // the command protocol is one-way, so "triggered" means "published", not "completed" — the
