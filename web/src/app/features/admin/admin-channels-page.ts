@@ -97,7 +97,7 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
         </button>
       </form>
       @if (channelNameControl.invalid && channelNameControl.touched) {
-        <p id="admin-join-channel-name-error" class="text-sm text-red-400">
+        <p id="admin-join-channel-name-error" class="text-sm text-danger-fg">
           {{ 'admin.channels.invalidChannelName' | transloco }}
         </p>
       }
@@ -124,7 +124,7 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
                      the workspace stays one deliberate click away inside the drilldown. -->
                 <a
                   [routerLink]="['/admin/channels', channel.channelName]"
-                  class="app-card-link max-w-full truncate font-medium text-slate-100"
+                  class="app-card-link max-w-full truncate font-medium text-fg"
                 >
                   #{{ channel.channelName }}
                 </a>
@@ -140,7 +140,7 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
                     <!-- Transient inline confirmation, same pattern as the vote-session list's copy
                          feedback: a 202 only means "queued". The live stream upgrades the wording to
                          "completed" once the worker actually reports the sync back. -->
-                    <span role="status" class="text-xs text-emerald-400">
+                    <span role="status" class="text-xs text-success-fg">
                       {{ resyncFeedbackKey() | transloco }}
                     </span>
                   }
@@ -185,7 +185,7 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
                 </div>
               </div>
 
-              <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-400">
+              <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-fg-muted">
                 <span>
                   {{
                     'admin.channels.stats.emotes'

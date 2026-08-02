@@ -74,24 +74,24 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
 
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">{{ 'admin.roster.tracked' | transloco }}</dt>
-              <dd class="text-slate-200">{{ data.trackedChannelCount }}</dd>
+              <dt class="text-fg-muted">{{ 'admin.roster.tracked' | transloco }}</dt>
+              <dd class="text-fg-body">{{ data.trackedChannelCount }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">{{ 'admin.roster.ircConfirmed' | transloco }}</dt>
-              <dd class="text-slate-200">
+              <dt class="text-fg-muted">{{ 'admin.roster.ircConfirmed' | transloco }}</dt>
+              <dd class="text-fg-body">
                 {{ data.ircConfirmedCount }} / {{ data.trackedChannelCount }}
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">{{ 'admin.roster.sevenTvAcknowledged' | transloco }}</dt>
-              <dd class="text-slate-200">
+              <dt class="text-fg-muted">{{ 'admin.roster.sevenTvAcknowledged' | transloco }}</dt>
+              <dd class="text-fg-body">
                 {{ data.sevenTvAcknowledgedCount }} / {{ data.trackedChannelCount }}
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">{{ 'admin.roster.worker' | transloco }}</dt>
-              <dd class="text-slate-200">{{ data.workerInstanceId }}</dd>
+              <dt class="text-fg-muted">{{ 'admin.roster.worker' | transloco }}</dt>
+              <dd class="text-fg-body">{{ data.workerInstanceId }}</dd>
             </div>
           </dl>
 
@@ -100,13 +100,13 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
                state our operating decision as if Twitch had made it. -->
           <div class="flex flex-col gap-1">
             <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-              <span class="text-slate-400">{{ 'admin.roster.joinBudget' | transloco }}</span>
-              <span [class]="overBudget() ? 'text-amber-400' : 'text-slate-200'">
+              <span class="text-fg-muted">{{ 'admin.roster.joinBudget' | transloco }}</span>
+              <span [class]="overBudget() ? 'text-warning-fg' : 'text-fg-body'">
                 {{ data.trackedChannelCount }} / {{ data.ceilings.twitchJoinBudgetChannels }}
               </span>
             </div>
             <div
-              class="h-2 w-full overflow-hidden rounded-full bg-slate-800"
+              class="h-2 w-full overflow-hidden rounded-full bg-surface-inset"
               role="progressbar"
               [attr.aria-valuenow]="data.trackedChannelCount"
               aria-valuemin="0"
@@ -115,14 +115,14 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
             >
               <div
                 class="h-full rounded-full"
-                [class]="overBudget() ? 'bg-amber-500' : 'bg-purple-500'"
+                [class]="overBudget() ? 'bg-warning-dot' : 'bg-accent'"
                 [style.width.%]="budgetPercent()"
               ></div>
             </div>
-            <p class="text-xs text-slate-400">
+            <p class="text-xs text-fg-muted">
               {{ 'admin.roster.joinBudgetHint' | transloco }}
             </p>
-            <p class="text-xs text-slate-400">
+            <p class="text-xs text-fg-muted">
               {{
                 'admin.roster.twitchLimitHint'
                   | transloco: { limit: data.ceilings.twitchConcurrentChannelLimit }
@@ -132,7 +132,7 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
 
           @if (missingFromIrc().length > 0) {
             <div class="flex flex-col gap-1">
-              <p class="text-sm text-amber-400">
+              <p class="text-sm text-warning-fg">
                 {{ 'admin.roster.missingIrc' | transloco: { count: data.missingFromIrcTotal } }}
               </p>
               <ul class="flex flex-wrap gap-x-3 gap-y-1 text-sm">
@@ -140,7 +140,7 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
                   <li>
                     <a
                       [routerLink]="['/admin/channels', name]"
-                      class="text-purple-300 underline-offset-2 hover:underline"
+                      class="text-accent-fg underline-offset-2 hover:underline"
                     >
                       #{{ name }}
                     </a>
@@ -152,7 +152,7 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
 
           @if (missingFromSevenTv().length > 0) {
             <div class="flex flex-col gap-1">
-              <p class="text-sm text-amber-400">
+              <p class="text-sm text-warning-fg">
                 {{
                   'admin.roster.missingSevenTv' | transloco: { count: data.missingFromSevenTvTotal }
                 }}
@@ -162,7 +162,7 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
                   <li>
                     <a
                       [routerLink]="['/admin/channels', name]"
-                      class="text-purple-300 underline-offset-2 hover:underline"
+                      class="text-accent-fg underline-offset-2 hover:underline"
                     >
                       #{{ name }}
                     </a>
@@ -174,13 +174,13 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
 
           @if (unknownToDatabase().length > 0) {
             <div class="flex flex-col gap-1">
-              <p class="text-sm text-amber-400">
+              <p class="text-sm text-warning-fg">
                 {{
                   'admin.roster.unknownToDatabase'
                     | transloco: { count: data.unknownToDatabaseTotal }
                 }}
               </p>
-              <ul class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-300">
+              <ul class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-fg-secondary">
                 @for (name of unknownToDatabase(); track name) {
                   <li>#{{ name }}</li>
                 }

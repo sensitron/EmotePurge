@@ -23,7 +23,7 @@ import { BackLink } from '../../shared/ui/back-link';
 
       <!-- Sticky under the h-14 shell header; h-10 is a contract — filter toolbars pin at
            top-24 (= 14 + 10). Links are flex/items-center so the fixed height carries exactly. -->
-      <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-slate-800">
+      <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
         <a
           routerLink="monitoring"
           routerLinkActive
@@ -31,8 +31,8 @@ import { BackLink } from '../../shared/ui/back-link';
           #monitoringTab="routerLinkActive"
           [class]="
             monitoringTab.isActive
-              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
           "
         >
           {{ 'admin.tabs.monitoring' | transloco }}
@@ -44,8 +44,8 @@ import { BackLink } from '../../shared/ui/back-link';
           #channelsTab="routerLinkActive"
           [class]="
             channelsTab.isActive
-              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
           "
         >
           {{ 'admin.tabs.channels' | transloco }}
@@ -57,8 +57,8 @@ import { BackLink } from '../../shared/ui/back-link';
           #usersTab="routerLinkActive"
           [class]="
             usersTab.isActive
-              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
           "
         >
           {{ 'admin.tabs.users' | transloco }}
@@ -70,8 +70,8 @@ import { BackLink } from '../../shared/ui/back-link';
           #auditLogTab="routerLinkActive"
           [class]="
             auditLogTab.isActive
-              ? 'flex items-center border-b-2 border-purple-500 px-3 text-sm text-slate-100 transition'
-              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-slate-400 transition hover:text-slate-200'
+              ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
+              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
           "
         >
           {{ 'admin.tabs.auditLog' | transloco }}

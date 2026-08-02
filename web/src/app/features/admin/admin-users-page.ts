@@ -70,10 +70,10 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
           @for (row of rows(); track row.twitchUserId) {
             <li class="app-card flex flex-col gap-2 px-4 py-3">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <span class="max-w-full truncate font-medium text-slate-100">
+                <span class="max-w-full truncate font-medium text-fg">
                   {{ row.displayName }}
                   @if (row.showLogin) {
-                    <span class="font-normal text-slate-400">({{ row.twitchUsername }})</span>
+                    <span class="font-normal text-fg-muted">({{ row.twitchUsername }})</span>
                   }
                 </span>
                 <app-status-badge [tone]="row.hasRefreshToken ? 'emerald' : 'slate'">
@@ -88,7 +88,7 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
                     @if (feedback.twitchUserId === row.twitchUserId) {
                       <!-- Transient inline confirmation: dropping cache entries changes nothing this
                            row displays, so the removed count is the only observable outcome. -->
-                      <span role="status" class="text-xs text-emerald-400">
+                      <span role="status" class="text-xs text-success-fg">
                         {{
                           'admin.users.roleCache.cleared'
                             | transloco: { count: feedback.removedEntries }
@@ -117,7 +117,7 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
                 </div>
               </div>
 
-              <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-400">
+              <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-fg-muted">
                 <span>{{ 'admin.users.id' | transloco: { id: row.twitchUserId } }}</span>
                 <span aria-hidden="true">·</span>
                 <span>{{

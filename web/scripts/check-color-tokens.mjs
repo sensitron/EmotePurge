@@ -75,16 +75,7 @@ function findViolations(file) {
  * Files still allowed to carry palette utilities, with the wave that clears them. Repo-relative,
  * forward slashes. Delete an entry in the same commit that cleans the file — see the note above.
  */
-const EXEMPT = new Map([
-  ['web/src/app/features/admin/admin-audit-log-page.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/admin/admin-channel-detail-page.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/admin/admin-channels-page.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/admin/admin-layout.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/admin/admin-monitoring-page.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/admin/admin-roster-card.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/admin/admin-users-page.ts', 'wave 3 (admin)'],
-  ['web/src/app/features/landing/landing-page.html', 'wave 4 (landing)'],
-]);
+const EXEMPT = new Map([['web/src/app/features/landing/landing-page.html', 'wave 4 (landing)']]);
 
 const failures = [];
 const usedExemptions = new Set();

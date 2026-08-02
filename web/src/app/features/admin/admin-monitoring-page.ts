@@ -95,24 +95,24 @@ const NO_VALUE = '—';
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.twitch.lastMessage' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ formatDateTime(data.lastMessageReceivedUtc) }}</dd>
+              <dd class="text-fg-body">{{ formatDateTime(data.lastMessageReceivedUtc) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.twitch.connectAttempt' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ formatDateTime(data.connectAttemptedUtc) }}</dd>
+              <dd class="text-fg-body">{{ formatDateTime(data.connectAttemptedUtc) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.twitch.processStarted' | transloco }}
               </dt>
               <!-- Every counter on this page resets with the process, so its start time is what
                    makes "0 failures" readable at all. -->
-              <dd class="text-slate-200">{{ formatDateTime(data.worker.processStartedUtc) }}</dd>
+              <dd class="text-fg-body">{{ formatDateTime(data.worker.processStartedUtc) }}</dd>
             </div>
           </dl>
         </section>
@@ -134,18 +134,18 @@ const NO_VALUE = '—';
 
           <div class="flex flex-col gap-1">
             <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-              <span class="text-slate-400">
+              <span class="text-fg-muted">
                 {{ 'admin.monitoring.sevenTv.subscriptions' | transloco }}
               </span>
               <!-- The numbers are rendered as text as well, so the bar never carries meaning on its
                    own (it is additionally an ARIA progressbar for assistive tech). -->
-              <span class="text-slate-200">
+              <span class="text-fg-body">
                 {{ formatNumber(data.sevenTv.desiredSubscriptionCount) }} /
                 {{ formatNumber(data.sevenTv.subscriptionLimit) }}
               </span>
             </div>
             <div
-              class="h-2 w-full overflow-hidden rounded-full bg-slate-800"
+              class="h-2 w-full overflow-hidden rounded-full bg-surface-inset"
               role="progressbar"
               [attr.aria-valuenow]="data.sevenTv.desiredSubscriptionCount"
               aria-valuemin="0"
@@ -153,7 +153,7 @@ const NO_VALUE = '—';
               [attr.aria-label]="'admin.monitoring.sevenTv.utilization' | transloco"
             >
               <div
-                class="h-full rounded-full bg-purple-500"
+                class="h-full rounded-full bg-accent"
                 [style.width.%]="utilizationPercent()"
               ></div>
             </div>
@@ -161,16 +161,16 @@ const NO_VALUE = '—';
 
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.sevenTv.channels' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ formatNumber(data.sevenTv.desiredChannelCount) }}</dd>
+              <dd class="text-fg-body">{{ formatNumber(data.sevenTv.desiredChannelCount) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.sevenTv.unacknowledged' | transloco }}
               </dt>
-              <dd class="text-slate-200">
+              <dd class="text-fg-body">
                 @if (hasUnacknowledged()) {
                   <app-status-badge tone="amber">
                     {{ formatNumber(data.sevenTv.unacknowledgedCount) }}
@@ -181,25 +181,25 @@ const NO_VALUE = '—';
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.sevenTv.lastFrame' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ formatDateTime(data.sevenTv.lastFrameUtc) }}</dd>
+              <dd class="text-fg-body">{{ formatDateTime(data.sevenTv.lastFrameUtc) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.sevenTv.lastDispatch' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ formatDateTime(data.sevenTv.lastDispatchUtc) }}</dd>
+              <dd class="text-fg-body">{{ formatDateTime(data.sevenTv.lastDispatchUtc) }}</dd>
             </div>
             @if (restRequestRate(); as rate) {
               <div class="flex justify-between gap-4 sm:block">
-                <dt class="text-slate-400">
+                <dt class="text-fg-muted">
                   {{ 'admin.monitoring.sevenTv.restRate' | transloco }}
                 </dt>
                 <!-- Deliberately not a utilization bar: 7TV publishes no REST quota, so there is no
                      honest denominator. A rate is what we actually know. -->
-                <dd class="text-slate-200">
+                <dd class="text-fg-body">
                   {{ 'admin.monitoring.sevenTv.restRateValue' | transloco: rate }}
                 </dd>
               </div>
@@ -220,18 +220,18 @@ const NO_VALUE = '—';
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">{{ 'admin.monitoring.flush.lastSuccess' | transloco }}</dt>
-              <dd class="text-slate-200">{{ formatDateTime(data.flush.lastSuccessUtc) }}</dd>
+              <dt class="text-fg-muted">{{ 'admin.monitoring.flush.lastSuccess' | transloco }}</dt>
+              <dd class="text-fg-body">{{ formatDateTime(data.flush.lastSuccessUtc) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.monitoring.flush.lastRowCount' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ formatNumber(data.flush.lastRowCount) }}</dd>
+              <dd class="text-fg-body">{{ formatNumber(data.flush.lastRowCount) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">{{ 'admin.monitoring.flush.pending' | transloco }}</dt>
-              <dd class="text-slate-200">{{ formatNumber(data.flush.pendingEmoteCount) }}</dd>
+              <dt class="text-fg-muted">{{ 'admin.monitoring.flush.pending' | transloco }}</dt>
+              <dd class="text-fg-body">{{ formatNumber(data.flush.pendingEmoteCount) }}</dd>
             </div>
           </dl>
         </section>

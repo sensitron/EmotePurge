@@ -220,7 +220,7 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
           @for (row of rows(); track row.id) {
             <li class="app-card flex flex-col gap-1 px-4 py-3">
               <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span class="font-medium text-slate-100">
+                <span class="font-medium text-fg">
                   @if (row.actionKey; as key) {
                     {{ key | transloco }}
                   } @else {
@@ -231,14 +231,14 @@ function parseDetail(detailsJson: string | null): AuditDetail | null {
                 @if (row.channelName; as channel) {
                   <a
                     [routerLink]="['/channels', channel, 'usage-stats']"
-                    class="max-w-full truncate font-medium text-slate-300 underline-offset-2 hover:text-purple-300 hover:underline"
+                    class="max-w-full truncate font-medium text-fg-secondary underline-offset-2 hover:text-accent-fg hover:underline"
                   >
                     #{{ channel }}
                   </a>
                 }
               </div>
 
-              <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-slate-400">
+              <p class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-fg-muted">
                 <time [attr.datetime]="row.occurredAtUtc">{{ row.timestamp }}</time>
                 <span aria-hidden="true">·</span>
                 <span>{{ 'admin.audit.actor' | transloco: { actor: row.actorLogin } }}</span>

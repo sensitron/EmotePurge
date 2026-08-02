@@ -87,26 +87,26 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.lastSync' | transloco }}
               </dt>
               <!-- The pair this whole column exists for: a fresh sync next to an ancient inventory
                    change is a healthy channel nobody edits, not a stalled bot. -->
-              <dd class="text-slate-200">{{ formatDateTime(data.channel.lastSyncedAtUtc) }}</dd>
+              <dd class="text-fg-body">{{ formatDateTime(data.channel.lastSyncedAtUtc) }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.lastInventoryChange' | transloco }}
               </dt>
-              <dd class="text-slate-200">
+              <dd class="text-fg-body">
                 {{ formatDateTime(data.channel.lastInventoryChangeUtc) }}
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.emotes' | transloco }}
               </dt>
-              <dd class="text-slate-200">
+              <dd class="text-fg-body">
                 {{
                   'admin.channels.stats.emotes'
                     | transloco
@@ -118,32 +118,32 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.emoteSet' | transloco }}
               </dt>
-              <dd class="font-mono text-xs text-slate-200">
+              <dd class="font-mono text-xs text-fg-body">
                 {{ data.channel.activeEmoteSetId ?? NO_VALUE }}
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.capacity' | transloco }}
               </dt>
-              <dd class="text-slate-200">{{ data.channel.activeEmoteSetCapacity ?? NO_VALUE }}</dd>
+              <dd class="text-fg-body">{{ data.channel.activeEmoteSetCapacity ?? NO_VALUE }}</dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.trackedSince' | transloco }}
               </dt>
-              <dd class="text-slate-200">
+              <dd class="text-fg-body">
                 {{ formatDateTime(data.channel.trackingResumedAt ?? data.channel.createdAt) }}
               </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
-              <dt class="text-slate-400">
+              <dt class="text-fg-muted">
                 {{ 'admin.channelDetail.database.twitchId' | transloco }}
               </dt>
-              <dd class="font-mono text-xs text-slate-200">
+              <dd class="font-mono text-xs text-fg-body">
                 {{ data.channel.twitchChannelId ?? NO_VALUE }}
               </dd>
             </div>
@@ -180,7 +180,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
           @if (data.roster.channel; as row) {
             <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
               <div class="flex justify-between gap-4 sm:block">
-                <dt class="text-slate-400">
+                <dt class="text-fg-muted">
                   {{ 'admin.channelDetail.worker.ircJoin' | transloco }}
                 </dt>
                 <dd>
@@ -195,15 +195,15 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                 </dd>
               </div>
               <div class="flex justify-between gap-4 sm:block">
-                <dt class="text-slate-400">
+                <dt class="text-fg-muted">
                   {{ 'admin.channelDetail.worker.lastMessage' | transloco }}
                 </dt>
                 <!-- Null is not a failure by itself: a quiet channel produces none. Read together
                      with the join state above, which is why they sit next to each other. -->
-                <dd class="text-slate-200">{{ formatDateTime(row.lastMessageUtc) }}</dd>
+                <dd class="text-fg-body">{{ formatDateTime(row.lastMessageUtc) }}</dd>
               </div>
               <div class="flex justify-between gap-4 sm:block">
-                <dt class="text-slate-400">
+                <dt class="text-fg-muted">
                   {{ 'admin.channelDetail.worker.emoteSetSubscription' | transloco }}
                 </dt>
                 <dd>
@@ -218,14 +218,14 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                 </dd>
               </div>
               <div class="flex justify-between gap-4 sm:block">
-                <dt class="text-slate-400">
+                <dt class="text-fg-muted">
                   {{ 'admin.channelDetail.worker.userSubscription' | transloco }}
                 </dt>
                 <dd>
                   @if (!row.sevenTvUserId) {
                     <!-- No user id was ever resolved, so no user subscription is desired. Showing
                          "pending" here would name an acknowledgement that can never arrive. -->
-                    <span class="text-slate-400">
+                    <span class="text-fg-muted">
                       {{ 'admin.channelDetail.worker.noUserSubscription' | transloco }}
                     </span>
                   } @else {
@@ -241,10 +241,10 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                 </dd>
               </div>
               <div class="flex justify-between gap-4 sm:block">
-                <dt class="text-slate-400">
+                <dt class="text-fg-muted">
                   {{ 'admin.channelDetail.worker.emoteSet' | transloco }}
                 </dt>
-                <dd class="font-mono text-xs text-slate-200">
+                <dd class="font-mono text-xs text-fg-body">
                   {{ row.sevenTvEmoteSetId ?? NO_VALUE }}
                 </dd>
               </div>
@@ -260,7 +260,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
             }
           }
 
-          <p class="text-xs text-slate-400">
+          <p class="text-xs text-fg-muted">
             {{
               'admin.channelDetail.worker.snapshotAge'
                 | transloco: { seconds: data.roster.ageSeconds ?? 0 }
