@@ -31,6 +31,15 @@ describe('EmoteAdminService', () => {
     req.flush({ archivedCount: 2, notFoundIds: [] });
   });
 
+  it('syncRestored POSTs emoteIds to the sync-restored endpoint', () => {
+    service.syncRestored('sensitron', ['a', 'b']).subscribe();
+
+    const req = httpMock.expectOne('/api/channels/sensitron/emotes/sync-restored');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ emoteIds: ['a', 'b'] });
+    req.flush({ restoredCount: 2, notFoundIds: [] });
+  });
+
   it('getSetWarning GETs the set-warning endpoint', () => {
     service.getSetWarning('sensitron').subscribe();
 

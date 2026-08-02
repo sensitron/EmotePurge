@@ -21,6 +21,7 @@ export type AuditAction =
   | 'voteSession.end'
   | 'voteSession.delete'
   | 'emotes.syncDeleted'
+  | 'emotes.syncRestored'
   | 'user.revokeSessions'
   | 'user.invalidateRoleCache';
 

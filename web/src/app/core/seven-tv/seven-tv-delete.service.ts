@@ -17,11 +17,12 @@ import { SevenTvTokenService } from './seven-tv-token.service';
 
 /** Kept under its historical name — the engine's constant is the same value. */
 export const DELETE_DELAY_MS = RUN_DELAY_MS;
-const MAX_AUTOMATIC_SYNC_RETRIES = 2;
+// Exported for the restore service, which reports its run with the identical policy.
+export const MAX_AUTOMATIC_SYNC_RETRIES = 2;
 // Multiplied by the attempt number, so the two automatic attempts land at 2s and 4s. Kept short on
 // purpose: the deletions themselves are already done, the admin is waiting on a verdict, and a
 // manual retry button covers the cases a short backoff cannot.
-const SYNC_RETRY_DELAY_MS = 2000;
+export const SYNC_RETRY_DELAY_MS = 2000;
 
 const REMOVE_EMOTE_MUTATION = `
   mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {

@@ -109,9 +109,11 @@ export interface DeletableEmote {
           [items]="restoreService.queue()"
           [isRunning]="restoreService.isRunning()"
           labelPrefix="restore"
+          [syncReport]="restoreService.syncReport()"
           [rateLimitPauseSeconds]="restoreService.rateLimitPauseSeconds()"
           (cancelled)="restoreService.cancel()"
           (dismissed)="restoreService.reset()"
+          (syncRetryRequested)="restoreService.retrySyncReport()"
         >
           <ng-container run-actions>
             @if (resyncNoticeKey(); as noticeKey) {

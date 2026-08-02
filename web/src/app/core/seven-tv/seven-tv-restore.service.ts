@@ -1,8 +1,15 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { inject, Injectable, signal } from '@angular/core';
 import { TranslocoService } from '@jsverse/transloco';
+import { retry, throwError, timer } from 'rxjs';
 
 import { ChannelService } from '../channels/channel.service';
+import { EmoteAdminService, SyncRestoredResult } from '../emotes/emote-admin.service';
+import {
+  MAX_AUTOMATIC_SYNC_RETRIES,
+  SYNC_RETRY_DELAY_MS,
+  SyncReportState,
+} from './seven-tv-delete.service';
 import { RunOperation, RunQueueEmote, RunResult, SevenTvRunEngine } from './seven-tv-run-engine';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
@@ -37,14 +44,18 @@ export type ResyncTriggerState = 'idle' | 'pending' | 'succeeded' | 'cooldown' |
  * (pacing, backoff, token) as the delete — ADD draws tickets from the same `emote_set_change`
  * bucket. Zero-knowledge holds: the write token never leaves the browser.
  *
- * No `sync-restored` endpoint on purpose: a restored emote briefly still showing as archived is
- * the conservative direction (unlike the delete case, where stale rows would be offered as delete
- * candidates), and `UpsertEmote` heals it — including `ArchivedAt = null` — within the periodic
- * resync. The closing A8 resync trigger only shortens that window.
+ * A finished run reports itself twice, for two different reasons. `sync-restored` is the
+ * bookkeeping call (mirror of the delete's `sync-deleted`): it un-archives the rows and — the
+ * reason it exists at all — writes the `emotes.syncRestored` audit entry; before it, a restore
+ * only ever appeared in the log as an anonymous `channel.resync`, or under the resync cooldown
+ * not at all (user decision 2026-08-02, revising the original "no sync-restored endpoint" call).
+ * The A8 resync trigger stays on top as reconciliation against 7TV as the authority — aliases the
+ * run could not restore, and anything else that drifted.
  */
 @Injectable({ providedIn: 'root' })
 export class SevenTvRestoreService {
   private readonly channelService = inject(ChannelService);
+  private readonly emoteAdminService = inject(EmoteAdminService);
 
   /** Own engine instance — see the identical note in SevenTvDeleteService. */
   private readonly engine = new SevenTvRunEngine(
@@ -54,11 +65,15 @@ export class SevenTvRestoreService {
   );
 
   private currentChannelName: string | null = null;
+  private lastReportedIds: string[] = [];
 
   readonly queue = this.engine.queue;
   readonly isRunning = this.engine.isRunning;
   readonly rateLimitPauseSeconds = this.engine.rateLimitPauseSeconds;
   readonly progress = this.engine.progress;
+
+  /** State of the closing sync-restored call — same contract as the delete's syncReport. */
+  readonly syncReport = signal<SyncReportState>('idle');
 
   readonly resyncTrigger = signal<ResyncTriggerState>('idle');
 
@@ -70,6 +85,7 @@ export class SevenTvRestoreService {
       return;
     }
     this.currentChannelName = channelName;
+    this.syncReport.set('idle');
     this.resyncTrigger.set('idle');
   }
 
@@ -79,8 +95,10 @@ export class SevenTvRestoreService {
 
   reset(): void {
     this.engine.reset();
+    this.syncReport.set('idle');
     this.resyncTrigger.set('idle');
     this.currentChannelName = null;
+    this.lastReportedIds = [];
   }
 
   /** Same page-follows-user reasoning as the delete service's counterpart. */
@@ -95,10 +113,28 @@ export class SevenTvRestoreService {
     this.reset();
   }
 
+  /** Manual retry for the closing report — the 7TV re-adds are long done, so this only re-sends
+   *  the bookkeeping call. Safe to repeat: ids already un-archived still count as restored. */
+  retrySyncReport(): void {
+    if (
+      this.syncReport() === 'pending' ||
+      this.lastReportedIds.length === 0 ||
+      this.currentChannelName === null
+    ) {
+      return;
+    }
+
+    this.reportRestored(this.currentChannelName, this.lastReportedIds);
+  }
+
   private onRunComplete(channelName: string, result: RunResult): void {
     if (result.doneIds.length === 0) {
       return;
     }
+    this.lastReportedIds = result.doneIds;
+    // Deliberately both, in parallel: the report is bookkeeping + audit trail for exactly these
+    // ids, the resync is reconciliation against 7TV as the authority. Neither replaces the other.
+    this.reportRestored(channelName, result.doneIds);
     this.resyncTrigger.set('pending');
     this.channelService.resync(channelName).subscribe({
       next: () => this.resyncTrigger.set('succeeded'),
@@ -107,5 +143,27 @@ export class SevenTvRestoreService {
         // reported as such rather than as an error.
         this.resyncTrigger.set(error.status === 429 ? 'cooldown' : 'failed'),
     });
+  }
+
+  private reportRestored(channelName: string, emoteIds: string[]): void {
+    this.syncReport.set('pending');
+
+    this.emoteAdminService
+      .syncRestored(channelName, emoteIds)
+      .pipe(
+        // Same policy as the delete's report: waiting can fix a 429/5xx, not a 401/403.
+        retry({
+          count: MAX_AUTOMATIC_SYNC_RETRIES,
+          delay: (error: HttpErrorResponse, attempt) =>
+            error.status === 401 || error.status === 403
+              ? throwError(() => error)
+              : timer(SYNC_RETRY_DELAY_MS * attempt),
+        }),
+      )
+      .subscribe({
+        next: (result: SyncRestoredResult) =>
+          this.syncReport.set(result.restoredCount >= emoteIds.length ? 'succeeded' : 'partial'),
+        error: () => this.syncReport.set('failed'),
+      });
   }
 }

@@ -70,18 +70,22 @@ import { SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
           class="mt-3 rounded-md border border-warning-border bg-warning-wash px-3 py-2 text-sm"
           role="alert"
         >
-          <p class="font-medium text-warning-fg">{{ 'massDelete.syncFailedTitle' | transloco }}</p>
-          <p class="mt-1 text-warning-fg">{{ 'massDelete.syncFailed' | transloco }}</p>
+          <p class="font-medium text-warning-fg">
+            {{ labelPrefix() + '.syncFailedTitle' | transloco }}
+          </p>
+          <p class="mt-1 text-warning-fg">{{ labelPrefix() + '.syncFailed' | transloco }}</p>
           <button
             type="button"
             class="mt-2 text-warning-fg hover:underline"
             (click)="syncRetryRequested.emit()"
           >
-            {{ 'massDelete.syncRetry' | transloco }}
+            {{ labelPrefix() + '.syncRetry' | transloco }}
           </button>
         </div>
       } @else if (syncReport() === 'succeeded' && !isRunning()) {
-        <p class="mt-3 text-sm text-fg-muted">{{ 'massDelete.syncRetrySucceeded' | transloco }}</p>
+        <p class="mt-3 text-sm text-fg-muted">
+          {{ labelPrefix() + '.syncRetrySucceeded' | transloco }}
+        </p>
       }
     </div>
   `,
@@ -91,8 +95,8 @@ export class RunProgressPanel {
   readonly isRunning = input.required<boolean>();
   /** Which wording family the panel speaks — the union keeps the dynamic keys findable. */
   readonly labelPrefix = input<'massDelete' | 'restore'>('massDelete');
-  /** Delete-run only: state of the closing sync-deleted call. The restore run reports its resync
-   *  outside the panel, so this defaults to the state that renders nothing. */
+  /** State of the run's closing bookkeeping call (sync-deleted / sync-restored). Defaults to the
+   *  state that renders nothing; the notice wording follows labelPrefix. */
   readonly syncReport = input<SyncReportState>('idle');
   /** Seconds left on a 7TV rate-limit pause, null while running normally. */
   readonly rateLimitPauseSeconds = input<number | null>(null);

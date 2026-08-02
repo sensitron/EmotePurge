@@ -398,6 +398,7 @@
       "voteSessionEnd": "Abstimmung beendet",
       "voteSessionDelete": "Abstimmung gelöscht",
       "emotesSyncDeleted": "Emotes als gelöscht markiert",
+      "emotesSyncRestored": "Emotes wiederhergestellt",
       "userRevokeSessions": "User-Sessions widerrufen",
       "userInvalidateRoleCache": "Rollen-Cache geleert"
     },
@@ -581,6 +582,10 @@
     "capacityProjection": "Das Set hätte danach {{ projected }} von {{ capacity }} Slots belegt.",
     "capacityWarning": "Das überschreitet die Kapazität — 7TV wird überzählige Emotes ablehnen.",
     "historyNote": "Die Nutzungshistorie bleibt unverändert.",
+    "syncFailedTitle": "Rückmeldung an EmotePurge fehlgeschlagen",
+    "syncFailed": "Die Emotes sind bei 7TV wiederhergestellt, aber EmotePurge konnte es nicht vermerken. Normalerweise zieht sich das innerhalb einer Minute von selbst nach.",
+    "syncRetry": "Erneut melden",
+    "syncRetrySucceeded": "Rückmeldung erfolgreich.",
     "summary": {
       "counts": "{{done}} wiederhergestellt · {{failed}} fehlgeschlagen · {{cancelled}} abgebrochen"
     },

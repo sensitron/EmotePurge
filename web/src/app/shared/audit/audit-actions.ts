@@ -19,6 +19,7 @@ export const ACTION_KEYS: Record<string, string> = {
   'voteSession.end': 'audit.actions.voteSessionEnd',
   'voteSession.delete': 'audit.actions.voteSessionDelete',
   'emotes.syncDeleted': 'audit.actions.emotesSyncDeleted',
+  'emotes.syncRestored': 'audit.actions.emotesSyncRestored',
   'user.revokeSessions': 'audit.actions.userRevokeSessions',
   'user.invalidateRoleCache': 'audit.actions.userInvalidateRoleCache',
 };

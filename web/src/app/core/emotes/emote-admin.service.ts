@@ -9,6 +9,11 @@ export interface SyncDeletedResult {
   notFoundIds: string[];
 }
 
+export interface SyncRestoredResult {
+  restoredCount: number;
+  notFoundIds: string[];
+}
+
 export interface EmoteSetWarning {
   available: boolean;
   isOwnSet: boolean;
@@ -24,6 +29,15 @@ export class EmoteAdminService {
    *  the 1-minute SevenTvPeriodicResyncWorker is the actual safety net regardless. */
   syncDeleted(channelName: string, emoteIds: string[]): Observable<SyncDeletedResult> {
     return this.http.post<SyncDeletedResult>(`/api/channels/${channelName}/emotes/sync-deleted`, {
+      emoteIds,
+    });
+  }
+
+  /** The restore counterpart of syncDeleted: un-archives the re-added emotes server-side and —
+   *  its actual purpose — writes the emotes.syncRestored audit entry. Without it a restore only
+   *  ever appeared in the log as an anonymous channel.resync. */
+  syncRestored(channelName: string, emoteIds: string[]): Observable<SyncRestoredResult> {
+    return this.http.post<SyncRestoredResult>(`/api/channels/${channelName}/emotes/sync-restored`, {
       emoteIds,
     });
   }

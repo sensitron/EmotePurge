@@ -398,6 +398,7 @@
       "voteSessionEnd": "Voting ended",
       "voteSessionDelete": "Voting deleted",
       "emotesSyncDeleted": "Emotes marked as deleted",
+      "emotesSyncRestored": "Emotes restored",
       "userRevokeSessions": "User sessions revoked",
       "userInvalidateRoleCache": "Role cache cleared"
     },
@@ -581,6 +582,10 @@
     "capacityProjection": "The set would then hold {{ projected }} of {{ capacity }} slots.",
     "capacityWarning": "That exceeds the capacity — 7TV will reject the surplus emotes.",
     "historyNote": "The usage history stays unchanged.",
+    "syncFailedTitle": "Reporting back to EmotePurge failed",
+    "syncFailed": "The emotes were restored on 7TV, but EmotePurge could not record it. This usually resolves itself within a minute.",
+    "syncRetry": "Report again",
+    "syncRetrySucceeded": "Reported back successfully.",
     "summary": {
       "counts": "{{done}} restored · {{failed}} failed · {{cancelled}} cancelled"
     },
