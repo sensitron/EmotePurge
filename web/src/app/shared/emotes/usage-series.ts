@@ -67,6 +67,51 @@ export function toPolylinePoints(
     .join(' ');
 }
 
+/** One background band of consecutive live days, in viewBox x-units. */
+export interface LiveBand {
+  x: number;
+  width: number;
+}
+
+/**
+ * Groups the live days into full-height background bands under the polyline (A10). Each day owns
+ * the half-step around its x position — the same x mapping as `toPolylinePoints` — so a band spans
+ * from half a step before its first live day to half a step after its last, clamped to the
+ * viewBox. Days not present in `points` are ignored; no live days (older ranges predate the
+ * coverage data) simply means no bands, never a statement about being offline.
+ */
+export function liveBands(
+  points: readonly SparklinePoint[],
+  liveDays: readonly string[],
+  width: number,
+): LiveBand[] {
+  if (points.length === 0 || liveDays.length === 0) {
+    return [];
+  }
+
+  const live = new Set(liveDays);
+  if (points.length === 1) {
+    return live.has(points[0].date) ? [{ x: 0, width: round(width) }] : [];
+  }
+
+  const stepX = width / (points.length - 1);
+  const bands: LiveBand[] = [];
+  let runStart: number | null = null;
+  // One index past the end, so a run that touches the last day is flushed like any other.
+  for (let index = 0; index <= points.length; index++) {
+    const isLive = index < points.length && live.has(points[index].date);
+    if (isLive && runStart === null) {
+      runStart = index;
+    } else if (!isLive && runStart !== null) {
+      const from = Math.max(0, (runStart - 0.5) * stepX);
+      const to = Math.min(width, (index - 0.5) * stepX);
+      bands.push({ x: round(from), width: round(to - from) });
+      runStart = null;
+    }
+  }
+  return bands;
+}
+
 /** The busiest day; on a tie the earliest wins. `null` for an empty or all-zero series. */
 export function seriesPeak(
   points: readonly SparklinePoint[],

@@ -429,6 +429,7 @@
       "loading": "Loading daily history",
       "peak": "Peak of {{count}} on {{date}}",
       "noUsage": "Never used in this range.",
+      "liveDays": "Live on {{live}} of {{total}} days",
       "totalInRange": "Total in range",
       "inSet": "In the set",
       "inSetDays": {

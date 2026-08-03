@@ -90,6 +90,7 @@ export interface EmoteDrilldownData {
         <div class="my-3 h-20 rounded-md bg-surface-inset p-2">
           <app-usage-sparkline
             [points]="points()"
+            [liveDays]="series()!.liveDays"
             [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
           />
         </div>
@@ -103,6 +104,17 @@ export interface EmoteDrilldownData {
           </p>
         } @else {
           <p class="text-sm text-fg-muted">{{ 'usageStats.drilldown.noUsage' | transloco }}</p>
+        }
+        <!-- Legend + count for the live bands. Rendered only when coverage exists: an older range
+             predates the poll's data, and "0 Stream-Tage" there would be a false statement. -->
+        @if (series()!.liveDays.length > 0) {
+          <p class="mt-1 flex items-center gap-1.5 text-xs text-fg-muted">
+            <span class="inline-block h-2 w-2 rounded-sm bg-success-dot" aria-hidden="true"></span>
+            {{
+              'usageStats.drilldown.liveDays'
+                | transloco: { live: series()!.liveDays.length, total: points().length }
+            }}
+          </p>
         }
 
         <dl class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">

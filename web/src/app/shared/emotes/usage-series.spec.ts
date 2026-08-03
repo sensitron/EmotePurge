@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fillDailySeries, seriesPeak, toPolylinePoints } from './usage-series';
+import { fillDailySeries, liveBands, seriesPeak, toPolylinePoints } from './usage-series';
 
 describe('fillDailySeries', () => {
   it('zero-fills the gaps of a sparse series', () => {
@@ -79,6 +79,39 @@ describe('toPolylinePoints', () => {
 
   it('returns an empty string for no points', () => {
     expect(toPolylinePoints([], 100, 40)).toBe('');
+  });
+});
+
+describe('liveBands', () => {
+  const week = fillDailySeries([], '2026-07-01', '2026-07-07');
+
+  it('merges consecutive live days into one band spanning their half-steps', () => {
+    // 7 points over width 100 → stepX 100/6. Days at index 1..2 → from 0.5 to 2.5 steps.
+    const bands = liveBands(week, ['2026-07-02', '2026-07-03'], 100);
+    expect(bands).toEqual([{ x: 8.33, width: 33.33 }]);
+  });
+
+  it('keeps separate runs as separate bands and clamps to the viewBox edges', () => {
+    const bands = liveBands(week, ['2026-07-01', '2026-07-06', '2026-07-07'], 100);
+    expect(bands).toEqual([
+      { x: 0, width: 8.33 },
+      { x: 75, width: 25 },
+    ]);
+  });
+
+  it('ignores live days outside the rendered range', () => {
+    expect(liveBands(week, ['2026-06-30', '2026-08-01'], 100)).toEqual([]);
+  });
+
+  it('marks a single-point range as one full-width band', () => {
+    const day = fillDailySeries([], '2026-07-01', '2026-07-01');
+    expect(liveBands(day, ['2026-07-01'], 100)).toEqual([{ x: 0, width: 100 }]);
+    expect(liveBands(day, ['2026-07-02'], 100)).toEqual([]);
+  });
+
+  it('returns no bands without points or without live days', () => {
+    expect(liveBands([], ['2026-07-01'], 100)).toEqual([]);
+    expect(liveBands(week, [], 100)).toEqual([]);
   });
 });
 

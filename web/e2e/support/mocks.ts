@@ -640,6 +640,7 @@ export async function mockUsageDaily(
   page: Page,
   channelName: string,
   days: { date: string; useCount: number }[],
+  liveDays: string[] = [],
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/usage-stats/daily**`, (route) => {
     const url = new URL(route.request().url());
@@ -652,6 +653,7 @@ export async function mockUsageDaily(
       firstUsedDate: days[0]?.date ?? null,
       lastUsedDate: days[days.length - 1]?.date ?? null,
       days,
+      liveDays,
     });
   });
 }

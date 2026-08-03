@@ -44,6 +44,7 @@ describe('UsageStatService', () => {
     firstUsedDate: null,
     lastUsedDate: null,
     days: [],
+    liveDays: [],
   };
 
   it('getDailySeries GETs the daily endpoint with emoteId/from/to query params', () => {

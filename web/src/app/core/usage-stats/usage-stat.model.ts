@@ -39,4 +39,10 @@ export interface EmoteUsageSeries {
   lastUsedDate: string | null;
   /** Sparse: only days with usage, ascending — the client zero-fills for rendering. */
   days: EmoteDailyUsage[];
+  /**
+   * ISO dates (`yyyy-MM-dd`) within [from, to] on which the channel was live, ascending (A10).
+   * Coverage data only exists since the worker's live poll shipped — an absent day in an older
+   * range means "unknown", not "offline", so the chart marks live days and states nothing else.
+   */
+  liveDays: string[];
 }

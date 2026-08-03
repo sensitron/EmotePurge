@@ -30,7 +30,9 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A6** Purge-Sicherheitsnetz | ✅ 2026-08-02 | DECISIONS „Restore läuft im Browser …" + „`Emote.ArchivedAt` wird geschrieben …" |
 | **A7** Kanal-Aktivitätsverlauf | ✅ 2026-08-02 | DECISIONS „Der Channel bekommt seinen eigenen Audit-Log" |
 | **A8** Resync für Channel-Manager | ✅ 2026-08-02 | DECISIONS „Resync als Self-Service" |
-| **A9**–**A11** | ⬜ | — |
+| **A9** Globale Verbreitung | ⬜ | — |
+| **A10** Nutzung pro Live-Stunde | 🟡 2026-08-03 | Stufe 1 (Datenerfassung + Chart-Markierung) — DECISIONS „Live-Abdeckung pro Tag …"; Stufe 2 (umschaltbare Metrik) offen |
+| **A11** Duplikat-Erkennung | ⬜ | — |
 | **A12** Ergebnis-Export | ✅ 2026-08-02 | DECISIONS „Der Export ist eine Client-Serialisierung …" |
 | **A13**–**A15** | ⬜ | — |
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
@@ -319,6 +321,13 @@ Migrationsgrund für den Bestand (vgl. Entscheidung 2026-07-30), aber ein Argume
 danebenzustellen.
 
 ### A10 — Nutzung pro Live-Stunde statt pro Kalendertag
+
+**Status: 🟡 Stufe 1 umgesetzt am 2026-08-03** — App-Access-Token-Flow (`ITwitchAppTokenProvider`),
+`TwitchLivePollWorker` (Helix-Streams-Poll, Default 300 s), Entität `ChannelLiveDay` (LiveMinutes pro
+Channel pro UTC-Tag) und Stream-Tage-Markierung im Emote-Drilldown (`liveDays` in der
+`/usage-stats/daily`-Antwort). Begründung in DECISIONS „Live-Abdeckung pro Tag …". **Stufe 2**
+(Nutzung pro Live-Stunde als umschaltbare Ansicht) ist offen; die Minuten-Erfassung ist dafür
+ausgelegt.
 
 Zusätzliche Normalisierung: Emote-Nutzung geteilt durch die Stunden, die der Channel im Zeitraum
 tatsächlich live war.
