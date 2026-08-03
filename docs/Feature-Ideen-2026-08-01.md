@@ -38,6 +38,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
 | **B2** Soll/Ist-Roster | ✅ 2026-08-02 | DECISIONS „Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht" |
 | **B3**–**B9** | ⬜ | — |
+| **B10** LIVE-Badge in Channel-Listen (Nachtrag 2026-08-03) | ⬜ | — |
 
 ## Inhalt
 
@@ -644,6 +645,30 @@ gebraucht wird" benannt. Heute kostet jede Admin-Änderung ein Config-Deployment
 zweiter Mensch tatsächlich Admin werden soll; vorher ist das Aufwand ohne Nutzen. Ein
 Bootstrap-Fallback (Config gewinnt immer) wäre Pflicht, sonst sperrt eine falsche DB-Zeile den letzten
 Admin aus.
+
+### B10 — LIVE-Badge in den Channel-Listen (Nachtrag 2026-08-03)
+
+*Status: ⬜ offen. Nachtrag vom 2026-08-03 (Nutzerwunsch während der Watchdog-Runde), nicht Teil der
+ursprünglichen Session vom 2026-08-01.*
+
+In der Admin-Channel-Liste und in „Meine Channels" anzeigen, ob ein Kanal gerade live ist.
+
+**Warum es zieht.** Die Daten existieren seit A10 Stufe 1: `TwitchLivePollWorker` fragt ohnehin alle
+5 Minuten Helix, welche aktiven Channels live sind — die Antwort wird heute nur in Tagesminuten
+(`ChannelLiveDay`) verdichtet und wirft den Momentzustand weg. Für Admins erklärt ein LIVE-Badge auf
+einen Blick, warum ein Channel gerade Nachrichten-Traffic hat (oder warum Stille normal ist); für
+Broadcaster/Mods ist es schlicht Orientierung.
+
+**Datenlage.** Kein neuer Poll nötig: der Worker publiziert den letzten Live-Zustand (Set der
+Live-Logins) z. B. als TTL-Key nach Redis — dasselbe Muster wie `worker:health:twitch` — und die Api
+reicht ihn in den bestehenden Listen-Antworten mit durch. Alternative (Api fragt Helix selbst) wäre
+ein zweiter Konsument des App-Tokens; der DECISIONS-Eintrag zu A10 warnt genau davor (parallele
+Client-Credentials-Grants widerrufen sich gegenseitig), also beim Worker als einzigem Token-Halter
+bleiben.
+
+**Aufwand.** S–M · **Risiko.** Anzeige hinkt dem Poll-Takt bis zu 5 Minuten hinterher — als Badge mit
+„Stand vor x min" unkritisch, aber nicht als Echtzeit versprechen. Frontend-Zurückhaltung beachten:
+ein kleines Badge in bestehenden Listen, kein neues Dauer-Control.
 
 ---
 
