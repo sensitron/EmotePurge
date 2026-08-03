@@ -176,6 +176,46 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         Assert.Equal("mychannels10_self", Assert.Single(result.Channels).ChannelName);
     }
 
+    [Fact]
+    public async Task GetMyChannelsAsync_DerivesLiveState_OnlyForPolledChannels()
+    {
+        await using var db = fixture.CreateDbContext();
+        db.Channels.Add(new Channel { ChannelName = "mychannels11_live", IsBotActive = true, TwitchChannelId = NewTwitchId() });
+        db.Channels.Add(new Channel { ChannelName = "mychannels11_off", IsBotActive = true, TwitchChannelId = NewTwitchId() });
+        db.Channels.Add(new Channel { ChannelName = "mychannels11_left", IsBotActive = false, TwitchChannelId = NewTwitchId() });
+        await db.SaveChangesAsync();
+        var polledAt = new DateTime(2026, 8, 3, 18, 0, 0, DateTimeKind.Utc);
+        var service = CreateService(
+            db,
+            moderatedChannels: ["mychannels11_live", "mychannels11_off", "mychannels11_left"],
+            liveStatus: new TwitchLiveStatusSnapshot(polledAt, ["mychannels11_live"]));
+
+        var result = await service.GetMyChannelsAsync(Principal("mychannels11_self"));
+
+        Assert.Equal(polledAt, result.LivePolledAtUtc);
+        Assert.Equal(ChannelLiveStates.Live, Assert.Single(result.Channels, c => c.ChannelName == "mychannels11_live").LiveState);
+        // Bot-active, therefore polled: absence from the live set is a real "offline".
+        Assert.Equal(ChannelLiveStates.Offline, Assert.Single(result.Channels, c => c.ChannelName == "mychannels11_off").LiveState);
+        // A left channel was never polled — absence proves nothing about it.
+        Assert.Equal(ChannelLiveStates.Unknown, Assert.Single(result.Channels, c => c.ChannelName == "mychannels11_left").LiveState);
+    }
+
+    [Fact]
+    public async Task GetMyChannelsAsync_ReportsLiveStateUnknown_WhenNoSnapshotExists()
+    {
+        // Worker down, poll disabled, or the key expired: no statement about anyone, including
+        // bot-active channels — and no poll timestamp to report.
+        await using var db = fixture.CreateDbContext();
+        db.Channels.Add(new Channel { ChannelName = "mychannels12_active", IsBotActive = true, TwitchChannelId = NewTwitchId() });
+        await db.SaveChangesAsync();
+        var service = CreateService(db, moderatedChannels: ["mychannels12_active"]);
+
+        var result = await service.GetMyChannelsAsync(Principal("mychannels12_self"));
+
+        Assert.Null(result.LivePolledAtUtc);
+        Assert.All(result.Channels, c => Assert.Equal(ChannelLiveStates.Unknown, c.LiveState));
+    }
+
     private static TwitchPrincipalInfo Principal(string login) => new("42", login, AccessToken: null);
 
     private static string NewTwitchId() => Guid.NewGuid().ToString("N")[..16];
@@ -197,7 +237,8 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         ISevenTvEditorService? editors = null,
         ITwitchUserTokenService? tokens = null,
         string[]? moderatedChannels = null,
-        SevenTvEditorGrants? grants = null)
+        SevenTvEditorGrants? grants = null,
+        TwitchLiveStatusSnapshot? liveStatus = null)
     {
         if (helix is null && moderatedChannels is not null)
         {
@@ -212,10 +253,16 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
             editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(grants ?? Grants());
         }
 
+        // Default is "no snapshot": the live-status axis stays out of every test that is not
+        // explicitly about it.
+        var liveStatusReader = Substitute.For<ITwitchLiveStatusReader>();
+        liveStatusReader.ReadAsync(Arg.Any<CancellationToken>()).Returns(liveStatus);
+
         return new MyChannelsService(
             db,
             helix ?? Substitute.For<ITwitchHelixClient>(),
             editors,
-            tokens ?? TokenService("valid-token"));
+            tokens ?? TokenService("valid-token"),
+            liveStatusReader);
     }
 }

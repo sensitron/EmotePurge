@@ -10,7 +10,8 @@ public class MyChannelsService(
     AppDbContext db,
     ITwitchHelixClient helixClient,
     ISevenTvEditorService sevenTvEditorService,
-    ITwitchUserTokenService userTokenService) : IMyChannelsService
+    ITwitchUserTokenService userTokenService,
+    ITwitchLiveStatusReader liveStatusReader) : IMyChannelsService
 {
     private sealed class ChannelFlags
     {
@@ -68,6 +69,11 @@ public class MyChannelsService(
             .Select(c => new { c.ChannelName, c.IsBotActive })
             .ToDictionaryAsync(c => c.ChannelName, c => c.IsBotActive, cancellationToken);
 
+        // The worker's last live-poll result; only bot-active channels were polled, so for every
+        // other row absence from the live set must read as "unknown", not "offline".
+        var liveStatus = await liveStatusReader.ReadAsync(cancellationToken);
+        var liveLogins = liveStatus is null ? null : liveStatus.LiveChannelLogins.ToHashSet();
+
         var channels = flagsByChannel
             .Select(kv => new MyChannelDto(
                 kv.Key,
@@ -75,12 +81,13 @@ public class MyChannelsService(
                 kv.Value.IsModerator,
                 kv.Value.IsSevenTvEditor,
                 IsTracked: trackedChannels.ContainsKey(kv.Key),
-                IsBotActive: trackedChannels.GetValueOrDefault(kv.Key, false)))
+                IsBotActive: trackedChannels.GetValueOrDefault(kv.Key, false),
+                LiveState: ChannelLiveStates.Derive(liveLogins, kv.Key, trackedChannels.GetValueOrDefault(kv.Key, false))))
             .OrderByDescending(c => c.IsBroadcaster)
             .ThenBy(c => c.ChannelName)
             .ToList();
 
-        return new MyChannelsResultDto(helixUnavailable, reauthRequired, sevenTvUnavailable, channels);
+        return new MyChannelsResultDto(helixUnavailable, reauthRequired, sevenTvUnavailable, channels, liveStatus?.GeneratedAtUtc);
     }
 
     private static ChannelFlags GetOrAdd(Dictionary<string, ChannelFlags> flagsByChannel, string channelName)

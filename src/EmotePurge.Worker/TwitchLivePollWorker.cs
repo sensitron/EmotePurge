@@ -1,5 +1,7 @@
+using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
+using EmotePurge.Infrastructure.Redis;
 
 namespace EmotePurge.Worker;
 
@@ -12,7 +14,8 @@ public class TwitchLivePollWorker(
     ILogger<TwitchLivePollWorker> logger,
     ITwitchAppTokenProvider appTokenProvider,
     IConfiguration configuration,
-    IServiceScopeFactory scopeFactory) : BackgroundService
+    IServiceScopeFactory scopeFactory,
+    ITwitchLiveStatusWriter liveStatusWriter) : BackgroundService
 {
     // 300s default: minute-precise coverage is not the goal (the consumer is a per-day marker),
     // and 12 requests/hour stay far below the app token's Helix rate budget.
@@ -68,6 +71,11 @@ public class TwitchLivePollWorker(
                 return;
             }
 
+            // A successful poll is a statement about every polled channel — including "nobody is
+            // live" — so publish before the empty-result early-return below. Only a failed poll
+            // (the null guard above) publishes nothing and lets the key age out into "unknown".
+            await PublishLiveStatusAsync(streams);
+
             if (streams.Count == 0)
             {
                 return;
@@ -94,6 +102,28 @@ public class TwitchLivePollWorker(
             // Runs forever on a timer — a Postgres hiccup or a Twitch outage must cost one tick,
             // never the worker host (StopHost default would take the usage flush down with it).
             logger.LogWarning(ex, "Live-Poll-Durchlauf fehlgeschlagen.");
+        }
+    }
+
+    // Best-effort with its own catch: a Redis hiccup must not cost the coverage rows that follow.
+    private async Task PublishLiveStatusAsync(IReadOnlyList<TwitchStreamInfo> streams)
+    {
+        try
+        {
+            // UserLogin is documented as already-lowercase, but the key is a cross-process
+            // contract keyed by normalized names — normalize anyway (rule 9).
+            var liveLogins = streams
+                .Select(s => ChannelName.Normalize(s.UserLogin))
+                .Distinct()
+                .ToList();
+
+            await liveStatusWriter.PublishAsync(
+                new TwitchLiveStatusSnapshot(DateTime.UtcNow, liveLogins),
+                TwitchLiveStatusKeys.TimeToLiveFor(_pollInterval));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Live-Status-Publish nach Redis fehlgeschlagen — Key läuft aus, UI zeigt „unbekannt“.");
         }
     }
 }

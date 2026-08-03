@@ -197,6 +197,7 @@ public static class AdminEndpoints
             string channelName,
             IAdminChannelQueryService channelQueryService,
             IWorkerRosterReader rosterReader,
+            ITwitchLiveStatusReader liveStatusReader,
             CancellationToken ct) =>
         {
             var channel = await channelQueryService.GetAsync(channelName, ct);
@@ -204,6 +205,16 @@ public static class AdminEndpoints
             {
                 return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotFound });
             }
+
+            // Same row shape as the list (see AdminChannelDto): a drilldown that says "unknown"
+            // while the list says "live" would be the two-views-disagreeing failure the DTO
+            // comment warns about.
+            var liveStatus = await liveStatusReader.ReadAsync(ct);
+            channel = channel with
+            {
+                LiveState = ChannelLiveStates.Derive(
+                    liveStatus?.LiveChannelLogins.ToHashSet(), channel.ChannelName, channel.IsBotActive),
+            };
 
             var snapshot = await rosterReader.ReadAsync(ct);
             var rosterRow = snapshot?.Channels
@@ -234,12 +245,27 @@ public static class AdminEndpoints
             ILiveEventStream liveEventStream,
             CancellationToken ct) => LiveEndpoints.OpenAdminAsync(httpContext, liveEventStream, ct));
 
-        group.MapGet("/channels", async (IAdminChannelQueryService channelQueryService, CancellationToken ct) =>
+        group.MapGet("/channels", async (
+            IAdminChannelQueryService channelQueryService,
+            ITwitchLiveStatusReader liveStatusReader,
+            CancellationToken ct) =>
         {
             // The single global channel list since 2026-07-31: it replaced the narrower
             // GET /api/channels of the overview's admin section, which was removed with that section.
             var channels = await channelQueryService.ListAsync(ct);
-            return Results.Ok(channels);
+
+            // Live state is snapshot-scoped, not row-scoped: one poll timestamp for the whole
+            // response, three-way per channel (only bot-active channels were polled at all).
+            var liveStatus = await liveStatusReader.ReadAsync(ct);
+            var liveLogins = liveStatus is null ? null : liveStatus.LiveChannelLogins.ToHashSet();
+
+            return Results.Ok(new
+            {
+                channels = channels
+                    .Select(c => c with { LiveState = ChannelLiveStates.Derive(liveLogins, c.ChannelName, c.IsBotActive) })
+                    .ToList(),
+                livePolledAtUtc = liveStatus?.GeneratedAtUtc,
+            });
         });
 
         group.MapPost("/channels/{channelName}/resync", async (

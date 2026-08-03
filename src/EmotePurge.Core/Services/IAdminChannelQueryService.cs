@@ -12,6 +12,10 @@ namespace EmotePurge.Core.Services;
 /// alike. Null when none has completed since the column exists. This is the number that answers
 /// "is the sync running at all".
 /// </param>
+/// <param name="LiveState">
+/// One of <see cref="ChannelLiveStates"/>. Not a database fact: the endpoint layers it on from the
+/// worker's live-status snapshot, the query service always emits the default.
+/// </param>
 /// <param name="LastInventoryChangeUtc">
 /// Newest <c>Emote.LastSyncedAt</c> of the channel: when the emote inventory last actually moved.
 /// Null for a channel with no emote rows at all. Deliberately not the same as
@@ -31,7 +35,8 @@ public record AdminChannelDto(
     DateTime? LastInventoryChangeUtc,
     string? ActiveEmoteSetId = null,
     int? ActiveEmoteSetCapacity = null,
-    DateTime? TrackingResumedAt = null);
+    DateTime? TrackingResumedAt = null,
+    string LiveState = ChannelLiveStates.Unknown);
 
 /// <summary>
 /// Read model behind GET /api/admin/channels: every tracked channel with the aggregates an admin

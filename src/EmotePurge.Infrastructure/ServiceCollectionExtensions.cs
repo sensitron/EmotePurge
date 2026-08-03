@@ -100,6 +100,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkerHealthReader, WorkerHealthReader>();
         services.AddSingleton<IWorkerRosterReader, WorkerRosterReader>();
 
+        // One instance behind both interfaces: the worker writes, the API reads, the wire format
+        // lives in one class (see TwitchLiveStatusStore).
+        services.AddSingleton<TwitchLiveStatusStore>();
+        services.AddSingleton<ITwitchLiveStatusReader>(sp => sp.GetRequiredService<TwitchLiveStatusStore>());
+        services.AddSingleton<ITwitchLiveStatusWriter>(sp => sp.GetRequiredService<TwitchLiveStatusStore>());
+
         services.AddScoped<IVoteSessionService, VoteSessionService>();
         services.AddScoped<IVoteSessionQueryService, VoteSessionQueryService>();
         services.AddScoped<IVoteEligibilityService, VoteEligibilityService>();
