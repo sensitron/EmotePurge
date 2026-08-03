@@ -28,3 +28,8 @@ public static class TwitchOAuthDefaults
 public record TwitchUserInfo(string Id, string Login, string DisplayName);
 
 public record TwitchModeratedChannelInfo(string Login, string BroadcasterId);
+
+// One currently live stream from GET /helix/streams. UserLogin is Twitch's lowercase login, i.e.
+// already in ChannelName.Normalize form. StartedAtUtc is carried for the eventual per-stream
+// accounting (A10 Stufe 2), even though the per-day coverage only needs "was live".
+public record TwitchStreamInfo(string UserLogin, DateTime StartedAtUtc);

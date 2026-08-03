@@ -48,6 +48,12 @@ public record EmoteDailyUsageDto(DateOnly Date, int UseCount);
 /// <see cref="EmoteUsageContextDto.LastUsedDate"/>. <c>null</c> = never used since tracking began.
 /// </param>
 /// <param name="LastUsedDate">Last use ever, equally unbounded.</param>
+/// <param name="LiveDays">
+/// Days within [From, To] on which the channel was live (any coverage at all), ascending — so the
+/// chart can tell "offline day" apart from "dead emote" (idea A10). Coverage data only exists
+/// since the worker's live poll shipped: an absent day before that means "unknown", not
+/// "offline", and the consumer must render it unmarked rather than as a statement.
+/// </param>
 public record EmoteUsageSeriesDto(
     string EmoteId,
     string EmoteName,
@@ -56,7 +62,8 @@ public record EmoteUsageSeriesDto(
     int TotalUseCount,
     DateOnly? FirstUsedDate,
     DateOnly? LastUsedDate,
-    IReadOnlyList<EmoteDailyUsageDto> Days);
+    IReadOnlyList<EmoteDailyUsageDto> Days,
+    IReadOnlyList<DateOnly> LiveDays);
 
 public interface IUsageStatQueryService
 {

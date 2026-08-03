@@ -16,4 +16,10 @@ public interface ITwitchHelixClient
     // GetModeratedChannelLoginsAsync. true=subscribed, false=confirmed not subscribed (404),
     // null=transient failure (caller must not cache this outcome).
     Task<bool?> GetUserSubscriptionStatusAsync(string accessToken, string broadcasterTwitchId, string userTwitchId, CancellationToken cancellationToken = default);
+
+    // GET /helix/streams by user_login, batched 100 per request (the Helix cap); needs no scope and
+    // runs on an app access token. Returns only the currently live channels — offline means absent
+    // from the result, never a row. Null = failure of any batch; the caller must not read that as
+    // "everyone is offline".
+    Task<IReadOnlyList<TwitchStreamInfo>?> GetLiveStreamsByLoginsAsync(IReadOnlyCollection<string> userLogins, string accessToken, CancellationToken cancellationToken = default);
 }

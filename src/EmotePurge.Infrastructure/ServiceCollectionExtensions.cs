@@ -51,6 +51,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
         services.AddScoped<IUsageStatFlushService, UsageStatFlushService>();
         services.AddScoped<IUsageStatQueryService, UsageStatQueryService>();
+        services.AddScoped<ILiveCoverageService, LiveCoverageService>();
 
         services.AddHttpClient<ISevenTvApiClient, SevenTvApiClient>(client =>
         {
@@ -77,6 +78,10 @@ public static class ServiceCollectionExtensions
                 client.DefaultRequestHeaders.Add("Client-Id", twitchClientId);
             }
         });
+
+        // Singleton cache over the transient typed client — see the class comment for why it
+        // resolves ITwitchAuthClient through a scope instead of injecting it.
+        services.AddSingleton<ITwitchAppTokenProvider, TwitchAppTokenProvider>();
 
         services.AddSingleton<ITokenCipher, AesGcmTokenCipher>();
         services.AddSingleton<TwitchTokenRefreshGate>();

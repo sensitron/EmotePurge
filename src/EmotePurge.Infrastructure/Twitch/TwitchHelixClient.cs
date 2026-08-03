@@ -9,6 +9,7 @@ namespace EmotePurge.Infrastructure.Twitch;
 public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient> logger) : ITwitchHelixClient
 {
     private const int MaxModeratedChannelPages = 10;
+    private const int MaxStreamsLoginsPerRequest = 100;
 
     public async Task<TwitchUserInfo?> GetUserInfoAsync(string accessToken, CancellationToken cancellationToken = default)
     {
@@ -122,6 +123,48 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "Twitch Get User Subscription fehlgeschlagen für User {UserId}/Broadcaster {BroadcasterId}.", userTwitchId, broadcasterTwitchId);
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<TwitchStreamInfo>?> GetLiveStreamsByLoginsAsync(
+        IReadOnlyCollection<string> userLogins, string accessToken, CancellationToken cancellationToken = default)
+    {
+        var streams = new List<TwitchStreamInfo>();
+
+        try
+        {
+            // Helix caps user_login at 100 values per request; no pagination needed inside a batch,
+            // because a 100-login filter can never yield more than 100 live streams.
+            foreach (var batch in userLogins.Chunk(MaxStreamsLoginsPerRequest))
+            {
+                var url = "streams?first=100&" + string.Join('&', batch.Select(login => $"user_login={Uri.EscapeDataString(login)}"));
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("Twitch Get Streams fehlgeschlagen mit Status {Status}.", response.StatusCode);
+                    return null;
+                }
+
+                var dto = await response.Content.ReadFromJsonAsync<TwitchGetStreamsResponseDto>(TwitchJsonOptions.Value, cancellationToken);
+                if (dto is null)
+                {
+                    return null;
+                }
+
+                streams.AddRange(dto.Data.Select(s =>
+                    new TwitchStreamInfo(s.UserLogin, DateTime.SpecifyKind(s.StartedAt, DateTimeKind.Utc))));
+            }
+
+            return streams;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Twitch Get Streams fehlgeschlagen.");
             return null;
         }
     }

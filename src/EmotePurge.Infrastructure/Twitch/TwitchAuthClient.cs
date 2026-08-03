@@ -38,6 +38,33 @@ public class TwitchAuthClient(HttpClient httpClient, IConfiguration configuratio
         }
     }
 
+    public async Task<TwitchTokenResult?> GetAppAccessTokenAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var form = new Dictionary<string, string>
+            {
+                ["client_id"] = GetRequired("Auth:Twitch:ClientId"),
+                ["client_secret"] = GetRequired("Auth:Twitch:ClientSecret"),
+                ["grant_type"] = "client_credentials"
+            };
+
+            var response = await httpClient.PostAsync("oauth2/token", new FormUrlEncodedContent(form), cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Twitch-App-Token-Abruf fehlgeschlagen mit Status {Status}.", response.StatusCode);
+                return null;
+            }
+
+            return await ReadTokenResultAsync(response, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Twitch-App-Token-Abruf fehlgeschlagen.");
+            return null;
+        }
+    }
+
     public async Task<TwitchTokenRefreshResult> RefreshUserTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
     {
         try

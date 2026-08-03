@@ -50,3 +50,15 @@ internal sealed class TwitchUserSubscriptionDto
 {
     public string BroadcasterId { get; set; } = string.Empty;
 }
+
+// GET api.twitch.tv/helix/streams
+internal sealed class TwitchGetStreamsResponseDto
+{
+    public List<TwitchStreamDto> Data { get; set; } = [];
+}
+
+internal sealed class TwitchStreamDto
+{
+    public string UserLogin { get; set; } = string.Empty;
+    public DateTime StartedAt { get; set; }
+}

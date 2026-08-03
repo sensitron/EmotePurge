@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Channel> Channels => Set<Channel>();
     public DbSet<Emote> Emotes => Set<Emote>();
     public DbSet<UsageStat> UsageStats => Set<UsageStat>();
+    public DbSet<ChannelLiveDay> ChannelLiveDays => Set<ChannelLiveDay>();
     public DbSet<User> Users => Set<User>();
     public DbSet<VoteSession> VoteSessions => Set<VoteSession>();
     public DbSet<VoteSessionEmote> VoteSessionEmotes => Set<VoteSessionEmote>();
@@ -45,6 +46,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(u => u.Emote)
                 .WithMany(e => e.UsageStats)
                 .HasForeignKey(u => u.EmoteId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChannelLiveDay>(entity =>
+        {
+            // One coverage row per channel per UTC day; covering index like UsageStat's, so the
+            // live-day range query of the drilldown series is an index-only scan.
+            entity.HasIndex(d => new { d.ChannelId, d.Date })
+                .IsUnique()
+                .IncludeProperties(d => d.LiveMinutes);
+
+            // No inverse collection on Channel — nothing navigates from a channel to its coverage
+            // rows; both consumers query by (ChannelId, Date) directly.
+            entity.HasOne(d => d.Channel)
+                .WithMany()
+                .HasForeignKey(d => d.ChannelId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

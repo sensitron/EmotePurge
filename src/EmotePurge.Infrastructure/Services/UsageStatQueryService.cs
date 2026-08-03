@@ -104,7 +104,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         // member, and its history is real.
         var emote = await db.Emotes
             .Where(e => e.Id == emoteId && e.Channel.ChannelName == normalized)
-            .Select(e => new { e.Id, e.Name })
+            .Select(e => new { e.Id, e.Name, e.ChannelId })
             .FirstOrDefaultAsync(cancellationToken);
         if (emote is null)
         {
@@ -131,6 +131,15 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             })
             .FirstOrDefaultAsync(cancellationToken);
 
+        // Range-bounded unlike the bounds above: the consumer overlays these on exactly the
+        // rendered window. LiveMinutes > 0 is defensive — the poll never writes a zero row.
+        // Served by the covering index (ChannelId, Date) INCLUDE (LiveMinutes).
+        var liveDays = await db.ChannelLiveDays
+            .Where(l => l.ChannelId == emote.ChannelId && l.Date >= from && l.Date <= to && l.LiveMinutes > 0)
+            .OrderBy(l => l.Date)
+            .Select(l => l.Date)
+            .ToListAsync(cancellationToken);
+
         return new EmoteUsageSeriesDto(
             emote.Id,
             emote.Name,
@@ -139,7 +148,8 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             days.Sum(d => d.UseCount),
             bounds?.First,
             bounds?.Last,
-            days);
+            days,
+            liveDays);
     }
 
     public async Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(

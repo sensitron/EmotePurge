@@ -326,6 +326,47 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
         Assert.Equal(4, Assert.Single(series.Days).UseCount);
     }
 
+    [Fact]
+    public async Task GetDailySeriesAsync_ReturnsLiveDaysWithinTheRange_Ascending()
+    {
+        // Unlike FirstUsedDate/LastUsedDate, the live days are range-bounded: the consumer lays
+        // them under exactly the rendered window (A10). Both boundary days in, both neighbours out.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest_live1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "LiveAware");
+        db.ChannelLiveDays.AddRange(
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 6, 30), LiveMinutes = 120 }, // before range
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 7, 1), LiveMinutes = 5 },    // first range day
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 7, 7), LiveMinutes = 300 },  // last range day
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 7, 8), LiveMinutes = 60 });  // after range
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Equal([new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7)], series.LiveDays);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_DoesNotLeakAnotherChannelsLiveDays()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest_live2");
+        var otherChannel = await SeedChannelAsync(db, "dailytest_live2_other");
+        var emote = await SeedEmoteAsync(db, channel.Id, "HomeAlone");
+        db.ChannelLiveDays.Add(new ChannelLiveDay { ChannelId = otherChannel.Id, Date = new DateOnly(2026, 7, 3), LiveMinutes = 60 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Empty(series.LiveDays);
+    }
+
     private static async Task<Channel> SeedChannelAsync(AppDbContext db, string channelName)
     {
         var channel = new Channel { ChannelName = channelName, IsBotActive = true };
