@@ -46,6 +46,10 @@ export interface DeletableEmote {
   template: `
     <div class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-2">
+        <!-- Host-page peers acting on the same grid selection (e.g. the usage page's
+             create-vote-session button) share this row, constructive before destructive —
+             stacked rows hid that both consume one selection and cost a row of vertical space. -->
+        <ng-content select="[selection-actions]" />
         <button
           type="button"
           appButton="danger-solid"

@@ -151,24 +151,6 @@
     />
   }
 
-  <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up as a
-       curated vote-session ballot. Count in the label + disabled at zero, mirroring the delete
-       button's conventions; managers only (the endpoint would 403 a 7TV editor). -->
-  @if (canManage()) {
-    <div class="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        appButton="primary"
-        buttonSize="lg"
-        class="disabled:cursor-not-allowed"
-        [disabled]="selection.selectedKeys().length === 0"
-        (click)="openCreateVoteSession()"
-      >
-        {{ 'usageStats.createVoteSession' | transloco: { count: selection.selectedKeys().length } }}
-      </button>
-    </div>
-  }
-
   @if (activeEmoteSetId(); as setId) {
     <app-mass-delete-panel
       [setId]="setId"
@@ -177,7 +159,29 @@
       (deleted)="onDeleted($event)"
       (reloadRequested)="onReloadRequested()"
       (selectionCleared)="selection.clear()"
-    />
+    >
+      <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up
+           as a curated vote-session ballot. Count in the label + disabled at zero, mirroring the
+           delete button's conventions; managers only (the endpoint would 403 a 7TV editor).
+           Projected into the panel's action row so both selection consumers share one line;
+           ngProjectAs because an @if block itself carries no selector attribute. -->
+      <ng-container ngProjectAs="[selection-actions]">
+        @if (canManage()) {
+          <button
+            type="button"
+            appButton="primary"
+            buttonSize="lg"
+            class="disabled:cursor-not-allowed"
+            [disabled]="selection.selectedKeys().length === 0"
+            (click)="openCreateVoteSession()"
+          >
+            {{
+              'usageStats.createVoteSession' | transloco: { count: selection.selectedKeys().length }
+            }}
+          </button>
+        }
+      </ng-container>
+    </app-mass-delete-panel>
     <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
          Usage page only — this is where the purge decision lives. -->
     <app-restore-panel [setId]="setId" [channelName]="channelName()" />
