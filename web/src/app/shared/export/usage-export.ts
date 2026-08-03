@@ -1,6 +1,7 @@
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageTrend } from '../emotes/emote-context';
 import { CsvColumn, toCsv } from './csv';
+import { ExportScope } from './export-dialog';
 import { ExportEnvelope, buildEnvelope } from './export-envelope';
 import { sanitizeFilenamePart } from './file-download';
 
@@ -9,9 +10,14 @@ export interface UsageExportInput {
   /** ISO dates (`yyyy-MM-dd`) of the selected range, both inclusive. */
   from: string;
   to: string;
-  /** The visible (filtered + sorted) list — exporting rows the user is not looking at surprises. */
+  /**
+   * The rows the user chose in the export dialog: the visible (filtered + sorted) list, or the
+   * grid selection — exporting rows the user is not looking at surprises.
+   */
   rows: readonly EmoteUsageTotal[];
-  /** Whether `rows` is a filtered subset of the channel's emotes. */
+  /** Which of the two `rows` is; recorded in the JSON meta so the file says what subset it holds. */
+  scope: ExportScope;
+  /** Whether a grid filter was active — independent of `scope`, a selection can coexist with it. */
   filtered: boolean;
   /** The page owns the trend derivation (it knows `trackedSince`) — injected, not re-derived. */
   trendFor: (row: EmoteUsageTotal) => UsageTrend;
@@ -32,6 +38,7 @@ export interface UsageExportMeta {
   from: string;
   to: string;
   rowCount: number;
+  scope: ExportScope;
   filtered: boolean;
 }
 
@@ -62,6 +69,7 @@ export function usageJson(input: UsageExportInput): string {
       from: input.from,
       to: input.to,
       rowCount: input.rows.length,
+      scope: input.scope,
       filtered: input.filtered,
     },
     rows: input.rows.map((row) => ({

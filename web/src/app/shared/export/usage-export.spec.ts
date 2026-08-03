@@ -23,6 +23,7 @@ function input(overrides: Partial<UsageExportInput> = {}): UsageExportInput {
     from: '2026-07-01',
     to: '2026-08-01',
     rows: [usageRow()],
+    scope: 'visible',
     filtered: false,
     trendFor: () => 'rising',
     ...overrides,
@@ -65,6 +66,7 @@ describe('usageJson', () => {
       from: '2026-07-01',
       to: '2026-08-01',
       rowCount: 1,
+      scope: 'visible',
       filtered: true,
     });
     expect(parsed.rows[0]).toEqual({
@@ -76,5 +78,10 @@ describe('usageJson', () => {
       firstSeenAt: '2026-06-01T00:00:00Z',
       trend: 'rising',
     });
+  });
+
+  it('records a selection export as such in the meta', () => {
+    const parsed = JSON.parse(usageJson(input({ scope: 'selection' })));
+    expect(parsed.meta.scope).toBe('selection');
   });
 });

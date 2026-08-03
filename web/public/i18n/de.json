@@ -618,6 +618,9 @@
       "other": "{{count}} Zeilen"
     },
     "filteredHint": "Exportiert wird die aktuell gefilterte Liste.",
+    "scopeLabel": "Exportumfang",
+    "scopeVisible": "Gefilterte Liste ({{count}})",
+    "scopeSelection": "Auswahl ({{count}})",
     "formatCsv": "CSV (Tabellenkalkulation)",
     "formatJson": "JSON",
     "withheldTallies": "Diese Abstimmung läuft mit verdeckten Ergebnissen — die Stimmenspalten sind nicht enthalten.",

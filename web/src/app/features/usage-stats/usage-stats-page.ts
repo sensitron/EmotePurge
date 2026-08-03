@@ -41,7 +41,7 @@ import {
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportDialog, ExportDialogData, ExportFormat } from '../../shared/export/export-dialog';
+import { ExportChoice, ExportDialog, ExportDialogData } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -401,35 +401,44 @@ export class UsageStatsPage {
     });
   }
 
-  // Exports the *visible* list (filtered + sorted): the button sits with the filters, and shipping
-  // 900 rows while the user looks at 12 would surprise. Client-side serialization on purpose — the
-  // read model is already loaded, and a download must never see more than the page does (A12).
+  // Exports the *visible* list (filtered + sorted) by default, or — chosen in the dialog — the
+  // current grid selection: the same rows that drive mass-delete and vote-session creation.
+  // Client-side serialization on purpose — the read model is already loaded, and a download must
+  // never see more than the page does (A12).
   protected openExport(): void {
-    const input: UsageExportInput = {
-      channelName: this.channelName(),
-      from: this.from(),
-      to: this.to(),
-      rows: this.sortedEmotes(),
-      filtered: this.usageFilter.isAnyActive(),
-      trendFor: (row) => this.trendFor(row),
-    };
     const data: ExportDialogData = {
-      rowCount: input.rows.length,
-      filtered: input.filtered,
+      rowCount: this.sortedEmotes().length,
+      filtered: this.usageFilter.isAnyActive(),
+      selectionCount: this.selection.selectedKeys().length,
       // Whoever can open this page sees every usage figure — nothing to explain away here.
       noticeKeys: [],
     };
     this.dialog
-      .open<ExportFormat | undefined>(ExportDialog, {
+      .open<ExportChoice | undefined>(ExportDialog, {
         data,
         backdropClass: 'app-dialog-backdrop',
         panelClass: 'app-dialog-panel',
         ariaLabelledBy: 'export-dialog-title',
       })
-      .closed.subscribe((format) => {
-        if (format === 'csv') {
+      .closed.subscribe((choice) => {
+        if (!choice) {
+          return;
+        }
+        // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
+        // the same reason as selectedForDelete: everything that removes rows from sortedEmotes()
+        // also clears or prunes the selection.
+        const input: UsageExportInput = {
+          channelName: this.channelName(),
+          from: this.from(),
+          to: this.to(),
+          rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.sortedEmotes(),
+          scope: choice.scope,
+          filtered: this.usageFilter.isAnyActive(),
+          trendFor: (row) => this.trendFor(row),
+        };
+        if (choice.format === 'csv') {
           downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
-        } else if (format === 'json') {
+        } else {
           downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
         }
       });

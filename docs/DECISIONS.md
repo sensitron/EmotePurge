@@ -10,6 +10,16 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-03 — Der Export-Dialog bekommt eine Bereichswahl: sichtbare Liste (Default) oder Grid-Auswahl
+
+**Betrifft:** `web/src/app/shared/export/export-dialog.ts` · `web/src/app/shared/export/usage-export.{ts,spec.ts}` · `web/src/app/features/usage-stats/usage-stats-page.ts` · `web/src/app/features/voting/vote-session-detail-page.ts` · beide Locale-Dateien (`export.scope*`)
+
+**Erweiterung der A12-Entscheidung „Exportiert wird die sichtbare Liste":** Existiert auf der Usage-Stats-Seite eine Grid-Selektion (dieselbe, die Mass-Delete und „Zur Abstimmung stellen" treibt), bietet der Export-Dialog zusätzlich „Auswahl (n)" an — als Radio-Wahl im Dialog, nicht als zweiter Button. Der Default bleibt die gefilterte Liste, auch bei bestehender Auswahl: die Selektion gehört primär den anderen beiden Kommandos, und ein Export, der sich stillschweigend auf sie verengt, wäre genau die Überraschung, die der A12-Eintrag für den umgekehrten Fall (900 statt 12 Zeilen) ausschließt. Die Zeilenzahl im Dialog folgt der Wahl; der `filteredHint` erscheint nur im Listen-Fall, weil er im Auswahl-Fall schlicht nicht stimmt.
+
+**Der Dialog schließt jetzt mit `{format, scope}` statt nur `format`**, und die Usage-Seite baut das `UsageExportInput` erst nach dem Schließen aus dem gewählten Scope — `selection.selectedItems()` ist dafür aus demselben Grund vollständig wie bei `selectedForDelete`: jeder Pfad, der Zeilen aus `sortedEmotes()` entfernt, leert oder beschneidet die Selektion. Die Voting-Detailseite übergibt `selectionCount: 0` und bekommt nie eine Wahl angezeigt — ihr Subset ist der Ballot selbst. Im JSON-Envelope steht der gewählte Umfang als neues `meta.scope` (`visible` | `selection`), additiv ohne `formatVersion`-Bump; `meta.filtered` behält seine Bedeutung „ein Grid-Filter war aktiv" unabhängig vom Scope.
+
+---
+
 ### 2026-08-03 — `FirstSeenAt` kommt jetzt aus der v4-GraphQL-API: das v3-`timestamp` war das Upload-Datum
 
 **Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs` · `src/EmotePurge.Infrastructure/SevenTv/{SevenTvApiDtos,SevenTvEmoteJsonMapper,SevenTvApiClient}.cs` · `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs` · `src/EmotePurge.Infrastructure/Migrations/20260803110452_ResetMisattributedFirstSeenAt.cs` · `tests/EmotePurge.Infrastructure.Tests/Integration/SevenTvSyncServiceTests.cs` · `docs/Architectur.md`

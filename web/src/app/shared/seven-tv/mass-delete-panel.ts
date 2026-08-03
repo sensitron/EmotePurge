@@ -10,7 +10,7 @@ import {
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { CSV_MIME } from '../export/csv';
-import { ExportDialog, ExportDialogData, ExportFormat } from '../export/export-dialog';
+import { ExportChoice, ExportDialog, ExportDialogData } from '../export/export-dialog';
 import { JSON_MIME } from '../export/export-envelope';
 import { downloadFile } from '../export/file-download';
 import {
@@ -269,30 +269,32 @@ export class MassDeletePanel {
     const data: ExportDialogData = {
       rowCount: protocol.rows.length,
       filtered: false,
+      // The protocol is always the whole run — a scope choice would make no sense here.
+      selectionCount: 0,
       noticeKeys: [],
     };
     this.dialog
-      .open<ExportFormat | undefined>(ExportDialog, {
+      .open<ExportChoice | undefined>(ExportDialog, {
         data,
         backdropClass: 'app-dialog-backdrop',
         panelClass: 'app-dialog-panel',
         ariaLabelledBy: 'export-dialog-title',
       })
-      .closed.subscribe((format) => {
-        if (format === 'csv') {
+      .closed.subscribe((choice) => {
+        if (choice?.format === 'csv') {
           downloadFile(
             purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'csv'),
             purgeRunCsv(protocol),
             CSV_MIME,
           );
-        } else if (format === 'json') {
+        } else if (choice?.format === 'json') {
           downloadFile(
             purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'json'),
             purgeRunJson(protocol),
             JSON_MIME,
           );
         }
-        if (format) {
+        if (choice) {
           this.protocolSaved.set(true);
         }
       });

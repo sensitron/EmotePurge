@@ -28,7 +28,7 @@ import {
   EmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportDialog, ExportDialogData, ExportFormat } from '../../shared/export/export-dialog';
+import { ExportChoice, ExportDialog, ExportDialogData } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -396,19 +396,21 @@ export class VoteSessionDetailPage {
     const data: ExportDialogData = {
       rowCount: input.rows.length,
       filtered: input.rows.length !== this.orderedEmotes().length,
+      // This page has no grid selection to export — the ballot itself already is the subset.
+      selectionCount: 0,
       noticeKeys,
     };
     this.dialog
-      .open<ExportFormat | undefined>(ExportDialog, {
+      .open<ExportChoice | undefined>(ExportDialog, {
         data,
         backdropClass: 'app-dialog-backdrop',
         panelClass: 'app-dialog-panel',
         ariaLabelledBy: 'export-dialog-title',
       })
-      .closed.subscribe((format) => {
-        if (format === 'csv') {
+      .closed.subscribe((choice) => {
+        if (choice?.format === 'csv') {
           downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
-        } else if (format === 'json') {
+        } else if (choice?.format === 'json') {
           downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
         }
       });

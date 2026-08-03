@@ -618,6 +618,9 @@
       "other": "{{count}} rows"
     },
     "filteredHint": "The currently filtered list will be exported.",
+    "scopeLabel": "Export scope",
+    "scopeVisible": "Filtered list ({{count}})",
+    "scopeSelection": "Selection ({{count}})",
     "formatCsv": "CSV (spreadsheet)",
     "formatJson": "JSON",
     "withheldTallies": "This vote runs with hidden results — the vote columns are not included.",
