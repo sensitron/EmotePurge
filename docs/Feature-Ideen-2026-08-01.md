@@ -35,6 +35,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A11** Duplikat-Erkennung | ⬜ | — |
 | **A12** Ergebnis-Export | ✅ 2026-08-02 | DECISIONS „Der Export ist eine Client-Serialisierung …" |
 | **A13**–**A15** | ⬜ | — |
+| **A16** Emote-Liste importieren (Nachtrag 2026-08-04) | ⬜ | — |
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
 | **B2** Soll/Ist-Roster | ✅ 2026-08-02 | DECISIONS „Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht" |
 | **B3**–**B9** | ⬜ | — |
@@ -448,6 +449,36 @@ Hinzufüge-Pfad, der wieder im Browser laufen muss.
 Positionierungsentscheidung. Vorschlags-Spam ist eine neue Missbrauchsfläche und braucht
 Per-User-Limits (chat.vote löst das mit einem `!suggest`-Limit). Regel 8 zwingt zu einem eigenen
 Datenmodell.
+
+### A16 — Emote-Liste importieren: kopieren statt nur wiederherstellen (Nachtrag 2026-08-04)
+
+Eine hochgeladene Emote-Liste dem aktiven Set hinzufügen, **ohne** dass sie aus einem Löschlauf
+genau dieses Sets stammen muss — der kurze Weg, um ein Set in ein zweites zu übernehmen
+(Zweitkanal, Test-Set, Set-Wechsel).
+
+**Warum es zieht.** Die Maschinerie steht bereits: der Restore-Import aus **A6** *ist* schon „nimm
+diese Liste 7TV-IDs und füge sie dem aktiven Set hinzu", inklusive Token-Prompt, Slot-Anzeige im
+Bestätigungsdialog und Fortschrittsanzeige. Was fehlt, ist nicht der Ausführungsweg, sondern die
+Erlaubnis: `parsePurgeRunProtocol` weist eine Datei ab, deren `channelName` oder `meta.emoteSetId`
+nicht zum aktuellen Kanal und Set passt. Genau diese zwei Prüfungen sind für einen Restore richtig
+und für ein Kopieren falsch. Anlass war eine Nutzerfrage vom 2026-08-04 — der Usage-Stats-Export
+wurde ins Restore-Panel hochgeladen, in der Annahme, Export und Import seien ein Paar. Die
+Fehlermeldungen sind seither schärfer (`restore.import.errors.usageExport`), aber die Erwartung
+dahinter war ein echter Wunsch.
+
+**Datenlage.** Reicht, kein neues Backend — das Hinzufügen läuft wie jeder Schreibzugriff im
+Browser gegen 7TV. Braucht eine vierte Envelope-Sorte `kind: 'emote-list'` mit
+`rows: [{ sevenTvEmoteId, name }]` statt einer Zweckentfremdung des Purge-Protokolls; dessen `kind`
+steht genau dafür im Dateiformat, damit ein Import nicht raten muss. Der interne `emoteId` (Regel 8)
+gehört bewusst **nicht** in so eine Datei — er ist channel-scoped und im Zielkanal bedeutungslos.
+
+**Aufwand.** S–M · **Risiko.** Der Bestätigungsdialog trägt hier die ganze Last: ohne Set-Prüfung
+sagt keine Validierung mehr „das gehört woanders hin", also muss er Herkunft, Zielset und freie
+Slots nebeneinander zeigen — ein 900er-Set in ein Set mit 50 freien Slots zu kippen, muss vorher
+sichtbar sein statt als Fehlerregen danach. Zweiter offener Punkt sind Namenskollisionen: dass
+gleichnamige Emotes in einem Set vorkommen, zeigt das Duplikat-Banner vom 2026-08-03 — ob 7TV beim
+Hinzufügen ablehnt oder stillschweigend einen Alias vergibt, ist ungemessen und gehört vor die
+Umsetzung, nicht in sie.
 
 ---
 
