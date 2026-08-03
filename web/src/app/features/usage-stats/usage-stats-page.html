@@ -2,15 +2,29 @@
   <!-- Same header layout as the voting-detail page: title left, refresh top-right, filters below. -->
   <header class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-lg font-semibold">{{ 'usageStats.title' | transloco }}</h2>
-    <button
-      type="button"
-      appButton="neutral"
-      [disabled]="isLoading()"
-      (click)="refresh()"
-      [title]="'usageStats.reloadTitle' | transloco"
-    >
-      {{ 'usageStats.refresh' | transloco }}
-    </button>
+    <div class="flex items-center gap-2">
+      <!-- Header action, mirroring the voting-detail page: export is a command, not a filter.
+           The export dialog itself states that it exports the currently filtered list. -->
+      <button
+        type="button"
+        appButton="neutral"
+        class="disabled:cursor-not-allowed"
+        [disabled]="sortedEmotes().length === 0"
+        [attr.aria-label]="'export.buttonAriaLabel' | transloco"
+        (click)="openExport()"
+      >
+        {{ 'export.button' | transloco }}
+      </button>
+      <button
+        type="button"
+        appButton="neutral"
+        [disabled]="isLoading()"
+        (click)="refresh()"
+        [title]="'usageStats.reloadTitle' | transloco"
+      >
+        {{ 'usageStats.refresh' | transloco }}
+      </button>
+    </div>
   </header>
 
   <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
@@ -97,17 +111,6 @@
       (click)="usageFilter.toggleHideObserved()"
     >
       {{ 'usageStats.hideObserved' | transloco }}
-    </button>
-    <!-- Sits with the filters because it exports exactly what they leave visible. -->
-    <button
-      type="button"
-      appButton="neutral"
-      class="disabled:cursor-not-allowed"
-      [disabled]="sortedEmotes().length === 0"
-      [attr.aria-label]="'export.buttonAriaLabel' | transloco"
-      (click)="openExport()"
-    >
-      {{ 'export.button' | transloco }}
     </button>
     <!-- The filter's own readout, so it sits with the controls that produce it and stays visible
          while the grid scrolls. It used to be a lone paragraph above the slot bar, where two

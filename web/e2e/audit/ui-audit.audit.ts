@@ -607,7 +607,7 @@ const SCENARIOS: Scenario[] = [
     },
     afterLoad: async (page) => {
       // Locale-independent handle: the visible label is translated, the aria-label key is not
-      // unique — the export trigger is the only button of the toolbar that opens a CDK dialog.
+      // unique — the export trigger sits in the header action row next to the refresh button.
       await page
         .getByRole('button', { name: /export/i })
         .first()
