@@ -9,6 +9,7 @@ import {
   mockChannelPermissions,
   mockChannelScopedResync,
   mockChannelStatus,
+  mockDuplicateEmoteNames,
   mockMyChannels,
   mockUsageTotals,
   mockWorkerHealth,
@@ -64,6 +65,60 @@ test.describe('authenticated broadcaster', () => {
     await expect(page.getByText('PogU')).toBeVisible();
     await expect(page.getByText('42x')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Channel verlassen' })).toBeVisible();
+  });
+
+  test('warns about duplicate emote names and reveals the colliding emotes on demand', async ({
+    page,
+  }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockDuplicateEmoteNames(page, 'sensitron', [
+      {
+        name: 'ApuDrums',
+        emotes: [
+          {
+            emoteId: 'e-dup-1',
+            sevenTvEmoteId: '7tv-dup-1',
+            imageUrl: 'https://cdn.7tv.app/emote/1/1x.webp',
+          },
+          {
+            emoteId: 'e-dup-2',
+            sevenTvEmoteId: '7tv-dup-2',
+            imageUrl: 'https://cdn.7tv.app/emote/2/1x.webp',
+          },
+        ],
+      },
+    ]);
+
+    await page.goto('/channels/sensitron/usage-stats');
+
+    await expect(
+      page.getByText('Ein Emote-Name ist im aktiven 7TV-Set mehrfach vergeben.'),
+    ).toBeVisible();
+    // Collapsed by default: the colliding name only appears after opening the details.
+    await expect(page.getByText('ApuDrums')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Details anzeigen' }).click();
+
+    await expect(page.getByText('ApuDrums')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Details ausblenden' })).toBeVisible();
+  });
+
+  test('shows no duplicate-name banner when every active emote name is unique', async ({
+    page,
+  }) => {
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockDuplicateEmoteNames(page, 'sensitron', []);
+
+    await page.goto('/channels/sensitron/usage-stats');
+
+    await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+    await expect(page.getByText('mehrfach vergeben')).toHaveCount(0);
   });
 
   test('resync reports queued and upgrades to finished when the sync event arrives', async ({

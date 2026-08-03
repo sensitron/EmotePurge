@@ -47,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IEmoteService, EmoteService>();
         services.AddScoped<IEmoteSetOwnershipService, EmoteSetOwnershipService>();
         services.AddScoped<IEmoteSetStatusService, EmoteSetStatusService>();
+        services.AddScoped<IDuplicateEmoteNameQueryService, DuplicateEmoteNameQueryService>();
 
         services.AddSingleton<IEmoteMatchCache, EmoteMatchCache>();
         services.AddSingleton<IDuplicateEmoteNameTracker, DuplicateEmoteNameTracker>();

@@ -58,6 +58,7 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     [InlineData("GET", "/api/channels/mine")]
     [InlineData("GET", "/api/channels/testchannel/usage-stats")]
     [InlineData("GET", "/api/channels/testchannel/emotes/set-warning")]
+    [InlineData("GET", "/api/channels/testchannel/emotes/duplicate-names")]
     [InlineData("POST", "/api/channels/testchannel/emotes/sync-restored")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions/1/results")]

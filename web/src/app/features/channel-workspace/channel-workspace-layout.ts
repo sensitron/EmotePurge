@@ -1,11 +1,15 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { DuplicateEmoteName } from '../../core/emotes/duplicate-emote-name.model';
+import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
+import { pluralKey } from '../../core/i18n/plural';
 import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
 import { liveEvents } from '../../core/live/live-reload';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
@@ -23,6 +27,7 @@ const RESYNC_FEEDBACK_MS = 4000;
   imports: [
     BackLink,
     Button,
+    NgOptimizedImage,
     NoticeBanner,
     RouterLink,
     RouterLinkActive,
@@ -82,6 +87,61 @@ const RESYNC_FEEDBACK_MS = 4000;
         <app-notice-banner variant="warning" class="mb-4 block">
           {{ 'channelWorkspace.botInactiveNotice' | transloco }}
         </app-notice-banner>
+      }
+
+      <!-- A name collision silently folds all chat usage of the name onto one of the emotes, so
+           the usage numbers below undercount the others. Fixing it happens on 7TV (rename or
+           remove one copy), which the channel's 7TV editors can do too — hence the same audience
+           as the usage tab, not canManage. -->
+      @if (duplicateNames().length > 0) {
+        <app-notice-banner variant="warning" class="mb-4 block">
+          {{ duplicateNoticeKey() | transloco: { count: duplicateNames().length } }}
+          <button
+            notice-action
+            type="button"
+            appButton="outline"
+            [attr.aria-expanded]="duplicatesExpanded()"
+            aria-controls="duplicate-names-details"
+            (click)="duplicatesExpanded.set(!duplicatesExpanded())"
+          >
+            {{
+              (duplicatesExpanded()
+                ? 'channelWorkspace.duplicateNames.hide'
+                : 'channelWorkspace.duplicateNames.show'
+              ) | transloco
+            }}
+          </button>
+        </app-notice-banner>
+        @if (duplicatesExpanded()) {
+          <div
+            id="duplicate-names-details"
+            class="mb-4 rounded-md border border-warning-border bg-warning-wash px-4 py-3 text-sm text-warning-fg"
+          >
+            <p class="mb-3">{{ 'channelWorkspace.duplicateNames.explanation' | transloco }}</p>
+            <ul class="flex max-h-64 flex-col gap-2 overflow-y-auto">
+              @for (group of duplicateNames(); track group.name) {
+                <li class="flex flex-wrap items-center gap-2">
+                  <span class="font-medium">{{ group.name }}</span>
+                  @for (emote of group.emotes; track emote.emoteId) {
+                    <div
+                      class="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-emote-canvas"
+                    >
+                      @if (emote.imageUrl) {
+                        <img
+                          [ngSrc]="emote.imageUrl"
+                          width="40"
+                          height="40"
+                          alt=""
+                          class="max-h-10 max-w-10 object-contain"
+                        />
+                      }
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
       }
 
       @if (errorMessage(); as message) {
@@ -149,6 +209,7 @@ export class ChannelWorkspaceLayout {
   readonly channelName = input.required<string>();
 
   private readonly channelService = inject(ChannelService);
+  private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly deleteService = inject(SevenTvDeleteService);
   private readonly restoreService = inject(SevenTvRestoreService);
   private readonly router = inject(Router);
@@ -175,6 +236,12 @@ export class ChannelWorkspaceLayout {
 
   protected readonly errorMessage = signal<string | null>(null);
 
+  protected readonly duplicateNames = signal<DuplicateEmoteName[]>([]);
+  protected readonly duplicatesExpanded = signal(false);
+  protected readonly duplicateNoticeKey = computed(() =>
+    pluralKey(this.duplicateNames().length, 'channelWorkspace.duplicateNames.notice'),
+  );
+
   private feedbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -183,6 +250,9 @@ export class ChannelWorkspaceLayout {
       // A finished mass-delete or restore run from another channel must not follow the user in here.
       this.deleteService.resetIfChannelChanged(channelName);
       this.restoreService.resetIfChannelChanged(channelName);
+      // Another channel's collisions must not flash up while this one's answer is in flight.
+      this.duplicateNames.set([]);
+      this.duplicatesExpanded.set(false);
       this.loadPermissions(channelName);
     });
 
@@ -198,6 +268,9 @@ export class ChannelWorkspaceLayout {
       if (this.resyncFeedbackKey() !== null) {
         this.showResyncFeedback('channelWorkspace.resync.completed');
       }
+      // The inventory changed, so the collision set may have too — including the good case where
+      // the banner disappears right after the user fixed the duplicate on 7TV.
+      this.loadDuplicateNames(this.channelName());
     });
   }
 
@@ -295,6 +368,9 @@ export class ChannelWorkspaceLayout {
         this.canManage.set(permissions.canManage);
         this.canViewUsageStats.set(permissions.canViewUsageStats);
         this.isBotActive.set(permissions.isBotActive);
+        // After, not alongside, the permissions call: the endpoint carries the usage-stats access
+        // filter, so asking without the permission would only produce a guaranteed 403.
+        this.loadDuplicateNames(channelName);
       },
       // Only reachable for a logged-out user (the interceptor already redirects) or a server error —
       // hide everything privileged rather than guess.
@@ -302,6 +378,17 @@ export class ChannelWorkspaceLayout {
         this.canManage.set(false);
         this.canViewUsageStats.set(false);
       },
+    });
+  }
+
+  private loadDuplicateNames(channelName: string): void {
+    if (!this.canViewUsageStats()) {
+      return;
+    }
+    this.emoteAdminService.getDuplicateNames(channelName).subscribe({
+      next: (duplicates) => this.duplicateNames.set(duplicates),
+      // Best-effort hint, not page content: a failed check renders nothing rather than an error.
+      error: () => this.duplicateNames.set([]),
     });
   }
 }

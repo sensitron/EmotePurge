@@ -687,6 +687,21 @@ export async function mockActiveEmoteSet(
   );
 }
 
+/** GET /api/channels/{channelName}/emotes/duplicate-names — feeds the workspace-wide collision
+ *  banner; an empty array means every active emote name is unique and no banner renders. */
+export async function mockDuplicateEmoteNames(
+  page: Page,
+  channelName: string,
+  duplicates: {
+    name: string;
+    emotes: { emoteId: string; sevenTvEmoteId: string; imageUrl: string }[];
+  }[] = [],
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/emotes/duplicate-names`, (route) =>
+    fulfillJson(route, 200, duplicates),
+  );
+}
+
 export interface MockVoteSession {
   id: number;
   title: string;

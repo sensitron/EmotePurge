@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 
+import { DuplicateEmoteName } from './duplicate-emote-name.model';
 import { EmoteSetStatus } from './emote-set-status.model';
 
 export interface SyncDeletedResult {
@@ -54,5 +55,14 @@ export class EmoteAdminService {
    *  Carries the slot budget and the tracking start too — same audience, same page, one request. */
   getSetStatus(channelName: string): Observable<EmoteSetStatus> {
     return this.http.get<EmoteSetStatus>(`/api/channels/${channelName}/emotes/active-set`);
+  }
+
+  /** Exact-name collisions in the channel's active 7TV set — while one exists, chat usage of the
+   *  name is counted onto a single one of the emotes, distorting the usage numbers. Same audience
+   *  as getSetStatus: fixing a collision happens on 7TV, which editors can do too. */
+  getDuplicateNames(channelName: string): Observable<DuplicateEmoteName[]> {
+    return this.http.get<DuplicateEmoteName[]>(
+      `/api/channels/${channelName}/emotes/duplicate-names`,
+    );
   }
 }
