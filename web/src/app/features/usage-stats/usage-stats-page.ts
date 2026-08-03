@@ -144,7 +144,9 @@ export class UsageStatsPage {
   protected readonly columns = signal(computeGridColumns(window.innerWidth));
 
   // trackedSince is not known until the set-status response lands, so the first request uses the
-  // widest span the endpoint accepts — identical rows for any channel younger than that.
+  // widest span the endpoint accepts — identical rows for any channel younger than that. Once the
+  // response arrives, the constructor effect below pulls from() forward to the tracking start, so
+  // "all time" never keeps claiming a year of data on a channel tracked for days.
   protected readonly from = signal(allTimeStart(null));
   protected readonly to = signal(toIsoDate(new Date()));
   protected readonly sortKey = signal<SortKey>('usage');
@@ -242,6 +244,19 @@ export class UsageStatsPage {
     effect(() => {
       this.load(this.channelName(), this.from(), this.to());
     });
+
+    // Resolves "all time" against the tracking start as soon as it is known — the initial from()
+    // is only a placeholder (see its declaration). Every consumer of from() (grid request,
+    // drilldown, export, vote-session prefill) inherits the corrected value, at the cost of one
+    // repeated totals request per page open. Re-selecting "all" in the menu writes the same date
+    // again, which a signal treats as no change — so this cannot loop.
+    effect(() => {
+      const trackedSinceDate = this.trackedSinceDate();
+      if (this.rangePreset() === 'all' && trackedSinceDate) {
+        this.from.set(allTimeStart(trackedSinceDate));
+      }
+    });
+
     this.destroyRef.onDestroy(() => this.syncPoll?.unsubscribe());
 
     // Live refresh after the worker's usage flush and after real emote-inventory changes
@@ -356,12 +371,10 @@ export class UsageStatsPage {
     const data: CreateVoteSessionDialogData = {
       channelName: this.channelName(),
       emoteIds,
-      // The dialog turns this into the session's "count usage from" prefill, so it has to be a date
-      // a human would recognise. On the "all time" default from() may be the endpoint's widest
-      // accepted span, which would claim the session counts from a year back on a channel tracked
-      // for a fortnight — the tracking start says the same thing without the false precision.
-      usageFromDate:
-        this.rangePreset() === 'all' ? (this.trackedSinceDate() ?? this.from()) : this.from(),
+      // The dialog turns this into the session's "count usage from" prefill. On the "all time"
+      // preset from() already equals the tracking start (the constructor effect keeps it there),
+      // so it is a date a human would recognise on every path.
+      usageFromDate: this.from(),
     };
     this.dialog
       .open<VoteSessionSummary | undefined>(CreateVoteSessionDialog, {
