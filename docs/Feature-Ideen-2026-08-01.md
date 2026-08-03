@@ -38,7 +38,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
 | **B2** Soll/Ist-Roster | ✅ 2026-08-02 | DECISIONS „Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht" |
 | **B3**–**B9** | ⬜ | — |
-| **B10** LIVE-Badge in Channel-Listen (Nachtrag 2026-08-03) | ⬜ | — |
+| **B10** LIVE-Badge in Channel-Listen (Nachtrag 2026-08-03) | ✅ 2026-08-03 | DECISIONS „LIVE-Badge in den Channel-Listen: der Worker publiziert den Live-Poll-Momentzustand …" |
 
 ## Inhalt
 
@@ -648,8 +648,13 @@ Admin aus.
 
 ### B10 — LIVE-Badge in den Channel-Listen (Nachtrag 2026-08-03)
 
-*Status: ⬜ offen. Nachtrag vom 2026-08-03 (Nutzerwunsch während der Watchdog-Runde), nicht Teil der
-ursprünglichen Session vom 2026-08-01.*
+**Status: ✅ umgesetzt am 2026-08-03** — Redis-TTL-Key `worker:live-status` (`TwitchLivePollWorker`
+publiziert, `TwitchLiveStatusStore` liest), dreiwertiger `liveState` (`live`/`offline`/`unknown`) in
+beiden Listen-Antworten plus `livePolledAtUtc`, Badges in Admin-Channel-Liste und „Meine Channels"
+mit „Stand vor x min"-Tooltip; `unknown` bleibt bewusst badge-los. Begründung in DECISIONS
+„LIVE-Badge in den Channel-Listen: der Worker publiziert den Live-Poll-Momentzustand …". Nachtrag
+vom 2026-08-03 (Nutzerwunsch während der Watchdog-Runde), nicht Teil der ursprünglichen Session vom
+2026-08-01.
 
 In der Admin-Channel-Liste und in „Meine Channels" anzeigen, ob ein Kanal gerade live ist.
 

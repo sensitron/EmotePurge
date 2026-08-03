@@ -172,6 +172,7 @@ export interface MockChannel {
   isSevenTvEditor?: boolean;
   isTracked?: boolean;
   isBotActive?: boolean;
+  liveState?: 'live' | 'offline' | 'unknown';
 }
 
 /** GET /api/channels/mine — the overview page's "Meine Channels" section. */
@@ -188,7 +189,11 @@ export async function mockMyChannels(page: Page, channels: MockChannel[]): Promi
         isSevenTvEditor: c.isSevenTvEditor ?? false,
         isTracked: c.isTracked ?? false,
         isBotActive: c.isBotActive ?? false,
+        liveState: c.liveState ?? 'unknown',
       })),
+      livePolledAtUtc: channels.some((c) => (c.liveState ?? 'unknown') !== 'unknown')
+        ? '2026-08-03T18:00:00Z'
+        : null,
     }),
   );
 }
@@ -206,6 +211,7 @@ export interface MockAdminChannel {
   lastInventoryChangeUtc?: string | null;
   activeEmoteSetId?: string | null;
   activeEmoteSetCapacity?: number | null;
+  liveState?: 'live' | 'offline' | 'unknown';
 }
 
 /**
@@ -217,10 +223,8 @@ export async function mockAdminChannelList(
   channels: MockAdminChannel[],
 ): Promise<void> {
   await page.route('**/api/admin/channels', (route) =>
-    fulfillJson(
-      route,
-      200,
-      channels.map((c) => ({
+    fulfillJson(route, 200, {
+      channels: channels.map((c) => ({
         channelName: c.channelName,
         twitchChannelId: c.twitchChannelId ?? null,
         isBotActive: c.isBotActive ?? true,
@@ -234,8 +238,12 @@ export async function mockAdminChannelList(
         activeEmoteSetId: c.activeEmoteSetId ?? null,
         activeEmoteSetCapacity: c.activeEmoteSetCapacity ?? null,
         trackingResumedAt: null,
+        liveState: c.liveState ?? 'unknown',
       })),
-    ),
+      livePolledAtUtc: channels.some((c) => (c.liveState ?? 'unknown') !== 'unknown')
+        ? '2026-08-03T18:00:00Z'
+        : null,
+    }),
   );
 }
 
@@ -277,6 +285,7 @@ export async function mockAdminChannelDetail(
         activeEmoteSetId: channel.activeEmoteSetId ?? null,
         activeEmoteSetCapacity: channel.activeEmoteSetCapacity ?? null,
         trackingResumedAt: null,
+        liveState: channel.liveState ?? 'unknown',
       },
       roster: {
         available: roster.available ?? true,

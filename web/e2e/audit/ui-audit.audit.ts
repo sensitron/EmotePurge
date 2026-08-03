@@ -84,7 +84,9 @@ async function mockMyChannelsWithFlags(
           isSevenTvEditor: c.isSevenTvEditor ?? false,
           isTracked: c.isTracked ?? false,
           isBotActive: c.isBotActive ?? false,
+          liveState: c.liveState ?? 'unknown',
         })),
+        livePolledAtUtc: null,
       }),
     }),
   );

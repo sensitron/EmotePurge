@@ -36,6 +36,17 @@ export class OverviewPage {
   protected readonly reauthRequired = signal(false);
   protected readonly sevenTvUnavailable = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+  private readonly livePolledAtUtc = signal<string | null>(null);
+
+  /** Age of the live-poll data in whole minutes, for the badge tooltip. Computed per list load —
+   *  precise enough for a value that only says "up to ~5 min behind". */
+  protected readonly liveAgeMinutes = computed(() => {
+    const polledAt = this.livePolledAtUtc();
+    if (!polledAt) {
+      return 0;
+    }
+    return Math.max(0, Math.round((Date.now() - new Date(polledAt).getTime()) / 60_000));
+  });
 
   constructor() {
     this.channelService.listMine().subscribe({
@@ -44,6 +55,7 @@ export class OverviewPage {
         this.helixUnavailable.set(result.helixUnavailable);
         this.reauthRequired.set(result.reauthRequired);
         this.sevenTvUnavailable.set(result.sevenTvUnavailable);
+        this.livePolledAtUtc.set(result.livePolledAtUtc);
       },
       error: (error: HttpErrorResponse) => this.handleError(error),
     });

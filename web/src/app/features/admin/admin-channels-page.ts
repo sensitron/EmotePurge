@@ -7,7 +7,7 @@ import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { Observable } from 'rxjs';
 
-import { AdminChannel } from '../../core/admin/admin.model';
+import { AdminChannel, AdminChannelsResult } from '../../core/admin/admin.model';
 import { AdminService } from '../../core/admin/admin.service';
 import { channelNameValidator, normalizeChannelName } from '../../core/channels/channel-name';
 import { ChannelService } from '../../core/channels/channel.service';
@@ -24,6 +24,8 @@ import { StatusBadge } from '../../shared/ui/status-badge';
 import { TypedConfirmDialog, TypedConfirmDialogData } from '../../shared/ui/typed-confirm-dialog';
 
 const NO_CHANNELS: AdminChannel[] = [];
+
+const EMPTY_RESULT: AdminChannelsResult = { channels: NO_CHANNELS, livePolledAtUtc: null };
 
 /** Shown for a channel that has never been synced — distinct from a date, on purpose. */
 const NO_VALUE = '—';
@@ -134,6 +136,24 @@ const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
                       | transloco
                   }}
                 </app-status-badge>
+                <!-- Three-way on purpose: 'unknown' (worker down, poll disabled, key expired)
+                     renders no badge at all — absence of data must not look like "offline". The
+                     tooltip owns the honesty about the poll lag. -->
+                @if (channel.liveState === 'live') {
+                  <app-status-badge
+                    tone="success"
+                    [title]="'admin.channels.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                  >
+                    {{ 'admin.channels.liveBadge' | transloco }}
+                  </app-status-badge>
+                } @else if (channel.liveState === 'offline') {
+                  <app-status-badge
+                    tone="neutral"
+                    [title]="'admin.channels.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                  >
+                    {{ 'admin.channels.offlineBadge' | transloco }}
+                  </app-status-badge>
+                }
 
                 <div class="relative z-10 ml-auto flex flex-wrap items-center justify-end gap-2">
                   @if (resyncFeedback() === channel.channelName) {
@@ -238,14 +258,26 @@ export class AdminChannelsPage {
 
   private readonly channelsResource = rxResource({
     stream: () => this.adminService.listChannels(),
-    defaultValue: NO_CHANNELS,
+    defaultValue: EMPTY_RESULT,
   });
 
   // value() throws once the resource is in its error state, so it is only ever read behind
   // hasValue() — the error banner renders from error() instead.
   protected readonly channels = computed(() =>
-    this.channelsResource.hasValue() ? this.channelsResource.value() : NO_CHANNELS,
+    this.channelsResource.hasValue() ? this.channelsResource.value().channels : NO_CHANNELS,
   );
+
+  /** Age of the live-poll data in whole minutes, for the badge tooltip. Recomputed per list load —
+   *  precise enough for a value that only says "up to ~5 min behind". */
+  protected readonly liveAgeMinutes = computed(() => {
+    const polledAt = this.channelsResource.hasValue()
+      ? this.channelsResource.value().livePolledAtUtc
+      : null;
+    if (!polledAt) {
+      return 0;
+    }
+    return Math.max(0, Math.round((Date.now() - new Date(polledAt).getTime()) / 60_000));
+  });
 
   /** Drives the refresh button's disabled state only — never a content swap. */
   protected readonly isLoading = computed(() => this.channelsResource.isLoading());

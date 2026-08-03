@@ -5,8 +5,8 @@ import { Observable } from 'rxjs';
 import { AuditLogEntry } from '../audit/audit.model';
 import { PagedResult } from '../models/paged-result.model';
 import {
-  AdminChannel,
   AdminChannelDetail,
+  AdminChannelsResult,
   AdminHealth,
   AdminRoster,
   AdminUser,
@@ -25,10 +25,11 @@ export class AdminService {
     return this.http.get<AdminHealth>('/api/admin/health');
   }
 
-  /** Every tracked channel with its emote/vote-session aggregates. The single global channel list
-   *  since the overview's admin section (GET /api/channels) was removed. */
-  listChannels(): Observable<AdminChannel[]> {
-    return this.http.get<AdminChannel[]>('/api/admin/channels');
+  /** Every tracked channel with its emote/vote-session aggregates, plus the timestamp of the live
+   *  poll behind each row's `liveState`. The single global channel list since the overview's admin
+   *  section (GET /api/channels) was removed. */
+  listChannels(): Observable<AdminChannelsResult> {
+    return this.http.get<AdminChannelsResult>('/api/admin/channels');
   }
 
   /** The worker's per-channel roster next to the channels the database considers active. Separate

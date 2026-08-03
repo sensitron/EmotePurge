@@ -4,8 +4,8 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  AdminChannel,
   AdminChannelDetail,
+  AdminChannelsResult,
   AdminHealth,
   AdminRoster,
   AdminUser,
@@ -182,6 +182,7 @@ describe('AdminService', () => {
         activeEmoteSetId: '01HSET',
         activeEmoteSetCapacity: 1000,
         trackingResumedAt: null,
+        liveState: 'unknown',
       },
       roster: {
         available: true,
@@ -200,60 +201,70 @@ describe('AdminService', () => {
   });
 
   it('listChannels GETs /api/admin/channels', () => {
-    const channels: AdminChannel[] = [
-      {
-        channelName: 'handofblood',
-        twitchChannelId: '4711',
-        isBotActive: true,
-        createdAt: '2026-01-01T00:00:00Z',
-        emoteCount: 903,
-        archivedEmoteCount: 17,
-        activeVoteSessionCount: 1,
-        voteSessionCount: 4,
-        lastSyncedAtUtc: '2026-07-31T11:55:00Z',
-        lastInventoryChangeUtc: '2026-07-31T11:00:00Z',
-        activeEmoteSetId: '01HSET',
-        activeEmoteSetCapacity: 1000,
-        trackingResumedAt: null,
-      },
-    ];
+    const channelsResult: AdminChannelsResult = {
+      channels: [
+        {
+          channelName: 'handofblood',
+          twitchChannelId: '4711',
+          isBotActive: true,
+          createdAt: '2026-01-01T00:00:00Z',
+          emoteCount: 903,
+          archivedEmoteCount: 17,
+          activeVoteSessionCount: 1,
+          voteSessionCount: 4,
+          lastSyncedAtUtc: '2026-07-31T11:55:00Z',
+          lastInventoryChangeUtc: '2026-07-31T11:00:00Z',
+          activeEmoteSetId: '01HSET',
+          activeEmoteSetCapacity: 1000,
+          trackingResumedAt: null,
+          liveState: 'live',
+        },
+      ],
+      livePolledAtUtc: '2026-08-03T18:00:00Z',
+    };
 
-    let result: AdminChannel[] | undefined;
+    let result: AdminChannelsResult | undefined;
     service.listChannels().subscribe((r) => (result = r));
 
     const req = httpMock.expectOne('/api/admin/channels');
     expect(req.request.method).toBe('GET');
-    req.flush(channels);
+    req.flush(channelsResult);
 
-    expect(result).toEqual(channels);
+    expect(result).toEqual(channelsResult);
   });
 
   it('listChannels passes a never-synced channel through unchanged (nulls stay nulls)', () => {
     // A freshly joined channel has no emote rows, so lastSyncedAtUtc is null — the service must not
-    // coerce that into a date, because "never synced" must stay distinguishable in the UI.
-    let result: AdminChannel[] | undefined;
+    // coerce that into a date, because "never synced" must stay distinguishable in the UI. Same for
+    // livePolledAtUtc: no snapshot means "no statement", not the epoch.
+    let result: AdminChannelsResult | undefined;
     service.listChannels().subscribe((r) => (result = r));
 
-    httpMock.expectOne('/api/admin/channels').flush([
-      {
-        channelName: 'freshchannel',
-        twitchChannelId: null,
-        isBotActive: false,
-        createdAt: '2026-07-31T10:00:00Z',
-        emoteCount: 0,
-        archivedEmoteCount: 0,
-        activeVoteSessionCount: 0,
-        voteSessionCount: 0,
-        lastSyncedAtUtc: null,
-        lastInventoryChangeUtc: null,
-        activeEmoteSetId: null,
-        activeEmoteSetCapacity: null,
-        trackingResumedAt: null,
-      },
-    ]);
+    httpMock.expectOne('/api/admin/channels').flush({
+      channels: [
+        {
+          channelName: 'freshchannel',
+          twitchChannelId: null,
+          isBotActive: false,
+          createdAt: '2026-07-31T10:00:00Z',
+          emoteCount: 0,
+          archivedEmoteCount: 0,
+          activeVoteSessionCount: 0,
+          voteSessionCount: 0,
+          lastSyncedAtUtc: null,
+          lastInventoryChangeUtc: null,
+          activeEmoteSetId: null,
+          activeEmoteSetCapacity: null,
+          trackingResumedAt: null,
+          liveState: 'unknown',
+        },
+      ],
+      livePolledAtUtc: null,
+    });
 
-    expect(result?.[0].lastSyncedAtUtc).toBeNull();
-    expect(result?.[0].twitchChannelId).toBeNull();
+    expect(result?.channels[0].lastSyncedAtUtc).toBeNull();
+    expect(result?.channels[0].twitchChannelId).toBeNull();
+    expect(result?.livePolledAtUtc).toBeNull();
   });
 
   it('listUsers GETs /api/admin/users with paging params', () => {

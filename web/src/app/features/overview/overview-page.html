@@ -55,6 +55,24 @@
             >
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
+                <!-- Three-way on purpose: 'unknown' (worker down, poll disabled, channel not
+                     polled) renders no badge at all — absence of data must not look like
+                     "offline". The tooltip owns the honesty about the poll lag. -->
+                @if (channel.liveState === 'live') {
+                  <app-status-badge
+                    tone="success"
+                    [title]="'overview.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                  >
+                    {{ 'overview.liveBadge' | transloco }}
+                  </app-status-badge>
+                } @else if (channel.liveState === 'offline') {
+                  <app-status-badge
+                    tone="neutral"
+                    [title]="'overview.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                  >
+                    {{ 'overview.offlineBadge' | transloco }}
+                  </app-status-badge>
+                }
                 @if (channel.isBroadcaster) {
                   <app-status-badge tone="accent">{{
                     'overview.roleBadges.broadcaster' | transloco

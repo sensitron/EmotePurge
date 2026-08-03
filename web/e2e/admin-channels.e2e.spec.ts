@@ -140,19 +140,23 @@ test.describe('global admin on /admin/channels', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          {
-            channelName: 'handofblood',
-            twitchChannelId: null,
-            isBotActive: true,
-            createdAt: '2026-01-01T00:00:00Z',
-            emoteCount: 903,
-            archivedEmoteCount: 17,
-            activeVoteSessionCount: 1,
-            voteSessionCount: 4,
-            lastSyncedAtUtc: '2026-07-31T11:00:00Z',
-          },
-        ]),
+        body: JSON.stringify({
+          channels: [
+            {
+              channelName: 'handofblood',
+              twitchChannelId: null,
+              isBotActive: true,
+              createdAt: '2026-01-01T00:00:00Z',
+              emoteCount: 903,
+              archivedEmoteCount: 17,
+              activeVoteSessionCount: 1,
+              voteSessionCount: 4,
+              lastSyncedAtUtc: '2026-07-31T11:00:00Z',
+              liveState: 'unknown',
+            },
+          ],
+          livePolledAtUtc: null,
+        }),
       });
     });
 

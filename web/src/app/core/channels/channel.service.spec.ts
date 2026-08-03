@@ -92,6 +92,7 @@ describe('ChannelService', () => {
       reauthRequired: false,
       sevenTvUnavailable: false,
       channels: [],
+      livePolledAtUtc: null,
     };
     service.listMine().subscribe();
 

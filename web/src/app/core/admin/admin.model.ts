@@ -1,3 +1,5 @@
+import { ChannelLiveState } from '../channels/channel.model';
+
 /** Twitch IRC state, derived server-side from the worker's snapshot (thresholds live in the Api). */
 export type WorkerConnectionStatus = 'connected' | 'stale' | 'disconnected' | 'unknown';
 
@@ -83,6 +85,17 @@ export interface AdminChannel {
   activeEmoteSetId: string | null;
   activeEmoteSetCapacity: number | null;
   trackingResumedAt: string | null;
+  /** From the worker's live-status snapshot, not the database — see `ChannelLiveState`. */
+  liveState: ChannelLiveState;
+}
+
+/**
+ * GET /api/admin/channels. The poll timestamp is snapshot-scoped (one Helix poll covered every
+ * row), so it lives here and not on each channel.
+ */
+export interface AdminChannelsResult {
+  channels: AdminChannel[];
+  livePolledAtUtc: string | null;
 }
 
 /**
