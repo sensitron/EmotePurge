@@ -154,7 +154,9 @@ public class SevenTvSyncService(
 
         foreach (var emote in delta.Pushed)
         {
-            UpsertEmote(channel.Id, existing, emote, fromDispatch: true);
+            // A push IS the moment the emote enters the set, so "now" is the true added-at — the
+            // one place in the delta path where the date is known without asking v4.
+            UpsertEmote(channel.Id, existing, emote with { AddedToSetAt = DateTime.UtcNow }, fromDispatch: true);
         }
 
         foreach (var emote in delta.Updated)
@@ -262,16 +264,19 @@ public class SevenTvSyncService(
     {
         if (existing.TryGetValue(live.Id, out var emote))
         {
-            // Backfill for rows that predate the column, deliberately outside the change detection
-            // below: learning *when* an emote joined the set is not an inventory change. Counted as
-            // one, the first resync after the deploy would fire channel.synced for every channel at
-            // once and make every open page refetch.
+            // Correction, not write-once backfill: the column was originally filled from the v3
+            // payload's timestamp, which turned out to be the emote's upload date rather than the
+            // set-entry date — so a known value may be known-wrong, and the v4-sourced answer must
+            // win. It also moves a re-added emote's date forward to its latest set entry. Kept
+            // outside the change detection below: learning *when* an emote joined the set is not an
+            // inventory change; counted as one, the first resync after a deploy would fire
+            // channel.synced for every channel at once and make every open page refetch.
             //
             // REST only, because ApplyEmoteSetUpdateAsync decides NoChange vs Applied by asking the
-            // ChangeTracker — a backfill there would turn a no-op dispatch into a live event. The
+            // ChangeTracker — a correction there would turn a no-op dispatch into a live event. The
             // periodic resync fills the same gap within a tick, so nothing is lost by waiting.
-            // Write-once regardless: overwriting a known date with null would lose it again.
-            if (!fromDispatch && emote.FirstSeenAt is null && live.AddedToSetAt is not null)
+            // Null never overwrites: losing a known date to a failed v4 lookup would reopen the gap.
+            if (!fromDispatch && live.AddedToSetAt is not null && emote.FirstSeenAt != live.AddedToSetAt)
             {
                 emote.FirstSeenAt = live.AddedToSetAt;
             }

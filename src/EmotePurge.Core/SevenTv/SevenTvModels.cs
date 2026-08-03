@@ -1,8 +1,10 @@
 namespace EmotePurge.Core.SevenTv;
 
-// AddedToSetAt is when this emote entered the set, straight from the set entry's own timestamp.
-// Null when the payload carries none — the EventAPI dispatch path shares this record and has not
-// been proven to include it, so "unknown" must stay distinguishable from "just added".
+// AddedToSetAt is when this emote entered the set. Resolved from the v4 GQL schema
+// (EmoteSetEmote.addedAt) — the v3 payload's own timestamp field carries the emote's *upload*
+// date and is deliberately not mapped. Null means unresolved: the EventAPI dispatch path only
+// knows the date for pushes (where "now" is the truth), so "unknown" must stay distinguishable
+// from "just added".
 public record SevenTvEmote(string Id, string Name, string ImageUrl, DateTime? AddedToSetAt = null);
 
 // Capacity is the set's slot limit as 7TV reports it, null when the response omits it or reports 0.

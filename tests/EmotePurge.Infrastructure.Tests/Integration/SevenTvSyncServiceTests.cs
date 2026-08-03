@@ -527,6 +527,54 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SyncChannel_CorrectsAKnownWrongFirstSeenAt_WithoutCountingItAsAChange()
+    {
+        // The column was historically filled from the v3 payload's timestamp — the emote's upload
+        // date, not the set-entry date. A differing live value is therefore a correction, and like
+        // the original backfill it must not count as an inventory change (channel.synced storm).
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_correct", ("e1", "stable", false));
+        var wrong = new DateTime(2023, 5, 6, 12, 0, 0, DateTimeKind.Utc);
+        await db.Emotes.Where(e => e.ChannelId == channel.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.FirstSeenAt, wrong));
+        var corrected = new DateTime(2026, 6, 1, 9, 0, 0, DateTimeKind.Utc);
+        var service = CreateRestService(
+            db, cache, channel, SetId, new SevenTvEmote("e1", "stable", SeededImageUrl("e1"), corrected));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+        Assert.Equal(corrected, await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1")
+            .Select(e => e.FirstSeenAt).SingleAsync());
+    }
+
+    [Fact]
+    public async Task ApplyEmoteSetUpdate_PushedInsert_StampsFirstSeenAtWithNow()
+    {
+        // Dispatch payloads carry no trustworthy added-at (the v3-shaped timestamp is the upload
+        // date), but a push IS the join moment — so the insert must be stamped with "now" instead
+        // of arriving dateless and waiting a resync tick for v4.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_firstseen_push", ("e1", "stable", false));
+        var service = CreateService(db, cache);
+        var before = DateTime.UtcNow.AddSeconds(-1);
+
+        var outcome = await service.ApplyEmoteSetUpdateAsync(
+            channel.ChannelName, SetId, Delta(pushed: [LiveEmote("e2", "fresh")]));
+
+        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        var firstSeen = await db.Emotes
+            .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2")
+            .Select(e => e.FirstSeenAt).SingleAsync();
+        Assert.NotNull(firstSeen);
+        Assert.InRange(firstSeen.Value, before, DateTime.UtcNow.AddSeconds(1));
+    }
+
+    [Fact]
     public async Task ApplyEmoteSetUpdate_NoOpDispatch_StaysNoChange_EvenWhenItCouldBackfill()
     {
         // The dispatch path decides NoChange vs Applied by asking the ChangeTracker, so it must not

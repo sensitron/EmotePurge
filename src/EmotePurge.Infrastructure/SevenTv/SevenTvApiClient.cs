@@ -21,6 +21,20 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     private const string GqlEmoteSetOwnerQuery =
         "query($id: ObjectID!) { emote_set: emoteSet(id: $id) { owner_id } }";
 
+    // v4 schema, not the v3 the BaseAddress points at — the real set-entry added-at only exists
+    // there (EmoteSetEmote.addedAt); the v3 payload's timestamp is the emote's upload date. Same
+    // snake_case aliasing trick as above, since v4 names everything in camelCase.
+    private const string GqlSetEntriesQuery =
+        "query($id: Id!, $page: Int!, $perPage: Int!) { emote_sets: emoteSets { emote_set: emoteSet(id: $id) { emotes(page: $page, perPage: $perPage) { page_count: pageCount items { added_at: addedAt emote { id } } } } } }";
+
+    // Host-absolute so it escapes the /v3/ BaseAddress.
+    private const string V4GqlPath = "/v4/gql";
+
+    // 500 per page keeps even subscriber-sized sets (capacity can exceed 1000) at a handful of
+    // requests; the page cap is a runaway guard, not an expected limit.
+    private const int SetEntriesPerPage = 500;
+    private const int MaxSetEntryPages = 10;
+
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
 
@@ -78,6 +92,19 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             }
 
             var emotes = dto.EmoteSet.Emotes.Select(SevenTvEmoteJsonMapper.MapDto).ToList();
+
+            // Overlay the real set-entry dates from v4. Null (lookup failed) simply leaves every
+            // AddedToSetAt unknown — the sync's correction pass fills the gap on a later resync,
+            // which is strictly better than failing the whole channel sync over a date.
+            var addedAtByEmoteId = await GetSetEntryAddedAtAsync(dto.EmoteSet.Id, cancellationToken);
+            if (addedAtByEmoteId is not null)
+            {
+                emotes = emotes
+                    .Select(e => addedAtByEmoteId.TryGetValue(e.Id, out var addedAt)
+                        ? e with { AddedToSetAt = addedAt }
+                        : e)
+                    .ToList();
+            }
 
             // The response's top-level id is the Twitch connection id, not the 7TV account —
             // the account lives under user.id (verified live 2026-07-30).
@@ -180,6 +207,58 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "7TV-Editor-Abfrage für 7TV-User {Id} fehlgeschlagen, wird übersprungen.", sevenTvUserId);
+            return null;
+        }
+    }
+
+    private async Task<Dictionary<string, DateTime>?> GetSetEntryAddedAtAsync(string emoteSetId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = new Dictionary<string, DateTime>();
+            for (var page = 1; page <= MaxSetEntryPages; page++)
+            {
+                var payload = new
+                {
+                    query = GqlSetEntriesQuery,
+                    variables = new { id = emoteSetId, page, perPage = SetEntriesPerPage }
+                };
+                var response = await httpClient.PostAsJsonAsync(V4GqlPath, payload, cancellationToken);
+                response.EnsureSuccessStatusCode();
+
+                var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlSetEntriesResponseDto>(
+                    SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
+
+                var entryPage = dto?.Data?.EmoteSets?.EmoteSet?.Emotes;
+                if (entryPage is null)
+                {
+                    logger.LogWarning(
+                        "7TV-v4-addedAt-Abruf für Set {SetId} lieferte keine Daten — Beitrittsdaten bleiben vorerst unbekannt.",
+                        emoteSetId);
+                    return null;
+                }
+
+                foreach (var entry in entryPage.Items)
+                {
+                    if (entry.Emote is not null && entry.AddedAt is not null)
+                    {
+                        result[entry.Emote.Id] = entry.AddedAt.Value.UtcDateTime;
+                    }
+                }
+
+                if (page >= entryPage.PageCount)
+                {
+                    break;
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex,
+                "7TV-v4-addedAt-Abruf für Set {SetId} fehlgeschlagen — Beitrittsdaten bleiben vorerst unbekannt.",
+                emoteSetId);
             return null;
         }
     }

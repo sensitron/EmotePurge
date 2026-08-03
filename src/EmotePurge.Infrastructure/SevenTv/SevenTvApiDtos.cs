@@ -122,10 +122,10 @@ internal sealed class SevenTvEmoteJsonDto
     // Alias/name as used within this specific emote set (not the emote's global base name).
     public string Name { get; set; } = string.Empty;
 
-    // When the emote was added to the set, Unix milliseconds. A property of the *set entry*, which
-    // is what makes it retroactively correct for emotes we have been tracking for months — unlike a
-    // "first time we saw it" stamp, which would only ever be right going forward.
-    public long Timestamp { get; set; }
+    // The payload also carries a `timestamp` per emote, which is deliberately NOT read: it looks
+    // like the set entry's added-at but is filled by the v4 compat layer with the emote's *upload*
+    // date (proven live 2026-08-03 — 968/968 entries of a large set carried the ULID creation
+    // instant of the emote id, while the real added-at from v4 differed by days to over a year).
     public SevenTvEmoteDataJsonDto? Data { get; set; }
 }
 
@@ -143,4 +143,44 @@ internal sealed class SevenTvHostJsonDto
 internal sealed class SevenTvFileJsonDto
 {
     public string Name { get; set; } = string.Empty;
+}
+
+// GQL v4 (host-absolute /v4/gql — the shared BaseAddress points at v3):
+// emoteSets { emoteSet(id) { emotes(page, perPage) { pageCount items { addedAt emote { id } } } } }
+// The only source of the real set-entry added-at; see the comment on SevenTvEmoteJsonDto.
+internal sealed class SevenTvGqlSetEntriesResponseDto
+{
+    public SevenTvGqlSetEntriesDataDto? Data { get; set; }
+}
+
+internal sealed class SevenTvGqlSetEntriesDataDto
+{
+    public SevenTvGqlSetEntriesRootDto? EmoteSets { get; set; }
+}
+
+internal sealed class SevenTvGqlSetEntriesRootDto
+{
+    public SevenTvGqlSetEntriesSetDto? EmoteSet { get; set; }
+}
+
+internal sealed class SevenTvGqlSetEntriesSetDto
+{
+    public SevenTvGqlSetEntriesPageDto? Emotes { get; set; }
+}
+
+internal sealed class SevenTvGqlSetEntriesPageDto
+{
+    public int PageCount { get; set; }
+    public List<SevenTvGqlSetEntryDto> Items { get; set; } = [];
+}
+
+internal sealed class SevenTvGqlSetEntryDto
+{
+    public DateTimeOffset? AddedAt { get; set; }
+    public SevenTvGqlSetEntryEmoteDto? Emote { get; set; }
+}
+
+internal sealed class SevenTvGqlSetEntryEmoteDto
+{
+    public string Id { get; set; } = string.Empty;
 }
