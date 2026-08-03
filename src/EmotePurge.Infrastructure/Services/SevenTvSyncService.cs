@@ -11,6 +11,7 @@ public class SevenTvSyncService(
     AppDbContext db,
     ISevenTvApiClient sevenTvApiClient,
     IEmoteMatchCache emoteMatchCache,
+    IDuplicateEmoteNameTracker duplicateNameTracker,
     ChannelSyncGate channelSyncGate,
     ILogger<SevenTvSyncService> logger)
     : ISevenTvSyncService
@@ -197,15 +198,33 @@ public class SevenTvSyncService(
 
         // 7TV active sets can legitimately contain two emotes sharing the same chat alias
         // (observed live) — ToDictionary would throw, so duplicates are coalesced instead,
-        // keeping whichever was loaded first and logging the collision.
+        // keeping whichever was loaded first. Logged only when the collision set changes: this
+        // method runs on every resync tick, and a static collision would spam the log otherwise.
+        // The full current state is served by IDuplicateEmoteNameQueryService instead.
         var emoteNameToId = new Dictionary<string, string>();
+        var duplicateNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var emote in activeEmotes)
         {
             if (!emoteNameToId.TryAdd(emote.Name, emote.Id))
             {
+                duplicateNames.Add(emote.Name);
+            }
+        }
+
+        if (duplicateNameTracker.Update(channel.ChannelName, duplicateNames))
+        {
+            if (duplicateNames.Count > 0)
+            {
                 logger.LogWarning(
-                    "Doppelter aktiver Emote-Name {Name} in Channel {Channel} — Chat-Matching zählt nur auf die zuerst geladene Emote-Id.",
-                    emote.Name, channel.ChannelName);
+                    "{Count} doppelte aktive Emote-Namen in Channel {Channel}: {Names} — Chat-Matching zählt je Name nur auf die zuerst geladene Emote-Id.",
+                    duplicateNames.Count, channel.ChannelName,
+                    string.Join(", ", duplicateNames.Order(StringComparer.Ordinal)));
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Namenskollisionen in Channel {Channel} aufgelöst — alle aktiven Emote-Namen sind wieder eindeutig.",
+                    channel.ChannelName);
             }
         }
 
