@@ -32,6 +32,12 @@ public interface ITwitchChatManager
 
     DateTime? LastMessageReceivedUtc { get; }
 
+    // Any received IRC line, not just chat: includes Twitch's ~5-minute server PING, so it stays
+    // fresh on a healthy connection even when every joined channel is silent. This is what the
+    // watchdog measures — LastMessageReceivedUtc above remains the chat-activity figure for the
+    // health display.
+    DateTime? LastFrameReceivedUtc { get; }
+
     // Fallback reference point for the watchdog: LastMessageReceivedUtc stays null until the very
     // first chat message, which used to make a worker that never connected undetectable.
     DateTime? ConnectAttemptedUtc { get; }

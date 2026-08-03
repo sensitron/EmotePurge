@@ -51,7 +51,12 @@ public record WorkerHealthSnapshot(
     // Both answer "how do I read the numbers above": counters that reset on restart mean something
     // different in the first minute of a process than in its sixth hour.
     DateTime? ProcessStartedUtc = null,
-    string? WorkerInstanceId = null);
+    string? WorkerInstanceId = null,
+    // Appended 2026-08-03: the Twitch-side liveness signal, mirroring SevenTvLastFrameUtc — any
+    // received IRC line including Twitch's ~5-minute server PING, so it stays fresh on a healthy
+    // connection whose channels are all silent. Staleness derivation keys off this; the last chat
+    // message above remains observability. Same trailing-and-defaulted rule as every field before.
+    DateTime? TwitchLastFrameUtc = null);
 
 /// <summary>
 /// Reads the health snapshot the worker publishes. The API and the worker deliberately never talk

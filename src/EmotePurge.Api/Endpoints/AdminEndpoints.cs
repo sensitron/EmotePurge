@@ -42,6 +42,7 @@ public static class AdminEndpoints
                     status = "unknown",
                     isConnected = false,
                     lastMessageReceivedUtc = (DateTime?)null,
+                    lastFrameReceivedUtc = (DateTime?)null,
                     connectAttemptedUtc = (DateTime?)null,
                     secondsSinceLastMessage = (int?)null,
                     sevenTv = new
@@ -82,6 +83,9 @@ public static class AdminEndpoints
                 status = derived.Status,
                 isConnected = snapshot.IsConnected,
                 lastMessageReceivedUtc = snapshot.LastMessageReceivedUtc,
+                // The liveness signal behind the "stale" status since 2026-08-03 — surfacing it here
+                // keeps the admin page able to explain that status, mirroring sevenTv.lastFrameUtc.
+                lastFrameReceivedUtc = snapshot.TwitchLastFrameUtc,
                 connectAttemptedUtc = snapshot.ConnectAttemptedUtc,
                 secondsSinceLastMessage = derived.SecondsSinceLastMessage,
                 sevenTv = new

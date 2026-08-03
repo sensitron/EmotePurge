@@ -1,29 +1,19 @@
+using EmotePurge.Core.Twitch;
+
 namespace EmotePurge.Worker;
 
 // Erkennt stille Verbindungsabbrüche, bei denen TwitchLib selbst kein OnDisconnected feuert
 // (live beobachtet: ~6 Minuten Stillstand ohne jedes Event, s. Projekt-Notizen 2026-07-24/25).
+// Misst seit 2026-08-03 empfangene IRC-Frames (inkl. Twitchs ~5-Minuten-Server-PING) statt
+// Chat-Nachrichten — die Entscheidungslogik samt Schwellen liegt pur in TwitchWatchdogPolicy.
 public class TwitchConnectionWatchdog(
     ILogger<TwitchConnectionWatchdog> logger,
-    ITwitchChatManager twitchChatManager) : BackgroundService
+    ITwitchChatManager twitchChatManager,
+    ITwitchAppTokenProvider appTokenProvider,
+    IServiceScopeFactory scopeFactory) : BackgroundService
 {
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
 
-    // Großzügig über dem beobachteten ~6-Minuten-Fall, um ein schlicht ruhiges Channel nicht
-    // fälschlich als Freeze zu werten — bekannte Grenze bei Channels mit wirklich seltener Chat-Aktivität.
-    private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(5);
-
-    // A client that reports itself as disconnected needs no silence threshold at all: there is
-    // nothing to mistake for a quiet channel, and reconnects cannot look abusive to Twitch while
-    // no connection is up. Only a short cooldown, so a hard outage doesn't turn into a tight loop.
-    private static readonly TimeSpan DisconnectedCooldown = TimeSpan.FromMinutes(1);
-
-    // Live beobachtet 2026-07-26: Ein erzwungener Reconnect aktualisiert LastMessageReceivedUtc nicht
-    // (das passiert nur bei einer tatsächlich empfangenen Chat-Nachricht) — auf Channels ohne Chat
-    // (z. B. weil der Broadcaster offline ist) feuerte CheckOnceAsync dadurch bei JEDEM Tick erneut,
-    // also im 60-Sekunden-Takt auf unbegrenzte Zeit, statt nur einmalig. Dieser Reconnect-Sturm gegen
-    // Twitch IRC ist der wahrscheinlichste Auslöser der anschließend beobachteten dauerhaften
-    // "Fatal network error"-Fehlschläge. Dieselbe Schwelle wie StaleThreshold dient hier als Cooldown
-    // zwischen zwei erzwungenen Reconnects, unabhängig davon, ob inzwischen wieder eine Nachricht kam.
     private DateTime? _lastForcedReconnectUtc;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -40,44 +30,19 @@ public class TwitchConnectionWatchdog(
         try
         {
             var now = DateTime.UtcNow;
+            var decision = TwitchWatchdogPolicy.Decide(
+                twitchChatManager.IsConnected,
+                Elapsed(now, twitchChatManager.ConnectAttemptedUtc),
+                Elapsed(now, twitchChatManager.LastFrameReceivedUtc),
+                Elapsed(now, _lastForcedReconnectUtc));
 
-            if (!twitchChatManager.IsConnected)
-            {
-                if (twitchChatManager.ConnectAttemptedUtc is null)
-                {
-                    return; // Initialize()/ConnectAsync() noch nicht erreicht — nichts zu prüfen.
-                }
-
-                if (IsInCooldown(now, DisconnectedCooldown))
-                {
-                    return;
-                }
-
-                logger.LogWarning("TwitchClient meldet sich als getrennt, erzwinge Reconnect.");
-                _lastForcedReconnectUtc = now;
-                await twitchChatManager.ForceReconnectAsync();
-                return;
-            }
-
-            // Falls back to the connect attempt: LastMessageReceivedUtc stays null until the very
-            // first chat message ever received, and the watchdog used to return on every single
-            // tick while it was null. A worker that came up but joined nothing (all boot joins
-            // failed) was therefore permanently undetectable — no reconnect, no crash, no signal.
-            var reference = twitchChatManager.LastMessageReceivedUtc ?? twitchChatManager.ConnectAttemptedUtc;
-            if (reference is null)
+            if (!decision.ForceReconnect)
             {
                 return;
             }
 
-            var idleFor = now - reference.Value;
-            if (idleFor < StaleThreshold || IsInCooldown(now, StaleThreshold))
-            {
-                return;
-            }
-
-            logger.LogWarning(
-                "Keine Chat-Nachricht seit {IdleSeconds}s empfangen (Schwelle {ThresholdSeconds}s), erzwinge Reconnect.",
-                (int)idleFor.TotalSeconds, (int)StaleThreshold.TotalSeconds);
+            logger.LogWarning("Erzwinge Reconnect: {Reason}", decision.Reason);
+            await LogLiveContextAsync(ct);
             _lastForcedReconnectUtc = now;
             await twitchChatManager.ForceReconnectAsync();
         }
@@ -88,6 +53,44 @@ public class TwitchConnectionWatchdog(
         }
     }
 
-    private bool IsInCooldown(DateTime now, TimeSpan cooldown) =>
-        _lastForcedReconnectUtc is { } last && now - last < cooldown;
+    // Diagnostic context only, never an input to the decision: knowing that every joined channel is
+    // offline *explains* silence, it does not *prove* the connection is alive — the frame timestamp
+    // does that. Best effort on the A10 app token; a missing token or a failed Helix call costs
+    // nothing but this one log line.
+    private async Task LogLiveContextAsync(CancellationToken ct)
+    {
+        try
+        {
+            var channels = twitchChatManager.GetRoster().Select(entry => entry.ChannelName).ToList();
+            if (channels.Count == 0)
+            {
+                return;
+            }
+
+            var accessToken = await appTokenProvider.GetTokenAsync(ct);
+            if (accessToken is null)
+            {
+                return;
+            }
+
+            using var scope = scopeFactory.CreateScope();
+            var helixClient = scope.ServiceProvider.GetRequiredService<ITwitchHelixClient>();
+            var streams = await helixClient.GetLiveStreamsByLoginsAsync(channels, accessToken, ct);
+            if (streams is null)
+            {
+                return;
+            }
+
+            logger.LogInformation(
+                "Kontext zum erzwungenen Reconnect: {LiveCount} von {TotalCount} gejointen Channels laut Helix live.",
+                streams.Count, channels.Count);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Live-Kontext-Abfrage vor Reconnect fehlgeschlagen (ignoriert).");
+        }
+    }
+
+    private static TimeSpan? Elapsed(DateTime now, DateTime? since) =>
+        since is { } utc ? now - utc : null;
 }

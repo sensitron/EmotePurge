@@ -72,7 +72,8 @@ public class WorkerHealthPublisher(
                     sevenTvEventClient.SubscriptionLimit,
                     _resyncIntervalSeconds,
                     identity.ProcessStartedUtc,
-                    identity.InstanceId),
+                    identity.InstanceId,
+                    twitchChatManager.LastFrameReceivedUtc),
                 JsonSerializerOptions.Web);
 
             await redis.GetDatabase().StringSetAsync(WorkerHealthKeys.TwitchConnection, payload, WorkerHealthKeys.Ttl);

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using EmotePurge.Core.Services;
 using TwitchLib.Client;
+using TwitchLib.Client.Enums;
 using TwitchLib.Client.Events;
 using TwitchLib.Client.Models;
 using TwitchLib.Communication.Clients;
@@ -54,6 +55,7 @@ public class TwitchChatManager(
     private TwitchClient _client = CreateClient(loggerFactory);
     private volatile bool _isConnected;
     private long _lastMessageReceivedUtcTicks;
+    private long _lastFrameReceivedUtcTicks;
     private long _connectAttemptedUtcTicks;
     private int _joinsIssuedForCurrentClient;
     private DateTime _lastJoinIssuedUtc = DateTime.MinValue;
@@ -61,6 +63,8 @@ public class TwitchChatManager(
     public bool IsConnected => _isConnected;
 
     public DateTime? LastMessageReceivedUtc => ReadTimestamp(ref _lastMessageReceivedUtcTicks);
+
+    public DateTime? LastFrameReceivedUtc => ReadTimestamp(ref _lastFrameReceivedUtcTicks);
 
     public DateTime? ConnectAttemptedUtc => ReadTimestamp(ref _connectAttemptedUtcTicks);
 
@@ -251,6 +255,7 @@ public class TwitchChatManager(
         client.OnJoinedChannel += OnJoinedChannel;
         client.OnLeftChannel += OnLeftChannel;
         client.OnMessageReceived += OnMessageReceived;
+        client.OnSendReceiveData += OnSendReceiveData;
     }
 
     private void UnwireClient(TwitchClient client)
@@ -263,6 +268,7 @@ public class TwitchChatManager(
         client.OnJoinedChannel -= OnJoinedChannel;
         client.OnLeftChannel -= OnLeftChannel;
         client.OnMessageReceived -= OnMessageReceived;
+        client.OnSendReceiveData -= OnSendReceiveData;
     }
 
     public async Task JoinChannelAsync(string channelName)
@@ -458,6 +464,23 @@ public class TwitchChatManager(
     private Task OnLeftChannel(object? sender, OnLeftChannelArgs e)
     {
         logger.LogInformation("Channel {Channel} verlassen.", e.Channel);
+        return Task.CompletedTask;
+    }
+
+    private Task OnSendReceiveData(object? sender, OnSendReceiveDataArgs e)
+    {
+        // Any received IRC line proves the socket is alive — including the server PING Twitch sends
+        // roughly every five minutes even when every joined channel is silent. This is the liveness
+        // signal the watchdog keys off; LastMessageReceivedUtc below stays chat-activity-only.
+        // Raised inline from TwitchClient's receive loop for every line, and a synchronous throw
+        // here would sever the multicast chain before TwitchLib's own handlers run (verified against
+        // TwitchLib.Client 4.0.1, _client_OnMessage) — so this handler must stay allocation-free and
+        // exception-free: one branch, one Interlocked store.
+        if (e.Direction == SendReceiveDirection.Received)
+        {
+            Interlocked.Exchange(ref _lastFrameReceivedUtcTicks, DateTime.UtcNow.Ticks);
+        }
+
         return Task.CompletedTask;
     }
 

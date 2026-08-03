@@ -10,9 +10,10 @@ namespace EmotePurge.Api.Health;
 /// </summary>
 internal static class WorkerHealthStatus
 {
-    // Mirrors TwitchConnectionWatchdog's 5-minute threshold. A literal because the Api and the Worker
-    // share no code here beyond the snapshot contract.
-    public const int StaleAfterSeconds = 300;
+    // Mirrors TwitchWatchdogPolicy.FrameStaleThreshold (3 × Twitch's ~5-minute server-PING cadence,
+    // since 2026-08-03 measured on received frames, not chat messages). A literal because the Api
+    // and the Worker share no code here beyond the snapshot contract.
+    public const int StaleAfterSeconds = 900;
 
     // Mirrors the 7TV event client's heartbeat watchdog (3 × ~45s heartbeat interval, plus slack).
     // Same literal-by-design reasoning as StaleAfterSeconds above.
@@ -31,10 +32,14 @@ internal static class WorkerHealthStatus
         // Deriving the status from isConnected alone let the endpoint report "connected" while
         // nothing was arriving — the flag can lag reality (silent freeze) and, before the
         // recreate path reset it, could stay true on a client that had already been discarded.
-        // "stale" therefore also covers "connected, but no chat data for a while". Falls back to
-        // the connect attempt while no message has ever arrived, so a worker that just started
-        // isn't reported as stale for the few seconds before the first chat line.
-        var quietSince = snapshot.LastMessageReceivedUtc ?? snapshot.ConnectAttemptedUtc;
+        // "stale" therefore also covers "connected, but nothing received for a while". Keys off
+        // received frames (Twitch's server PING keeps a healthy-but-silent connection fresh, same
+        // reasoning as the 7TV derivation below); the chat-message fallback covers a payload from
+        // a worker predating the field during a rolling deploy, the connect attempt covers a
+        // worker that just started and has received nothing yet.
+        var quietSince = snapshot.TwitchLastFrameUtc
+            ?? snapshot.LastMessageReceivedUtc
+            ?? snapshot.ConnectAttemptedUtc;
         var quietForSeconds = quietSince is { } since ? (int)(nowUtc - since).TotalSeconds : (int?)null;
         var status = snapshot.IsConnected switch
         {
