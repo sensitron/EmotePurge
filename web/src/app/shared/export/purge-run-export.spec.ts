@@ -78,11 +78,34 @@ describe('parsePurgeRunProtocol', () => {
     });
   });
 
-  it('rejects a different export kind', () => {
-    const voting = JSON.stringify({ source: 'emotepurge', kind: 'voting', formatVersion: 1 });
-    expect(parsePurgeRunProtocol(voting, EXPECTED)).toEqual({
+  it('names the other export kinds instead of calling them "not a protocol"', () => {
+    const envelope = (kind: string) => JSON.stringify({ source: 'emotepurge', kind });
+    expect(parsePurgeRunProtocol(envelope('usage'), EXPECTED)).toEqual({
+      ok: false,
+      errorKey: 'restore.import.errors.usageExport',
+    });
+    expect(parsePurgeRunProtocol(envelope('voting'), EXPECTED)).toEqual({
+      ok: false,
+      errorKey: 'restore.import.errors.votingExport',
+    });
+  });
+
+  it('falls back to wrongKind for a foreign file or an unknown kind', () => {
+    const unknown = JSON.stringify({ source: 'emotepurge', kind: 'from-the-future' });
+    expect(parsePurgeRunProtocol(unknown, EXPECTED)).toEqual({
       ok: false,
       errorKey: 'restore.import.errors.wrongKind',
+    });
+    expect(parsePurgeRunProtocol(JSON.stringify({ hello: 'world' }), EXPECTED)).toEqual({
+      ok: false,
+      errorKey: 'restore.import.errors.wrongKind',
+    });
+  });
+
+  it('tells the CSV version of an export apart from a corrupt file', () => {
+    expect(parsePurgeRunProtocol(purgeRunCsv(protocol()), EXPECTED)).toEqual({
+      ok: false,
+      errorKey: 'restore.import.errors.csvInsteadOfJson',
     });
   });
 

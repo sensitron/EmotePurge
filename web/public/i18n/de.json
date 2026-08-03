@@ -617,7 +617,10 @@
       "fileLabel": "Purge-Protokoll auswählen",
       "errors": {
         "notJson": "Die Datei ist kein gültiges JSON.",
-        "wrongKind": "Die Datei ist kein EmotePurge-Purge-Protokoll.",
+        "csvInsteadOfJson": "Das ist die CSV-Fassung. Der Import braucht dieselbe Datei als JSON — beim Export das Format JSON wählen.",
+        "wrongKind": "Die Datei ist kein EmotePurge-Purge-Protokoll. Ein importierbares Protokoll entsteht erst bei einem Löschlauf und wird direkt danach zum Download angeboten.",
+        "usageExport": "Das ist ein Export der Nutzungsstatistik, kein Purge-Protokoll. Ein importierbares Protokoll entsteht erst bei einem Löschlauf und wird direkt danach zum Download angeboten.",
+        "votingExport": "Das ist ein Export einer Abstimmung, kein Purge-Protokoll. Ein importierbares Protokoll entsteht erst bei einem Löschlauf und wird direkt danach zum Download angeboten.",
         "wrongVersion": "Das Protokoll stammt aus einer neueren EmotePurge-Version.",
         "wrongChannel": "Das Protokoll gehört zu einem anderen Channel.",
         "wrongSet": "Das Protokoll gehört zu einem anderen Emote-Set — der Channel hat das aktive Set gewechselt.",

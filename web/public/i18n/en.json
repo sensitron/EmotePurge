@@ -617,7 +617,10 @@
       "fileLabel": "Choose a purge protocol",
       "errors": {
         "notJson": "The file is not valid JSON.",
-        "wrongKind": "The file is not an EmotePurge purge protocol.",
+        "csvInsteadOfJson": "That is the CSV version. The import needs the same file as JSON — pick the JSON format when exporting.",
+        "wrongKind": "The file is not an EmotePurge purge protocol. An importable protocol is only created by a delete run and offered for download right afterwards.",
+        "usageExport": "That is a usage-stats export, not a purge protocol. An importable protocol is only created by a delete run and offered for download right afterwards.",
+        "votingExport": "That is a vote export, not a purge protocol. An importable protocol is only created by a delete run and offered for download right afterwards.",
         "wrongVersion": "The protocol comes from a newer EmotePurge version.",
         "wrongChannel": "The protocol belongs to a different channel.",
         "wrongSet": "The protocol belongs to a different emote set — the channel switched its active set.",
