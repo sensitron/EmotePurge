@@ -87,8 +87,21 @@ export interface EmoteDrilldownData {
           [attr.aria-label]="'usageStats.drilldown.loading' | transloco"
         ></div>
       } @else {
-        <div class="my-3 h-20 rounded-md bg-surface-inset p-2">
+        <!-- The y-axis lives in HTML next to the SVG: the sparkline's viewBox is stretched
+             non-uniformly (preserveAspectRatio="none"), so text inside it would distort. Hidden
+             from AT — the peak line below already states the maximum in words. -->
+        <div class="my-3 flex h-20 gap-2 rounded-md bg-surface-inset p-2">
+          @if (yMax() > 0) {
+            <div
+              class="flex shrink-0 flex-col justify-between text-right text-xs leading-none text-fg-muted"
+              aria-hidden="true"
+            >
+              <span>{{ formatCount(yMax()) }}</span>
+              <span>0</span>
+            </div>
+          }
           <app-usage-sparkline
+            class="block h-full min-w-0 flex-1"
             [points]="points()"
             [liveDays]="series()!.liveDays"
             [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
@@ -228,6 +241,10 @@ export class EmoteDrilldownDialog {
 
   protected readonly peak = computed(() => seriesPeak(this.points()));
 
+  // The value the chart's top edge represents: toPolylinePoints scales the line to the series
+  // maximum. 0 (all-zero series) hides the axis — a flat baseline has no magnitude to label.
+  protected readonly yMax = computed(() => this.peak()?.useCount ?? 0);
+
   /** Suppressed ('unknown') without the usage page's inputs — never guessed. */
   protected readonly trend = computed<UsageTrend>(() => {
     const series = this.series();
@@ -285,6 +302,10 @@ export class EmoteDrilldownDialog {
       toLocale(this.languageService.lang()),
       { dateStyle: 'medium', timeZone: iso.length === 10 ? 'UTC' : undefined },
     );
+  }
+
+  protected formatCount(value: number): string {
+    return value.toLocaleString(toLocale(this.languageService.lang()));
   }
 
   protected formatScore(value: number): string {
