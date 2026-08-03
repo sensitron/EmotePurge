@@ -475,10 +475,16 @@ gehört bewusst **nicht** in so eine Datei — er ist channel-scoped und im Ziel
 **Aufwand.** S–M · **Risiko.** Der Bestätigungsdialog trägt hier die ganze Last: ohne Set-Prüfung
 sagt keine Validierung mehr „das gehört woanders hin", also muss er Herkunft, Zielset und freie
 Slots nebeneinander zeigen — ein 900er-Set in ein Set mit 50 freien Slots zu kippen, muss vorher
-sichtbar sein statt als Fehlerregen danach. Zweiter offener Punkt sind Namenskollisionen: dass
-gleichnamige Emotes in einem Set vorkommen, zeigt das Duplikat-Banner vom 2026-08-03 — ob 7TV beim
-Hinzufügen ablehnt oder stillschweigend einen Alias vergibt, ist ungemessen und gehört vor die
-Umsetzung, nicht in sie.
+sichtbar sein statt als Fehlerregen danach. Zweiter Punkt sind Namenskollisionen, und die sind am
+2026-08-04 aus 7TVs Quellcode geklärt (`apps/api/src/http/v3/gql/mutations/emote_sets/`, gleiche
+Logik in v4): `ADD` lehnt mit `this emote has a conflicting name` ab, sobald der Alias im Zielset
+schon vergeben ist. **Den Alias wegzulassen hilft nicht** — `EmoteSetEmote.alias` ist ein `String`,
+kein `Option<String>`, und wird bei fehlender Angabe mit `emote.default_name` befüllt
+(`let alias = name.unwrap_or_else(|| emote.default_name.clone())`). Ein Set-Kopieren muss also
+damit rechnen, dass ein Teil der Liste abprallt, und das als Ergebnis zeigen statt als Fehler —
+die Purge-Protokoll-Zeilen mit `status: 'failed'` sind das Muster dafür. Der Vergleich ist
+case-sensitiv und unnormalisiert, deckt sich also exakt mit dem ordinalen Vergleich in
+`DuplicateEmoteNameQueryService`: was unser Duplikat-Banner zeigt, ist auch für 7TV eine Kollision.
 
 ---
 
