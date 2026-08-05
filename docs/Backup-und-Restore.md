@@ -10,6 +10,17 @@ Dieses Dokument deckt zwei Dinge ab: die einmalige Einrichtung des nächtlichen
 Backup-Jobs auf dem VPS, und — genauso wichtig — den tatsächlichen Restore. Ein
 Backup, dessen Wiederherstellung nie geprobt wurde, ist kein Backup.
 
+> **Stand 2026-08-04: eingerichtet und über dieses Dokument hinaus erweitert.**
+> Die Kette läuft dreistufig: Cron 03:00 auf dem VPS → `/var/backups/emotepurge`
+> (14 Tage) → täglicher **Pull** aufs unraid-NAS um 10:00 (rrsync-eingesperrter
+> SSH-Key, `/mnt/user/Data/backup/emotepurge`, 30 Tage, bewusst ohne `--delete`)
+> → rclone-Crypt-Upload nach OneDrive (60 Tage). Off-Site läuft also
+> **pull-seitig vom NAS**, nicht über den `OFFSITE_ENABLED`-Pfad des Skripts —
+> der bleibt im Skript deaktiviert. Betriebsdetails (Key-Namen, Skriptname
+> `emotepurge-backup-pull`, Remote `secret_emotepurge`) im privaten Repo
+> `sensitron/infra-docs`, `VPS-und-Homelab-2026-08-04.md`. SSH auf den VPS seit
+> dem 2026-08-04 nur noch als sudo-User (root-Login gesperrt).
+
 Das Skript selbst liegt unter [`scripts/backup-postgres.sh`](../scripts/backup-postgres.sh)
 und ist so gebaut, dass ein fehlgeschlagener `pg_dump` niemals ein gültig aussehendes,
 aber abgeschnittenes Archiv hinterlässt (dump zuerst in eine `.tmp`-Datei, Exit-Code +
@@ -294,9 +305,11 @@ rclone config   # Remote-Typ "Backblaze B2" waehlen, Key-ID/App-Key eintragen, R
 
 Falls `rclone` fehlt oder `OFFSITE_RCLONE_REMOTE` nicht gesetzt ist, überspringt
 das Skript diesen Schritt nur mit einer Log-Warnung — das lokale Backup schlägt
-dadurch nie fehl, nur weil die Off-Site-Kopie (noch) nicht eingerichtet ist. Bis
-diese eingerichtet ist, bleibt der Datenbestand weiterhin durch genau einen
-VPS-Ausfall verwundbar — Priorität entsprechend hoch halten.
+dadurch nie fehl, nur weil die Off-Site-Kopie nicht über diesen Pfad läuft.
+**Seit 2026-08-04 ist das der Normalzustand:** Off-Site existiert, aber
+pull-seitig (NAS → OneDrive, s. Kasten oben) statt push-seitig vom VPS. Der
+B2-Vorschlag in diesem Abschnitt bleibt als Alternative dokumentiert, falls die
+NAS-Kette je entfällt.
 
 ## 4. Prüfen, dass es tatsächlich läuft
 
@@ -317,11 +330,10 @@ auch wenn das Skript selbst ihn nicht als Fehler wertet, solange er > 0 Byte ist
 
 Kein automatisiertes Monitoring dieses Checks ist Teil dieser Änderung — das ist
 Gegenstand des separaten Befunds **S3-36** (Mindest-Monitoring) aus demselben
-Review. Bis dahin: `grep FEHLER` gelegentlich manuell prüfen, oder cron selbst
-per lokalem MTA (`mail`/`sendmail`, falls auf dem VPS konfiguriert) bei
-Non-Zero-Exit an root mailen lassen — Cron tut das standardmäßig, sofern ein MTA
-installiert ist (auf den meisten schlanken VPS-Images nicht der Fall, dann bleibt
-nur das Log).
+Review. Stand 2026-08-04: Uptime Kuma (NAS) überwacht die **Website**, nicht die
+Backup-Kette — für Backups gilt weiterhin: `grep FEHLER` gelegentlich manuell
+prüfen (auf VPS und NAS-Pull-Log), bis ein Dead-Man's-Switch für den Backup-Job
+eingerichtet ist.
 
 ## 5. Konfigurierbare Umgebungsvariablen
 
@@ -338,29 +350,25 @@ nur das Log).
 
 ## 6. Offene Punkte / vom Nutzer zu prüfen
 
+Aktualisiert 2026-08-05 nach der Einrichtung (VPS-Härtung, s. Kasten oben):
+
+- ~~**`BACKUP_DIR=/var/backups/emotepurge`**~~ — **erledigt:** genau so
+  eingerichtet, keine kollidierende Konvention. Der Sicherheitshinweis bleibt
+  gültig: Ein Dump enthält potenziell sensible Daten (Twitch-Access-Tokens im
+  `User`-Datensatz) — `chmod 700` auf das Verzeichnis ist kein optionales
+  Detail; die NAS-Kopie ist per `setfacl` nur für den Pull-User lesbar.
+- ~~**Off-Site-Ziel**~~ — **erledigt (anders als vorgeschlagen):** nicht
+  B2-push vom VPS, sondern NAS-Pull + rclone-Crypt nach OneDrive (s. Kasten
+  oben). Der B2-Abschnitt 3 bleibt als Alternative stehen.
 - **VPS-SSH-Zugangsdaten** (`<VPS-USER>@<VPS-HOST>` in Abschnitt 1.1) — nicht im
-  Repo hinterlegt, rein illustrativ.
-- **`BACKUP_DIR=/var/backups/emotepurge`** — Review-Vorschlag, kein Repo-Fakt;
-  prüfen, ob auf dem VPS bereits eine andere Backup-Verzeichnis-Konvention
-  existiert (z. B. für die andere, bereits auf demselben VPS laufende App).
-  Speicherplatz auf dieser Partition ausreichend? Nicht geprüft.
-  **Wichtiger Sicherheitshinweis:** Ein Dump enthält potenziell sensible Daten
-  (Twitch-Access-Tokens im `User`-Datensatz, s. Entscheidungslog in `CLAUDE.md`
-  zu "Access Token als Claim im Cookie") — `chmod 700` auf das Verzeichnis wie
-  in Abschnitt 1.2 beschrieben ist daher kein optionales Detail.
+  Repo hinterlegt, rein illustrativ. Seit 2026-08-04: sudo-User statt root.
 - **Pfad zu `docker-compose.prod.yml` auf dem VPS** (Abschnitt 2.2) — unklar, ob
   die Datei dort überhaupt als lokale Datei existiert oder nur Portainer-intern
   verwaltet wird; ggf. per Portainer-UI redeployen statt `docker compose -f ...`.
-- **Off-Site-Ziel** (`OFFSITE_RCLONE_REMOTE`, Backblaze-B2-Zugangsdaten) — nicht
-  eingerichtet, rein als Vorschlag dokumentiert; bis zur Einrichtung bleibt der
-  Datenbestand durch einen VPS-Totalverlust verwundbar (s. Abschnitt 3).
-  Zusätzliche Empfehlung außerhalb dieses Dokuments: parallel oder alternativ
-  prüfen, ob der Hosting-Anbieter selbst Volume-/Snapshot-Backups anbietet — laut
-  Review-Kontext (`Review-2026-07-29.md:1205`) war zum Zeitpunkt der Erstellung
-  dieses Dokuments unklar, ob so etwas bereits existiert.
-- **Mail-Zustellung bei Cron-Fehlschlag** (Abschnitt 4) — ob auf dem VPS ein MTA
-  installiert ist, wurde nicht geprüft; ohne MTA bleibt nur das Log-File als
-  Fehlerquelle, bis S3-36 (Monitoring) umgesetzt ist.
+- **Alerting bei Cron-Fehlschlag** — weiterhin offen: kein MTA-Versand, kein
+  Dead-Man's-Switch für den Backup-Job; Uptime Kuma überwacht nur die Website.
+  Bis dahin Log-Files auf VPS und NAS manuell prüfen (Abschnitt 4).
 - **Retention-Grenzfall Downtime:** Läuft der VPS an einem geplanten Wartungstag
   keinen Cronjob, entsteht eine Backup-Lücke von einem Tag — bei
-  `RETENTION_DAYS=14` unkritisch, bei kürzeren Werten ggf. relevant.
+  `RETENTION_DAYS=14` unkritisch, bei kürzeren Werten ggf. relevant. Durch die
+  30/60-Tage-Stufen auf NAS/OneDrive zusätzlich abgefedert.

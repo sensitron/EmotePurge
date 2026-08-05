@@ -10,6 +10,19 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-05 — VPS-Härtung abgeschlossen: Repo-Doku an den neuen Host-Stand angeglichen
+
+**Betrifft:** `docs/VPS-Reverse-Proxy.md` · `docs/Backup-und-Restore.md` · `docs/Review-2026-07-29-Umsetzung.md` · `CLAUDE.md`
+
+**Die VPS-/Homelab-Härtung (19 Befunde, 2026-08-04/05) ist abgeschlossen; ihr Bericht lebt außerhalb dieses Repos** — privates Repo `sensitron/infra-docs`, `VPS-und-Homelab-2026-08-04.md`. Dorthin gehört künftige Infra-Doku; dieses Repo dokumentiert nur die Verträge, die App-Code und Host miteinander eingehen. Vier solcher Verträge hat die Härtung verändert, die Repo-Doku ist entsprechend nachgezogen:
+
+1. **nginx:** `/api/` läuft jetzt über das Snippet `emotepurge-hardening.conf` — eigene Rate-Zone `api`, `proxy_buffering off` explizit, `proxy_read_timeout 3600s` (der SSE-Prod-Punkt aus dem Eintrag vom 2026-08-01 ist damit doppelt abgesichert), Anti-Bot-444-Regexe; hostweit Catchall-`444`-default_server und `server_tokens off`. Die alten Aussagen „60-s-Default-Timeout" und „eine geteilte Rate-Zone für alles" in `VPS-Reverse-Proxy.md` waren damit überholt. Security-Header setzt weiterhin **allein die Api** — nie in nginx doppeln.
+2. **Backup (S1-2-Einrichtung):** Cron 03:00 → `/var/backups/emotepurge` (14 d) → täglicher NAS-Pull per rrsync-eingesperrtem Key (30 d, ohne `--delete`) → rclone-Crypt nach OneDrive (60 d). Off-Site also pull-seitig statt des dokumentierten B2-Push-Vorschlags; `OFFSITE_ENABLED` im Skript bleibt bewusst `0`.
+3. **Docker-Log-Rotation** („Offene Frage 15" des Reviews vom 2026-07-29): hostweit in `daemon.json` (`json-file`, 10 MB × 3); greift je Container erst beim nächsten Redeploy.
+4. **S3-36 teilerledigt:** externer Uptime-Check existiert (Uptime Kuma auf dem NAS, 60-s-Check auf `emotepurge.app`, Telegram-Alerts) — er sieht aber nur die SPA-Auslieferung. Dead-Man's-Switch für den Worker und Log-Aggregation bleiben offen; Welle E (S2-21, Z1+S3-35, S3-34, S3-38, S4-15/16/17/18-Reste, S2-20) bleibt insgesamt offen.
+
+Betrieblich relevant für alle Anleitungen mit `<VPS-USER>`-Platzhaltern (Prod-Migration in `CLAUDE.md`, Backup-Doku): **SSH auf den VPS nur noch als sudo-User** — `PermitRootLogin no`, root-Passwort gesperrt. Außerdem wurden am 2026-08-04 das Prod-DB-Passwort und das Twitch-Prod-App-Secret rotiert (Werte in Portainer-Env + Vaultwarden); `AUTH_TWITCH_TOKEN_ENCRYPTION_KEY` bewusst **nicht** rotiert — nie exponiert, und eine Rotation würde alle gespeicherten Twitch-Tokens entwerten.
+
 ### 2026-08-04 — Duplikat-Emote-Namen: der ordinale Vergleich ist 7TVs eigene Semantik, nicht nur unsere Chat-Matching-Regel
 
 **Betrifft:** `src/EmotePurge.Infrastructure/Services/{DuplicateEmoteNameQueryService,DuplicateEmoteNameTracker,SevenTvSyncService}.cs` · `docs/Feature-Ideen-2026-08-01.md` (A16)
