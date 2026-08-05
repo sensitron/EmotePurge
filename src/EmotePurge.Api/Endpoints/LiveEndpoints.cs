@@ -48,6 +48,22 @@ public static class LiveEndpoints
         })
         .RequireAuthorization()
         .AddEndpointFilter<ChannelNameValidationFilter>();
+
+        // The overview's stream: any logged-in user may listen. Cross-channel on purpose — the
+        // events are rare (a real transition of a tracked channel) and carry only the channel
+        // name; the refetch through GET /api/channels/mine stays the authorization boundary.
+        // The competing route is GET /api/channels/{channelName} — same segment count, so routing
+        // decides by precedence, and a literal segment always outranks a parameter.
+        app.MapGet("/api/channels/live-events", (
+            HttpContext httpContext,
+            ILiveEventStream liveEventStream,
+            CancellationToken ct) =>
+            OpenAsync(
+                httpContext,
+                liveEventStream,
+                liveEvent => string.Equals(liveEvent.Type, LiveEvents.LiveChanged, StringComparison.Ordinal),
+                ct))
+        .RequireAuthorization();
     }
 
     /// <summary>

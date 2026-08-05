@@ -21,8 +21,18 @@ public sealed record LiveEventStreamOptions
     /// <summary>Hard ceiling of concurrent streams per process.</summary>
     public int MaxSubscriptions { get; init; } = 500;
 
-    /// <summary>Concurrent streams one identity may hold (browser tabs of one login).</summary>
-    public int MaxPerSubscriber { get; init; } = 3;
+    /// <summary>
+    /// Concurrent streams one identity may hold (browser tabs of one login). Raised from 3 to 6
+    /// because the overview page now holds a stream permanently per tab (<c>live.changed</c>), so
+    /// 3 was exhaustible with ordinary multi-tab use: overview + a channel workspace is already
+    /// 2 streams, overview + admin monitoring + the admin channel list is 3. An exhausted budget
+    /// makes <see cref="ILiveEventStream.SubscribeAsync"/> answer null, the endpoint answer 503,
+    /// and the browser treats a 503 on an EventSource handshake as terminal — the tab silently
+    /// stops receiving live updates for good. The structural fix (future) is sharing one
+    /// connection per URL inside the frontend's LiveUpdateService, which would collapse the
+    /// per-tab count to at most one per distinct stream URL.
+    /// </summary>
+    public int MaxPerSubscriber { get; init; } = 6;
 }
 
 /// <summary>
@@ -58,7 +68,7 @@ public sealed class RedisLiveEventStream(
         var subscription = new Subscription(subscriberKey, filter, _options, Remove);
 
         // Counting and inserting under one lock: two concurrent connections of the same user would
-        // otherwise both read "2 open" and both be admitted past a limit of 3.
+        // otherwise both read the same "n open" and both be admitted past the limit.
         lock (_limitLock)
         {
             if (_subscriptions.Count >= _options.MaxSubscriptions)
