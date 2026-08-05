@@ -1,0 +1,34 @@
+# Closes the supply-chain rest of review finding S4-16 (and keeps the S4-15 SHA pins fresh):
+# Dependabot PRs instead of a hard `npm audit` gate — an advisory in a transitive dependency
+# should produce a reviewable PR, not block every unrelated push to main.
+version: 2
+updates:
+  # Keeps the commit-SHA pins in publish.yml moving (it updates the SHA and the version comment).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    # The Angular ecosystem releases in lockstep; one grouped PR per week instead of a dozen.
+    # Major updates stay separate — those are migrations, not maintenance.
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5
+
+  # Wildcards instead of "/" on purpose: the solution file is the new .slnx format, so pointing
+  # at the csproj directories does not depend on Dependabot's .slnx support.
+  - package-ecosystem: "nuget"
+    directories:
+      - "/src/*"
+      - "/tests/*"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    open-pull-requests-limit: 5

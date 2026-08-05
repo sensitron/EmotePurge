@@ -10,6 +10,16 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-05 — S4-15/16/17: Actions auf Commit-SHAs, Dependabot statt Audit-Gate, Docker-Build-Kontext auf `src/`
+
+**Betrifft:** `.github/workflows/publish.yml` · `.github/dependabot.yml` · `src/EmotePurge.Api/Dockerfile` · `src/EmotePurge.Worker/Dockerfile`
+
+**S4-15 — alle sechs Actions auf Commit-SHA gepinnt** (mit Versions-Kommentar, Stand: checkout v4.4.0, setup-dotnet v4.3.1, setup-node v4.4.0, upload-artifact v4.6.2, login-action v3.7.0, build-push-action v6.19.2). Ein kompromittiertes Upstream-Tag kann damit nicht mehr unbemerkt in den Build gelangen, der mit `packages: write` auf GHCR schreibt. Die Pins veralten nicht still: das `github-actions`-Ökosystem in Dependabot aktualisiert SHA **und** Kommentar per PR.
+
+**S4-16-Rest — Dependabot statt hartem Audit-Gate.** Drei Ökosysteme (`github-actions`, `npm` unter `/web`, `nuget` per `directories`-Wildcards `/src/*`+`/tests/*`, weil die Solution das neue `.slnx`-Format ist), wöchentlich, Minor+Patch gruppiert zu je einem PR, Majors einzeln. Bewusst **kein** `npm audit`-Gate in der CI — eine Advisory in einer transitiven Abhängigkeit soll ein reviewbarer PR sein, kein roter Haken, der jeden unabhängigen Push nach `main` blockiert. Ebenfalls bewusst weggelassen: der NuGet-Cache-Schritt aus dem Review (bräuchte `packages.lock.json` in allen Projekten für einen brauchbaren Cache-Key; der Restore kostet ~30 s — das Lockfile-Regime wäre teurer als der Gewinn). S4-16 ist damit vollständig abgeschlossen.
+
+**S4-17 — `COPY src/ src/` statt `COPY . .`, tote `build`-Stage entfernt.** Der Repo-Root-Kontext zog `web/`, `tests/` und `docs/` in den Layer-Hash — eine reine Frontend-Änderung baute den Worker von Grund auf neu. Jetzt kopiert die Build-Stage nur `src/`, und der separate `dotnet build`-Schritt, dessen Output nie kopiert wurde, ist weg (`dotnet publish` baut selbst). Beide Images lokal neu gebaut, Stack healthy, `/api/health` 200.
+
 ### 2026-08-05 — Z1-Rest + S3-35 + S3-36: payloadfreier `GET /api/health`, Container-HEALTHCHECKs, Pull-Monitor als Dead-Man's-Switch
 
 **Betrifft:** `src/EmotePurge.Api/Endpoints/WorkerHealthEndpoints.cs` · `src/EmotePurge.Api/Program.cs` · `src/EmotePurge.Worker/WorkerHealthPublisher.cs` · `src/EmotePurge.Api/Dockerfile` · `src/EmotePurge.Worker/Dockerfile` · `tests/EmotePurge.Api.Tests/{ApiFactory,ApiHealthEndpointTests}.cs` · `docs/Architectur.md`

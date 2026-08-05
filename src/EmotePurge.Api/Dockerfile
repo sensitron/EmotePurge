@@ -21,18 +21,17 @@ COPY ["src/EmotePurge.Api/EmotePurge.Api.csproj", "src/EmotePurge.Api/"]
 COPY ["src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj", "src/EmotePurge.Infrastructure/"]
 COPY ["src/EmotePurge.Core/EmotePurge.Core.csproj", "src/EmotePurge.Core/"]
 RUN dotnet restore "src/EmotePurge.Api/EmotePurge.Api.csproj"
-COPY . .
+# src/ only, not the repo root (S4-17): `COPY . .` invalidated this layer for every web/, tests/
+# or docs change, and the separate `dotnet build` stage produced output nothing ever copied —
+# publish builds on its own.
+COPY src/ src/
 WORKDIR "/src/src/EmotePurge.Api"
-RUN dotnet build "EmotePurge.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
-
-FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
 RUN dotnet publish "EmotePurge.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
 RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
-COPY --from=publish /app/publish .
+COPY --from=build /app/publish .
 COPY --from=web-build /web/dist/web/browser ./wwwroot
 RUN chown -R appuser:appgroup /app
 # Mount point for the Data Protection key ring (DataProtection__KeyPath). appuser has --no-create-home,

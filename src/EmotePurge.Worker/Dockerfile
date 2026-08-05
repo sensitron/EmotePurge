@@ -17,18 +17,17 @@ COPY ["src/EmotePurge.Worker/EmotePurge.Worker.csproj", "src/EmotePurge.Worker/"
 COPY ["src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj", "src/EmotePurge.Infrastructure/"]
 COPY ["src/EmotePurge.Core/EmotePurge.Core.csproj", "src/EmotePurge.Core/"]
 RUN dotnet restore "src/EmotePurge.Worker/EmotePurge.Worker.csproj"
-COPY . .
+# src/ only, not the repo root (S4-17): `COPY . .` pulled web/ and tests/ into the context hash,
+# so a pure frontend change rebuilt the worker from scratch; the separate `dotnet build` stage
+# produced output nothing ever copied — publish builds on its own.
+COPY src/ src/
 WORKDIR "/src/src/EmotePurge.Worker"
-RUN dotnet build "EmotePurge.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/build
-
-FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
 RUN dotnet publish "EmotePurge.Worker.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
 RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-home appuser
-COPY --from=publish /app/publish .
+COPY --from=build /app/publish .
 RUN chown -R appuser:appgroup /app
 USER appuser
 # S3-35: WorkerHealthPublisher touches this file after every fully successful publish cycle (20s
