@@ -328,14 +328,16 @@ Erwartung: eine Datei mit heutigem Datum im Namen
 letzten Lauf (ein stark abweichend kleinerer Dump als üblich ist ein Warnsignal,
 auch wenn das Skript selbst ihn nicht als Fehler wertet, solange er > 0 Byte ist).
 
-Stand 2026-08-05: Die nachgelagerte Kette **ist** überwacht — NAS-Pull und
+Stand 2026-08-05: Die Kette **ist** vollständig überwacht — NAS-Pull und
 rclone-Upload pingen healthchecks.io (Erfolg bzw. sofort `/fail`; Cron-Schedules
 mit Grace, Alarm per E-Mail), was sowohl „Job meldet Fehler" als auch „Job läuft
-gar nicht mehr" abdeckt (Details im infra-docs-Bericht, Abschnitt Monitoring).
-**Nicht abgedeckt ist der VPS-seitige `pg_dump`-Cron selbst:** liefert er keine
-frischen Dumps mehr, zieht der Pull klaglos die alten Dateien und bleibt grün.
-Für diesen Fall bleibt `grep FEHLER` auf dem VPS — oder ein vierter
-healthchecks.io-Check am Ende der Cron-Zeile.
+gar nicht mehr" abdeckt. Seit dem Abend des 2026-08-05 prüft das Pull-Skript
+zusätzlich die **Dump-Frische**: existiert nach dem Pull kein Dump jünger als
+24 h, pingt es `/fail` — damit alarmiert auch ein toter `pg_dump`-Cron auf dem
+VPS am selben Vormittag, obwohl der Pull selbst „funktioniert" (rsync meldet
+„nichts Neues" als Erfolg). Referenzkopien der NAS-Skripte und der
+`/etc/cron.d/`-Dateien liegen im privaten Repo `sensitron/infra-docs` unter
+`scripts/`.
 
 ## 5. Konfigurierbare Umgebungsvariablen
 
@@ -367,11 +369,10 @@ Aktualisiert 2026-08-05 nach der Einrichtung (VPS-Härtung, s. Kasten oben):
 - **Pfad zu `docker-compose.prod.yml` auf dem VPS** (Abschnitt 2.2) — unklar, ob
   die Datei dort überhaupt als lokale Datei existiert oder nur Portainer-intern
   verwaltet wird; ggf. per Portainer-UI redeployen statt `docker compose -f ...`.
-- **Alerting** — seit 2026-08-05 weitgehend abgedeckt: NAS-Pull und
-  rclone-Upload pingen healthchecks.io (E-Mail-Alarm bei Fehler oder Ausbleiben,
-  s. Abschnitt 4). Restlücke: der VPS-seitige `pg_dump`-Cron selbst hat keinen
-  eigenen Check — veraltete Dumps fallen erst im Pull-Log bzw. per `grep FEHLER`
-  auf.
+- ~~**Alerting**~~ — **seit 2026-08-05 vollständig abgedeckt:** NAS-Pull und
+  rclone-Upload pingen healthchecks.io (E-Mail bei Fehler oder Ausbleiben), und
+  das Pull-Skript prüft zusätzlich die Dump-Frische (< 24 h) — auch ein toter
+  `pg_dump`-Cron auf dem VPS alarmiert damit (s. Abschnitt 4).
 - **Retention-Grenzfall Downtime:** Läuft der VPS an einem geplanten Wartungstag
   keinen Cronjob, entsteht eine Backup-Lücke von einem Tag — bei
   `RETENTION_DAYS=14` unkritisch, bei kürzeren Werten ggf. relevant. Durch die
