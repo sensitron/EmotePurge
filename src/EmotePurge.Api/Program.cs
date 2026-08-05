@@ -174,6 +174,14 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
+    // Review open question 17: API responses are per-user, cookie-authenticated data and must
+    // never be served from a shared cache — the API itself never sent any Cache-Control, leaving
+    // the decision to whatever proxy sits in front. Static assets are unaffected: their headers
+    // are set later by ApplyStaticCacheHeaders, and they never live under /api/.
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        headers.CacheControl = "no-store";
+    }
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
     headers["Referrer-Policy"] = "strict-origin-when-cross-origin";

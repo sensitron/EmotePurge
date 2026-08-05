@@ -24,6 +24,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 **`IPendingMigrationGuard` statt Auto-Migrate.** Migrationen bleiben in diesem Projekt bewusst manuell; der Guard macht den vergessenen Schritt sichtbar, statt ihn nachzuholen: Api **und** Worker rufen beim Start `EnsureNoPendingMigrationsAsync()` auf, das bei ausstehenden Migrationen mit deren Namen wirft — aus stillen 500ern (`42703`) wird eine Crash-Loop in Portainer, deren Log die fehlende Migration benennt. Konsequenz fürs Deployment: ein neues Image gegen eine nicht migrierte Prod-DB **startet jetzt absichtlich nicht mehr** — die Reihenfolge „erst Migration, dann Deploy" aus CLAUDE.md ist damit erzwungen, nicht mehr nur Disziplin. `ApiFactory` substituiert den Guard, weil die container-freien Api-Tests sonst beim Boot die Platzhalter-DB anwählen würden; `PostgresFixture` kann jetzt Kontexte auf eine zweite, unmigrierte DB desselben Containers ausstellen (`CreateDbContext(databaseName)`), womit der Throws-Pfad gegen echtes Postgres getestet ist.
 
+### 2026-08-05 — Offene Frage 17: `Cache-Control: no-store` auf allem unter `/api/`
+
+**Betrifft:** `src/EmotePurge.Api/Program.cs` · `tests/EmotePurge.Api.Tests/ApiCacheControlTests.cs`
+
+**Kein API-Endpoint setzte bisher irgendein `Cache-Control`; ob ein Proxy Antworten cacht, war damit dessen Entscheidung.** API-Antworten sind per-User-Daten hinter Cookie-Auth und dürfen nie aus einem Shared Cache kommen. Gesetzt in der bestehenden Security-Header-Middleware (greift damit auch für den `/api/{**rest}`-404-Fallback, der an allen Endpoint-Gruppen vorbeiläuft); die Static-/SPA-Auslieferung behält ihre differenzierte `immutable`/`no-cache`-Strategie aus dem Eintrag vom 2026-07-31.
+
 ### 2026-08-05 — VPS-Härtung abgeschlossen: Repo-Doku an den neuen Host-Stand angeglichen
 
 **Betrifft:** `docs/VPS-Reverse-Proxy.md` · `docs/Backup-und-Restore.md` · `docs/Review-2026-07-29-Umsetzung.md` · `CLAUDE.md`
