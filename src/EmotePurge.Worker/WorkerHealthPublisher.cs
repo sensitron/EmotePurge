@@ -33,6 +33,14 @@ public class WorkerHealthPublisher(
     // the admin page shows is the one the resync loop actually paces itself by.
     private readonly int _resyncIntervalSeconds = configuration.GetValue("SevenTv:ResyncIntervalSeconds", 60);
 
+    // Liveness file for the container HEALTHCHECK (S3-35): touched only after a successful publish,
+    // so a stale mtime means "this loop is not doing its job" — whether the process hung or Redis
+    // is unreachable. Set via ENV in the Dockerfile (which is where the HEALTHCHECK reading it
+    // lives); empty outside the container, e.g. local `dotnet run` on Windows, where /tmp does
+    // not exist.
+    private readonly string? _heartbeatFilePath =
+        configuration.GetValue<string?>("Worker:HeartbeatFilePath", null);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(PublishInterval);
@@ -83,6 +91,12 @@ public class WorkerHealthPublisher(
             // über GET /api/admin/health statt weiter im 20-Sekunden-Takt zu pollen. Bewusst im
             // bestehenden try: schlägt es fehl, gilt dieselbe Regel wie für das Health-Update.
             await redisPublisher.PublishAsync(LiveEvents.Channel, new LiveEvent(LiveEvents.WorkerHealth).Serialize());
+
+            // Deliberately last in the try: only a fully successful cycle counts as alive.
+            if (!string.IsNullOrWhiteSpace(_heartbeatFilePath))
+            {
+                await File.WriteAllTextAsync(_heartbeatFilePath, DateTime.UtcNow.ToString("O"));
+            }
         }
         catch (Exception ex)
         {

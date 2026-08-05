@@ -31,4 +31,11 @@ RUN groupadd --system appgroup && useradd --system --gid appgroup --no-create-ho
 COPY --from=publish /app/publish .
 RUN chown -R appuser:appgroup /app
 USER appuser
+# S3-35: WorkerHealthPublisher touches this file after every fully successful publish cycle (20s
+# cadence) — the ENV is what switches the touch on, so path and check live in one place. The
+# check fails when the newest touch is older than 2 minutes (6 missed cycles): process hung,
+# Redis unreachable, or the publisher died.
+ENV Worker__HeartbeatFilePath=/tmp/alive
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD test -n "$(find /tmp/alive -mmin -2 2>/dev/null)" || exit 1
 ENTRYPOINT ["dotnet", "EmotePurge.Worker.dll"]

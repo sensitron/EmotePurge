@@ -119,6 +119,12 @@ builder.Services.AddRateLimiter(options =>
     // would still get fifteen budgets — the per-channel half is IChannelResyncCooldown. Neither
     // mechanism covers the other's case.
     options.AddPolicy("ChannelResync", httpContext => PartitionPerUser(httpContext, permitLimit: 5));
+
+    // For the payload-free GET /api/health: public and anonymous, so this always partitions by IP
+    // (PartitionPerUser falls back to it). One Redis read per hit — cheap, but unauthenticated,
+    // and its legitimate callers are machines on fixed cadences: the container HEALTHCHECK
+    // (every 30 s, from localhost) and the external uptime monitor (every 60 s).
+    options.AddPolicy("PublicHealth", httpContext => PartitionPerUser(httpContext, permitLimit: 30));
 });
 
 static RateLimitPartition<string> PartitionPerUser(HttpContext httpContext, int permitLimit)

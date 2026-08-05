@@ -50,6 +50,13 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public IChannelResyncCooldown ResyncCooldown { get; } = Substitute.For<IChannelResyncCooldown>();
 
     /// <summary>
+    /// Substituted so the health tests can put the worker snapshot into any state; the real
+    /// implementation reads Redis. Defaults to returning null ("no snapshot"), which is also
+    /// what the substituted multiplexer would amount to.
+    /// </summary>
+    public IWorkerHealthReader WorkerHealth { get; } = Substitute.For<IWorkerHealthReader>();
+
+    /// <summary>
     /// Substituted because Program.cs now runs the S3-34 migration guard at startup — the real
     /// implementation would open a connection to the placeholder database configured below.
     /// The substitute simply completes, which is the "fully migrated" answer.
@@ -83,6 +90,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddScoped(_ => VoteEligibility);
             services.AddScoped(_ => Channels);
             services.AddSingleton(_ => ResyncCooldown);
+            services.AddSingleton(_ => WorkerHealth);
             services.AddScoped(_ => _migrationGuard);
 
             // Load-bearing, and not obvious: RequestDelegateFactory resolves a handler's injected

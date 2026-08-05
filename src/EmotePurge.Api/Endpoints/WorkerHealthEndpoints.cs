@@ -42,5 +42,24 @@ public static class WorkerHealthEndpoints
                 },
             });
         });
+
+        // The machine-facing twin of the badge endpoint above (review Z1 rest / S3-35): no payload,
+        // the status code is the whole answer — 200 only while the worker's Twitch pipeline is
+        // "connected", 503 for disconnected/stale/missing snapshot. That makes `curl -f` in the
+        // container HEALTHCHECK and the external uptime monitor's pull check double as the
+        // dead-man's switch: a worker that stops publishing expires the Redis key and this flips
+        // to 503 without anyone pushing anything. The 7TV status deliberately does not factor in —
+        // the periodic REST resync keeps emote data correct without the event socket, so a 7TV
+        // hiccup is degraded, not down.
+        app.MapGet("/api/health", async (IWorkerHealthReader healthReader, CancellationToken ct) =>
+        {
+            var snapshot = await healthReader.ReadAsync(ct);
+            var isHealthy = snapshot is not null
+                && WorkerHealthStatus.Derive(snapshot, DateTime.UtcNow).Status == "connected";
+
+            return Results.StatusCode(isHealthy
+                ? StatusCodes.Status200OK
+                : StatusCodes.Status503ServiceUnavailable);
+        }).RequireRateLimiting("PublicHealth");
     }
 }

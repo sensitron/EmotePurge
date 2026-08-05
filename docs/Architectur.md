@@ -158,7 +158,7 @@ Es gibt **keine** `Role`-Spalte und kein Rollen-Enum. „Rolle" heißt hier: ein
 
 **Authentifiziert, aber für jeden Eingeloggten offen** — das ist Absicht, nicht Lücke: `GET /{name}/permissions` (meldet selbst, was der Aufrufer dürfte), `GET /channels/mine`, `GET /vote-sessions/mine`, `GET /auth/me`, die Vote-Session-Liste (pro Zeile im Handler gefiltert) und `GET /{name}/live` (SSE-Events sind reine „etwas hat sich geändert"-Pings ohne Nutzdaten).
 
-**Öffentlich ohne Login:** `GET /api/worker/health` — bewusst, mit minimalem Payload. Die Frage, ob er das bleiben soll, ist offener Befund **Z1** aus Welle E.
+**Öffentlich ohne Login:** `GET /api/worker/health` (minimaler Payload, füttert das Header-Badge) und seit 2026-08-05 `GET /api/health` (payloadfrei, nur Statuscode: 200 bei `connected`, sonst 503 — Ziel der Container-HEALTHCHECKs und des externen Uptime-Monitors, Rate-Limit-Policy `PublicHealth`). Damit ist Befund **Z1** aus Welle E vollständig abgeschlossen: Admin-Detail hinter `GET /api/admin/health` (seit 2026-07-31), Badge-Payload minimal, Maschinen-Endpoint payloadfrei.
 
 **`AllowedRoles` in der Praxis:** `Everyone` (1) kurzschließt sofort. `Subs` (2) löst einen Helix-Sub-Check aus. `Mods` (8) und `Broadcaster` (16) werden **nie explizit ausgewertet** — sie sind bereits durch den `CanManageChannelAsync`-Kurzschluss abgedeckt, der Managern unabhängig von den Flags Stimmrecht gibt. **`VIPs` (4) ist definiert, aber unbenutzbar**: die Session-Erstellung lehnt es mit `vips_not_supported` ab, weil Twitch keinen Endpoint hat, über den ein Nutzer den eigenen VIP-Status melden kann.
 
