@@ -10,6 +10,14 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-05 — S2-21 + S3-38: Ressourcenlimits für `api`/`worker`, Dev-Compose-Namen von Prod getrennt
+
+**Betrifft:** `docker-compose.yml` · `docker-compose.prod.yml` · `scripts/backup-postgres.sh` · `docs/Backup-und-Restore.md`
+
+**S2-21 — `deploy.resources.limits` (1.0 CPU / 512 M) für `api` und `worker` in beiden Compose-Dateien.** Der VPS beherbergt eine zweite, projektfremde App; ohne Limit kann ein amoklaufender Container den ganzen Host mitreißen. `deploy.resources.limits` wird von Docker Compose v2 auch ohne Swarm angewendet. Die Werte sind bewusst Startwerte aus dem Review — der Lasttest (Modul E kommt vor dem Stresstest) kalibriert sie; `postgres`/`redis` bleiben ohne CPU-/RAM-Limit (Redis ist über `maxmemory` bereits gedeckelt, Postgres soll im Zweifel nicht das Opfer sein).
+
+**S3-38 — nur die Dev-Seite wurde umbenannt, absichtlich nicht Prod.** `docker-compose.yml` heißt jetzt `name: emote-purge-dev` mit Containern `emotepurge-dev-*`; damit lösen Dev und Prod nicht mehr auf denselben Projekt-, Netz- und Volume-Namen auf, und ein versehentliches `docker compose up` aus einem Checkout auf dem VPS hängt sich nicht mehr an das Produktions-`postgres-data`. Der Report schlug vor, die **Prod**-Datei umzubenennen — das hätte aber das bestehende Prod-Volume verwaist (neuer Projektname ⇒ neuer Volume-Name ⇒ Api startet gegen leere DB). Lokale Dev-Daten wurden per Volume-Kopie (`emote-purge_*` → `emote-purge-dev_*`) übernommen; die alten Volumes liegen als Fallback weiter da. `scripts/backup-postgres.sh` zielt mit seinem `emotepurge-postgres`-Default seither nur noch auf Prod.
+
 ### 2026-08-05 — VPS-Härtung abgeschlossen: Repo-Doku an den neuen Host-Stand angeglichen
 
 **Betrifft:** `docs/VPS-Reverse-Proxy.md` · `docs/Backup-und-Restore.md` · `docs/Review-2026-07-29-Umsetzung.md` · `CLAUDE.md`

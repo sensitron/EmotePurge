@@ -17,11 +17,12 @@ set -euo pipefail
 
 # --- Configuration (override via environment) -------------------------------
 #
-# Defaults below match docker-compose.prod.yml / docker-compose.yml
-# (container_name: emotepurge-postgres in both) and .env.example
-# (POSTGRES_USER=emotepurge, POSTGRES_DB is hardcoded to "emotepurge" in
-# both compose files). BACKUP_DIR and RETENTION_DAYS are not defined
-# anywhere in the repo -- they are operational choices, override as needed.
+# Defaults below match docker-compose.prod.yml (container_name:
+# emotepurge-postgres; since S3-38 the dev stack uses emotepurge-dev-postgres,
+# this script targets prod) and .env.example (POSTGRES_USER=emotepurge,
+# POSTGRES_DB is hardcoded to "emotepurge" in both compose files). BACKUP_DIR
+# and RETENTION_DAYS are not defined anywhere in the repo -- they are
+# operational choices, override as needed.
 
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-emotepurge-postgres}"
 POSTGRES_USER="${POSTGRES_USER:-emotepurge}"

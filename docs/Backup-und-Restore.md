@@ -27,8 +27,8 @@ aber abgeschnittenes Archiv hinterlässt (dump zuerst in eine `.tmp`-Datei, Exit
 Größe prüfen, erst dann atomar per `mv` umbenennen).
 
 > **Werte in diesem Dokument, die aus dem Repo belegt sind:** Container-Name
-> `emotepurge-postgres` (identisch in `docker-compose.yml` und
-> `docker-compose.prod.yml`), Container-Namen `emotepurge-api`/`emotepurge-worker`,
+> `emotepurge-postgres` (aus `docker-compose.prod.yml`; der Dev-Stack heißt seit
+> S3-38 `emotepurge-dev-*`), Container-Namen `emotepurge-api`/`emotepurge-worker`,
 > Datenbankname `emotepurge` (in beiden Compose-Dateien als `POSTGRES_DB`
 > hartkodiert), DB-User-Default `emotepurge` (aus `.env.example`,
 > `POSTGRES_USER`). **Werte, die NICHT aus dem Repo stammen** und vom Nutzer zu
@@ -339,7 +339,7 @@ eingerichtet ist.
 
 | Variable | Default | Herkunft des Defaults |
 |---|---|---|
-| `POSTGRES_CONTAINER` | `emotepurge-postgres` | `container_name` in `docker-compose.yml`/`docker-compose.prod.yml` (identisch in beiden) |
+| `POSTGRES_CONTAINER` | `emotepurge-postgres` | `container_name` in `docker-compose.prod.yml` (seit S3-38 heißt der Dev-Container `emotepurge-dev-postgres` — das Skript zielt auf Prod) |
 | `POSTGRES_USER` | `emotepurge` | `POSTGRES_USER` in `.env.example` |
 | `POSTGRES_DB` | `emotepurge` | `POSTGRES_DB` in beiden Compose-Dateien (hartkodiert, kein Env-Override im Repo) |
 | `BACKUP_DIR` | `/var/backups/emotepurge` | Nicht aus dem Repo — Review-Vorschlag, s. o. |
