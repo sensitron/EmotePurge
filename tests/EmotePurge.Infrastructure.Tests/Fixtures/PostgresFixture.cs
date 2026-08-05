@@ -39,6 +39,22 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         return new AppDbContext(options);
     }
+
+    // Same container, different database — for tests that need a schema state other than
+    // "fully migrated" (e.g. PendingMigrationGuardTests). The database must already exist.
+    public AppDbContext CreateDbContext(string databaseName)
+    {
+        var connectionString = new Npgsql.NpgsqlConnectionStringBuilder(_container.GetConnectionString())
+        {
+            Database = databaseName
+        }.ConnectionString;
+
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+
+        return new AppDbContext(options);
+    }
 }
 
 [CollectionDefinition("Postgres")]

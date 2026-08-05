@@ -22,6 +22,10 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<AppDbContext>(options =>
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
+        // Called once at startup by both hosts (S3-34 fail-fast); scoped like everything else
+        // that takes the AppDbContext.
+        services.AddScoped<IPendingMigrationGuard, PendingMigrationGuard>();
+
         var redisConnectionString = configuration["Redis:ConnectionString"]
             ?? throw new InvalidOperationException("Konfigurationswert 'Redis:ConnectionString' fehlt.");
 

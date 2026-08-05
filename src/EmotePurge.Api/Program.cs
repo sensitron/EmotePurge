@@ -243,6 +243,15 @@ app.MapFallback("/api/{**rest}", () => Results.NotFound());
 // which is exactly the file that must not go stale.
 app.MapFallbackToFile("index.html", new StaticFileOptions { OnPrepareResponse = ApplyStaticCacheHeaders });
 
+// S3-34 fail-fast: migrations are applied manually in this project, and a container running
+// against a database that is missing one used to start "healthy" and answer with silent 500s.
+// Crashing here makes the forgotten migration visible as a restart loop instead.
+await using (var migrationScope = app.Services.CreateAsyncScope())
+{
+    await migrationScope.ServiceProvider.GetRequiredService<IPendingMigrationGuard>()
+        .EnsureNoPendingMigrationsAsync();
+}
+
 app.Run();
 
 // Top-level statements compile into an internal Program class, which WebApplicationFactory<T>

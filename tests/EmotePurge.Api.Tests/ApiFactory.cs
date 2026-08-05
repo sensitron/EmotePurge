@@ -49,6 +49,13 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// </summary>
     public IChannelResyncCooldown ResyncCooldown { get; } = Substitute.For<IChannelResyncCooldown>();
 
+    /// <summary>
+    /// Substituted because Program.cs now runs the S3-34 migration guard at startup — the real
+    /// implementation would open a connection to the placeholder database configured below.
+    /// The substitute simply completes, which is the "fully migrated" answer.
+    /// </summary>
+    private readonly IPendingMigrationGuard _migrationGuard = Substitute.For<IPendingMigrationGuard>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // "Testing" rather than the default "Development": Development would load the developer's
@@ -76,6 +83,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddScoped(_ => VoteEligibility);
             services.AddScoped(_ => Channels);
             services.AddSingleton(_ => ResyncCooldown);
+            services.AddScoped(_ => _migrationGuard);
 
             // Load-bearing, and not obvious: RequestDelegateFactory resolves a handler's injected
             // services *before* it runs the endpoint filter pipeline. A request the filter is about
