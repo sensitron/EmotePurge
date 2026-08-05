@@ -10,6 +10,14 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-05 — S2-21-Kalibrierung: 512 M / 1.0 CPU mit Realdaten bestätigt, synthetischer Lasttest verworfen
+
+**Betrifft:** `docker-compose.prod.yml` · `docker-compose.yml` · `docs/Review-2026-07-29-Umsetzung.md`
+
+**Die Review-Startwerte sind jetzt Messwerte.** Prod am 2026-08-05, Limits aktiv: idle (kein Channel live) api 115 MB / worker 132,5 MB; mit gejointem 17k-Zuschauer-Live-Channel (trymacs, Test-Join) api 122 MB / worker 143–147 MB über vier Messpunkte, CPU-Grundrauschen 2–3 % mit einer 11,7-%-Spitze. **Der aufschlussreiche Befund ist das Live-Delta von nur ~10–15 MB:** Der Speicher wird von der Runtime-Baseline dominiert, nicht vom Chat-Volumen — Nachrichten werden gematcht und verworfen, die Usage-Counter sind Zähler pro Emote, kein wachsender Puffer. Mehr Chat-Durchsatz kostet CPU, nicht RAM; beide Limits haben Faktor ≥ 3–8 Luft. Sie bleiben bewusst so eng: ein echtes Speicherleck soll am Limit sichtbar werden (und dank .NETs cgroup-bewusstem GC vorher aggressiver aufgeräumt), statt den Host zu fressen.
+
+**Ein synthetischer Lasttest ist damit verworfen.** Die Produktionswoche seit dem Launch der Limits-Diskussion deckt die Durchsatz-Achse mit echten großen Channels besser ab als jede Simulation. Die *andere* Achse — Channel-Anzahl (JOIN-Rate beim Reconnect, 100-Chatroom-Decke, 7TV-500-Subscription-Limit) — bleibt bewusst ungetestet: ein Test dafür würde Dutzende Joins auf der unverifizierten Verbindung verbrennen; sie wird erst bei realem Wachstum relevant und dann über den verifizierten Bot-Account gelöst, nicht über einen Test (s. „Bekannte offene Grenzen" in CLAUDE.md). Optionale Restbestätigung: einmal `docker stats` während eines HandOfBlood-Peaks.
+
 ### 2026-08-05 — S4-18-Abschluss: Lizenz ist AGPL-3.0
 
 **Betrifft:** `LICENSE` · `README.md` (implizit) · gesamtes Repo
