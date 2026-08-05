@@ -10,6 +10,12 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-05 — S4-18-Abschluss: Lizenz ist AGPL-3.0
+
+**Betrifft:** `LICENSE` · `README.md` (implizit) · gesamtes Repo
+
+**Das öffentliche Repo trägt jetzt die AGPL-3.0 (Nutzerentscheidung vom 2026-08-05).** Vorher galt „all rights reserved" bei öffentlich einsehbarem Code — der unklarste aller Zustände. Die AGPL passt zum Betriebsmodell: Der Code bleibt Open Source, aber wer einen Klon **als Dienst betreibt**, muss seinen Quellcode offenlegen (die Netzwerk-Klausel, die der GPL fehlt) — genau das Szenario, das für eine gehostete Webanwendung wie emotepurge.app relevant ist. MIT wurde als zu permissiv verworfen (Closed-Source-SaaS-Kopie wäre legal), Proprietär als unnötig restriktiv für ein ohnehin öffentliches Repo. Kanonischer Volltext von gnu.org, unverändert.
+
 ### 2026-08-05 — S4-15/16/17: Actions auf Commit-SHAs, Dependabot statt Audit-Gate, Docker-Build-Kontext auf `src/`
 
 **Betrifft:** `.github/workflows/publish.yml` · `.github/dependabot.yml` · `src/EmotePurge.Api/Dockerfile` · `src/EmotePurge.Worker/Dockerfile`
