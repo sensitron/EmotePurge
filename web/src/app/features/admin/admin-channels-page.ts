@@ -1,6 +1,6 @@
 import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -36,6 +36,9 @@ const RESYNC_FEEDBACK_MS = 4000;
 
 const RESYNC_QUEUED_KEY = 'admin.channels.resync.queued';
 const RESYNC_COMPLETED_KEY = 'admin.channels.resync.completed';
+
+/** How often the tooltip clock ticks, so the "N minutes ago" text ages while the page stays open. */
+const LIVE_AGE_TICK_MS = 30_000;
 
 /**
  * Every tracked channel with its aggregates, plus the three write actions an admin has over one:
@@ -267,8 +270,11 @@ export class AdminChannelsPage {
     this.channelsResource.hasValue() ? this.channelsResource.value().channels : NO_CHANNELS,
   );
 
-  /** Age of the live-poll data in whole minutes, for the badge tooltip. Recomputed per list load —
-   *  precise enough for a value that only says "up to ~5 min behind". */
+  // Ticking clock signal so the tooltip ages while the page is open — Date.now() read directly
+  // inside a computed() freezes at first render (rule 14).
+  private readonly nowMs = signal(Date.now());
+
+  /** Age of the live-poll data in whole minutes, for the badge tooltip. */
   protected readonly liveAgeMinutes = computed(() => {
     const polledAt = this.channelsResource.hasValue()
       ? this.channelsResource.value().livePolledAtUtc
@@ -276,7 +282,7 @@ export class AdminChannelsPage {
     if (!polledAt) {
       return 0;
     }
-    return Math.max(0, Math.round((Date.now() - new Date(polledAt).getTime()) / 60_000));
+    return Math.max(0, Math.round((this.nowMs() - new Date(polledAt).getTime()) / 60_000));
   });
 
   /** Drives the refresh button's disabled state only — never a content swap. */
@@ -322,18 +328,27 @@ export class AdminChannelsPage {
   });
 
   constructor() {
-    // A sync finished somewhere: the aggregates on every row can have moved (emote/archived counts,
-    // lastSyncedAtUtc), so reload unconditionally. If it is the channel this admin just resynced,
-    // the hint stops guessing and states the fact — that is what replaces the setTimeout as the
-    // source of truth. The timeout stays as the cleanup fallback for when no push ever arrives.
-    // liveEvents, not liveReload: the hint below needs the individual event's `channel`, which a
-    // merged burst would flatten away — and syncs are far too rare to burst in the first place.
-    liveEvents(ADMIN_LIVE_URL, [LIVE_EVENT_TYPES.channelSynced]).subscribe((event) => {
+    // A sync finished somewhere, or a channel's live state flipped: the aggregates on every row
+    // can have moved, so reload unconditionally. The resync hint below must only react to
+    // channel.synced — a live.changed for the same channel says nothing about the resync.
+    // liveEvents, not liveReload: the hint needs the individual event's `channel` and `type`,
+    // which a merged burst would flatten away.
+    liveEvents(ADMIN_LIVE_URL, [
+      LIVE_EVENT_TYPES.channelSynced,
+      LIVE_EVENT_TYPES.liveChanged,
+    ]).subscribe((event) => {
       this.channelsResource.reload();
-      if (event.channel && event.channel === this.resyncFeedback()) {
+      if (
+        event.type === LIVE_EVENT_TYPES.channelSynced &&
+        event.channel &&
+        event.channel === this.resyncFeedback()
+      ) {
         this.showResyncFeedback(event.channel, RESYNC_COMPLETED_KEY);
       }
     });
+
+    const tick = setInterval(() => this.nowMs.set(Date.now()), LIVE_AGE_TICK_MS);
+    inject(DestroyRef).onDestroy(() => clearInterval(tick));
   }
 
   protected reload(): void {

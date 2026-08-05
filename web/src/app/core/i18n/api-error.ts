@@ -36,6 +36,14 @@ export const KNOWN_API_ERROR_CODES = new Set([
 ]);
 
 /**
+ * The last-resort key {@link apiErrorTranslationKey} falls back to for an HTTP status it has no
+ * specific message for. Exported so callers that also have to handle *non*-HTTP failures (a resource
+ * whose stream threw something that is not an `HttpErrorResponse`) can land on the same message
+ * instead of inventing a second generic key.
+ */
+export const GENERIC_ERROR_TRANSLATION_KEY = 'errors.generic';
+
+/**
  * Resolves an HTTP error from the EmotePurge API to a translation key: `errors.api.<code>` for a
  * recognized `errorCode` body, otherwise a message derived from the status code.
  *
@@ -73,6 +81,6 @@ function statusTranslationKey(status: number): string {
     case 429:
       return 'errors.status.rateLimited';
     default:
-      return 'errors.generic';
+      return GENERIC_ERROR_TRANSLATION_KEY;
   }
 }

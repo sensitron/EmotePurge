@@ -17,6 +17,7 @@ export const LIVE_EVENT_TYPES = {
   usageFlushed: 'usage.flushed',
   voteChanged: 'vote.changed',
   channelSynced: 'channel.synced',
+  liveChanged: 'live.changed',
   workerHealth: 'worker.health',
   workerRoster: 'worker.roster',
   /** Heartbeat, swallowed by LiveUpdateService — never reaches a consumer. */
@@ -25,6 +26,9 @@ export const LIVE_EVENT_TYPES = {
 
 /** Admin-only stream; the group's GlobalAdminAuthorizationFilter guards it server-side. */
 export const ADMIN_LIVE_URL = '/api/admin/live';
+
+/** Cross-channel stream for the overview: carries only `live.changed`. Login required. */
+export const LIVE_STATUS_URL = '/api/channels/live-events';
 
 /** Per-channel stream. Requires a login only — the real authorization boundary is the refetch. */
 export function channelLiveUrl(channelName: string): string {

@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-import { AUTH_USER, mockAuthMe, mockMyChannels, mockWorkerHealth } from './support/mocks';
+import {
+  AUTH_USER,
+  installLiveStub,
+  mockAuthMe,
+  mockMyChannels,
+  mockWorkerHealth,
+} from './support/mocks';
 
 /**
  * The theme is the one piece of UI state that has to be correct *before* Angular exists — hence the
@@ -12,6 +18,10 @@ test.describe('theme', () => {
   test.beforeEach(async ({ page }) => {
     await mockAuthMe(page, null);
     await mockWorkerHealth(page);
+    // The overview opens /api/channels/live-events on mount (live.changed pushes); without the
+    // stub the real EventSource hits a route no mock serves, and the logo test below — the only
+    // one here that asserts on the console — fails on that request instead of on a theme bug.
+    await installLiveStub(page);
   });
 
   test('follows the system preference when nothing has been chosen', async ({ page }) => {
