@@ -328,12 +328,14 @@ Erwartung: eine Datei mit heutigem Datum im Namen
 letzten Lauf (ein stark abweichend kleinerer Dump als üblich ist ein Warnsignal,
 auch wenn das Skript selbst ihn nicht als Fehler wertet, solange er > 0 Byte ist).
 
-Kein automatisiertes Monitoring dieses Checks ist Teil dieser Änderung — das ist
-Gegenstand des separaten Befunds **S3-36** (Mindest-Monitoring) aus demselben
-Review. Stand 2026-08-04: Uptime Kuma (NAS) überwacht die **Website**, nicht die
-Backup-Kette — für Backups gilt weiterhin: `grep FEHLER` gelegentlich manuell
-prüfen (auf VPS und NAS-Pull-Log), bis ein Dead-Man's-Switch für den Backup-Job
-eingerichtet ist.
+Stand 2026-08-05: Die nachgelagerte Kette **ist** überwacht — NAS-Pull und
+rclone-Upload pingen healthchecks.io (Erfolg bzw. sofort `/fail`; Cron-Schedules
+mit Grace, Alarm per E-Mail), was sowohl „Job meldet Fehler" als auch „Job läuft
+gar nicht mehr" abdeckt (Details im infra-docs-Bericht, Abschnitt Monitoring).
+**Nicht abgedeckt ist der VPS-seitige `pg_dump`-Cron selbst:** liefert er keine
+frischen Dumps mehr, zieht der Pull klaglos die alten Dateien und bleibt grün.
+Für diesen Fall bleibt `grep FEHLER` auf dem VPS — oder ein vierter
+healthchecks.io-Check am Ende der Cron-Zeile.
 
 ## 5. Konfigurierbare Umgebungsvariablen
 
@@ -365,9 +367,11 @@ Aktualisiert 2026-08-05 nach der Einrichtung (VPS-Härtung, s. Kasten oben):
 - **Pfad zu `docker-compose.prod.yml` auf dem VPS** (Abschnitt 2.2) — unklar, ob
   die Datei dort überhaupt als lokale Datei existiert oder nur Portainer-intern
   verwaltet wird; ggf. per Portainer-UI redeployen statt `docker compose -f ...`.
-- **Alerting bei Cron-Fehlschlag** — weiterhin offen: kein MTA-Versand, kein
-  Dead-Man's-Switch für den Backup-Job; Uptime Kuma überwacht nur die Website.
-  Bis dahin Log-Files auf VPS und NAS manuell prüfen (Abschnitt 4).
+- **Alerting** — seit 2026-08-05 weitgehend abgedeckt: NAS-Pull und
+  rclone-Upload pingen healthchecks.io (E-Mail-Alarm bei Fehler oder Ausbleiben,
+  s. Abschnitt 4). Restlücke: der VPS-seitige `pg_dump`-Cron selbst hat keinen
+  eigenen Check — veraltete Dumps fallen erst im Pull-Log bzw. per `grep FEHLER`
+  auf.
 - **Retention-Grenzfall Downtime:** Läuft der VPS an einem geplanten Wartungstag
   keinen Cronjob, entsteht eine Backup-Lücke von einem Tag — bei
   `RETENTION_DAYS=14` unkritisch, bei kürzeren Werten ggf. relevant. Durch die
