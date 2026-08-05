@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Redis;
@@ -15,12 +16,18 @@ public class TwitchLivePollWorker(
     ITwitchAppTokenProvider appTokenProvider,
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory,
-    ITwitchLiveStatusWriter liveStatusWriter) : BackgroundService
+    ITwitchLiveStatusWriter liveStatusWriter,
+    ITwitchLiveStatusReader liveStatusReader,
+    IRedisPublisher redisPublisher) : BackgroundService
 {
     // 300s default: minute-precise coverage is not the goal (the consumer is a per-day marker),
     // and 12 requests/hour stay far below the app token's Helix rate budget.
     private readonly TimeSpan _pollInterval =
         TimeSpan.FromSeconds(configuration.GetValue("Twitch:LivePollIntervalSeconds", 300));
+
+    // Baseline for the transition diff — null until the first successful publish. Not the Redis
+    // snapshot itself: reading it back every tick would race the write, and in-memory is exact.
+    private IReadOnlySet<string>? _lastPublishedLiveLogins;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -74,7 +81,7 @@ public class TwitchLivePollWorker(
             // A successful poll is a statement about every polled channel — including "nobody is
             // live" — so publish before the empty-result early-return below. Only a failed poll
             // (the null guard above) publishes nothing and lets the key age out into "unknown".
-            await PublishLiveStatusAsync(streams);
+            await PublishLiveStatusAsync(streams, ct);
 
             if (streams.Count == 0)
             {
@@ -106,7 +113,7 @@ public class TwitchLivePollWorker(
     }
 
     // Best-effort with its own catch: a Redis hiccup must not cost the coverage rows that follow.
-    private async Task PublishLiveStatusAsync(IReadOnlyList<TwitchStreamInfo> streams)
+    private async Task PublishLiveStatusAsync(IReadOnlyList<TwitchStreamInfo> streams, CancellationToken ct)
     {
         try
         {
@@ -117,9 +124,43 @@ public class TwitchLivePollWorker(
                 .Distinct()
                 .ToList();
 
+            // Baseline for the diff. In-memory after the first poll; across a worker restart the
+            // previous Redis snapshot (TTL = twice the poll interval) fills in, so a flip during a
+            // short restart still produces its event instead of being swallowed. Read before the
+            // write below overwrites it.
+            var baseline = _lastPublishedLiveLogins;
+            if (baseline is null)
+            {
+                var previousSnapshot = await liveStatusReader.ReadAsync(ct);
+                baseline = previousSnapshot?.LiveChannelLogins.ToHashSet(StringComparer.Ordinal);
+            }
+
             await liveStatusWriter.PublishAsync(
                 new TwitchLiveStatusSnapshot(DateTime.UtcNow, liveLogins),
                 TwitchLiveStatusKeys.TimeToLiveFor(_pollInterval));
+
+            _lastPublishedLiveLogins = liveLogins.ToHashSet(StringComparer.Ordinal);
+
+            var changes = LiveStatusDiff.Compute(baseline, liveLogins);
+            if (changes.IsEmpty)
+            {
+                return;
+            }
+
+            foreach (var channelName in changes.WentLive)
+            {
+                await redisPublisher.PublishLiveChangedAsync(logger, channelName, ct);
+            }
+
+            foreach (var channelName in changes.WentOffline)
+            {
+                await redisPublisher.PublishLiveChangedAsync(logger, channelName, ct);
+            }
+
+            logger.LogInformation(
+                "Live-Status-Wechsel publiziert: live gegangen [{WentLive}], offline gegangen [{WentOffline}].",
+                string.Join(", ", changes.WentLive),
+                string.Join(", ", changes.WentOffline));
         }
         catch (Exception ex)
         {

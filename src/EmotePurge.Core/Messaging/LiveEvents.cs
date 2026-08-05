@@ -28,6 +28,12 @@ public static class LiveEvents
     /// <summary>A 7TV emote-set sync for this channel finished successfully.</summary>
     public const string ChannelSynced = "channel.synced";
 
+    /// <summary>
+    /// The worker's Helix live poll saw this channel flip between live and offline (either
+    /// direction — the payload carries no state, clients refetch).
+    /// </summary>
+    public const string LiveChanged = "live.changed";
+
     /// <summary>The worker published a fresh health snapshot. No channel scope.</summary>
     public const string WorkerHealth = "worker.health";
 
@@ -46,11 +52,11 @@ public static class LiveEvents
 
     /// <summary>Types the admin stream (<c>GET /api/admin/live</c>) forwards.</summary>
     public static readonly IReadOnlySet<string> AdminTypes =
-        new HashSet<string>(StringComparer.Ordinal) { WorkerHealth, WorkerRoster, ChannelSynced };
+        new HashSet<string>(StringComparer.Ordinal) { WorkerHealth, WorkerRoster, ChannelSynced, LiveChanged };
 
     /// <summary>Types the channel stream (<c>GET /api/channels/{channelName}/live</c>) forwards.</summary>
     public static readonly IReadOnlySet<string> ChannelTypes =
-        new HashSet<string>(StringComparer.Ordinal) { UsageFlushed, VoteChanged, ChannelSynced };
+        new HashSet<string>(StringComparer.Ordinal) { UsageFlushed, VoteChanged, ChannelSynced, LiveChanged };
 }
 
 /// <summary>

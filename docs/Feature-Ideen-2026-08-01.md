@@ -689,7 +689,8 @@ Admin aus.
 publiziert, `TwitchLiveStatusStore` liest), dreiwertiger `liveState` (`live`/`offline`/`unknown`) in
 beiden Listen-Antworten plus `livePolledAtUtc`, Badges in Admin-Channel-Liste und „Meine Channels"
 mit „Stand vor x min"-Tooltip; `unknown` bleibt bewusst badge-los. Begründung in DECISIONS
-„LIVE-Badge in den Channel-Listen: der Worker publiziert den Live-Poll-Momentzustand …". Nachtrag
+„LIVE-Badge in den Channel-Listen: der Worker publiziert den Live-Poll-Momentzustand …"; seit
+2026-08-05 mit `live.changed`-Push (SSE) statt Refresh-only. Nachtrag
 vom 2026-08-03 (Nutzerwunsch während der Watchdog-Runde), nicht Teil der ursprünglichen Session vom
 2026-08-01.
 
