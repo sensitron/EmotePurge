@@ -14,7 +14,7 @@ import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { HealthMarker, HealthTone } from '../../shared/ui/health-marker';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
-import { SkeletonRows } from '../../shared/ui/skeleton-rows';
+import { SkeletonSections } from '../../shared/ui/skeleton-sections';
 
 /** Shown for an absent value, same as on the monitoring page. */
 const NO_VALUE = '—';
@@ -36,7 +36,15 @@ const WORKER_STATUS_TONES: Record<string, HealthTone> = {
  */
 @Component({
   selector: 'app-admin-channel-detail-page',
-  imports: [BackLink, Button, HealthMarker, NoticeBanner, RouterLink, SkeletonRows, TranslocoPipe],
+  imports: [
+    BackLink,
+    Button,
+    HealthMarker,
+    NoticeBanner,
+    RouterLink,
+    SkeletonSections,
+    TranslocoPipe,
+  ],
   template: `
     <div class="flex flex-col gap-4">
       <!-- Outside the @if on purpose: the way out has to exist while loading and after an error,
@@ -64,7 +72,7 @@ const WORKER_STATUS_TONES: Record<string, HealthTone> = {
       }
 
       @if (showSkeleton()) {
-        <app-skeleton-rows [count]="3" />
+        <app-skeleton-sections [count]="2" />
       } @else if (detail(); as data) {
         @if (verdictKey(); as verdict) {
           <app-notice-banner [variant]="verdictVariant()">

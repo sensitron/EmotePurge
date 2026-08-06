@@ -90,13 +90,13 @@
    dialogs/popovers would otherwise keep the mode they were not opened in.
 
    Depth works differently per mode, and that is deliberate rather than a
-   compromise: dark separates surfaces by lightness (the border is barely
-   visible at 1,4:1 and does not carry the card), light separates them by a
+   compromise: dark separates surfaces by lightness, light separates them by a
    real elevation shadow, because white on slate-50 is 1,05:1 and could not.
    The direction stays stable though — a raised surface moves AWAY from the
    page ground in both modes, an inset surface moves back towards it. Only the
    physical direction of "inset" flips, which is exactly what role names are
-   for. --ep-shadow-card is `none` in dark for that reason.
+   for. Since the cards went away, the only surface still raised off the page
+   is the overlay, so --ep-shadow-overlay is the last of these tokens left.
    --------------------------------------------------------------------------- */
 
 :root,
@@ -207,10 +207,6 @@
   --ep-sprite-scrim-fg: #e9ecee;
 
   /* Not colours */
-  --ep-shadow-card: none;
-  /* Neutral, not a brand halo. A coloured glow around a hovered card is
-     decoration wearing the costume of depth; the lift here is a real shadow. */
-  --ep-shadow-card-hover: 0 8px 24px -12px rgb(0 0 0 / 0.65);
   --ep-shadow-overlay: 0 10px 30px -12px rgb(0 0 0 / 0.6);
   --ep-backdrop: rgb(0 0 0 / 0.6);
   --ep-sticky-alpha: 85%;
@@ -292,8 +288,6 @@
   --ep-neutral-wash: #eaecef;
   --ep-neutral-fg: #3f464e;
 
-  --ep-shadow-card: 0 1px 2px rgb(20 23 27 / 0.06), 0 1px 3px rgb(20 23 27 / 0.1);
-  --ep-shadow-card-hover: 0 8px 24px -12px rgb(20 23 27 / 0.18);
   --ep-shadow-overlay: 0 10px 30px -10px rgb(20 23 27 / 0.22);
   --ep-backdrop: rgb(20 23 27 / 0.35);
   /* Light needs more coverage than dark, otherwise text bleeds through the blur. */
@@ -437,33 +431,15 @@
     border-color: var(--ep-accent);
   }
 
-  /* The app's card surface, pulled from the landing page's design language: page-level boxes
-     were borderless bg-slate-900 rectangles before, the landing's cards carry a fine border.
-     `.app-card-interactive` adds the landing hover affordance (accent border + soft glow) and
-     belongs ONLY on cards that are actually clickable (stretched-link rows) — static sections
-     use the base class alone, so hover never promises a click that does not exist.
+  /* `.app-card` and `.app-card-interactive` lived here until 2026-08-06, together with the two
+     --ep-shadow-card* tokens they were the only readers of. They are gone because the thing they
+     drew is gone: a card is a boundary against a DIFFERENT kind of neighbour, and the redesign
+     found that almost every stack of them was a list of the same kind of thing, where a hairline
+     rule says "list" better than eight rectangles do. What replaced them is the ruled-row recipe
+     (design doc 2.1) and the borderless section with a `border-t` above its heading.
 
-     The elevation shadow is `none` in dark and real in light: see the depth note in the token
-     block. Without it a white card on a slate-50 page is a 1,05:1 non-event. */
-  .app-card {
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--ep-border);
-    background-color: var(--ep-surface);
-    box-shadow: var(--ep-shadow-card);
-  }
-
-  .app-card-interactive {
-    transition:
-      border-color 150ms,
-      background-color 150ms,
-      box-shadow 150ms;
-  }
-
-  .app-card-interactive:hover {
-    border-color: color-mix(in oklab, var(--ep-accent) 55%, transparent);
-    background-color: color-mix(in oklab, var(--ep-surface-inset) 70%, var(--ep-surface));
-    box-shadow: var(--ep-shadow-card-hover);
-  }
+     Do not reintroduce this class to give something "structure". If a surface genuinely borders
+     on something unlike itself, say so with that one surface, not with a shared card primitive. */
 
   /* Sticky bar for the in-page layers that stay visible while content scrolls (tab navs at
      top-14, filter toolbars at top-24 — the `top` offset is a Tailwind class at the usage site,

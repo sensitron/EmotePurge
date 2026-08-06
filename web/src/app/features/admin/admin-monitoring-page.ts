@@ -14,7 +14,7 @@ import { LiveStatus, LiveUpdateService } from '../../core/live/live-update.servi
 import { Button } from '../../shared/ui/button';
 import { HealthMarker, HealthTone } from '../../shared/ui/health-marker';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
-import { SkeletonRows } from '../../shared/ui/skeleton-rows';
+import { SkeletonSections } from '../../shared/ui/skeleton-sections';
 import { StatusBadge } from '../../shared/ui/status-badge';
 import { UtilizationTone, utilizationTone } from '../../shared/ui/utilization-tone';
 import { AdminRosterCard } from './admin-roster-card';
@@ -65,7 +65,7 @@ const NO_VALUE = '—';
     Button,
     HealthMarker,
     NoticeBanner,
-    SkeletonRows,
+    SkeletonSections,
     StatusBadge,
     TranslocoPipe,
   ],
@@ -101,7 +101,7 @@ const NO_VALUE = '—';
       }
 
       @if (showSkeleton()) {
-        <app-skeleton-rows [count]="3" />
+        <app-skeleton-sections [count]="3" />
       } @else if (health(); as data) {
         @if (!data.snapshotAvailable) {
           <app-notice-banner variant="warning">

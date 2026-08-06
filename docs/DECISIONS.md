@@ -10,6 +10,28 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Skeletons: der Platzhalter zeichnet den Umriss des Inhalts, nicht irgendeinen
+
+**Betrifft:** `web/src/app/shared/ui/skeleton-rows.ts` · `web/src/app/shared/ui/skeleton-sections.ts` (neu) · `web/src/app/features/admin/{admin-monitoring-page,admin-channel-detail-page}.ts` · `docs/UI-Designsprache.md` (§6.1, §11)
+
+**Vom Nutzer beim Durchklicken gemeldet:** „Die Skeletons zeigen aktuell noch Karten an, ist das so gewollt?" — nein. Beim Umbau der Listen auf geriffelte Zeilen wurden die beiden handgerollten Skeletons (Atlas, Stimmzettel) mitgezogen, das **geteilte** `SkeletonRows` nicht. Es war zuletzt die einzige verbliebene `.app-card`-Nutzung der ganzen App: ein Kartenstapel mit `gap-2`, der auf sechs Seiten von einer randlosen `divide-y`-Liste abgelöst wurde. Sichtbar war das nicht nur als verschwindender Rahmen, sondern als **seitlich springender Text** — Skeleton `px-4` innerhalb einer Box gegen `-mx-3 … px-3` in der echten Zeile.
+
+**Die Regel gab es schon, nur zu eng.** §6.1 forderte „Zellen in der Form des echten Inhalts" ausdrücklich für Grids. Genau dort wurde sie eingehalten; verletzt wurde sie da, wo sie nicht hingeschrieben war. Sie gilt jetzt für jedes Skeleton, inklusive Rahmen, Abstand und horizontaler Kante, und mit der Begründung dazu: **ein Skeleton, dessen Umriss vom Inhalt abweicht, lässt das Eintreffen des Inhalts wie einen Layoutfehler aussehen** — es kostet damit genau die Ruhe, für die es da ist.
+
+**Zweiter Befund derselben Klasse:** `admin-monitoring-page` und `admin-channel-detail-page` bekamen ein Listen-Skeleton, obwohl ihr geladener Zustand gar keine Liste ist, sondern rule-getrennte Abschnitte mit zweispaltigen Definitionslisten. Das war schon vor dem Redesign eine Näherung. Neu: `SkeletonSections`, das die echte Sektion nachbildet — bis dahin, dass das `dt`/`dd`-Paar auf Telefonen auf einer Zeile liegt und ab `sm` umbricht.
+
+**Verifiziert wurde das eigens**, weil der reguläre Audit-Harness Ladezustände nie zu sehen bekommt — er wartet auf Inhalt. Eine Wegwerf-Probe hat die Antworten der drei Seiten um sechs Sekunden verzögert und die Skeletons fotografiert. Ohne das wäre die Behauptung „passt jetzt" ungeprüft geblieben: keine Suite dieses Projekts sieht ein Skeleton.
+
+### 2026-08-06 — Zug 3, Abschluss: die Kartenfläche ist abgeschafft, nicht nur ungenutzt
+
+**Betrifft:** `web/src/styles.css` (`.app-card`, `.app-card-interactive`, `--ep-shadow-card*` je Modus entfernt) · `web/src/app/shared/ui/notice-banner.ts` (Kommentar) · `docs/UI-Designsprache.md` (§2.1–2.3)
+
+**Mit dem Skeleton fiel die letzte Nutzung.** `.app-card` und `.app-card-interactive` waren danach toter Code, ebenso die beiden `--ep-shadow-card*`-Tokens, deren einzige Leser sie waren — alle vier sind aus `styles.css` entfernt. Das ist der eigentliche Abschluss der Flächen-Arbeit aus Zug 2/3: die Karte war nicht „gerade nirgends im Einsatz", sondern durch zwei Formen ersetzt, die ihre Aufgabe besser erledigen.
+
+**`.app-card-link` bleibt** — der Name stammt aus der Kartenzeit, benennt aber das Stretched-Link-Pseudoelement und nicht die Fläche. Umbenennen hieße vier Aufrufstellen plus Doku anzufassen, um einen Kommentar zu ersparen; der Kommentar ist billiger.
+
+**Die Designsprache lief der Umsetzung hinterher, und zwar bemerkt.** §2.1–2.3 führten die Karte bis heute als lebendes Primitive und behaupteten ausdrücklich, sie bleibe „für Flächen, deren Nachbarschaft tatsächlich andersartig ist (Formular-Boxen, Panels im Workspace)". Das stimmte schon beim Schreiben nicht mehr: genau diese Flächen waren zu dem Zeitpunkt längst getönte Blöcke (`rounded-md bg-surface-inset`). Der Satz stand da, weil er beim Umbau als Rückzugsoption formuliert und nie gegen den Code geprüft wurde. **Ein Dokument, das ein abgeschafftes Primitive als verfügbar führt, ist schlimmer als eines, das schweigt** — es lädt zum Wiedereinbau ein. §2.1 heißt jetzt „Flächen: geriffelte Zeile und randloser Abschnitt" und nennt die Prüffrage („grenzt das gegen etwas Andersartiges?") vor den Rezepten.
+
 ### 2026-08-06 — Zug 3, Breite: zwei Breiten gebaut, am selben Tag wieder verworfen
 
 **Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/app.routes.ts` · `web/src/app/features/usage-stats/usage-stats-page.html` (Dock) · `docs/UI-Designsprache.md` (§8.4a)

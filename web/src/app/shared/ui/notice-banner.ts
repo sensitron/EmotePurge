@@ -3,10 +3,11 @@ import { Component, computed, input } from '@angular/core';
 export type NoticeVariant = 'info' | 'warning' | 'error';
 
 /**
- * `info` gets the neutral WASH, not the card surface it used to share. `bg-slate-900` was the exact
- * colour of `.app-card`, so an info banner placed on a card was invisible — it only ever looked like
- * a banner because the pages it sat on were darker still. In light mode (card = white) it would have
- * disappeared outright. One step away from the surface in both directions fixes both.
+ * `info` gets the neutral WASH, not the plain surface it used to share. `bg-slate-900` was the exact
+ * colour of the card class of the day, so an info banner placed on one was invisible — it only ever
+ * looked like a banner because the pages it sat on were darker still. In light mode (card = white)
+ * it would have disappeared outright. One step away from the surface in both directions fixes both.
+ * The cards are gone since 2026-08-06; the wash stays, because the reasoning was never about cards.
  */
 const VARIANT_CLASSES: Record<NoticeVariant, string> = {
   info: 'bg-neutral-wash text-neutral-fg',

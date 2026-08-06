@@ -36,32 +36,33 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Erzwungen**, nicht erbeten: `npm run lint` fährt `web/scripts/check-color-tokens.mjs` mit und verbietet Paletten-Utilities unterhalb `web/src/app/`.
 - **Referenz:** `web/src/styles.css` (Tokenblock), `docs/Konzept-Light-Mode.md` §4.
 
-### 2.1 Kartenfläche
+### 2.1 Flächen: geriffelte Zeile und randloser Abschnitt
 
-- **Was gilt:** `.app-card` (in `web/src/styles.css`) ist die **einzige** Kartenoberfläche: `border`-Rand, `surface`-Fläche, `radius-lg`, plus die Elevation aus `--ep-shadow-card`. Keine randlosen `bg-surface`-Rechtecke, keine eigenen Karten-Klassenketten.
-- **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit (der Rand liegt bei 1,4:1 und trägt die Karte nicht), hell über einen echten Elevationsschatten (Weiß auf `slate-50` sind 1,05:1 und könnten es nicht). Die *Richtung* bleibt in beiden Modi gleich — eine erhöhte Fläche entfernt sich vom Grund, eine eingelassene (`surface-inset`) geht zu ihm zurück. Nur die physikalische Richtung von „eingelassen" dreht sich; genau dafür sind Rollennamen da.
-- **Wann anwenden:** Jede abgegrenzte Inhaltsfläche gegen **andersartige** Nachbarn — Formular-Boxen, statische Sektionen.
-- **Nicht mehr für Listen-Zeilen** (seit 2026-08-06): eine Karte grenzt gegen etwas Anderes ab, und in einer Liste ist jede Zeile dasselbe. Die Ränder zeichneten dort acht Rechtecke, wo eine Linie „Liste" deutlicher sagt. Zeilenlisten laufen jetzt als `-mx-3 divide-y divide-border border-y border-border` mit `px-3 py-3` je Zeile; klickbare Zeilen bekommen `relative transition-colors hover:bg-surface-inset` statt `.app-card-interactive`. Der negative Rand lässt den Hover-Wisch über den Text hinausatmen, während die Inhalte auf der linken Kante der Seite bleiben. Umgesetzt in `overview-page.html`, `vote-session-list-page.html`, `my-votings-page.ts`, `admin-channels-page.ts`, `admin-users-page.ts`, `audit-log-list.ts`.
-- **Auch nicht mehr für gestapelte Diagnose-Sektionen** (seit 2026-08-06): dieselbe Prüfung, eine Ebene höher. Auf `admin-monitoring-page.ts` und `admin-channel-detail-page.ts` war *jede* Sektion eine Karte, also grenzte keine gegen etwas Andersartiges ab — vier Rechtecke übereinander, und alle vier konkurrierten mit dem Einzigen, was dort auffallen muss: dem Subsystem, das nicht in Ordnung ist. Instrumenten-Stapel statt Kartenstapel: `flex flex-col gap-3 border-t border-border pt-4` je Sektion, Überschrift links und Statusmarker rechts. `.app-card` bleibt für Flächen, deren Nachbarschaft tatsächlich andersartig ist (Formular-Boxen, Panels im Workspace).
-- **Referenz:** `web/src/styles.css` (`.app-card`), Verwendung überall unter `web/src/app/features/`.
+- **Die Karte ist abgeschafft** (2026-08-06). `.app-card` und `.app-card-interactive` sind aus `styles.css` entfernt, zusammen mit den beiden `--ep-shadow-card*`-Tokens, deren einzige Leser sie waren. Es gibt **keine** Kartenklasse mehr und es kommt keine zurück.
+- **Die Prüffrage, die sie gekostet hat:** eine Karte ist eine Grenze gegen einen **andersartigen** Nachbarn. Fast überall, wo welche standen, war jeder Nachbar dieselbe Sorte Ding — in einer Liste ist jede Zeile eine Zeile, auf einer Diagnoseseite ist jede Sektion ein Subsystem, das über sich selbst berichtet. Die Ränder zeichneten dort acht Rechtecke, wo eine Linie „Liste" deutlicher sagt, und konkurrierten mit dem Einzigen, was auffallen muss: dem Subsystem, das nicht in Ordnung ist. Wer eine Fläche abgrenzen will, beantwortet zuerst diese Frage.
+- **Zeilenliste:** `-mx-3 divide-y divide-border border-y border-border` am `<ul>`, `px-3 py-3` je `<li>`. Klickbare Zeilen zusätzlich `relative transition-colors hover:bg-surface-inset`. Der negative Rand lässt den Hover-Wisch über den Text hinausatmen, während die Inhalte auf der linken Kante der Seite bleiben. Umgesetzt in `overview-page.html`, `vote-session-list-page.html`, `my-votings-page.ts`, `admin-channels-page.ts`, `admin-users-page.ts`, `audit-log-list.ts`.
+- **Abschnittsstapel:** `flex flex-col gap-3 border-t border-border pt-4` je Sektion, Überschrift links und Statusmarker rechts. Umgesetzt in `admin-monitoring-page.ts`, `admin-channel-detail-page.ts`.
+- **Getönter Block** (`rounded-md bg-surface-inset px-3 py-3`) für das, was tatsächlich gegen Andersartiges grenzt: Panels *in* einer Seite, das 7TV-Token-Formular, der Fortschrittslauf. Fläche statt Rand — die Tönung sagt „hier gilt etwas anderes", ohne ein Rechteck zu zeichnen.
+- **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit (der Rand liegt bei 1,4:1), hell über einen echten Elevationsschatten (Weiß auf `slate-50` sind 1,05:1). Die *Richtung* bleibt gleich — erhöht entfernt sich vom Grund, eingelassen (`surface-inset`) geht zu ihm zurück. Seit dem Wegfall der Karten ist das Overlay die einzige noch erhöhte Fläche, also ist `--ep-shadow-overlay` das letzte dieser Tokens.
+- **Referenz:** `web/src/styles.css`, `web/src/app/features/overview/overview-page.html`.
 
 ### 2.2 Hover nur bei Klickbarkeit
 
-- **Was gilt:** `.app-card-interactive` (lila Rand-Hover + Glow-Schatten) kommt **nur** auf tatsächlich klickbare Karten (Stretched-Link-Zeilen). Statische Karten bleiben beim Basisstil — Hover darf nie einen Klick versprechen, den es nicht gibt.
-- **Wann anwenden:** Genau dann, wenn die Karte den Stretched-Link-Kontrakt (2.3) erfüllt. Bedingte Anwendung ist erlaubt (`[class]`-Binding schaltet `app-card-interactive relative` nur bei Klickbarkeit zu).
+- **Was gilt:** Eine Hover-Reaktion kommt **nur** auf tatsächlich klickbare Zeilen — `relative transition-colors hover:bg-surface-inset`. Statische Zeilen und Abschnitte bleiben stumm: Hover darf nie einen Klick versprechen, den es nicht gibt.
+- **Wann anwenden:** Genau dann, wenn die Zeile den Stretched-Link-Kontrakt (2.3) erfüllt. Bedingte Anwendung ist erlaubt und der Normalfall — `[class]`-Binding schaltet den Hover-Teil nur bei Klickbarkeit zu (`overview-page.html` tut das pro Channel über `isTracked`).
 - **Referenz:** `web/src/app/features/admin/admin-channels-page.ts` (bedingt), `web/src/app/features/overview/overview-page.html`.
 
-### 2.3 Stretched-Link-Kontrakt (vollflächig klickbare Karten)
+### 2.3 Stretched-Link-Kontrakt (vollflächig klickbare Zeilen)
 
-- **Was gilt:** Klickbare Listen-Karten nutzen das Stretched-Link-Pattern über `.app-card-link` (Inclusive-Components-„Cards"-Muster). Der Kontrakt hat drei Pflichtteile:
-  1. Kartencontainer ist `relative` (+ `app-card-interactive`).
-  2. **Ein** kurzer echter Link (Titel/Name) trägt `app-card-link` — sein `::after` dehnt die Klickfläche über die ganze Karte; Screenreader hören nur den kurzen Namen.
-  3. **Jede** Sekundäraktion in der Karte (Buttons, weitere Links) liegt in einem Container mit `relative z-10` und bleibt separat klick- und fokussierbar.
+- **Was gilt:** Klickbare Listenzeilen nutzen das Stretched-Link-Pattern über `.app-card-link` (Inclusive-Components-„Cards"-Muster). Der Klassenname stammt aus der Kartenzeit und ist als einziger davon geblieben, weil er das Pseudoelement benennt, nicht die Fläche. Der Kontrakt hat drei Pflichtteile:
+  1. Zeilencontainer ist `relative`.
+  2. **Ein** kurzer echter Link (Titel/Name) trägt `app-card-link` — sein `::after` dehnt die Klickfläche über die ganze Zeile; Screenreader hören nur den kurzen Namen.
+  3. **Jede** Sekundäraktion in der Zeile (Buttons, weitere Links) liegt in einem Container mit `relative z-10` und bleibt separat klick- und fokussierbar.
 
   Kanonisches Markup:
 
   ```html
-  <li class="app-card app-card-interactive relative flex ...">
+  <li class="relative flex items-center gap-4 px-3 py-3 transition-colors hover:bg-surface-inset">
     <a [routerLink]="[...]" class="app-card-link max-w-full truncate font-medium">#{{ name }}</a>
     <div class="relative z-10 ml-auto flex gap-2">
       <button type="button" appButton="danger" (click)="...">…</button>
@@ -69,7 +70,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   </li>
   ```
 
-- **Wann anwenden:** Jede Listen-Karte, deren primäre Aktion „öffnen/ansehen" ist. **Nicht:** die ganze Karte als `<a>` wrappen (ungültig bei inneren Buttons, aufgeblähter Accessible Name) oder ein JS-Klick-Handler auf dem Container.
+- **Wann anwenden:** Jede Listenzeile, deren primäre Aktion „öffnen/ansehen" ist. **Nicht:** die ganze Zeile als `<a>` wrappen (ungültig bei inneren Buttons, aufgeblähter Accessible Name) oder ein JS-Klick-Handler auf dem Container.
 - **Referenz:** `web/src/app/features/overview/overview-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/voting/vote-session-list-page.html`.
 
 ### 2.4 Bildfläche einer Emote-Kachel
@@ -90,7 +91,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   | Seitentitel | `text-2xl font-bold tracking-tight` | `<h1>` in Layouts, `<h2>` auf Seiten ohne eigenes Layout-`<h1>` |
   | Sektionstitel | `text-lg font-semibold` | `<h2>` |
   | Kartentitel | `text-base font-semibold` | `<h3>` |
-  | Listen-Karten-Titellink | `font-medium` (Textgröße erbt vom Kontext) | `<a class="app-card-link">` / `<span>` |
+  | Listenzeilen-Titellink | `font-medium` (Textgröße erbt vom Kontext) | `<a class="app-card-link">` / `<span>` |
 
   Karten-`<h3>`s tragen **nie** die Sektionsgröße `text-lg` — genau diese Kollision (Admin-Monitoring) war ein Audit-Befund und ist behoben.
 - **Wann anwenden:** Immer. Das Heading-**Level** folgt der Dokumentstruktur (eine Seite unter einem Layout-`<h1>` beginnt bei `<h2>`), die **Optik** folgt der Tabelle — beides ist unabhängig voneinander einzuhalten.
@@ -205,10 +206,12 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 ### 6.1 Skeleton vs. Spinner (NN/g-Regel)
 
 - **Was gilt:** **Skeleton für Seiten-/Listen-Ladevorgänge, disabled-Button (Label bleibt konstant) für isolierte Aktionen.** Keine „Lädt…"-Textzeilen, keine Spinner für Seitenladen.
-  - Listen: `<app-skeleton-rows [count]="3" />`.
-  - Abweichende Formen (Grids): handgerolltes Skeleton nach demselben A11y-Muster — **ein** `role="status"`-Element mit übersetztem `aria-label`, die Schimmer-Blöcke (`.app-skeleton`) in einem `aria-hidden="true"`-Container, Zellen in der Form des echten Inhalts.
+  - Geriffelte Listen: `<app-skeleton-rows [count]="3" />`.
+  - Abschnittsseiten (Admin-Monitoring, Admin-Channel-Detail): `<app-skeleton-sections [count]="3" />`.
+  - Abweichende Formen (Atlas, Stimmzettel): handgerolltes Skeleton nach demselben A11y-Muster — **ein** `role="status"`-Element mit übersetztem `aria-label`, die Schimmer-Blöcke (`.app-skeleton`) in einem `aria-hidden="true"`-Container.
   - Aktionen (Refresh, Join, Purge): Button `[disabled]="isLoading()"`, Label bleibt.
-- **Referenz:** `web/src/app/shared/ui/skeleton-rows.ts`, Grid-Variante `web/src/app/features/usage-stats/usage-stats-page.html`.
+- **Das Skeleton zeichnet den Umriss des echten Inhalts, nicht irgendeinen Platzhalter** — Rahmen, Abstand und horizontale Kante inklusive. Galt bis 2026-08-06 nur für Grids und wurde deshalb genau dort verletzt, wo es niemand geprüft hat: `SkeletonRows` blieb ein Kartenstapel, nachdem die Listen ihre Karten verloren hatten, und war zuletzt die einzige verbliebene `.app-card`-Nutzung der App. Sichtbar wurde das als seitlich springender Text auf sechs Seiten (Skeleton `px-4` in einer Box gegen `-mx-3 … px-3` in der echten Zeile). **Ein Skeleton, dessen Umriss vom Inhalt abweicht, lässt das Eintreffen des Inhalts wie einen Layoutfehler aussehen** — es kostet damit genau die Ruhe, für die es überhaupt da ist. Wer eine Listen-/Abschnittsform ändert, prüft das zugehörige Skeleton im selben Commit.
+- **Referenz:** `web/src/app/shared/ui/skeleton-rows.ts`, `skeleton-sections.ts`, Grid-Variante `web/src/app/features/usage-stats/usage-stats-page.html`.
 
 ### 6.2 EmptyState
 
@@ -369,9 +372,9 @@ Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.*
 
 Vor dem Abschluss jeder UI-Änderung abhaken:
 
-1. [ ] **Primitives statt Utility-Ketten:** `appButton`, `StatusBadge`, `NoticeBanner`, `EmptyState`, `SkeletonRows`, `SegmentedControl`, `ConfirmDialog`/`TypedConfirmDialog`, `Pager`, `ThemeMenu`, `.app-card*`, `.app-input*` — nichts davon nachbauen.
+1. [ ] **Primitives statt Utility-Ketten:** `appButton`, `StatusBadge`, `NoticeBanner`, `EmptyState`, `SkeletonRows`/`SkeletonSections`, `SegmentedControl`, `ConfirmDialog`/`TypedConfirmDialog`, `Pager`, `ThemeMenu`, `.app-input*` — nichts davon nachbauen.
 2. [ ] **Farbe aus Tokens** (2.0): keine Paletten-Utility unter `web/src/app/` — `npm run lint` erzwingt das. Fehlt ein Token, wird es **ergänzt**, mit Werten für **beide** Modi und gerechnetem Kontrast in der Commit-Message. Und: **beide Modi angesehen**, nicht nur den, in dem gerade gearbeitet wurde.
-3. [ ] **Flächen:** `.app-card`; `app-card-interactive` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
+3. [ ] **Flächen:** geriffelte Zeile bzw. randloser Abschnitt (2.1); `.app-card-link` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
 4. [ ] **Typo-Skala** eingehalten (Abschnitt 3), Heading-Level folgt Dokumentstruktur.
 5. [ ] **Destruktiv-Flow:** `danger`-Auslöser → Dialog → `danger-solid`-Vollzug (4.2).
 6. [ ] **Ladezustand:** Skeleton (Seite/Liste) bzw. disabled-Button (Aktion) — kein Lade-Text (6.1).
