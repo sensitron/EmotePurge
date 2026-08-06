@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, erste Fläche: Der Stimmzettel bekommt eine Zelle statt einer Karte — und wird auf dem Handy **größer**
+
+**Betrifft:** `web/src/app/features/voting/vote-session-detail-page.{ts,html}` · `web/src/app/shared/grid/{atlas-grid.ts,grid-columns.ts,grid-columns.spec.ts,atlas-grid.spec.ts}` · `web/src/app/shared/emotes/emote-card-header.ts` (entfernt) · `web/e2e/vote-ballot.e2e.spec.ts` (neu) · `web/e2e/support/mocks.ts`
+
+**Der Atlas wird hier ausdrücklich nicht mechanisch übernommen.** Auf `usage-stats` ist die Zelle etwas, das man in Masse markiert; hier trägt sie **zwei echte Abstimm-Ziele**, und die sind die Aufgabe. Ein 64-px-Sprite kann die nicht halten. Übertragen wird deshalb nur, was übertragbar ist: der Wegfall des Kartenrahmens, das Alpha-Karo als Zellgrund, die Lesefläche, die Name/Nutzung/Score einmal statt pro Kachel zeigt — und die Spaltenmessung.
+
+**Auf schmalen Flächen wächst die Zelle, statt zu schrumpfen.** Das ist die inhaltliche Entscheidung dieses Umbaus: abstimmen tun Zuschauer, und Zuschauer sind auf dem Handy. Ihre Ziele auf 30 px zu schrumpfen, damit ein Moderator am Desktop weniger scrollt, wäre der falsche Handel. Unter ~600 px Containerbreite ist die Zelle **96 px** mit einem **44 px** hohen Stimmstreifen (Daumen-Symbol + Zahl); darüber 64 px mit 24 px (nur Zahl). Für den Zuschauer heißt das: das Emote wächst von 40 px auf 96 px, die Abstimm-Ziele behalten ihre 44 px Höhe, und es passen drei statt zwei in eine Zeile. Die Schwelle misst den **Container**, nicht das Fenster — ab `lg` steht rechts ein Sidecar, das Fenster sagt über den verfügbaren Platz also nichts.
+
+**Der Streifen ist gleichzeitig Bedienelement und Auswertung.** Zwei Hälften, haarfein getrennt, die eigene Stimme **gefüllt** statt nur eingefärbt (Formänderung, nicht nur Farbe). Darunter ein 2-px-Verhältnisbalken in Grün/Rot: die Zahlen sagen *wie viele*, der Balken sagt *wohin es kippt* — und Letzteres ist das, was ein Blick über 240 Zellen tatsächlich liest. Bei verdeckter Auszählung entfällt beides ersatzlos; ein Platzhalter im Zahlenfeld läse sich wie ein Wert.
+
+**Auswahl und Abstimmung sind räumlich getrennt:** das Sprite ist das Auswahlziel (nur für Manager, füttert den Mass-Delete), der Streifen darunter das Abstimmziel. Eine der beiden Handlungen endet in einem unwiderruflichen Löschen auf 7TV, die andere ist jederzeit zurücknehmbar — sie dürfen nicht ineinanderlaufen.
+
+**`computeGridColumns` ist ersatzlos entfernt.** Es bildete die *Fenster*breite über Breakpoints auf eine Spaltenzahl ab, während die Shell den Inhalt auf 1024 px deckelt — derselbe Defekt, der auf `usage-stats` gemessen wurde. Beide Raster messen jetzt ihren eigenen Container über `atlasColumns`, das dafür ein Zellmaß als Parameter bekommen hat. **`EmoteCardHeader` ist ebenfalls entfernt**: es existierte nur, um den Namen auf jede Karte zu drucken, und beide Flächen tun das nicht mehr.
+
+**Die Stimmzettel-Fläche hatte bis heute keine einzige Browser-Abdeckung** — die schlechteste denkbare Kombination mit einem Umbau ihres Bedienmodells. Neu: `vote-ballot.e2e.spec.ts` mit sechs Fällen (Stimme abgeben, durch erneuten Druck zurücknehmen, archivierte Emotes bleiben gelistet aber unwählbar, verdeckte Auszählung zeigt keine Zahlen, Lesefläche folgt dem Zeiger, Auswahl schlägt nicht in die Stimme durch). Dabei fiel auf, dass `mockVoteSessionResults` ein explizites `null` per `??` verschluckte — genau der Wert, mit dem der Server eine laufende Geheimabstimmung verdeckt; nur `undefined` fällt jetzt noch auf den Standardwert zurück.
+
 ### 2026-08-06 — Nachtrag zu Zug 2: Der Verlaufs-Auslöser sitzt auf der Zelle, und der Sidecar kommt doch
 
 **Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/public/i18n/{de,en}.json` · `web/e2e/{usage-atlas,channel-workspace}.e2e.spec.ts`

@@ -785,10 +785,13 @@ export async function mockVoteSessionResults(
         emoteName: emote.emoteName,
         sevenTvEmoteId: emote.sevenTvEmoteId ?? `7tv-${emote.emoteId}`,
         imageUrl: emote.imageUrl ?? 'https://cdn.7tv.app/emote/1/1x.webp',
-        totalUseCount: emote.totalUseCount ?? 10,
-        keepVotes: emote.keepVotes ?? 2,
-        deleteVotes: emote.deleteVotes ?? 1,
-        score: emote.score ?? 1,
+        // `?? default` would swallow an explicit null, and null is not "unset" here — it is the
+        // server's withholding verdict for a running secret ballot, which a spec has to be able
+        // to express. Only `undefined` falls back.
+        totalUseCount: emote.totalUseCount === undefined ? 10 : emote.totalUseCount,
+        keepVotes: emote.keepVotes === undefined ? 2 : emote.keepVotes,
+        deleteVotes: emote.deleteVotes === undefined ? 1 : emote.deleteVotes,
+        score: emote.score === undefined ? 1 : emote.score,
         isArchived: emote.isArchived ?? false,
         myVote: emote.myVote ?? null,
       })),
