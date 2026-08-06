@@ -1,6 +1,7 @@
 import { Directive, computed, input } from '@angular/core';
 
-export type ButtonVariant = 'primary' | 'neutral' | 'outline' | 'danger' | 'danger-solid';
+export type ButtonVariant =
+  'primary' | 'neutral' | 'outline' | 'danger' | 'danger-quiet' | 'danger-solid';
 export type ButtonSize = 'md' | 'lg';
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
@@ -13,6 +14,15 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   // confirm button inside a dialog and for a page's primary destructive CTA (mass-delete).
   // See docs/UI-Designsprache.md §4.2.
   danger: 'border border-danger-solid text-danger-fg hover:bg-danger-wash',
+  // Third destructive tier, added 2026-08-06 when the vote-session list lost its cards: the same
+  // outline button repeated once per paged row turned into twenty red rectangles running down the
+  // page, which made the rarest action on it the loudest element. Keyed to repetition at page
+  // scale, not to a lower severity — the hover wash and the confirm dialog behind it are unchanged,
+  // only the permanent red box is gone. A single triggering button in page context keeps `danger`
+  // (leave channel). The admin lists repeat theirs too, but a handful of times rather than twenty,
+  // and purge/revoke are heavier than deleting a vote session — they stay on `danger` until those
+  // pages are rebuilt and the trade can be judged in context rather than by rule.
+  'danger-quiet': 'text-danger-fg hover:bg-danger-wash',
   'danger-solid': 'bg-danger-solid font-medium text-on-accent hover:bg-danger-solid-hover',
 };
 

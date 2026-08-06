@@ -40,17 +40,21 @@
 
       @if (channels.length === 0) {
         <app-empty-state
-          icon="📺"
           [title]="'overview.noChannels' | transloco"
           [description]="'overview.noChannelsHint' | transloco"
         />
       } @else {
-        <ul class="flex flex-col gap-2">
+        <!-- Hairline-divided rows rather than a stack of bordered cards. A card is a boundary
+             against a *different* kind of neighbour; every row here is the same kind of thing, so
+             all the border did was draw eight rectangles that say "list" less clearly than a rule
+             does. The negative margin lets the hover wash breathe past the text while the names
+             stay on the page's own left edge. -->
+        <ul class="-mx-3 divide-y divide-border border-y border-border">
           @for (channel of channels; track channel.channelName) {
             <li
               [class]="
-                'app-card flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3' +
-                (channel.isTracked ? ' app-card-interactive relative' : '')
+                'flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-3' +
+                (channel.isTracked ? ' relative transition-colors hover:bg-surface-inset' : '')
               "
             >
               <div class="flex min-w-0 flex-wrap items-center gap-2">
@@ -66,9 +70,12 @@
                 } @else {
                   <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
                 }
-                <!-- Three-way on purpose: 'unknown' (worker down, poll disabled, channel not
-                     polled) renders no badge at all — absence of data must not look like
-                     "offline". The tooltip owns the honesty about the poll lag. -->
+                <!-- Still three-way, and still deliberate: 'unknown' (worker down, poll disabled,
+                     channel not polled) renders nothing at all, because absence of data must not
+                     look like "offline". What changed is the weight. Live is the only thing on this
+                     row that is true *right now*, so it keeps the badge; being offline is the
+                     unremarkable case and says so in plain text, which still distinguishes it from
+                     the silence of 'unknown'. The tooltip owns the honesty about the poll lag. -->
                 @if (channel.liveState === 'live') {
                   <app-status-badge
                     tone="success"
@@ -77,37 +84,36 @@
                     {{ 'overview.liveBadge' | transloco }}
                   </app-status-badge>
                 } @else if (channel.liveState === 'offline') {
-                  <app-status-badge
-                    tone="neutral"
+                  <span
+                    class="text-xs text-fg-muted"
                     [title]="'overview.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                    >{{ 'overview.offlineBadge' | transloco }}</span
                   >
-                    {{ 'overview.offlineBadge' | transloco }}
-                  </app-status-badge>
-                }
-                @if (channel.isBroadcaster) {
-                  <app-status-badge tone="accent">{{
-                    'overview.roleBadges.broadcaster' | transloco
-                  }}</app-status-badge>
-                }
-                @if (channel.isModerator) {
-                  <app-status-badge tone="info">{{
-                    'overview.roleBadges.moderator' | transloco
-                  }}</app-status-badge>
-                }
-                @if (channel.isSevenTvEditor) {
-                  <app-status-badge tone="success">{{
-                    'overview.roleBadges.sevenTvEditor' | transloco
-                  }}</app-status-badge>
                 }
               </div>
-              <div class="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+              <div class="ml-auto flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+                <!-- Your role is a fact about you, not about this channel, and on most accounts it
+                     is the same word on every row. Three coloured pills claimed otherwise. -->
+                @if (roleKeys(channel); as keys) {
+                  @if (keys.length > 0) {
+                    <span class="text-xs text-fg-muted">
+                      @for (key of keys; track key; let last = $last) {
+                        {{ key | transloco }}
+                        @if (!last) {
+                          <span aria-hidden="true"> · </span>
+                        }
+                      }
+                    </span>
+                  }
+                }
                 @if (channel.isTracked) {
-                  <app-status-badge [tone]="channel.isBotActive ? 'success' : 'neutral'">
+                  <!-- The row's own condition: whether anything is being counted here at all. -->
+                  <app-state-dot [tone]="channel.isBotActive ? 'on' : 'off'">
                     {{
                       (channel.isBotActive ? 'overview.botActive' : 'overview.botInactive')
                         | transloco
                     }}
-                  </app-status-badge>
+                  </app-state-dot>
                   <!-- A left channel keeps its row, so it never falls back to the "Hinzufügen"
                        branch below — without this button there is no way back for a non-admin. -->
                   @if (!channel.isBotActive && (channel.isBroadcaster || channel.isModerator)) {

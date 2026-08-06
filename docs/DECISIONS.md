@@ -10,6 +10,26 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Listenflächen: Zeilen statt Karten, und die Prüffrage „bemerkenswert wie oft?"
+
+**Betrifft:** `web/src/app/features/overview/overview-page.{ts,html}` · `web/src/app/features/voting/vote-session-list-page.{ts,html}` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/shared/ui/{state-dot.ts (neu),empty-state.ts,button.ts}` · `web/src/app/shared/voting/vote-audience-badge.ts` · neun Aufrufstellen von `<app-empty-state>` · `docs/UI-Designsprache.md` (§2.1, §4.1, §4.2, §4.3, §6.2)
+
+**Eine Karte grenzt gegen etwas Andersartiges ab — in einer Liste ist jede Zeile dasselbe.** Die drei Listenseiten stapelten `.app-card`-Kacheln; was der Rand dort leistete, war acht Rechtecke zu zeichnen, wo eine Linie „Liste" deutlicher sagt. Zeilenlisten laufen jetzt über `-mx-3 divide-y divide-border border-y border-border`, klickbare Zeilen über `hover:bg-surface-inset` statt `.app-card-interactive`. Der negative Rand lässt den Hover-Wisch über den Text hinausatmen, während die Inhalte auf der linken Kante der Seite stehen bleiben. `.app-card` bleibt unverändert für abgegrenzte Flächen gegen andersartige Nachbarn.
+
+**Die eigentliche Entdeckung war die Übersichtszeile.** Eine getrackte Zeile konnte fünf Pillen gleichzeitig tragen — LIVE, Broadcaster, Moderator, 7TV-Editor, Bot aktiv — und hat damit drei völlig verschiedene Arten von Information zu einer Textur eingeebnet: **wer du hier bist** (eine Tatsache über dich, auf den meisten Konten in jeder Zeile dasselbe Wort), **ob gerade gestreamt wird**, und **ob überhaupt etwas gemessen wird**. Nur das Letzte ist der Zustand *der Zeile*, und es ist das, was entscheidet, ob dieser Channel Daten produziert.
+
+Daraus folgt die Regel, die jetzt in §4.3 steht: **eine Pille markiert eine bemerkenswerte Eigenschaft, und die Prüffrage lautet „bemerkenswert wie oft?"** Was in jeder Zeile steht, markiert nichts mehr, sondern ist eine Farbleiter. Rollen → stiller Text. Offline → stiller Text (LIVE behält die Pille, weil es das Einzige ist, was *gerade jetzt* gilt; die Dreiwertigkeit inklusive des stillen `unknown` bleibt unangetastet). Bot-Zustand → neuer `<app-state-dot>`.
+
+**`state-dot` trennt Zustand von Eigenschaft**: Punkt plus Wort, `tone="on"|"off"`, benutzt von allen drei Seiten (Bot misst · Session läuft). Die `-dot`-Tokens existieren genau dafür — eine kleine bedeutungstragende Grafik, die 3:1 schuldet statt 4,5:1, weil das Wort daneben die Bedeutung ohnehin allein trägt.
+
+**Die Zielgruppen-Pille ist in zwei Schritten ganz verschwunden**, und der zweite kam aus dem gerenderten Bild. Erst verlor der offene Fall seine graue Pille (eine Pille für den Default). Dann zeigte die echte Liste, dass die Hälfte der Sessions eingeschränkt ist — zehn blaue Rechtecke in einer Spalte sind keine Ausnahme, sondern eine Leiter, und „bemerkenswert" kann nicht zehnmal gelten. „Nur Mods/Streamer" gegen „Alle Zuschauer" sagt die Sache vollständig als Text; die Einschränkung trägt jetzt eine Kontraststufe statt eines Kastens.
+
+**Dritte Destruktiv-Stufe `danger-quiet`, ebenfalls aus dem Bild.** Nachdem die Karten weg waren, standen zwanzig rot umrandete „Löschen"-Knöpfe untereinander — die seltenste Aktion der Seite als ihr lautestes Element. Die Stufe ist an die **Wiederholung** gekoppelt, nicht an geringere Schwere: Hover-Wash und Bestätigungsdialog bleiben, nur der dauerhafte rote Kasten fällt weg. Die Admin-Listen wiederholen ihren Auslöser ebenfalls, bleiben aber bewusst auf `danger` — eine Handvoll Zeilen statt zwanzig, und Purge/Revoke wiegen schwerer als eine gelöschte Vote-Session; entschieden wird das im Bild, wenn diese Seiten drankommen.
+
+**Der `icon`-Input von `EmptyState` ist ersatzlos entfernt**, nicht nur ungenutzt — so kann keine der neun erbenden Flächen ihr Emoji behalten. Sein eigener Kommentar beschrieb es als Echo der Landing-Feature-Kacheln, die es seit gestern nicht mehr gibt. Dazu fallen die gestrichelte Box und die Zentrierung: eine zentrierte Textspalte in einer linksbündigen Seite liest sich wie ein vergessener Platzhalter, und das ist für einen korrekten, erwarteten Zustand die falsche Lesart.
+
+**Das Erstellen-Formular der Voting-Liste steht jetzt unter der Liste.** Wer den Tab öffnet, fragt, was läuft; als Karte über der Liste schob das Formular diese Antwort vom ersten Bildschirm. Es bleibt **vollständig sichtbar** statt in eine Aufklapp-Fläche zu wandern: ob überhaupt jemand Community-Voting will, ist die offene Frage zu diesem Feature (`PRODUCT.md`), und den Einstieg zu verstecken würde sie durch Auszehrung beantworten statt durch Beobachtung.
+
 ### 2026-08-06 — Zug 3, öffentliche Fläche: Die Landing zeigt statt vier Funktionskacheln die Form eines Emote-Sets
 
 **Betrifft:** `web/src/app/features/landing/{landing-page.ts,landing-page.html,set-shape.ts}` · `web/src/app/features/login/login-page.ts` · `web/src/app/features/shell/app-shell.ts` · `web/src/app/shared/branding/links.ts` (neu) · `web/src/styles.css` · `web/public/i18n/{de,en}.json` · `web/e2e/{landing.e2e.spec.ts,auth.e2e.spec.ts}`

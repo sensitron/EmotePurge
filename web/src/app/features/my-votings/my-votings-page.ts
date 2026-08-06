@@ -14,7 +14,7 @@ import { BackLink } from '../../shared/ui/back-link';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
-import { StatusBadge } from '../../shared/ui/status-badge';
+import { StateDot } from '../../shared/ui/state-dot';
 
 const EMPTY_PAGE: PagedResult<MyVoteSession> = {
   items: [],
@@ -33,7 +33,7 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
     RouterLink,
     Pager,
     SkeletonRows,
-    StatusBadge,
+    StateDot,
     TranslocoPipe,
   ],
   template: `
@@ -60,14 +60,18 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
         <!-- No CTA back to the overview any more: the up-link above is always there now, and the
              empty state repeating it was the duplicate myVotings.goToOverview key. -->
         <app-empty-state
-          icon="🗳️"
           [title]="'myVotings.noSessions' | transloco"
           [description]="'myVotings.noSessionsHint' | transloco"
         />
       } @else {
-        <ul class="flex flex-col gap-2">
+        <!-- Same row shape as the overview and the channel's own session list: a rule between
+             equals rather than a card around each one, and the running/ended state as a dot
+             instead of a pill. -->
+        <ul class="-mx-3 divide-y divide-border border-y border-border">
           @for (session of sessions(); track session.sessionId) {
-            <li class="app-card app-card-interactive relative px-4 py-3">
+            <li
+              class="relative flex flex-col gap-1 px-3 py-3 transition-colors hover:bg-surface-inset"
+            >
               <div class="flex items-start justify-between gap-3">
                 <a
                   [routerLink]="[
@@ -80,17 +84,14 @@ const EMPTY_PAGE: PagedResult<MyVoteSession> = {
                 >
                   {{ session.title }}
                 </a>
-                <app-status-badge
-                  class="shrink-0"
-                  [tone]="session.isActive ? 'success' : 'neutral'"
-                >
+                <app-state-dot class="shrink-0" [tone]="session.isActive ? 'on' : 'off'">
                   {{
                     (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
                       | transloco
                   }}
-                </app-status-badge>
+                </app-state-dot>
               </div>
-              <div class="mt-1 text-sm text-fg-muted">#{{ session.channelName }}</div>
+              <div class="text-xs text-fg-muted">#{{ session.channelName }}</div>
             </li>
           }
         </ul>

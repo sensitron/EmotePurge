@@ -15,6 +15,7 @@ import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
+import { StateDot } from '../../shared/ui/state-dot';
 import { StatusBadge } from '../../shared/ui/status-badge';
 
 const OVERVIEW_RELOAD_DEBOUNCE_MS = 250;
@@ -22,7 +23,16 @@ const LIVE_AGE_TICK_MS = 30_000;
 
 @Component({
   selector: 'app-overview-page',
-  imports: [Button, EmptyState, NoticeBanner, RouterLink, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    RouterLink,
+    SkeletonRows,
+    StateDot,
+    StatusBadge,
+    TranslocoPipe,
+  ],
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
@@ -117,6 +127,25 @@ export class OverviewPage {
 
     const tick = setInterval(() => this.nowMs.set(Date.now()), LIVE_AGE_TICK_MS);
     inject(DestroyRef).onDestroy(() => clearInterval(tick));
+  }
+
+  /**
+   * The roles this account holds in a channel, as translation keys, in the order the old badge run
+   * used. Built here rather than in the template because a template cannot join a conditional list
+   * without repeating the separator logic three times.
+   */
+  protected roleKeys(channel: MyChannelDto): string[] {
+    const keys: string[] = [];
+    if (channel.isBroadcaster) {
+      keys.push('overview.roleBadges.broadcaster');
+    }
+    if (channel.isModerator) {
+      keys.push('overview.roleBadges.moderator');
+    }
+    if (channel.isSevenTvEditor) {
+      keys.push('overview.roleBadges.sevenTvEditor');
+    }
+    return keys;
   }
 
   protected join(channelName: string): void {

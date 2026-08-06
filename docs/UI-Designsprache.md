@@ -40,7 +40,8 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 - **Was gilt:** `.app-card` (in `web/src/styles.css`) ist die **einzige** Kartenoberfläche: `border`-Rand, `surface`-Fläche, `radius-lg`, plus die Elevation aus `--ep-shadow-card`. Keine randlosen `bg-surface`-Rechtecke, keine eigenen Karten-Klassenketten.
 - **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit (der Rand liegt bei 1,4:1 und trägt die Karte nicht), hell über einen echten Elevationsschatten (Weiß auf `slate-50` sind 1,05:1 und könnten es nicht). Die *Richtung* bleibt in beiden Modi gleich — eine erhöhte Fläche entfernt sich vom Grund, eine eingelassene (`surface-inset`) geht zu ihm zurück. Nur die physikalische Richtung von „eingelassen" dreht sich; genau dafür sind Rollennamen da.
-- **Wann anwenden:** Jede abgegrenzte Inhaltsfläche — Listen-Zeilen, Formular-Boxen, Monitoring-Karten, statische Sektionen.
+- **Wann anwenden:** Jede abgegrenzte Inhaltsfläche gegen **andersartige** Nachbarn — Formular-Boxen, Monitoring-Karten, statische Sektionen.
+- **Nicht mehr für Listen-Zeilen** (seit 2026-08-06): eine Karte grenzt gegen etwas Anderes ab, und in einer Liste ist jede Zeile dasselbe. Die Ränder zeichneten dort acht Rechtecke, wo eine Linie „Liste" deutlicher sagt. Zeilenlisten laufen jetzt als `-mx-3 divide-y divide-border border-y border-border` mit `px-3 py-3` je Zeile; klickbare Zeilen bekommen `relative transition-colors hover:bg-surface-inset` statt `.app-card-interactive`. Der negative Rand lässt den Hover-Wisch über den Text hinausatmen, während die Inhalte auf der linken Kante der Seite bleiben. Umgesetzt in `overview-page.html`, `vote-session-list-page.html`, `my-votings-page.ts`; die Admin-Listen folgen, wenn sie umgebaut werden.
 - **Referenz:** `web/src/styles.css` (`.app-card`), Verwendung überall unter `web/src/app/features/`.
 
 ### 2.2 Hover nur bei Klickbarkeit
@@ -97,7 +98,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ### 4.1 Buttons: `appButton`
 
-- **Was gilt:** Jeder Button/Aktions-Link nutzt die Attribut-Direktive `appButton` (`web/src/app/shared/ui/button.ts`) — keine kopierten Utility-Ketten. Varianten `primary`/`neutral`/`outline`/`danger`/`danger-solid`, Größen `md` (Default)/`lg`. Element-spezifisches Layout (`ml-auto`, `relative z-10`, …) bleibt am eigenen `class`-Attribut, Angular merged beides.
+- **Was gilt:** Jeder Button/Aktions-Link nutzt die Attribut-Direktive `appButton` (`web/src/app/shared/ui/button.ts`) — keine kopierten Utility-Ketten. Varianten `primary`/`neutral`/`outline`/`danger`/`danger-quiet`/`danger-solid`, Größen `md` (Default)/`lg`. Element-spezifisches Layout (`ml-auto`, `relative z-10`, …) bleibt am eigenen `class`-Attribut, Angular merged beides.
 
   | Variante | Einsatz |
   |---|---|
@@ -105,36 +106,41 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   | `neutral` | Sekundäraktionen mit Fläche (Aktualisieren, Kopieren) |
   | `outline` | leise Sekundäraktionen, Abbrechen in Dialogen |
   | `danger` | siehe 4.2 |
+  | `danger-quiet` | siehe 4.2 |
   | `danger-solid` | siehe 4.2 |
 
 - **Referenz:** `web/src/app/shared/ui/button.ts`.
 
 ### 4.2 Destruktiv-Stufung: Flow-Position, nicht Schwere
 
-- **Was gilt:** Die zwei Destruktiv-Stufen kodieren die **Position im Bestätigungs-Flow**, nicht die Schwere der Aktion:
-  - `danger` (Outline): der **auslösende** destruktive Button im Seitenkontext, der neben anderen Controls steht und noch einen Bestätigungsschritt vor sich hat (Channel verlassen, Session löschen, Channel-Purge öffnen).
+- **Was gilt:** Die Destruktiv-Stufen kodieren die **Position im Bestätigungs-Flow**, nicht die Schwere der Aktion:
+  - `danger` (Outline): der **auslösende** destruktive Button im Seitenkontext, der neben anderen Controls steht und noch einen Bestätigungsschritt vor sich hat (Channel verlassen, Channel-Purge öffnen).
+  - `danger-quiet` (nur Schrift, Wash beim Hover): **derselbe Auslöser, wenn er sich je Listenzeile wiederholt.** Seit 2026-08-06, gemessen an der Voting-Liste: zwanzig rot umrandete „Löschen"-Knöpfe untereinander machen die seltenste Aktion der Seite zu ihrem lautesten Element. Die Stufe ist an die **Wiederholung** gekoppelt, nicht an geringere Schwere — der Bestätigungsdialog dahinter bleibt unverändert, es fällt allein der dauerhafte rote Kasten weg.
   - `danger-solid` (gefüllt): der **ausführende** Button — der Bestätigen-Button in `ConfirmDialog`/`TypedConfirmDialog`/Mass-Delete-Dialog sowie der Seiten-Haupt-CTA des Mass-Delete-Panels.
 
-  Merksatz: Outline löst aus, Solid vollzieht. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
-- **Wann anwenden:** Jede destruktive Aktion bekommt beide Stufen: `danger`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen.
-- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/admin/admin-channels-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
+  Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
+- **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen.
+- **Offen:** Die Admin-Listen (`admin-channels-page.ts`, `admin-users-page.ts`) wiederholen ihren Auslöser ebenfalls, stehen aber weiter auf `danger` — eine Handvoll Zeilen statt zwanzig, und Purge/Revoke wiegen schwerer als eine gelöschte Vote-Session. Entschieden wird das, wenn diese Seiten umgebaut werden, im Bild statt per Regel.
+- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/admin/admin-channels-page.ts`; in Serie: `web/src/app/features/voting/vote-session-list-page.html`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
 
-- **Was gilt:** Jedes status-artige Label (Rolle, Bot-, Session-, Worker-Zustand) ist ein `<app-status-badge>` mit einem der festen Tones — der Baustein kennt nur Töne, die Bedeutung liegt beim Aufrufer. Gelebte Zuordnung (beibehalten, nicht umdeuten):
+- **Was gilt:** Ein `<app-status-badge>` markiert eine **bemerkenswerte** Eigenschaft, nicht jede Eigenschaft. Der Baustein kennt nur Töne, die Bedeutung liegt beim Aufrufer:
 
   | Tone | Verwendung im Bestand |
   |---|---|
-  | `accent` | Broadcaster |
-  | `info` | Moderator |
-  | `success` | 7TV-Editor · Bot aktiv · „läuft"-Zustände |
+  | `accent` | hervorgehobene Eigenschaft |
+  | `info` | Hinweis-Eigenschaft |
+  | `success` | LIVE · „läuft"-Zustände |
   | `neutral` | inaktiv/neutral |
   | `warning` | degradiert/Warnung |
   | `danger` | Fehler/getrennt |
 
   Die Tones hießen bis 2026-08-02 `purple`/`blue`/`emerald`/`slate`/`amber`/`red`. Die Namen sind mit dem hellen Modus zu Bedeutungen geworden, weil der Wert dahinter pro Modus ein anderer ist — s. 2.0.
 
-- **Referenz:** `web/src/app/shared/ui/status-badge.ts`; Verwendung `overview-page.html`, `admin-channels-page.ts`.
+- **Die Prüffrage lautet „bemerkenswert wie oft?"** (seit 2026-08-06). Eine Pille, die in jeder Zeile steht, markiert nichts mehr — sie ist eine Farbleiter. Drei Muster sind daraus zurückgebaut worden: die **Rollen** in der Übersicht (Broadcaster/Moderator/7TV-Editor) sind eine Tatsache über *dich* und auf den meisten Konten in jeder Zeile dasselbe Wort → stiller Text. Die **Abstimmungs-Zielgruppe** stand auf der Hälfte der Zeilen als blaue Pille → stiller Text, Einschränkung nur noch als eine Kontraststufe. **Offline** ist der unauffällige Fall → stiller Text; nur **LIVE** behält die Pille, weil es das Einzige ist, was *gerade jetzt* gilt.
+- **Zustand ≠ Eigenschaft.** Wovon eine Zeile gerade *ist* (Bot misst / Session läuft), ist `<app-state-dot>` mit `tone="on"|"off"` — Punkt plus Wort statt Pille. Damit konkurriert der Zustand nicht mit den Eigenschaften daneben, und die Farbe trägt keine Bedeutung, die das Wort nicht schon trägt.
+- **Referenz:** `web/src/app/shared/ui/status-badge.ts`, `web/src/app/shared/ui/state-dot.ts`; Verwendung `overview-page.html`, `vote-session-list-page.html`.
 
 ### 4.4 NoticeBanner
 
@@ -196,9 +202,10 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ### 6.2 EmptyState
 
-- **Was gilt:** Jeder Leerzustand ist ein `<app-empty-state>` mit `title` (warum leer) + möglichst `description` und projiziertem CTA (was als Nächstes tun). Optionales Emoji-`icon` im lila Quadrat. Kein nackter grauer Satz.
+- **Was gilt:** Jeder Leerzustand ist ein `<app-empty-state>` mit `title` (warum leer) + möglichst `description` und projiziertem CTA (was als Nächstes tun). Kein nackter grauer Satz.
+- **Kein Emoji, keine gestrichelte Box, nicht zentriert** (seit 2026-08-06). Der `icon`-Input ist ersatzlos **entfernt**, damit keine Aufrufstelle ein Emoji behalten kann; neun Flächen hatten eines von hier geerbt. Ein Bilderrahmen um 🔍 ist kein Icon-System, sondern dessen Abwesenheit — und eine zentrierte Textspalte in einer linksbündigen Seite liest sich wie ein Platzhalter, den jemand vergessen hat, was für einen korrekten und erwarteten Zustand genau die falsche Lesart ist. Stattdessen dieselbe Haarlinie-plus-Label-Form, die die Atlas-Bänder und die Landing-Stufen benutzen.
 - **Wann anwenden:** Liste/Grid ohne Einträge, Filter ohne Treffer — aber erst **nach** abgeschlossenem Laden (Skeleton verhindert das Aufblitzen des EmptyState während `rxResource`-Loads mit `defaultValue`).
-- **Referenz:** `web/src/app/shared/ui/empty-state.ts`; Verwendung `overview-page.html` (📺), `usage-stats-page.html` (😀/🔍).
+- **Referenz:** `web/src/app/shared/ui/empty-state.ts`; Verwendung `overview-page.html`, `usage-stats-page.html`.
 
 ## 7. Dialoge
 

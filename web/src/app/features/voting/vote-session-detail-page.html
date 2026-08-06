@@ -15,8 +15,12 @@
         <div class="flex flex-wrap items-center gap-2">
           <h2 class="text-lg font-semibold">{{ session.title }}</h2>
           <!-- Next to the title rather than in the meta line below: the audience decides who may
-               vote here at all, and unlike the usage window it is not manager-only context. -->
-          <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
+               vote here at all, and unlike the usage window it is not manager-only context.
+               The wrapper styles the badge's plain-text branch (an unrestricted audience renders
+               no pill any more); the pill branch brings its own type. -->
+          <span class="text-sm text-fg-muted">
+            <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
+          </span>
         </div>
         <p class="text-sm text-fg-muted">
           {{
@@ -207,10 +211,10 @@
         </div>
       } @else if (emotes().length === 0) {
         @if (orderedEmotes().length === 0) {
-          <app-empty-state icon="😀" [title]="'voting.detail.noActiveEmotes' | transloco" />
+          <app-empty-state [title]="'voting.detail.noActiveEmotes' | transloco" />
         } @else {
           <!-- The session has emotes; the filters hide all of them — offer the way back. -->
-          <app-empty-state icon="🔍" [title]="'usageStats.noMatches' | transloco">
+          <app-empty-state [title]="'usageStats.noMatches' | transloco">
             <button type="button" appButton="neutral" (click)="usageFilter.reset()">
               {{ 'usageStats.resetFilters' | transloco }}
             </button>

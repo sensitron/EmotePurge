@@ -25,7 +25,7 @@ import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
-import { StatusBadge } from '../../shared/ui/status-badge';
+import { StateDot } from '../../shared/ui/state-dot';
 import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
 
 function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
@@ -67,7 +67,7 @@ const EMPTY_PAGE: PagedResult<VoteSessionSummary> = {
     DateTimePicker,
     Pager,
     SkeletonRows,
-    StatusBadge,
+    StateDot,
     VoteAudienceBadge,
     TranslocoPipe,
   ],
