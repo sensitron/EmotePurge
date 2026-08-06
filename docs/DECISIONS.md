@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Admin-Bereich: Die gesunde Seite trägt keine einzige farbige Pille
+
+**Betrifft:** `web/src/app/shared/ui/health-marker.ts` (neu) · `web/src/app/features/admin/{admin-monitoring-page.ts,admin-roster-card.ts,admin-channels-page.ts,admin-users-page.ts,admin-channel-detail-page.ts}` · `web/src/app/shared/audit/audit-log-list.ts` · `docs/UI-Designsprache.md` (§2.1, §4.2, §4.3)
+
+**Der Befund, der den Zug getragen hat, ist das Gegenstück zur Übersichtszeile — eine Ebene höher.** Das Monitoring badgete *jedes* Subsystem: grünes „Verbunden" auf Twitch-IRC, auf dem 7TV-Socket, auf dem Roster, auf dem Batch-Flush, dazu der SSE-Stream-Status im Kopf. Eine kerngesunde Seite trug damit fünf farbige Rechtecke — und ein kaputtes Subsystem musste sich gegen vier gesunde durchsetzen, um bemerkt zu werden. Der einzige Grund, diese Seite zu öffnen, ist aber genau das eine zu finden, das *nicht* normal ist.
+
+**Deshalb ist normal jetzt still.** Der neue `<app-health-marker>` entscheidet die Darstellung anhand des Tons: `ok` und `idle` werden zu Punkt plus Wort, nur `warning` und `danger` bekommen die Pille. Eine gesunde Monitoring-Seite trägt damit keine einzige farbige Pille, und das erste auffällige Subsystem ist ohne Zutun das lauteste Element auf ihr. Das ist derselbe Satz wie in §4.3, nur andersherum gelesen: **die Aussage entsteht durch Abwesenheit, und Abwesenheit funktioniert nur, wenn nichts anderes sie ausgibt.** Im Audit-Harness gegengeprüft — das `degraded`-Szenario zeigt vier Pillen (Veraltet · Lückenhaft · Getrennt · Fehler in Folge: 5), das gesunde keine.
+
+Zwei Nebenentscheidungen daraus: `connecting` des SSE-Streams ist `idle`, **nicht** `warning` — jeder Seitenaufruf läuft durch diesen Zustand, und eine gelbe Pille, die beim Laden aufblitzt, bringt einem Admin bei, gelbe Pillen zu übersehen. Und das Label geht als `label`-Input hinein statt als projizierter Inhalt: ein `<ng-content>` in zwei Zweigen eines Control-Flow-Blocks wird von Angular nur einmal befüllt, der Text wäre beim Wechsel zwischen Punkt und Pille still verschwunden.
+
+**Karten fallen auch auf den Diagnose-Seiten weg**, aus demselben Grund wie bei den Listen und mit demselben Test: eine Karte grenzt gegen etwas **Andersartiges** ab. Auf `admin-monitoring-page.ts` und `admin-channel-detail-page.ts` war jede Sektion eine Karte, also grenzte keine gegen irgendetwas ab — der Rand war reine Wiederholung und konkurrierte mit dem Statusmarker daneben. Jetzt Instrumenten-Stapel: `border-t border-border pt-4` je Sektion, Überschrift links, Marker rechts.
+
+**Die Admin-Listen sind auf die Zeilenform gezogen** (`admin-channels`, `admin-users`, `audit-log-list` — Letzteres wirkt zugleich im Channel-Aktivitätsfeed). Der Bot-Zustand und „Twitch verbunden" werden zu `<app-state-dot>`, offline zu stillem Text, LIVE behält die Pille — dieselbe Dreiteilung wie in der Übersicht.
+
+**Der am 2026-08-05 offen gelassene Punkt ist damit entschieden, und andersherum als vermutet.** Der Eintrag darüber hielt fest, Purge und Session-Revoke wögen schwerer als eine gelöschte Vote-Session und blieben deshalb auf `danger`. Im gerenderten Bild war die Users-Seite mit **25 Zeilen** die schlimmste Farbleiter im ganzen Projekt — schlimmer als die zwanzig, an denen die Stufe überhaupt entstanden ist. **Schwere rechtfertigt keine Wiederholung**; was die Purge tatsächlich absichert, ist die typisierte Namensbestätigung dahinter, und die ist unverändert. Beide Auslöser stehen jetzt auf `danger-quiet`.
+
+**Das Join-Formular der Channel-Seite bleibt bewusst über der Liste**, obwohl das Erstellen-Formular der Voting-Liste einen Tag zuvor darunter gewandert ist. Die Begründung dort war, dass ein sechs Felder tiefes Formular die Antwort „was läuft gerade?" vom ersten Bildschirm schiebt; dieses hier ist ein einzelnes Eingabefeld in einer Zeile. Die Regel mechanisch anzuwenden hätte einen Admin zwanzig Zeilen scrollen lassen und eine Zeile Platz eingebracht.
+
 ### 2026-08-06 — Zug 3, Listenflächen: Zeilen statt Karten, und die Prüffrage „bemerkenswert wie oft?"
 
 **Betrifft:** `web/src/app/features/overview/overview-page.{ts,html}` · `web/src/app/features/voting/vote-session-list-page.{ts,html}` · `web/src/app/features/my-votings/my-votings-page.ts` · `web/src/app/shared/ui/{state-dot.ts (neu),empty-state.ts,button.ts}` · `web/src/app/shared/voting/vote-audience-badge.ts` · neun Aufrufstellen von `<app-empty-state>` · `docs/UI-Designsprache.md` (§2.1, §4.1, §4.2, §4.3, §6.2)
