@@ -9,6 +9,7 @@ import {
   mockChannelStatus,
   mockDuplicateEmoteNames,
   mockMyChannels,
+  mockUsageDaily,
   mockUsageTotals,
   mockWorkerHealth,
 } from './support/mocks';
@@ -141,5 +142,22 @@ test.describe('emote atlas', () => {
 
     await expect(inspector).toContainText('Sadge');
     await expect(inspector).toContainText('Selten');
+  });
+
+  test('opens one emote history straight from its own cell', async ({ page }) => {
+    await mockUsageDaily(page, 'sensitron', [{ date: '2026-07-14', useCount: 40 }]);
+    await openAtlas(page);
+
+    // The reason this trigger sits on the cell rather than in the inspector: the inspector follows
+    // the pointer, so reaching a button inside it from a cell in the middle of the sheet means
+    // crossing other cells, and it repoints under way. Here the travel is zero — which this test
+    // reproduces by hovering the cell and clicking without leaving it.
+    await cell(page, 'Sadge').hover();
+    await page.getByRole('button', { name: 'Details zu Sadge anzeigen' }).click();
+
+    await expect(page.getByRole('dialog')).toContainText('Sadge');
+    // And selecting is still what a click on the cell itself does — the trigger must not leak into
+    // the selection the delete path reads.
+    await expect(page.getByRole('button', { name: /^Löschen \(/ })).toHaveCount(0);
   });
 });

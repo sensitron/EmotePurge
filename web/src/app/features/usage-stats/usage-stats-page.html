@@ -343,75 +343,117 @@
               [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx + 'px)'"
             >
               @for (emote of row.items; track emote.emoteId; let i = $index) {
-                <!-- One tab stop for the whole grid, moved by the arrow keys (WAI-ARIA roving
-                     tabindex). 900 individual tab stops is what the incumbent card grid had, and
-                     it made the keyboard route through the page unusable.
-                     scroll-mt keeps a focused cell clear of the two sticky bars above when the
-                     browser scrolls it into view. -->
-                <button
-                  type="button"
-                  [class]="
-                    'app-sprite-cell relative block h-16 w-16 scroll-mt-48 transition-shadow ' +
-                    (emote.totalUseCount === 0 ? 'app-sprite-cell-void ' : '') +
-                    (selection.isSelected(emote)
-                      ? ''
-                      : 'hover:inset-ring-1 hover:inset-ring-border-strong')
-                  "
-                  [attr.data-atlas-index]="row.startIndex + i"
-                  [attr.tabindex]="activeIndex() === row.startIndex + i ? 0 : -1"
-                  [attr.aria-pressed]="selection.isSelected(emote)"
-                  [attr.aria-label]="
-                    emote.emoteName + ' · ' + formatCount(emote.totalUseCount) + '×'
-                  "
-                  (click)="selection.onRowClick(emote, $event)"
-                  (mousedown)="$event.shiftKey && $event.preventDefault()"
-                  (mouseenter)="inspect(emote)"
-                  (focus)="onCellFocus(emote, row.startIndex + i)"
-                >
-                  <img
-                    [ngSrc]="emote.imageUrl"
-                    width="64"
-                    height="64"
-                    alt=""
-                    class="h-full w-full object-contain p-1"
-                  />
-                  <!-- The figure is printed onto the sprite rather than under it: a caption row
+                <!-- Wrapper, not a nested button: the history trigger has to sit ON the cell, and a
+                     <button> inside a <button> is invalid HTML. Both are siblings inside a
+                     positioned box instead, so the trigger overlays the cell without nesting. -->
+                <div class="group relative h-16 w-16">
+                  <!-- One tab stop for the whole grid, moved by the arrow keys (WAI-ARIA roving
+                       tabindex). 900 individual tab stops is what the incumbent card grid had, and
+                       it made the keyboard route through the page unusable.
+                       scroll-mt keeps a focused cell clear of the two sticky bars above when the
+                       browser scrolls it into view. -->
+                  <button
+                    type="button"
+                    [class]="
+                      'app-sprite-cell relative block h-full w-full scroll-mt-48 transition-shadow ' +
+                      (emote.totalUseCount === 0 ? 'app-sprite-cell-void ' : '') +
+                      (selection.isSelected(emote)
+                        ? ''
+                        : 'hover:inset-ring-1 hover:inset-ring-border-strong')
+                    "
+                    [attr.data-atlas-index]="row.startIndex + i"
+                    [attr.tabindex]="activeIndex() === row.startIndex + i ? 0 : -1"
+                    [attr.aria-pressed]="selection.isSelected(emote)"
+                    [attr.aria-label]="
+                      emote.emoteName + ' · ' + formatCount(emote.totalUseCount) + '×'
+                    "
+                    (click)="onCellClick(emote, row.startIndex + i, $event)"
+                    (mousedown)="$event.shiftKey && $event.preventDefault()"
+                    (mouseenter)="inspect(emote)"
+                    (focus)="onCellFocus(emote, row.startIndex + i)"
+                  >
+                    <img
+                      [ngSrc]="emote.imageUrl"
+                      width="64"
+                      height="64"
+                      alt=""
+                      class="h-full w-full object-contain p-1"
+                    />
+                    <!-- The figure is printed onto the sprite rather than under it: a caption row
                        would cost a third of the cell, and the scrim is what makes it legible over
                        whatever the artwork puts beneath. -->
-                  <span
-                    class="absolute bottom-0 left-0 px-1 font-mono text-[9px] leading-[1.4] font-medium"
-                    [style.background-color]="'var(--ep-sprite-scrim)'"
-                    [style.color]="'var(--ep-sprite-scrim-fg)'"
-                    >{{ shortCount(emote.totalUseCount) }}</span
-                  >
-                  <!-- Weight without a change of size: the bar is the only thing on the cell that
+                    <span
+                      class="absolute bottom-0 left-0 px-1 font-mono text-[9px] leading-[1.4] font-medium"
+                      [style.background-color]="'var(--ep-sprite-scrim)'"
+                      [style.color]="'var(--ep-sprite-scrim-fg)'"
+                      >{{ shortCount(emote.totalUseCount) }}</span
+                    >
+                    <!-- Weight without a change of size: the bar is the only thing on the cell that
                        differs by usage, measured against its own band's peak. -->
-                  @if (emote.totalUseCount > 0) {
-                    <span class="absolute inset-x-0 bottom-0 block h-0.5 bg-border">
-                      <i
-                        class="block h-full bg-accent-fg/75"
-                        [style.width.%]="fillPercent(emote)"
-                      ></i>
-                    </span>
-                  }
-                  @if (selection.isSelected(emote)) {
-                    <!-- Wash AND ring on one element, rendered last. An `inset-ring` on the button
+                    @if (emote.totalUseCount > 0) {
+                      <span class="absolute inset-x-0 bottom-0 block h-0.5 bg-border">
+                        <i
+                          class="block h-full bg-accent-fg/75"
+                          [style.width.%]="fillPercent(emote)"
+                        ></i>
+                      </span>
+                    }
+                    @if (selection.isSelected(emote)) {
+                      <!-- Wash AND ring on one element, rendered last. An `inset-ring` on the button
                          itself paints below its children, so the wash and the sprite covered it —
                          measured, not assumed: the marked cells came out as a pale tint with no
                          visible edge. Drawn geometry rather than a glyph for the corner mark: a
                          solid square reads as "marked" at 64 px, survives a run of adjacent marked
                          cells whose rings merge into one another, and never collides with the
                          artwork the way a centred tick would. -->
-                    <span
-                      class="pointer-events-none absolute inset-0 bg-accent-wash/70 inset-ring-2 inset-ring-accent-fg"
+                      <span
+                        class="pointer-events-none absolute inset-0 bg-accent-wash/70 inset-ring-2 inset-ring-accent-fg"
+                        aria-hidden="true"
+                      ></span>
+                      <span
+                        class="pointer-events-none absolute top-0 right-0 h-2.5 w-2.5 bg-accent-fg"
+                        aria-hidden="true"
+                      ></span>
+                    }
+                  </button>
+                  <!-- The history trigger belongs ON the cell, not in the inspector line.
+                       A panel that follows the pointer cannot hold a click target: reaching it from
+                       a cell in the middle of the sheet means crossing other cells, and the panel
+                       repoints under way. That is a property of hover, not of where the panel sits
+                       — a right-hand sidecar would have exactly the same problem the moment it
+                       carried a button. So the target sits where the pointer already is, with zero
+                       travel. Revealed on hover and while the cell holds the grid's tab stop, so
+                       900 of these do not clutter the sheet; top-left because the count sits bottom
+                       left and the selection mark top right. tabindex -1 keeps it out of the roving
+                       tab order — the keyboard reaches the same dialog through the inspector's
+                       button, which for keyboard and touch is perfectly reachable. -->
+                  <button
+                    type="button"
+                    [class]="
+                      'absolute top-0 left-0 flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 ' +
+                      (activeIndex() === row.startIndex + i ? 'opacity-100' : '')
+                    "
+                    tabindex="-1"
+                    [style.background-color]="'var(--ep-sprite-scrim)'"
+                    [attr.aria-label]="
+                      'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
+                    "
+                    (click)="openDrilldown(emote)"
+                  >
+                    <!-- Drawn geometry, not a glyph: three bars, which is what the dialog behind
+                         this button actually shows. -->
+                    <svg
+                      viewBox="0 0 10 10"
+                      class="h-3 w-3 fill-accent-fg"
                       aria-hidden="true"
-                    ></span>
-                    <span
-                      class="pointer-events-none absolute top-0 right-0 h-2.5 w-2.5 bg-accent-fg"
-                      aria-hidden="true"
-                    ></span>
-                  }
-                </button>
+                      focusable="false"
+                    >
+                      <rect x="0" y="6" width="2" height="4" />
+                      <rect x="4" y="3" width="2" height="7" />
+                      <rect x="8" y="0" width="2" height="10" />
+                    </svg>
+                  </button>
+                </div>
               }
             </div>
           }

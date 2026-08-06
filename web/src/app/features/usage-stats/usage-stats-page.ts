@@ -497,6 +497,20 @@ export class UsageStatsPage {
     this.activeIndex.set(index);
   }
 
+  /**
+   * A click selects, and it also pins the inspector to the clicked cell.
+   *
+   * The pinning is what makes the inspector usable without a pointer at all: on a touch screen
+   * there is no hover to drive it, so without this the line would keep describing the busiest emote
+   * no matter what the user tapped. Safari also does not focus a button on click, so relying on the
+   * focus handler alone would leave the same gap on a desktop browser.
+   */
+  protected onCellClick(emote: EmoteUsageTotal, index: number, event: MouseEvent): void {
+    this.inspectedId.set(emote.emoteId);
+    this.activeIndex.set(index);
+    this.selection.onRowClick(emote, event);
+  }
+
   protected onAtlasKeydown(event: KeyboardEvent): void {
     const next = moveInAtlas(this.rows(), this.activeIndex(), event.key);
     if (next === null) {
