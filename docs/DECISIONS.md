@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-07 — Die Designdokumentation führt nur noch den geltenden Stand; `Konzept-Light-Mode.md` entfällt
+
+**Betrifft:** `docs/UI-Designsprache.md` · `docs/Konzept-Light-Mode.md` (**gelöscht**) · `web/src/styles.css` (zwei Kommentar-Verweise) · `web/.claude/CLAUDE.md` · `PRODUCT.md`
+
+**Auftrag des Nutzers:** „alle Design Dokumente überarbeiten, sodass der aktuelle Stand korrekt dokumentiert ist. Alle Verweise auf das alte Design können raus."
+
+**Die Regel, die das Dokument sich damit gibt**, steht jetzt in seinem Kopf: `UI-Designsprache.md` beschreibt **ausschließlich** den geltenden Stand — keine Vorgeschichte, keine Zwischenstufe, kein „bis dahin galt". Das ist die saubere Anwendung der ohnehin bestehenden Arbeitsteilung: dieses Dokument ist das **Wie**, dieses Log das **Warum**. Eine Regel, die ihre eigene Ablösungsgeschichte mitträgt, wird beim Lesen langsamer und beim Pflegen unzuverlässig — jede Änderung müsste zwei Zeitschichten korrekt halten.
+
+**Was inhaltlich falsch war und mit korrigiert wurde** (nicht bloß umformuliert): der Fokusring war als „lila" beschrieben und ist die Leitfarbe (`--ep-accent`); `.app-page-glow` stand als Token in der Tabelle und existiert nicht mehr; der Input-Rand war als `slate-500` geführt statt als `border-border-field`; die Elevationsaussage rechnete mit `slate-50`. Solche Sätze sind schlimmer als eine Lücke — sie werden geglaubt.
+
+**Neu dokumentiert, weil vorhanden und ungeführt:** §2.0a (Theme-Umschaltung: drei Zustände, `data-theme` auf `<html>`, `theme-init.js` vor dem ersten Paint, `localStorage`-Schlüssel, zwei `theme-color`-Metas) und §2.5 (das Sprite-Blatt: Pareto-Bänder statt fester Schwellen, Wert- statt Rangschnitt, Füllbalken gegen die Bandspitze, Sidecar ab `lg` neben dem bleibenden Drilldown-Dialog, `.app-dock` nur bei bestehender Auswahl, Tastaturgleichwertigkeit). Beides war gebaut, geprüft und stand in keinem Dokument.
+
+**`docs/Konzept-Light-Mode.md` ist gelöscht.** Es trug im Kopf „Status: Entwurf zur Freigabe · Umsetzung: noch keine" und beschrieb den Weg von einer reinen Dunkel-App mit Slate-/Purple-Palette zu einem hellen Modus: Inventur von 414 Paletten-Utilities, fünf Migrationswellen, Aufwandsschätzung, neun offene Fragen an den Nutzer. Jede Zahl darin beschreibt einen Zustand, den es seit dem Redesign nicht mehr gibt, und §5 nannte Kontrastwerte, die schon vor dem 2026-08-07 nicht mehr stimmten. Sein noch gültiger Inhalt ist an seinen richtigen Ort gewandert (Umschaltmechanik → §2.0a, Emote-Leinwand → §2.4, Audit-Matrix → §12). Es bleibt über `git log -- docs/Konzept-Light-Mode.md` erreichbar; die beiden Verweise aus `styles.css` sind aufgelöst.
+
+**Kein Kontrastnachweis-Dokument als Ersatz.** Das wäre dieselbe Falle wie eine zweite Wertetabelle in Markdown: Es driftet ab dem ersten nachgezogenen Token. Der gerechnete Nachweis gehört in die Commit-Message der Änderung, die ihn nötig macht; das jeweils **engste** Paar steht in §10 der Designsprache und wird dort mitgezogen.
+
 ### 2026-08-07 — Das helle Blatt ist nicht mehr reinweiß, und die ganze Rampe geht mit
 
 **Betrifft:** `web/src/styles.css` (Tokenblock `:root[data-theme='light']`) · `docs/UI-Designsprache.md` (Kontrastzeile der Checkliste)

@@ -74,8 +74,9 @@
    COLOUR TOKENS — the only place in web/ that is allowed to name a Tailwind
    palette colour. Everything else writes the semantic utilities registered in
    the @theme inline block below (bg-surface, text-fg-muted, border-border, …).
-   Rationale and the full contrast proof: docs/Konzept-Light-Mode.md §4/§5,
-   the rule itself: docs/UI-Designsprache.md §2.0.
+   The rule: docs/UI-Designsprache.md §2.0. The tightest contrast pair the ramp
+   currently holds is recorded in §10 there; the full computation belongs in the
+   commit message of whichever change moves a surface.
 
    Two-stage on purpose. The RAW values live in plain custom properties under a
    selector, once per mode — that is what makes switching a selector swap. The
@@ -360,21 +361,20 @@
   --color-neutral-wash: var(--ep-neutral-wash);
   --color-neutral-fg: var(--ep-neutral-fg);
 
-  /* The plate an emote image is drawn on. It was theme-FIXED at slate-800 first
-     (Konzept-Light-Mode.md §2.1): 7TV emotes are drawn for dark chat, so some of
-     them carry white lettering or light outlines that vanish on a bright ground,
-     and we can neither influence the material nor blanket-invert it without
-     wrecking the coloured ones.
+  /* The plate an emote image is drawn on. Its own token rather than surface-inset
+     because the material is foreign: 7TV emotes are drawn for dark chat, so some
+     carry white lettering or light outlines that vanish on a bright ground, and we
+     can neither influence them nor blanket-invert them without wrecking the
+     coloured ones.
 
-     Reverted after looking at it: a full-width near-black bar on every card is
-     the loudest element on a light page, and it is loud on every tile — while
-     the artwork it protects is a minority. So the canvas follows the theme after
-     all, one step below surface-inset so the image area still reads as its own
-     plate on a white card. The trade is explicit and reversible: this one line
-     is the whole switch. Its cost is a white-outlined emote losing its outline
-     in light mode; its benefit is that the other several hundred stop sitting in
-     a dark trough. Judge it against real 7TV artwork, not against the harness —
-     the audit stubs the CDN with a 1×1 pixel. */
+     It follows the theme, one step below surface-inset so the image area still
+     reads as its own plate. Holding it theme-FIXED at a dark value is the obvious
+     alternative and is wrong: a near-black bar would sit on EVERY tile and be the
+     loudest element of a light page, while the artwork it protects is a minority.
+     The trade is explicit and reversible — this one line is the whole switch. Its
+     cost is a white-outlined emote losing its outline in light mode. Judge it
+     against real 7TV artwork, not against the harness: the audit stubs the CDN
+     with a 1×1 pixel. */
   --color-emote-canvas: var(--ep-emote-canvas);
 
   --shadow-overlay: var(--ep-shadow-overlay);
