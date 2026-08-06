@@ -457,7 +457,29 @@
       "deleteVotes": "Delete: {{count}}",
       "myVoteKeep": "Your vote: keep",
       "myVoteDelete": "Your vote: delete",
-      "myVoteNone": "You have not voted yet."
+      "myVoteNone": "You have not voted yet.",
+      "openShort": "History"
+    },
+    "atlas": {
+      "label": "Emote sheet",
+      "keyboardHint": "Use the arrow keys to move between emotes and space or enter to mark one. Shift-click marks a whole range."
+    },
+    "bands": {
+      "heavy": { "title": "Carrying the set", "hint": "the first half of all usage" },
+      "regular": { "title": "Regulars", "hint": "up to 80 % of all usage" },
+      "rare": { "title": "Rare", "hint": "the last fifth of all usage" },
+      "dead": { "title": "Never used", "hint": "in this range" },
+      "selectAll": "mark all"
+    },
+    "distribution": {
+      "label": "Distribution",
+      "caption": "The whole set, ranked by usage.",
+      "dead": "{{count}} never used",
+      "concentration": "The top fifth carries {{share}} of all usage."
+    },
+    "dock": {
+      "marked": "marked",
+      "projected": "→ {{projected}} of {{capacity}} slots after deleting"
     },
     "trackedSince": "We have been counting for this channel since {{ date }}.",
     "rangeBeforeTracking": "The selected range starts before {{ date }} — we counted nothing for this channel before then. For the earlier part the numbers aren't incomplete, they don't exist.",
@@ -472,6 +494,11 @@
       "rising": "Rising compared to the previous range",
       "stable": "Stable compared to the previous range",
       "falling": "Falling compared to the previous range"
+    },
+    "trendShort": {
+      "rising": "rising",
+      "stable": "stable",
+      "falling": "falling"
     },
     "filterMinPlaceholder": "Min",
     "filterMaxPlaceholder": "Max",

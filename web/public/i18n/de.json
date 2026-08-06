@@ -457,7 +457,29 @@
       "deleteVotes": "Löschen: {{count}}",
       "myVoteKeep": "Deine Stimme: Behalten",
       "myVoteDelete": "Deine Stimme: Löschen",
-      "myVoteNone": "Du hast noch nicht abgestimmt."
+      "myVoteNone": "Du hast noch nicht abgestimmt.",
+      "openShort": "Verlauf"
+    },
+    "atlas": {
+      "label": "Emote-Bogen",
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Emotes wechseln, mit Leertaste oder Enter markieren. Umschalt+Klick markiert einen ganzen Bereich."
+    },
+    "bands": {
+      "heavy": { "title": "Tragende Emotes", "hint": "die erste Hälfte der Nutzung" },
+      "regular": { "title": "Regelmäßig", "hint": "bis 80 % der Nutzung" },
+      "rare": { "title": "Selten", "hint": "das letzte Fünftel der Nutzung" },
+      "dead": { "title": "Nie benutzt", "hint": "im Zeitraum" },
+      "selectAll": "alle markieren"
+    },
+    "distribution": {
+      "label": "Verteilung",
+      "caption": "Das ganze Set, nach Nutzung gereiht.",
+      "dead": "{{count}} nie benutzt",
+      "concentration": "Das obere Fünftel trägt {{share}} der gesamten Nutzung."
+    },
+    "dock": {
+      "marked": "markiert",
+      "projected": "→ {{projected}} von {{capacity}} Slots nach dem Löschen"
     },
     "trackedSince": "Wir zählen für diesen Channel seit dem {{ date }}.",
     "rangeBeforeTracking": "Der gewählte Zeitraum beginnt vor dem {{ date }} — davor haben wir für diesen Channel nichts gezählt. Die Zahlen sind für den früheren Teil nicht unvollständig, sondern gar nicht vorhanden.",
@@ -472,6 +494,11 @@
       "rising": "Im Aufwind gegenüber dem vorherigen Zeitraum",
       "stable": "Stabil gegenüber dem vorherigen Zeitraum",
       "falling": "Im Sinkflug gegenüber dem vorherigen Zeitraum"
+    },
+    "trendShort": {
+      "rising": "im Aufwind",
+      "stable": "stabil",
+      "falling": "im Sinkflug"
     },
     "filterMinPlaceholder": "Min",
     "filterMaxPlaceholder": "Max",

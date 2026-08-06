@@ -201,6 +201,14 @@
 
   /* Dark's emote canvas — see the note at --color-emote-canvas. */
   --ep-emote-canvas: #1f232a;
+  /* The alpha checker's second square (.app-sprite-cell). The delta against the canvas is
+     deliberately tiny — 900 of these tile the whole atlas, and anything more assertive turns the
+     sheet into a texture that competes with the artwork it is supposed to sit behind. */
+  --ep-emote-canvas-alt: #262b33;
+  /* Scrim under the usage figure printed onto a sprite. Near-opaque rather than a soft veil: it
+     has to hold 4,5:1 over whatever pixels an emote happens to put underneath it. */
+  --ep-sprite-scrim: rgb(8 10 13 / 0.86);
+  --ep-sprite-scrim-fg: #e9ecee;
 
   /* Not colours */
   --ep-shadow-card: none;
@@ -290,6 +298,11 @@
 
   /* Light's emote canvas — see the note at --color-emote-canvas. */
   --ep-emote-canvas: #e6e8eb;
+  --ep-emote-canvas-alt: #dcdfe3;
+  /* Light keeps the scrim dark. The figure is white on both grounds because it is printed over
+     artwork, not over the page — and 7TV artwork is authored for dark chat either way. */
+  --ep-sprite-scrim: rgb(20 23 27 / 0.82);
+  --ep-sprite-scrim-fg: #f2f3f5;
 
   --ep-info-wash: var(--color-blue-50);
   --ep-info-fg: var(--color-blue-700);
@@ -524,6 +537,72 @@
     border-radius: var(--radius-md);
     background-color: var(--ep-surface-inset);
     animation: app-skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* One cell of the emote atlas: the plate a sprite is drawn on.
+     The alpha checker is not decoration borrowed from somewhere else — it is the notation every
+     tool that shows transparent artwork uses, and it is the reason the cell needs no border to read
+     as a cell. That is what buys the atlas its density: 900 sprites tile edge to edge with a 4 px
+     gutter and no card chrome at all, where the incumbent grid spent a 144 px box on a 40 px emote.
+     Square radius on purpose — a sprite sheet has no rounded cells, and at 64 px a radius only eats
+     the corners of the artwork. */
+  .app-sprite-cell {
+    background-color: var(--ep-emote-canvas);
+    background-image:
+      linear-gradient(
+        45deg,
+        var(--ep-emote-canvas-alt) 25%,
+        transparent 25%,
+        transparent 75%,
+        var(--ep-emote-canvas-alt) 75%
+      ),
+      linear-gradient(
+        45deg,
+        var(--ep-emote-canvas-alt) 25%,
+        transparent 25%,
+        transparent 75%,
+        var(--ep-emote-canvas-alt) 75%
+      );
+    background-size: 12px 12px;
+    background-position:
+      0 0,
+      6px 6px;
+  }
+
+  /* A cell with no usage in the range. The checker gives way to a flat plate with a hairline
+     outline: the candidates are supposed to look like empty slots, not like artwork. */
+  .app-sprite-cell-void {
+    background-image: none;
+    background-color: var(--ep-page);
+    box-shadow: inset 0 0 0 1px var(--ep-border);
+  }
+
+  /* The selection-driven action bar. Fixed to the bottom edge rather than sitting above the sheet,
+     because it only exists while a selection does and its buttons act on that selection — a
+     permanently parked action row would be a control the first visit has to read past.
+     Top border in the accent, which is the one place the guide colour is allowed to draw a line:
+     it marks the boundary of a live, reversible state. */
+  .app-dock {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 30;
+    border-top: 1px solid var(--ep-accent-solid);
+    background-color: color-mix(in srgb, var(--ep-page) 96%, transparent);
+    backdrop-filter: blur(8px);
+    animation: app-dock-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes app-dock-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-dock {
+    animation: none;
   }
 }
 

@@ -62,8 +62,12 @@ test.describe('authenticated broadcaster', () => {
 
     await expect(page).toHaveURL(/\/channels\/sensitron\/usage-stats$/);
     await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+    // The atlas prints no name on the cell — the sprite is the cell, and the name lives in the
+    // inspector line under the toolbar, which shows the busiest emote until the pointer says
+    // otherwise. The cell itself carries name and count in its accessible name, which is also what
+    // a screen reader gets, so asserting on that covers both at once.
     await expect(page.getByText('PogU')).toBeVisible();
-    await expect(page.getByText('42x')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'PogU · 42×' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Channel verlassen' })).toBeVisible();
   });
 
