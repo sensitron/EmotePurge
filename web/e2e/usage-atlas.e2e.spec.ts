@@ -110,6 +110,23 @@ test.describe('emote atlas', () => {
     await expect(page.getByText('9 von 1000 Slots nach dem Löschen')).toBeVisible();
   });
 
+  test('space marks a cell, enter opens its history', async ({ page }) => {
+    await mockUsageDaily(page, 'sensitron', [{ date: '2026-07-14', useCount: 120 }]);
+    await openAtlas(page);
+
+    // Both used to do the same thing, because both fire a native click on a button. Splitting them
+    // is what gives the keyboard a route to the per-cell trigger without a second tab stop.
+    await cell(page, 'KEKW').focus();
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByRole('dialog')).toContainText('KEKW');
+    // Closed first on purpose: the CDK dialog puts aria-hidden on everything behind it, so any
+    // role-based assertion about the grid would pass while the dialog is up whatever the truth is.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(cell(page, 'KEKW')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   test('marks the whole never-used band in one go, and only that band', async ({ page }) => {
     await openAtlas(page);
 
@@ -131,17 +148,29 @@ test.describe('emote atlas', () => {
     await expect(page.getByRole('button', { name: /^Löschen \(/ })).toHaveCount(0);
   });
 
-  test('the inspector names whatever cell the pointer is on', async ({ page }) => {
+  test('the sidecar names whatever cell the pointer is on', async ({ page }) => {
     await openAtlas(page);
-    const inspector = page.locator('.app-sticky-bar').last();
+    const sidecar = page.getByRole('complementary');
 
     // Before any hover it describes the busiest emote — the honest thing to be looking at first.
-    await expect(inspector).toContainText('catJAM');
+    await expect(sidecar).toContainText('catJAM');
 
     await cell(page, 'Sadge').hover();
 
-    await expect(inspector).toContainText('Sadge');
-    await expect(inspector).toContainText('Selten');
+    await expect(sidecar).toContainText('Sadge');
+    await expect(sidecar).toContainText('Selten');
+  });
+
+  test('below the sidecar breakpoint the same readout is a line, and only one of them shows', async ({
+    page,
+  }) => {
+    // 16rem of panel is a third of a narrow window, so under lg the readout collapses back into a
+    // row of the toolbar. Both existing at once would say the same thing twice.
+    await page.setViewportSize({ width: 900, height: 900 });
+    await openAtlas(page);
+
+    await expect(page.getByRole('complementary')).toBeHidden();
+    await expect(page.locator('.app-sticky-bar').last()).toContainText('catJAM');
   });
 
   test('opens one emote history straight from its own cell', async ({ page }) => {
@@ -156,8 +185,12 @@ test.describe('emote atlas', () => {
     await page.getByRole('button', { name: 'Details zu Sadge anzeigen' }).click();
 
     await expect(page.getByRole('dialog')).toContainText('Sadge');
-    // And selecting is still what a click on the cell itself does — the trigger must not leak into
-    // the selection the delete path reads.
+    // Closed first: the CDK dialog hides everything behind it from the accessibility tree, so this
+    // assertion would pass vacuously with the dialog still up.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // The trigger must not leak into the selection the delete path reads.
+    await expect(cell(page, 'Sadge')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: /^Löschen \(/ })).toHaveCount(0);
   });
 });

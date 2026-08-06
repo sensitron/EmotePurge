@@ -457,12 +457,11 @@
       "deleteVotes": "Delete: {{count}}",
       "myVoteKeep": "Your vote: keep",
       "myVoteDelete": "Your vote: delete",
-      "myVoteNone": "You have not voted yet.",
-      "openShort": "History"
+      "myVoteNone": "You have not voted yet."
     },
     "atlas": {
       "label": "Emote sheet",
-      "keyboardHint": "Use the arrow keys to move between emotes and space or enter to mark one. Shift-click marks a whole range."
+      "keyboardHint": "Use the arrow keys to move between emotes, space to mark one and enter to open its history. Shift-click marks a whole range."
     },
     "bands": {
       "heavy": { "title": "Carrying the set", "hint": "the first half of all usage" },
@@ -470,6 +469,10 @@
       "rare": { "title": "Rare", "hint": "the last fifth of all usage" },
       "dead": { "title": "Never used", "hint": "in this range" },
       "selectAll": "mark all"
+    },
+    "sidecar": {
+      "share": "Share",
+      "days": "{{days}} days"
     },
     "distribution": {
       "label": "Distribution",

@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Nachtrag zu Zug 2: Der Verlaufs-Auslöser sitzt auf der Zelle, und der Sidecar kommt doch
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/public/i18n/{de,en}.json` · `web/e2e/{usage-atlas,channel-workspace}.e2e.spec.ts`
+
+**Der Satz „Der Sidecar aus dem genehmigten Entwurf ist deshalb eine Zeile geworden" aus dem Eintrag darunter ist damit revidiert** — aber nicht aus dem Grund, aus dem die Frage aufkam. Gemeldet wurde: der Verlaufs-Knopf in der Inspector-Zeile sei kaum anklickbar. Er war es nicht, und die Ursache ist strukturell: **eine Fläche, die dem Zeiger folgt, kann kein Klickziel enthalten.** Der Weg dorthin führt zwangsläufig über andere Zellen, und unterwegs zeigt die Fläche etwas anderes. Das ist eine Eigenschaft von Hover, keine der Position — ein rechter Sidecar hätte exakt dasselbe Problem gehabt, sobald er einen Knopf getragen hätte; im Prototyp fiel es nur nicht auf, weil dessen Sidecar reiner Text war.
+
+**Der Auslöser sitzt deshalb auf der Zelle**: 20 px, oben links, eingeblendet bei Hover und solange die Zelle den Tabstopp des Rasters hält. Wegstrecke null, und nichts dazwischen kann ändern, worauf er sich bezieht. Oben links, weil unten links die Zahl steht und oben rechts die Auswahlmarke. Er ist **Geschwister** der Zelle in einem positionierten Rahmen, nicht deren Kind — ein `<button>` im `<button>` ist ungültiges HTML — und trägt `tabindex="-1"`, damit die Roving-Tabindex-Ordnung bei einem Stopp bleibt.
+
+**Drei Eingabearten, ein Ziel.** Auf Zeigergeräten Hover. Auf groben Zeigern (`pointer: coarse`) ist der Knopf **dauerhaft** sichtbar, weil es dort kein Hover gibt, das ihn einblenden könnte. Für die Tastatur sind **Leertaste (markieren) und Enter (Verlauf öffnen) getrennt** — vorher taten beide dasselbe, weil beide auf einem `<button>` einen nativen Klick auslösen; die Trennung ist das, was der Tastatur einen Weg zum Auslöser gibt, ohne dem Raster einen zweiten Tabstopp zu geben. Ein Klick auf eine Zelle heftet außerdem die Lesefläche an sie: ohne Hover trieb dort gar nichts, und Safari fokussiert Buttons beim Klick ebenfalls nicht.
+
+**Erst damit war der Sidecar wieder eine freie Entscheidung**, und sie ist bewusst gegen die bessere Fläche ausgefallen. Gemessen an 1600 px Fensterbreite und 900 Emotes: Zeile 14 Spalten / ~4.400 px Bogen · Sidecar bei gedeckelter Shell 10 Spalten / ~6.120 px (+39 % Scrollweg) · Sidecar bei auf 1536 px verbreiterter Shell 18 Spalten / ~3.400 px (−23 %). Gewählt ist die **mittlere**: sie berührt nur diese Seite, während die dritte den Breiten-Deckel **jeder** Seite ändern würde — Übersicht, Voting, Admin, Aktivität — und damit in den Zug gehört, in dem diese Flächen ohnehin drankommen. Der Sidecar-Code selbst ist von diesem späteren Wechsel nicht betroffen; es ist allein die Shell.
+
+**Ab `lg` der Sidecar, darunter die Zeile — nie beide.** Die Zeile bleibt im DOM und wird per CSS ausgeblendet, was zwei Bestandstests als Strict-Mode-Verstoß aufgedeckt haben (derselbe Emote-Name zweimal auffindbar); sie sind jetzt auf `role="complementary"` eingegrenzt. Der Sidecar trägt **keinen** Verlaufs-Knopf, aus demselben Grund, aus dem die Zeile ihren verloren hat. Sein Sticky-Versatz wird an der Werkzeugleiste **gemessen** statt festgeschrieben: die Filterzeile bricht je nach Breite in eine, zwei oder drei Zeilen um, ein fester Wert würde am einen Ende klaffen und am anderen die erste Zeile des Panels abschneiden.
+
 ### 2026-08-06 — Visuelle Neuausrichtung, Zug 2: Die Emote-Karte ist weg, `usage-stats` ist ein Sprite-Bogen
 
 **Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/src/app/shared/emotes/usage-bands.{ts,spec.ts}` (neu) · `web/src/app/shared/grid/atlas-grid.{ts,spec.ts}` (neu) · `web/src/app/shared/selection/list-selection.{ts,spec.ts}` · `web/src/styles.css` · `web/public/i18n/{de,en}.json` · `web/e2e/usage-atlas.e2e.spec.ts` (neu) · `web/e2e/channel-workspace.e2e.spec.ts`

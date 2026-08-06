@@ -111,6 +111,12 @@ const USAGE_RELOAD_DEBOUNCE_MS = 1000;
 // stays a bar rather than a hairline.
 const DISTRIBUTION_BUCKETS = 96;
 
+// Shell header (h-14) + workspace tabs (h-10) — the top of the page's own sticky layer, and a
+// cross-page contract (design doc §8.5). The sidecar has to start below the page's toolbar, whose
+// height depends on how many rows the filters wrap into, so it is measured rather than guessed.
+const ATLAS_STICKY_TOP_PX = 96;
+const SIDECAR_GAP_PX = 16;
+
 function sortableLastUsed(lastUsedDate: string | null): number {
   if (!lastUsedDate) {
     return NEVER_USED_SORT_VALUE;
@@ -153,6 +159,7 @@ export class UsageStatsPage {
   // window's width was the wrong ruler. Unconditionally rendered (it wraps the loading, empty and
   // atlas states alike) so `required` can never miss it.
   private readonly sheetRef = viewChild.required<ElementRef<HTMLElement>>('sheet');
+  private readonly stickyBarRef = viewChild.required<ElementRef<HTMLElement>>('stickyBar');
   private readonly viewport = viewChild(CdkVirtualScrollViewport);
 
   // The route guard admits 7TV editors (canViewUsageStats), but creating a vote session is a
@@ -175,6 +182,11 @@ export class UsageStatsPage {
   protected readonly rowHeight = ATLAS_ROW_PX;
   protected readonly sheetWidth = signal(0);
   protected readonly columns = computed(() => atlasColumns(this.sheetWidth()));
+
+  /** Where the sidecar pins, measured against the toolbar rather than hard-coded — the filter row
+   *  wraps into one, two or three rows depending on the width, and a fixed offset would leave a gap
+   *  at one end and clip the panel's first line at the other. */
+  protected readonly sidecarTop = signal(ATLAS_STICKY_TOP_PX + SIDECAR_GAP_PX);
 
   // trackedSince is not known until the set-status response lands, so the first request uses the
   // widest span the endpoint accepts — identical rows for any channel younger than that. Once the
@@ -438,6 +450,16 @@ export class UsageStatsPage {
       onCleanup(() => observer.disconnect());
     });
 
+    effect((onCleanup) => {
+      const element = this.stickyBarRef().nativeElement;
+      const measure = () =>
+        this.sidecarTop.set(ATLAS_STICKY_TOP_PX + element.offsetHeight + SIDECAR_GAP_PX);
+      measure();
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      onCleanup(() => observer.disconnect());
+    });
+
     // A shorter list must not leave the tab stop pointing past its end — the next arrow key would
     // then find no row to move from and the grid would be unreachable by keyboard.
     effect(() => {
@@ -512,6 +534,19 @@ export class UsageStatsPage {
   }
 
   protected onAtlasKeydown(event: KeyboardEvent): void {
+    // Space marks, Enter opens the history. They used to do the same thing, because both fire a
+    // native click on a <button> — which left the keyboard with no way at all to reach the per-cell
+    // trigger without giving it a second tab stop in a grid that deliberately has one.
+    if (event.key === 'Enter') {
+      const emote = this.atlasOrder()[this.activeIndex()];
+      if (emote) {
+        // Before the browser turns this keydown into a click on the cell, which would select it.
+        event.preventDefault();
+        this.openDrilldown(emote);
+      }
+      return;
+    }
+
     const next = moveInAtlas(this.rows(), this.activeIndex(), event.key);
     if (next === null) {
       return;

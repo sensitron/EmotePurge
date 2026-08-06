@@ -457,12 +457,11 @@
       "deleteVotes": "Löschen: {{count}}",
       "myVoteKeep": "Deine Stimme: Behalten",
       "myVoteDelete": "Deine Stimme: Löschen",
-      "myVoteNone": "Du hast noch nicht abgestimmt.",
-      "openShort": "Verlauf"
+      "myVoteNone": "Du hast noch nicht abgestimmt."
     },
     "atlas": {
       "label": "Emote-Bogen",
-      "keyboardHint": "Mit den Pfeiltasten zwischen den Emotes wechseln, mit Leertaste oder Enter markieren. Umschalt+Klick markiert einen ganzen Bereich."
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Emotes wechseln, mit der Leertaste markieren, mit Enter den Verlauf öffnen. Umschalt+Klick markiert einen ganzen Bereich."
     },
     "bands": {
       "heavy": { "title": "Tragende Emotes", "hint": "die erste Hälfte der Nutzung" },
@@ -470,6 +469,10 @@
       "rare": { "title": "Selten", "hint": "das letzte Fünftel der Nutzung" },
       "dead": { "title": "Nie benutzt", "hint": "im Zeitraum" },
       "selectAll": "alle markieren"
+    },
+    "sidecar": {
+      "share": "Anteil",
+      "days": "{{days}} Tage"
     },
     "distribution": {
       "label": "Verteilung",
