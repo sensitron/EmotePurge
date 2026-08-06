@@ -305,13 +305,12 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Nicht abgedeckt:** eine Seitennummer außerhalb des Bereichs (`?page=9999`) wird durchgereicht — das Backend antwortet mit einer leeren Seite und die Liste zeigt ihren Leerzustand. Clamping bräuchte `totalPages`, das es erst *nach* der Antwort gibt, die mit diesem Zustand angefordert wird.
 - **Referenz:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`), `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`); Verwendung `admin-audit-log-page.ts` (drei Filter), `channel-activity-page.ts` (zwei), `admin-users-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (Anker ist die `<ul>` — die Seite hat über den Zeilen keine eigene Überschrift, nur die Anlege-Karte, und genau dorthin darf ein Seitenwechsel *nicht* zurückspringen). Flow-Test `web/e2e/channel-activity.e2e.spec.ts`.
 
-### 8.4a Inhaltsbreite (Lesemaß vs. Blatt)
+### 8.4a Inhaltsbreite (eine, bewusst)
 
-- **Was gilt:** Die Inhaltsspalte hat zwei Breiten, und die **Route** wählt sie, nicht die Seite und nicht die Shell. Default ist das Lesemaß (`max-w-5xl`, 64 rem). Eine Route, die es wirklich braucht, setzt `data: { wideLayout: true }` und bekommt 96 rem.
-- **Wann `wideLayout`:** nur, wenn Breite *Inhalt* ist statt Dekoration — bei den beiden Sprite-Blättern (Nutzungs-Atlas, Stimmzettel) heißt jede zusätzliche Spalte weniger Scrollen. Listen, Tabellen, Monitoring-Grids und Fließtext bekommen es **nicht**: dort wird aus Breite nur eine Zeile, aus der das Auge nicht zurückfindet.
-- **Header läuft mit.** Header-Zeile und `<main>` teilen dieselbe Klasse; die Trennlinie des Headers spannt ohnehin über die volle Breite. Wer eine Route auf `wideLayout` stellt, verschiebt damit auch die Logo-Ausrichtung — gewollt, sie soll am Inhalt hängen.
-- **Viewport-fixierte Flächen müssen mitgezogen werden.** Das Dock der Nutzungsseite zentriert seinen Inhalt selbst; es steht deshalb fest auf 96 rem. Neue fixierte Leisten auf einer Blatt-Seite genauso.
-- **Referenz:** `web/src/app/features/shell/app-shell.ts` (`MEASURE`/`WIDE`), `web/src/app/app.routes.ts`.
+- **Was gilt:** Die Inhaltsspalte hat **eine** Breite, app-weit: `max-w-5xl` (64 rem) an der Header-Zeile und an `<main>`. Keine Seite und keine Route setzt eine eigene.
+- **Der Gegenversuch und warum er weg ist:** Am 2026-08-06 lief kurz eine zweite Breite (96 rem) für die beiden Sprite-Blätter, routengesteuert über `data.wideLayout`. Sachlich stimmte die Begründung — auf dem Atlas ist Breite keine Dekoration, sondern Emote-Spalten. Im Gebrauch überwog trotzdem das andere: **beim Wechsel zwischen einer Blatt- und einer Listenseite springt der Rahmen**, und ein Layout, das bei jeder Navigation die Breite ändert, ist unruhiger als eine Blattseite, die 500 px verschenkt. Die Entscheidung fiel am selben Tag durch Ausprobieren, nicht am Reißbrett.
+- **Falls die Blätter ihre Breite je zurückbekommen:** dann ohne den Rahmen zu bewegen — also nicht über die Shell-Spalte, sondern indem die Blattfläche *innerhalb* der konstanten Spalte ausbricht. Ein zweiter Anlauf über Routen-Daten ist kein neuer Vorschlag, sondern derselbe.
+- **Referenz:** `web/src/app/features/shell/app-shell.ts` (Kommentar an der Header-Zeile).
 
 ### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
 

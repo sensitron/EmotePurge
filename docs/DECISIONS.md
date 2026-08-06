@@ -10,15 +10,17 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
-### 2026-08-06 — Zug 3, Breite: die Shell hört auf, sie zu entscheiden
+### 2026-08-06 — Zug 3, Breite: zwei Breiten gebaut, am selben Tag wieder verworfen
 
-**Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/app.routes.ts` · `web/src/app/features/usage-stats/usage-stats-page.html` (Dock) · `docs/UI-Designsprache.md`
+**Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/app.routes.ts` · `web/src/app/features/usage-stats/usage-stats-page.html` (Dock) · `docs/UI-Designsprache.md` (§8.4a)
 
-**„Shell breiter" wäre der falsche Schnitt gewesen.** Die App lief überall auf `max-w-5xl`, und für fast alles ist das richtig: Listen, Admin-Tabellen, Monitoring-Grids und jeder Fließtext wollen eine Zeile, aus der das Auge zurückfindet — auf 1536 px ist eine Metazeile keine Zeile mehr. Genau zwei Seiten wollen die Breite wirklich, und dort ist sie keine Dekoration, sondern Reihen: der Sprite-Atlas und der Stimmzettel gewinnen pro 500 px eine weitere Emote-Spalte, was auf einem 900er-Set direkt weniger Scrollen heißt.
+**Die Analyse war richtig, die Lösung nicht.** „Shell breiter" wäre der falsche Schnitt gewesen: die App lief überall auf `max-w-5xl`, und für Listen, Admin-Tabellen, Monitoring-Grids und jeden Fließtext ist das genau richtig — auf 1536 px ist eine Metazeile keine Zeile mehr. Genau zwei Seiten wollen die Breite wirklich, und dort ist sie keine Dekoration, sondern Reihen: Atlas und Stimmzettel gewinnen pro 500 px eine weitere Emote-Spalte. Also entschied kurzzeitig die Route statt der Shell — `data: { wideLayout: true }` an den zwei Blatt-Routen, zwei Werte (64 rem / 96 rem), Header-Zeile und `<main>` teilen sich die Klasse.
 
-Also entscheidet nicht mehr die Shell, sondern die Route: `data: { wideLayout: true }` an den zwei Blatt-Routen, die Shell liest es aus der aktivierten Kette. Zwei Werte (`MEASURE` = 64 rem, `WIDE` = 96 rem), sonst nichts. Header-Zeile und `<main>` teilen sich die Klasse absichtlich — die Trennlinie des Headers läuft ohnehin über die volle Breite (sie sitzt am äußeren Element), mitwandern tut nur die Ausrichtung des Logos zum Inhalt darunter, und genau das ist der Zweck.
+**Im Gebrauch überwog etwas anderes, das die Analyse nicht gewichtet hatte: der Wechsel.** Wer zwischen einer Blattseite und einer Listenseite navigiert, sieht den Rahmen springen — Logo, Tab-Leiste und Inhaltskante rücken um 256 px. Das ist bei jeder Navigation da, der Breitengewinn nur auf zwei Seiten. Der Nutzer hat es genau so gemeldet („dann nehme ich lieber die reduzierte Breite in Kauf"), und das ist die richtige Abwägung: eine ruhige Hülle schlägt zwei optimale Spaltenbreiten. Zurück auf **eine** Breite, app-weit.
 
-**Die Falle, in die das lief:** `AppShell` wird *während* der Navigation konstruiert, die sie aktiviert. Die Kind-Routen existieren zu dem Zeitpunkt bereits, ihre `snapshot`s nicht — `route.snapshot.data` warf im Feld-Initialisierer und riss die ganze Shell mit, sichtbar als komplett leere Seite bei grünem `ng build`. Der Zugriff ist jetzt optional gehalten. Gefunden hat es der Audit-Harness (5 KB einfarbiges PNG statt 41 KB), nicht der Compiler und nicht die E2E-Suite — beide blieben grün.
+**Was bleibt, ist die Bedingung für einen zweiten Anlauf:** Wenn die Blätter ihre Breite je zurückbekommen, dann ohne den Rahmen zu bewegen — die Blattfläche muss *innerhalb* der konstanten Spalte ausbrechen, statt die Spalte selbst zu verbreitern. Ein erneuter Vorschlag über Routen-Daten ist derselbe Vorschlag.
+
+**Ein Befund aus dem Versuch ist unabhängig davon wertvoll.** `AppShell` wird *während* der Navigation konstruiert, die sie aktiviert: die Kind-Routen existieren dann schon, ihre `snapshot`s nicht. `route.snapshot.data` im Feld-Initialisierer warf und riss die ganze Shell mit — sichtbar als **komplett leere Seite bei grünem `ng build`, 443 grünen Unit- und 68 grünen E2E-Tests**. Gefunden hat es allein der UI-Audit-Harness, an einem 5-KB-einfarbigen PNG statt der erwarteten 41 KB. Das ist das Argument dafür, layoutwirksame Änderungen dort gegenzuprüfen (§12), und nicht nur die Suiten laufen zu lassen.
 
 ### 2026-08-06 — Zug 3, Dialoge: die Hülle ist eine Primitive, das Öffnen gehört dem Dialog
 

@@ -1,9 +1,7 @@
 import { NgOptimizedImage } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { filter, map } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { WorkerHealthService, WorkerHealthStatus } from '../../core/health/worker-health.service';
@@ -23,22 +21,6 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
   stale: 'shell.workerStatus.stale',
   unknown: 'shell.workerStatus.unknown',
 };
-
-/**
- * The content column, in two widths.
- *
- * `MEASURE` is what the whole app used to run at, and it is right for almost everything here: the
- * lists, the admin tables, the monitoring grids and every paragraph of prose want a line the eye can
- * return from, not the full monitor. The two sprite sheets are the exception — there, width is not
- * decoration but rows: another 500px is another column of emotes and that much less scrolling on a
- * 900-emote set. So the shell does not widen; individual routes ask to, via `data.wideLayout`.
- *
- * Header and main share the class on purpose. The header's rule already spans the viewport (the
- * border sits on the outer element), so what moves with the route is only the logo's alignment with
- * the content underneath it — which is the point of matching them.
- */
-const MEASURE = 'max-w-5xl';
-const WIDE = 'max-w-[96rem]';
 
 @Component({
   selector: 'app-shell',
@@ -64,8 +46,14 @@ const WIDE = 'max-w-[96rem]';
            Reusing that class rather than repeating the blur: the translucency has to be denser in
            light than in dark, and --ep-sticky-alpha is where that lives. -->
       <header class="app-sticky-bar top-0 z-30 h-14 border-b border-border px-4">
-        <div [class]="headerRowClass()">
-          <!-- Logo and worker-health dot form one anchored group — a lone justify-between middle
+        <div class="relative mx-auto flex h-full max-w-5xl items-center justify-between gap-3">
+          <!-- max-w-5xl here and on <main> is ONE width for the whole app, deliberately. A
+               per-route second width for the two sprite sheets was built and taken out again the
+               same day: the extra pixels really are emote columns there, but they cost a frame that
+               jumps on every navigation between a sheet page and a list page, and that is the worse
+               deal. If the sheets get their width back, it has to be without moving the frame.
+
+               Logo and worker-health dot form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
           <div class="flex min-w-0 items-center gap-3">
             <a
@@ -217,7 +205,7 @@ const WIDE = 'max-w-[96rem]';
         </div>
       </header>
 
-      <main [class]="mainClass()">
+      <main class="mx-auto max-w-5xl px-4 py-8">
         <router-outlet />
       </main>
     </div>
@@ -234,19 +222,6 @@ export class AppShell {
   protected readonly statusLabelKey = computed(() => STATUS_LABEL_KEY[this.healthService.status()]);
   protected readonly menuOpen = signal(false);
   protected readonly logoSrc = LOGO_SRC;
-
-  private readonly contentWidth = toSignal(
-    this.router.events.pipe(
-      filter((event) => event instanceof NavigationEnd),
-      map(() => this.activeWidthClass()),
-    ),
-    { initialValue: this.activeWidthClass() },
-  );
-
-  protected readonly headerRowClass = computed(
-    () => `relative mx-auto flex h-full items-center justify-between gap-3 ${this.contentWidth()}`,
-  );
-  protected readonly mainClass = computed(() => `mx-auto px-4 py-8 ${this.contentWidth()}`);
 
   constructor() {
     // AppShell is mounted for every route (overview, usage-stats, vote-sessions), unlike
@@ -296,28 +271,5 @@ export class AppShell {
     if (this.menuOpen() && !(event.target as HTMLElement).closest('[data-shell-menu]')) {
       this.closeMenu();
     }
-  }
-
-  /**
-   * Looks for `data.wideLayout` down the whole activated chain. Walked rather than read off one
-   * level: the two sheet pages sit three deep (shell → channel workspace → page), and route data
-   * does not reach downwards on its own.
-   *
-   * `snapshot` is guarded because this also runs from the field initializer, and AppShell is
-   * constructed *during* the navigation that activates it — the child routes exist by then, their
-   * snapshots do not. Reading `.data` off the missing snapshot threw in the constructor, which took
-   * the whole shell down with it and rendered an empty page.
-   */
-  private activeWidthClass(): string {
-    for (
-      let route: ActivatedRoute | null = this.router.routerState.root;
-      route;
-      route = route.firstChild
-    ) {
-      if (route.snapshot?.data?.['wideLayout'] === true) {
-        return WIDE;
-      }
-    }
-    return MEASURE;
   }
 }

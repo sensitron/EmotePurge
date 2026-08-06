@@ -88,8 +88,6 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/usage-stats/usage-stats-page').then((m) => m.UsageStatsPage),
             canActivate: [usageStatsAccessGuard],
-            // Sheet page: every extra pixel is another sprite per row. See AppShell.
-            data: { wideLayout: true },
           },
           {
             // Requires login only — the list itself has no per-session role restriction.
@@ -118,8 +116,6 @@ export const routes: Routes = [
                 (m) => m.VoteSessionDetailPage,
               ),
             canActivate: [voteSessionAccessGuard],
-            // The ballot is the atlas's twin — same sprite sheet, same reason to run wide.
-            data: { wideLayout: true },
           },
         ],
       },
