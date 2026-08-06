@@ -43,3 +43,8 @@ Thumbs.db
 
 ## Angular production build copied into the Api image at Docker build time (src/EmotePurge.Api/Dockerfile); never committed
 src/EmotePurge.Api/wwwroot/
+
+# Impeccable design-skill scratch: PIDs, ports, heartbeats, question answers.
+# Machine-local runtime state; the durable decisions live in docs/DECISIONS.md
+# and the direction contract in web/src/index.html.
+.impeccable/
