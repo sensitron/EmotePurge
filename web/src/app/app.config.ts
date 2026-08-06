@@ -12,7 +12,8 @@ import {
   withRouterConfig,
 } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
-import { provideTransloco } from '@jsverse/transloco';
+import { provideTransloco, TranslocoService } from '@jsverse/transloco';
+import { firstValueFrom } from 'rxjs';
 
 import { routes } from './app.routes';
 import { apiAuthInterceptor } from './core/http/api-auth.interceptor';
@@ -53,6 +54,25 @@ export const appConfig: ApplicationConfig = {
     // mounted yet in that subtree).
     provideAppInitializer(() => {
       inject(LanguageService);
+    }),
+    // Block the bootstrap on the active translation file: the app must not render before it can
+    // speak. TranslocoPipe reports a late-arriving translation with ChangeDetectorRef.markForCheck(),
+    // which marks the view dirty but schedules no change-detection run in a zoneless app — so every
+    // binding evaluated before the file landed kept its empty string until some unrelated event
+    // happened to run change detection. Components created later (anything inside an @if that flips
+    // on a resolved permission) read the loaded value on first render and looked fine, which is why
+    // the damage showed up as *some* labels missing rather than all of them: the tab bar and the
+    // up-link lost their accessible names, both a contract in UI-Designsprache §8.1/§8.6.
+    //
+    // Waiting is the honest fix, because there is nothing useful to show untranslated. It costs one
+    // same-origin JSON before first paint and removes the flash of empty labels along the way.
+    // Registered AFTER the LanguageService initializer above, so the language is resolved first.
+    provideAppInitializer(() => {
+      const transloco = inject(TranslocoService);
+      // A failed translation load must not cost the whole app its bootstrap — an unlabelled UI is
+      // bad, a blank page is worse. Transloco keeps retrying and the UI fills in on the next
+      // change-detection run.
+      return firstValueFrom(transloco.load(transloco.getActiveLang())).catch(() => undefined);
     }),
   ],
 };

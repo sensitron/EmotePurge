@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-07 — Der Bootstrap wartet auf die Übersetzungsdatei: `markForCheck` allein rendert in einer zoneless-App nichts nach
+
+**Betrifft:** `web/src/app/app.config.ts` · `web/e2e/i18n-boot.e2e.spec.ts` (neu) · `web/e2e/usage-atlas.e2e.spec.ts` (Helper)
+
+**Symptom:** der CI-Lauf zu `b484769` scheiterte an genau einem e2e-Fall (`channel-activity`, „a 7TV editor sees neither the tab nor the page"), dreimal in Folge inklusive beider Retries. Lokal war derselbe Test **isoliert grün** und fiel erst um, wenn die ganze Datei parallel lief.
+
+**Ursache, gemessen statt vermutet.** Der Playwright-Snapshot des Fehlerzeitpunkts zeigte den gesuchten Link vorhanden, mit korrekter URL — und **ohne zugänglichen Namen**, genau wie den Up-Link darüber. Eine Sonde, die `/i18n/de.json` künstlich um 1,5 s verzögert, hat den Mechanismus festgenagelt: `TranslocoPipe.updateValue()` meldet die eingetroffene Übersetzung per `ChangeDetectorRef.markForCheck()`. Das markiert die View als schmutzig, **stößt in dieser zoneless-App aber keinen Change-Detection-Lauf an** (kein `zone.js` in den Polyfills). Vier Sekunden nach dem Laden stand das Label immer noch leer; nach einem beliebigen Klick war es sofort da. Unauffällig blieb alles, was **nach** dem Laden erzeugt wird — jedes `@if`, das auf eine aufgelöste Berechtigung umspringt —, weshalb der Schaden als „*einige* Labels fehlen" auftrat und nicht als „alle".
+
+**Das war kein Testproblem.** Ein Nutzer mit kaltem Cache oder langsamer Leitung bekam einen Tab und einen Up-Link ohne zugänglichen Namen, dauerhaft bis zur nächsten Interaktion — beides ein Vertrag in `UI-Designsprache.md` §8.1/§8.6. Der Test hat es nur zuerst gesehen, weil ein CI-Runner unter sechs parallelen Browsern langsamer ausliefert als ein Entwicklungsrechner.
+
+**Entscheidung:** ein zweiter `provideAppInitializer` blockiert den Bootstrap auf `TranslocoService.load(activeLang)`. Die App rendert nicht mehr, bevor sie sprechen kann. Das ist die ehrliche Stelle für den Fix — untranslatiert gibt es nichts Sinnvolles zu zeigen, und der Preis ist **eine** Same-Origin-JSON vor dem ersten Paint. Nebeneffekt: das Aufblitzen leerer Labels ist weg. Ein Fehlschlag der Anfrage wird gefangen (`.catch`) — ein unbeschriftetes UI ist schlecht, eine weiße Seite schlimmer.
+
+**Verworfen:** den Test toleranter machen (behebt das Symptom, lässt den Fehler in der App), oder überall auf die `*transloco`-Strukturdirektive umstellen (dieselbe Wartezeit, verteilt über jedes Template).
+
+**Ein zweiter, latenter Fehler kam dabei hoch.** Nach dem Fix fiel `usage-atlas` „the usage menu narrows the sheet…" unter Last um — nicht durch den Fix verursacht, sondern durch dessen verschobenes Timing freigelegt: `page.getByRole('status')` trifft **zwei** Elemente, die Zählzeile und das Skeleton, dem §6.1 ebenfalls ein `role="status"` gibt. `openAtlas()` wartete nur auf die Überschrift, die außerhalb des Lade-Zweigs steht und deshalb nichts über den Bogen aussagt. Der Helper wartet jetzt zusätzlich darauf, dass das Lade-`status` verschwunden ist. **Wer in diesem Projekt auf `role="status"` zielt, muss wissen, dass Skeletons denselben Rollennamen tragen.**
+
 ### 2026-08-07 — Die Designdokumentation führt nur noch den geltenden Stand; `Konzept-Light-Mode.md` entfällt
 
 **Betrifft:** `docs/UI-Designsprache.md` · `docs/Konzept-Light-Mode.md` (**gelöscht**) · `web/src/styles.css` (zwei Kommentar-Verweise) · `web/.claude/CLAUDE.md` · `PRODUCT.md`

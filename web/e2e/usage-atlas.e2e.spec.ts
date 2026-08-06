@@ -58,6 +58,11 @@ async function openAtlas(page: Page): Promise<void> {
 
   await page.goto('/channels/sensitron/usage-stats');
   await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+  // The heading sits outside the loading branch, so it proves nothing about the sheet. Wait for the
+  // skeleton to go: it is a second role="status" (§6.1 gives every skeleton one), and while it is up
+  // a bare getByRole('status') resolves to two elements and fails on strict mode rather than on the
+  // thing under test.
+  await expect(page.getByRole('status', { name: 'Lädt…' })).toHaveCount(0);
 }
 
 const cell = (page: Page, name: string) =>
