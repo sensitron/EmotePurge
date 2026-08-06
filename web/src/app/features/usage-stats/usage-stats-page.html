@@ -71,23 +71,13 @@
          place at the end of this row rather than moving to a line of its own — it is the filters'
          result, and it belongs next to its cause. -->
     <div class="flex flex-wrap items-center gap-2 py-2 text-sm">
-      <input
-        type="number"
-        min="0"
-        [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
-        [value]="usageFilter.min() ?? ''"
-        (change)="usageFilter.setMinCount($any($event.target).value)"
-        class="app-input-sm w-20"
-      />
-      <input
-        type="number"
-        min="0"
-        [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
-        [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
-        [value]="usageFilter.max() ?? ''"
-        (change)="usageFilter.setMaxCount($any($event.target).value)"
-        class="app-input-sm w-20"
+      <!-- Three controls collapsed into one: `Min`, `Max` and an "unused only (0×)" toggle that was
+           not a filter of its own but *was* min = 0 / max = 0, sitting beside the two fields it
+           silently overwrote. See UsageRangeMenu. -->
+      <app-usage-range-menu
+        [min]="usageFilter.min()"
+        [max]="usageFilter.max()"
+        (rangeChange)="usageFilter.setRange($event.min, $event.max)"
       />
       <input
         type="text"
@@ -98,20 +88,7 @@
         (input)="usageFilter.setNameFilter($any($event.target).value)"
         class="app-input-sm w-40"
       />
-      <!-- Constant label + pressed state instead of swapping the text ("Alle anzeigen"), which
-           changed the button's width on every toggle and made it jump between toolbar rows.
-           `buttonPressed` replaces the hand-copied class chain these two carried — including a size
-           chain that duplicated the primitive's own. -->
-      <button
-        type="button"
-        appButton="neutral"
-        [buttonPressed]="usageFilter.isUnusedActive()"
-        [attr.aria-pressed]="usageFilter.isUnusedActive()"
-        (click)="usageFilter.toggleUnused()"
-      >
-        {{ 'usageStats.showUnusedOnly' | transloco }}
-      </button>
-      <!-- Orthogonal to the unused filter on purpose: a fresh emote necessarily has 0 uses, so
+      <!-- Orthogonal to the unused range on purpose: a fresh emote necessarily has 0 uses, so
            dropping it from that list silently would make the count line stop adding up and leave the
            moderator unable to find the emote they just added. Opting out is a separate act. -->
       <button
@@ -124,6 +101,15 @@
       >
         {{ 'usageStats.hideObserved' | transloco }}
       </button>
+      <!-- Only while something is filtered, like the audit log's. Until now the way back existed
+           only when the filter emptied the sheet completely — the reset lived in the empty state.
+           Narrow the sheet rather than empty it and you had to undo each control by hand, and
+           remember which ones you had touched. -->
+      @if (usageFilter.isAnyActive()) {
+        <button type="button" appButton="outline" (click)="usageFilter.reset()">
+          {{ 'usageStats.resetFilters' | transloco }}
+        </button>
+      }
       <p
         role="status"
         [class]="

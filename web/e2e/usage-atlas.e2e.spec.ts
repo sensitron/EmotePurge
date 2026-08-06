@@ -193,4 +193,52 @@ test.describe('emote atlas', () => {
     await expect(cell(page, 'Sadge')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('button', { name: /^Löschen \(/ })).toHaveCount(0);
   });
+
+  // The usage filter used to be three controls — Min, Max, and an "unused only" toggle that was not
+  // a filter of its own but *was* min = 0 / max = 0, overwriting the two fields beside it. As one
+  // menu the states have to stay reachable and, unlike the old toggle, re-picking the selected one
+  // must not switch it back off.
+  test('the usage menu narrows the sheet to the never-used emotes and says so on its trigger', async ({
+    page,
+  }) => {
+    await openAtlas(page);
+    await expect(page.getByRole('status')).toContainText('10 von 10');
+
+    await page.getByRole('button', { name: /^Nutzung:/ }).click();
+    await page.getByRole('radio', { name: 'nie benutzt' }).click();
+
+    await expect(page.getByRole('button', { name: 'Nutzung: nie benutzt' })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('3 von 10');
+    await expect(cell(page, 'catJAM')).toHaveCount(0);
+    await expect(cell(page, 'Copium')).toBeVisible();
+
+    // The way back, which before this only existed once a filter had emptied the sheet entirely.
+    await page.getByRole('button', { name: 'Filter zurücksetzen' }).click();
+    await expect(page.getByRole('button', { name: 'Nutzung: alle' })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('10 von 10');
+  });
+
+  test('a custom bound survives reopening the menu and states itself on the trigger', async ({
+    page,
+  }) => {
+    await openAtlas(page);
+
+    await page.getByRole('button', { name: /^Nutzung:/ }).click();
+    await page.getByRole('radio', { name: 'eigener Bereich' }).click();
+    await page.getByLabel('Höchstens').fill('100');
+    await page.getByRole('button', { name: 'Fertig' }).click();
+
+    await expect(page.getByRole('button', { name: 'Nutzung: bis 100×' })).toBeVisible();
+    await expect(cell(page, 'catJAM')).toHaveCount(0);
+    await expect(cell(page, 'Pog')).toBeVisible();
+
+    // Reopening must land back on "custom" with the value still in the field: the preset cannot be
+    // derived from the bounds alone, and an emptied bound would otherwise read as "all".
+    await page.getByRole('button', { name: /^Nutzung:/ }).click();
+    await expect(page.getByRole('radio', { name: 'eigener Bereich' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await expect(page.getByLabel('Höchstens')).toHaveValue('100');
+  });
 });

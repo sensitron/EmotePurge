@@ -56,14 +56,19 @@ describe('EmoteUsageFilter', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it('toggleUnused() sets and clears the 0/0 range', () => {
+  it('setRange() drives the 0/0 range that "never used" means, and clears back to unbounded', () => {
     const filter = new EmoteUsageFilter<Row>();
 
-    filter.toggleUnused();
+    filter.setRange(0, 0);
     expect(filter.isUnusedActive()).toBe(true);
     expect(filter.apply(ROWS).map((row) => row.emoteName)).toEqual(['peepoHappy']);
 
-    filter.toggleUnused();
+    // Re-applying the same range is idempotent — the menu is a radio group, so picking the selected
+    // option again must not toggle it back off the way the old toggleUnused() did.
+    filter.setRange(0, 0);
+    expect(filter.isUnusedActive()).toBe(true);
+
+    filter.setRange(null, null);
     expect(filter.isUnusedActive()).toBe(false);
     expect(filter.apply(ROWS)).toEqual(ROWS);
   });
@@ -79,10 +84,10 @@ describe('EmoteUsageFilter', () => {
     expect(filter.apply(rows)).toEqual(rows);
 
     // "Unused" means a confirmed 0 — withheld data must not masquerade as unused.
-    filter.toggleUnused();
+    filter.setRange(0, 0);
     expect(filter.apply(rows).map((row) => row.emoteName)).toEqual(['withData']);
 
-    filter.toggleUnused();
+    filter.setRange(null, null);
     filter.setMinCount('0');
     expect(filter.apply(rows).map((row) => row.emoteName)).toEqual(['withData']);
   });
@@ -135,7 +140,7 @@ describe('EmoteUsageFilter', () => {
     ];
     const filter = new EmoteUsageFilter<Row>();
 
-    filter.toggleUnused();
+    filter.setRange(0, 0);
     // Fresh emotes stay visible in the plain unused list — the card badge explains them there.
     expect(filter.apply(rows, NOW).map((row) => row.emoteName)).toEqual(['oldUnused', 'newUnused']);
 

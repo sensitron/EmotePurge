@@ -53,6 +53,7 @@ import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
+import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
 import {
   ATLAS_GAP_PX,
   ATLAS_STICKY_TOP_PX,
@@ -112,6 +113,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     ScrollingModule,
     NgOptimizedImage,
     MassDeletePanel,
+    UsageRangeMenu,
     TranslocoPipe,
   ],
   templateUrl: './vote-session-detail-page.html',

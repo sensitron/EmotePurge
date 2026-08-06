@@ -114,6 +114,18 @@
       "source": "Source"
     }
   },
+  "usageRange": {
+    "label": "Usage",
+    "menuLabel": "Choose usage range",
+    "presetAll": "any",
+    "presetUnused": "never used",
+    "presetCustom": "custom range",
+    "min": "At least",
+    "max": "At most",
+    "valueBetween": "{{min}}–{{max}}×",
+    "valueAtLeast": "from {{min}}×",
+    "valueUpTo": "up to {{max}}×"
+  },
   "dateRange": {
     "label": "Range",
     "menuLabel": "Choose time range",
@@ -537,11 +549,8 @@
       "stable": "stable",
       "falling": "falling"
     },
-    "filterMinPlaceholder": "Min",
-    "filterMaxPlaceholder": "Max",
     "filterNamePlaceholder": "Search name…",
     "filterNameTitle": "Wildcards supported: * for any number of characters, ? for a single character",
-    "showUnusedOnly": "Unused only (0x)",
     "loading": "Loading…",
     "awaitingSync": "Loading the emote set – the bot is syncing this channel's emotes with 7TV. This takes a moment.",
     "noActiveEmotes": "No active emotes for this time range.",

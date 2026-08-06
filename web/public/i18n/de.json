@@ -114,6 +114,18 @@
       "source": "Quelltext"
     }
   },
+  "usageRange": {
+    "label": "Nutzung",
+    "menuLabel": "Nutzungsbereich wählen",
+    "presetAll": "alle",
+    "presetUnused": "nie benutzt",
+    "presetCustom": "eigener Bereich",
+    "min": "Mindestens",
+    "max": "Höchstens",
+    "valueBetween": "{{min}}–{{max}}×",
+    "valueAtLeast": "ab {{min}}×",
+    "valueUpTo": "bis {{max}}×"
+  },
   "dateRange": {
     "label": "Zeitraum",
     "menuLabel": "Zeitraum wählen",
@@ -537,11 +549,8 @@
       "stable": "stabil",
       "falling": "im Sinkflug"
     },
-    "filterMinPlaceholder": "Min",
-    "filterMaxPlaceholder": "Max",
     "filterNamePlaceholder": "Name suchen…",
     "filterNameTitle": "Platzhalter möglich: * für beliebig viele Zeichen, ? für ein Zeichen",
-    "showUnusedOnly": "Nur ungenutzte (0x)",
     "loading": "Lädt…",
     "awaitingSync": "Emote-Set wird geladen – der Bot gleicht die Emotes gerade mit 7TV ab. Das dauert einen Moment.",
     "noActiveEmotes": "Keine aktiven Emotes für diesen Zeitraum.",

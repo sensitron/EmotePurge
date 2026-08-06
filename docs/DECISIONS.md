@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — „Nur ungenutzte (0×)" war nie ein eigener Filter, sondern min = 0 / max = 0
+
+**Betrifft:** `web/src/app/shared/emotes/usage-range-menu.ts` (neu) · `web/src/app/shared/emotes/emote-usage-filter.{ts,spec.ts}` (`setRange` ersetzt `toggleUnused`) · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/src/app/features/voting/vote-session-detail-page.{ts,html}` · `web/e2e/usage-atlas.e2e.spec.ts` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md` (§4.1)
+
+```ts
+isUnusedActive = computed(() => this.minCount() === 0 && this.maxCount() === 0);
+```
+
+**Der Schalter *war* die beiden Felder daneben.** Er stand direkt neben `Min` und `Max` und überschrieb sie still. Beide Richtungen dieser Kopplung waren korrekt und für niemanden vorhersagbar: tippte man von Hand 0 in beide Felder, leuchtete der Schalter auf; drückte man den Schalter und tippte dann in `Min`, ging er wieder aus. Die Werkzeugleiste zeigte damit **drei Filter in fünf Bedienelementen** — Nutzungsbereich, Name, Schonfrist.
+
+Der Nutzungsbereich ist jetzt **ein** Control nach dem Muster des `DateRangeMenu`, das eine Zeile darüber schon genau das tut: Trigger nennt die aktuelle Einstellung, Panel enthält die benannten Bereiche (alle · nie benutzt · eigener Bereich) und tauscht seinen Inhalt gegen die Felder, sobald der eigene Bereich gewählt ist. Die Kopplung hört damit auf, ein Geheimnis zu sein — „nie benutzt" ist schlicht einer der Bereiche — und die zwei kryptischen Felder sind nicht mehr der erste Eindruck der Leiste. Auf der Nutzungsseite bleiben drei Dauer-Controls statt fünf; auf dem Stimmzettel, wo dieselben Filter hängen, zwei statt vier.
+
+**`toggleUnused()` ist durch `setRange(min, max)` ersetzt.** Toggeln ist das falsche Verb, sobald die Bereiche als Auswahl auftreten: das bereits gewählte Radio erneut zu treffen darf es nicht abwählen. Der Spec-Fall dazu ist entsprechend umgeschrieben und prüft die Idempotenz jetzt ausdrücklich.
+
+**Ein bedingtes „Filter zurücksetzen" kommt dazu**, wie es das Audit-Log schon hat. `reset()` gab es, angeboten wurde es aber nur aus dem Leerzustand — also nur, wenn der Filter das Blatt *komplett* geleert hatte. Hatte er es bloß verengt, musste man jedes Control einzeln zurückdrehen und sich merken, welche man angefasst hatte.
+
+**Absichtlich nicht gestrichen:** „Neue ausblenden" (14 Tage Schonfrist) trägt als einziger Filter ein fachliches Urteil, das aus den Bändern nicht ableitbar ist, und die Namenssuche ist die einzige Möglichkeit, ein bestimmtes Emote unter 900 zu finden. Auch „nie benutzt" bleibt erreichbar: der Verdacht, es dupliziere nur das Nie-benutzt-Band, hält nicht — das Band zeigt dieselbe Menge, der Filter *verkürzt die Seite*, und bei 900 Emotes ist das der Unterschied zwischen an 770 Sprites vorbeiscrollen und nicht.
+
 ### 2026-08-06 — Zug 3, Werkzeugleiste: vier Schalter in drei Darstellungen, und `appButton` kannte keinen gedrückten Zustand
 
 **Betrifft:** `web/src/app/shared/ui/button.ts` (`buttonPressed`) · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/public/i18n/{de,en}.json` (4 Schlüssel) · `docs/UI-Designsprache.md` (§4.1)

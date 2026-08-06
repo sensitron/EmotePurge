@@ -76,23 +76,10 @@
              non-managers — for them these three controls would filter on absent data, so they are
              gated like the usage figure on the cells. The name filter works for everyone. -->
         @if (hasUsageData()) {
-          <input
-            type="number"
-            min="0"
-            [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
-            [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
-            [value]="usageFilter.min() ?? ''"
-            (change)="usageFilter.setMinCount($any($event.target).value)"
-            class="app-input-sm w-20"
-          />
-          <input
-            type="number"
-            min="0"
-            [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
-            [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
-            [value]="usageFilter.max() ?? ''"
-            (change)="usageFilter.setMaxCount($any($event.target).value)"
-            class="app-input-sm w-20"
+          <app-usage-range-menu
+            [min]="usageFilter.min()"
+            [max]="usageFilter.max()"
+            (rangeChange)="usageFilter.setRange($event.min, $event.max)"
           />
         }
         <input
@@ -104,22 +91,6 @@
           (input)="usageFilter.setNameFilter($any($event.target).value)"
           class="app-input-sm w-40"
         />
-        @if (hasUsageData()) {
-          <!-- Constant label + pressed state instead of swapping the text — see usage-stats toolbar. -->
-          <button
-            type="button"
-            class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-            [class]="
-              usageFilter.isUnusedActive()
-                ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
-                : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
-            "
-            [attr.aria-pressed]="usageFilter.isUnusedActive()"
-            (click)="usageFilter.toggleUnused()"
-          >
-            {{ 'usageStats.showUnusedOnly' | transloco }}
-          </button>
-        }
       }
       <p class="ml-auto whitespace-nowrap text-fg-muted" role="status">
         {{ emoteCountKey() | transloco: { shown: emotes().length, total: orderedEmotes().length } }}

@@ -50,6 +50,7 @@ import {
   usageTrend,
 } from '../../shared/emotes/emote-context';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
+import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
 import {
   UsageBandKey,
   groupIntoUsageBands,
@@ -136,6 +137,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     SlotBudgetBar,
     DateRangeMenu,
     SegmentedControl,
+    UsageRangeMenu,
     TranslocoPipe,
   ],
   templateUrl: './usage-stats-page.html',
