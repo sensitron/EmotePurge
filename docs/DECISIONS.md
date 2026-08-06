@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — `/permissions` wird pro Channel 30 s zwischengespeichert, statt das Rate-Limit ein drittes Mal anzuheben
+
+**Betrifft:** `web/src/app/core/channels/channel.service.ts` · `web/src/app/core/auth/auth.service.ts` · `web/src/app/core/channels/channel.service.spec.ts`
+
+**Symptom:** normales Durchklicken der Oberfläche antwortet mit 429. Das ist die Policy `ExternalApi` in `Program.cs` — Fixed Window, 40 Requests/Minute, partitioniert nach Twitch-User-Id, `QueueLimit 0`, kein `Retry-After`, kein Body. Am 2026-07-30 stand dasselbe Symptom schon einmal hier im Log und wurde durch eine Verdopplung von 20 auf 40 beantwortet. Dass es wiederkommt, ist der Beleg, dass die Decke nicht das Problem war.
+
+**Ursache:** ein einziges Öffnen eines Channel-Workspace kostet 6 Permits, und **drei davon sind derselbe Aufruf** — `GET /permissions`, angefragt von `usageStatsAccessGuard`, von `ChannelWorkspaceLayout` und von der `permissionsResource` der Seite. Alle drei sind für sich legitim: jeder braucht die Antwort für eine eigene Entscheidung, und keiner darf sich darauf verlassen, dass ein anderer sie schon geholt hat. Auf der Leitung waren es trotzdem drei identische Requests, deren jeder serverseitig eine echte Twitch-/7TV-Rollenprüfung auslöst. Übersicht → Workspace → zurück → Workspace sind 14 Permits; nach etwa fünf Wechseln ist das Minutenbudget leer.
+
+**Entscheidung:** Der Cache liegt im `ChannelService`, nicht an den Aufrufstellen — die bleiben unverändert und dürfen weiter naiv fragen. `shareReplay({ bufferSize: 1, refCount: false })` deckt den Gleichzeitigkeitsfall (die drei Leser einer Navigation teilen sich eine Antwort, noch bevor die TTL überhaupt greift), die 30-Sekunden-TTL den Hin-und-Zurück-Fall. Der Schlüssel ist der **normalisierte** Name (Regel 9), sonst öffnet `HandOfBlood` einen zweiten Eintrag neben `handofblood`.
+
+**Drei Details, die nicht optional sind.** (1) **Fehler werden nicht gecacht**: `shareReplay` spielt einen terminalen Fehler jedem späteren Abonnenten wieder vor und abonniert die Quelle nie neu — ein einzelnes 500 würde den Channel für 30 s aussperren. Ein `catchError` **vor** dem `shareReplay` löscht den Eintrag, bevor der Fehler durchgelassen wird. (2) `join`/`leave`/`purge` verwerfen den Eintrag des Channels, den sie ändern. (3) `AuthService.resetClientSession()` leert den ganzen Cache — heute kann er einen Nutzerwechsel ohnehin nicht überleben, weil jedes Login ein voller Seitenwechsel ist (`window.location.href`), aber das ist eine Eigenschaft des OAuth-Redirects, nicht des Caches.
+
+**Bewusst nicht mitgecacht: `listMine()`.** Die Übersicht lädt das auf Live-Events neu; ein Cache würde genau die Aktualisierung mit dem Stand beantworten, den sie ersetzen soll. Das ist die Grenze des Verfahrens — zwischengespeichert wird nur, was kein Live-Event auffrischt.
+
+**Das Limit selbst bleibt bei 40.** Es schützt nicht sich selbst, sondern die app-weite Helix-Quota; eine Anhebung wäre erst nach dieser Reduktion ungefährlich und ist jetzt nicht mehr nötig.
+
 ### 2026-08-06 — Zug 3, Skeletons: der Platzhalter zeichnet den Umriss des Inhalts, nicht irgendeinen
 
 **Betrifft:** `web/src/app/shared/ui/skeleton-rows.ts` · `web/src/app/shared/ui/skeleton-sections.ts` (neu) · `web/src/app/features/admin/{admin-monitoring-page,admin-channel-detail-page}.ts` · `docs/UI-Designsprache.md` (§6.1, §11)

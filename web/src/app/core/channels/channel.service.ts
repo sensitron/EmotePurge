@@ -1,12 +1,25 @@
 import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { catchError, Observable, shareReplay, throwError } from 'rxjs';
 
+import { normalizeChannelName } from './channel-name';
 import { ChannelPermissions, ChannelStatus, MyChannelsResult } from './channel.model';
+
+/** Long enough to collapse one navigation's worth of readers, short enough that a role change
+ *  (a new mod, a revoked 7TV editor) shows up on the next page the user opens rather than after
+ *  a reload. The server's own role cache is the authority on freshness; this only stops the same
+ *  answer being asked for three times in one breath. */
+const PERMISSIONS_TTL_MS = 30_000;
+
+interface PermissionsCacheEntry {
+  readonly permissions$: Observable<ChannelPermissions>;
+  readonly expiresAtMs: number;
+}
 
 @Injectable({ providedIn: 'root' })
 export class ChannelService {
   private readonly http = inject(HttpClient);
+  private readonly permissionsCache = new Map<string, PermissionsCacheEntry>();
 
   getStatus(channelName: string): Observable<ChannelStatus> {
     return this.http.get<ChannelStatus>(`/api/channels/${channelName}`);
@@ -16,16 +29,71 @@ export class ChannelService {
    * The one permission read for a channel. Succeeds for every logged-in user (it reports what they
    * may do, it does not gate on it), so callers read the flags — they must not treat a 403 as
    * "not allowed", the way the probe calls this replaced had to.
+   *
+   * Cached per channel for {@link PERMISSIONS_TTL_MS}, because opening a channel asks three
+   * independent times: the route guard, the workspace layout, and the page's own resource. All
+   * three are legitimate — each needs the answer for its own decision — but on the wire they were
+   * three identical requests, and each one costs a live Twitch/7TV role check server-side plus a
+   * permit from the 40/min `ExternalApi` limiter. That is what made ordinary clicking-around hit
+   * 429; the limit had already been doubled once for the same symptom, which is the sign that the
+   * requests, not the ceiling, were the problem. `shareReplay` also covers the in-flight case, so
+   * the three readers of a single navigation share one response even before the TTL matters.
+   *
+   * Deliberately NOT extended to `listMine()`: the overview refetches that on live events, and a
+   * cache would answer those refetches with the very state they were sent to replace.
+   *
+   * One behavioural consequence for callers: a cache hit emits **synchronously** on subscribe,
+   * where the bare HTTP call always emitted later. `ChannelWorkspaceLayout` subscribes from inside
+   * an `effect()`, so its signal writes now happen during that effect rather than after it — which
+   * is allowed, and holds because the signals it writes are not the ones the effect reads. A future
+   * caller that subscribes from a `computed()` would not be so lucky.
    */
   getPermissions(channelName: string): Observable<ChannelPermissions> {
-    return this.http.get<ChannelPermissions>(`/api/channels/${channelName}/permissions`);
+    const key = normalizeChannelName(channelName);
+    const cached = this.permissionsCache.get(key);
+    if (cached && cached.expiresAtMs > Date.now()) {
+      return cached.permissions$;
+    }
+
+    const permissions$ = this.http
+      .get<ChannelPermissions>(`/api/channels/${channelName}/permissions`)
+      .pipe(
+        // A failure must not be what the next caller gets served for 30 seconds: `shareReplay`
+        // replays a terminal error to every later subscriber and never re-subscribes the source,
+        // so the entry has to go before the error is allowed through.
+        catchError((error: unknown) => {
+          this.permissionsCache.delete(key);
+          return throwError(() => error);
+        }),
+        shareReplay({ bufferSize: 1, refCount: false }),
+      );
+
+    this.permissionsCache.set(key, {
+      permissions$,
+      expiresAtMs: Date.now() + PERMISSIONS_TTL_MS,
+    });
+    return permissions$;
+  }
+
+  /**
+   * Drops cached permissions — for one channel, or all of them when called without a name.
+   * Called on session reset (`AuthService`) and after anything that can change what a user may do.
+   */
+  invalidatePermissions(channelName?: string): void {
+    if (channelName === undefined) {
+      this.permissionsCache.clear();
+      return;
+    }
+    this.permissionsCache.delete(normalizeChannelName(channelName));
   }
 
   join(channelName: string): Observable<ChannelStatus> {
+    this.invalidatePermissions(channelName);
     return this.http.post<ChannelStatus>(`/api/channels/${channelName}/join`, {});
   }
 
   leave(channelName: string): Observable<void> {
+    this.invalidatePermissions(channelName);
     return this.http.delete<void>(`/api/channels/${channelName}`);
   }
 
@@ -47,6 +115,7 @@ export class ChannelService {
    * screen, only from the admin channel page, and only behind a typed name confirmation.
    */
   purge(channelName: string): Observable<void> {
+    this.invalidatePermissions(channelName);
     return this.http.delete<void>(`/api/channels/${channelName}/purge`);
   }
 
