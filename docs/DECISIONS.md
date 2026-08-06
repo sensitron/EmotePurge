@@ -10,6 +10,16 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Breite: die Shell hört auf, sie zu entscheiden
+
+**Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/app.routes.ts` · `web/src/app/features/usage-stats/usage-stats-page.html` (Dock) · `docs/UI-Designsprache.md`
+
+**„Shell breiter" wäre der falsche Schnitt gewesen.** Die App lief überall auf `max-w-5xl`, und für fast alles ist das richtig: Listen, Admin-Tabellen, Monitoring-Grids und jeder Fließtext wollen eine Zeile, aus der das Auge zurückfindet — auf 1536 px ist eine Metazeile keine Zeile mehr. Genau zwei Seiten wollen die Breite wirklich, und dort ist sie keine Dekoration, sondern Reihen: der Sprite-Atlas und der Stimmzettel gewinnen pro 500 px eine weitere Emote-Spalte, was auf einem 900er-Set direkt weniger Scrollen heißt.
+
+Also entscheidet nicht mehr die Shell, sondern die Route: `data: { wideLayout: true }` an den zwei Blatt-Routen, die Shell liest es aus der aktivierten Kette. Zwei Werte (`MEASURE` = 64 rem, `WIDE` = 96 rem), sonst nichts. Header-Zeile und `<main>` teilen sich die Klasse absichtlich — die Trennlinie des Headers läuft ohnehin über die volle Breite (sie sitzt am äußeren Element), mitwandern tut nur die Ausrichtung des Logos zum Inhalt darunter, und genau das ist der Zweck.
+
+**Die Falle, in die das lief:** `AppShell` wird *während* der Navigation konstruiert, die sie aktiviert. Die Kind-Routen existieren zu dem Zeitpunkt bereits, ihre `snapshot`s nicht — `route.snapshot.data` warf im Feld-Initialisierer und riss die ganze Shell mit, sichtbar als komplett leere Seite bei grünem `ng build`. Der Zugriff ist jetzt optional gehalten. Gefunden hat es der Audit-Harness (5 KB einfarbiges PNG statt 41 KB), nicht der Compiler und nicht die E2E-Suite — beide blieben grün.
+
 ### 2026-08-06 — Zug 3, Dialoge: die Hülle ist eine Primitive, das Öffnen gehört dem Dialog
 
 **Betrifft:** `web/src/app/shared/ui/dialog.ts`, `dialog-shell.ts`, `name-preview-list.ts` (alle neu) · `confirm-dialog.ts` · `typed-confirm-dialog.ts` · `web/src/app/shared/seven-tv/{delete,restore}-confirm-dialog.ts`, `seven-tv-token-prompt-dialog.ts`, `mass-delete-panel.ts`, `restore-panel.ts` · `web/src/app/shared/export/export-dialog.ts` · `web/src/app/shared/emotes/emote-drilldown-dialog.ts` · `web/src/app/features/usage-stats/create-vote-session-dialog.ts` · sechs Aufrufer-Seiten · `web/e2e/audit/ui-audit.audit.ts` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md` (§7)
