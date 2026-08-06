@@ -12,20 +12,20 @@ import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.mod
 import { liveEvents } from '../../core/live/live-reload';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
+import { HealthMarker, HealthTone } from '../../shared/ui/health-marker';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
-import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
 
 /** Shown for an absent value, same as on the monitoring page. */
 const NO_VALUE = '—';
 
-const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
-  healthy: 'success',
+const WORKER_STATUS_TONES: Record<string, HealthTone> = {
+  healthy: 'ok',
   degraded: 'warning',
   absent: 'danger',
-  starting: 'neutral',
+  starting: 'idle',
   unavailable: 'danger',
-  unknown: 'neutral',
+  unknown: 'idle',
 };
 
 /**
@@ -36,7 +36,7 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
  */
 @Component({
   selector: 'app-admin-channel-detail-page',
-  imports: [BackLink, Button, NoticeBanner, RouterLink, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [BackLink, Button, HealthMarker, NoticeBanner, RouterLink, SkeletonRows, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-4">
       <!-- Outside the @if on purpose: the way out has to exist while loading and after an error,
@@ -72,18 +72,21 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
           </app-notice-banner>
         }
 
-        <!-- Database side -->
-        <section class="app-card flex flex-col gap-3 p-4">
+        <!-- Database side. No card box, same reasoning as the monitoring page: the two columns are
+             the same kind of thing, so a rule and a heading separate them and the only coloured
+             thing left on the page is a subsystem that is actually unwell. -->
+        <section class="flex flex-col gap-3 border-t border-border pt-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-base font-semibold">
               {{ 'admin.channelDetail.database.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="data.channel.isBotActive ? 'success' : 'neutral'">
-              {{
+            <app-health-marker
+              [tone]="data.channel.isBotActive ? 'ok' : 'idle'"
+              [label]="
                 (data.channel.isBotActive ? 'admin.channels.active' : 'admin.channels.inactive')
                   | transloco
-              }}
-            </app-status-badge>
+              "
+            />
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
@@ -151,14 +154,15 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
         </section>
 
         <!-- Worker side -->
-        <section class="app-card flex flex-col gap-3 p-4">
+        <section class="flex flex-col gap-3 border-t border-border pt-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-base font-semibold">
               {{ 'admin.channelDetail.worker.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="workerTone()">
-              {{ 'admin.channelDetail.worker.status.' + workerStatusKey() | transloco }}
-            </app-status-badge>
+            <app-health-marker
+              [tone]="workerTone()"
+              [label]="'admin.channelDetail.worker.status.' + workerStatusKey() | transloco"
+            />
           </div>
 
           @if (!data.roster.available) {
@@ -184,14 +188,15 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                   {{ 'admin.channelDetail.worker.ircJoin' | transloco }}
                 </dt>
                 <dd>
-                  <app-status-badge [tone]="row.ircJoinConfirmed ? 'success' : 'warning'">
-                    {{
+                  <app-health-marker
+                    [tone]="row.ircJoinConfirmed ? 'ok' : 'warning'"
+                    [label]="
                       (row.ircJoinConfirmed
                         ? 'admin.channelDetail.worker.confirmed'
                         : 'admin.channelDetail.worker.unconfirmed'
                       ) | transloco
-                    }}
-                  </app-status-badge>
+                    "
+                  />
                 </dd>
               </div>
               <div class="flex justify-between gap-4 sm:block">
@@ -207,16 +212,15 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                   {{ 'admin.channelDetail.worker.emoteSetSubscription' | transloco }}
                 </dt>
                 <dd>
-                  <app-status-badge
-                    [tone]="row.sevenTvEmoteSetAcknowledged ? 'success' : 'warning'"
-                  >
-                    {{
+                  <app-health-marker
+                    [tone]="row.sevenTvEmoteSetAcknowledged ? 'ok' : 'warning'"
+                    [label]="
                       (row.sevenTvEmoteSetAcknowledged
                         ? 'admin.channelDetail.worker.acknowledged'
                         : 'admin.channelDetail.worker.pending'
                       ) | transloco
-                    }}
-                  </app-status-badge>
+                    "
+                  />
                 </dd>
               </div>
               <div class="flex justify-between gap-4 sm:block">
@@ -231,14 +235,15 @@ const WORKER_STATUS_TONES: Record<string, StatusBadgeTone> = {
                       {{ 'admin.channelDetail.worker.noUserSubscription' | transloco }}
                     </span>
                   } @else {
-                    <app-status-badge [tone]="row.sevenTvUserAcknowledged ? 'success' : 'warning'">
-                      {{
+                    <app-health-marker
+                      [tone]="row.sevenTvUserAcknowledged ? 'ok' : 'warning'"
+                      [label]="
                         (row.sevenTvUserAcknowledged
                           ? 'admin.channelDetail.worker.acknowledged'
                           : 'admin.channelDetail.worker.pending'
                         ) | transloco
-                      }}
-                    </app-status-badge>
+                      "
+                    />
                   }
                 </dd>
               </div>
@@ -335,7 +340,7 @@ export class AdminChannelDetailPage {
       : 'degraded';
   });
 
-  protected readonly workerTone = computed<StatusBadgeTone>(
+  protected readonly workerTone = computed<HealthTone>(
     () => WORKER_STATUS_TONES[this.workerStatusKey()],
   );
 

@@ -8,8 +8,8 @@ import { AdminService } from '../../core/admin/admin.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
 import { liveEvents } from '../../core/live/live-reload';
+import { HealthMarker, HealthTone } from '../../shared/ui/health-marker';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
-import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
 import { UtilizationTone, utilizationTone } from '../../shared/ui/utilization-tone';
 
 /** Three times the worker's 60-second roster cadence — the same rule the Redis TTL follows. */
@@ -28,13 +28,13 @@ const TONE_TEXT: Record<UtilizationTone, string> = {
   danger: 'text-danger-fg',
 };
 
-const STATUS_TONES: Record<string, StatusBadgeTone> = {
-  complete: 'success',
+const STATUS_TONES: Record<string, HealthTone> = {
+  complete: 'ok',
   incomplete: 'warning',
-  starting: 'neutral',
+  starting: 'idle',
   stale: 'warning',
   unavailable: 'danger',
-  unknown: 'neutral',
+  unknown: 'idle',
 };
 
 /**
@@ -49,14 +49,15 @@ const STATUS_TONES: Record<string, StatusBadgeTone> = {
  */
 @Component({
   selector: 'app-admin-roster-card',
-  imports: [NoticeBanner, RouterLink, StatusBadge, TranslocoPipe],
+  imports: [HealthMarker, NoticeBanner, RouterLink, TranslocoPipe],
   template: `
-    <section class="app-card flex flex-col gap-3 p-4">
+    <section class="flex flex-col gap-3 border-t border-border pt-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h3 class="text-base font-semibold">{{ 'admin.roster.title' | transloco }}</h3>
-        <app-status-badge [tone]="tone()">
-          {{ 'admin.roster.status.' + statusKey() | transloco }}
-        </app-status-badge>
+        <app-health-marker
+          [tone]="tone()"
+          [label]="'admin.roster.status.' + statusKey() | transloco"
+        />
       </div>
 
       @if (errorMessage(); as error) {
@@ -333,7 +334,7 @@ export class AdminRosterCard {
     return complete ? 'complete' : 'incomplete';
   });
 
-  protected readonly tone = computed<StatusBadgeTone>(() => STATUS_TONES[this.statusKey()]);
+  protected readonly tone = computed<HealthTone>(() => STATUS_TONES[this.statusKey()]);
 
   constructor() {
     // No debounce: the publisher writes once a minute, so this can never outpace the refetch.
