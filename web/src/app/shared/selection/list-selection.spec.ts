@@ -160,6 +160,46 @@ describe('ListSelection', () => {
     expect(selection.selectedKeys()).toEqual(['d']);
   });
 
+  it('adds a whole group without dropping what was already selected', () => {
+    const { selection, byId } = setup('a', 'b', 'c', 'd');
+
+    selection.onRowClick(byId('a'), click());
+    selection.selectMany([byId('c'), byId('d')]);
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'c', 'd']);
+  });
+
+  it('never deselects on a second group action', () => {
+    // The atlas's per-band "mark all" is add-only on purpose: a toggle would let one stray click
+    // wipe a hand-built selection, and the next step after this button is an irreversible delete.
+    const { selection, byId } = setup('a', 'b');
+
+    selection.selectMany([byId('a'), byId('b')]);
+    selection.selectMany([byId('a'), byId('b')]);
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b']);
+  });
+
+  it('leaves an empty group alone, anchor included', () => {
+    const { selection, byId } = setup('a', 'b', 'c');
+
+    selection.onRowClick(byId('a'), click());
+    selection.selectMany([]);
+    // The anchor is still 'a', so this shift-click ranges a..c rather than degrading to a toggle.
+    selection.onRowClick(byId('c'), click(true));
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('moves the shift anchor to the end of the group it added', () => {
+    const { selection, byId } = setup('a', 'b', 'c', 'd');
+
+    selection.selectMany([byId('a'), byId('b')]);
+    selection.onRowClick(byId('d'), click(true));
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+
   it('notifies a computed() that reads the selection', () => {
     const { selection, byId } = setup('a', 'b', 'c');
     // Regression guard: with a plain mutable set instead of a signal, these stayed frozen at their

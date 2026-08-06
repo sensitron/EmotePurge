@@ -76,6 +76,27 @@ export class ListSelection<T> {
     this.anchorKey = key;
   }
 
+  /**
+   * Adds a whole group at once — what the atlas's per-band "select all" acts through.
+   *
+   * Add-only, never a toggle: the caller means "these too", and a group action that silently
+   * *deselects* on the second press would be a way to lose a hand-built selection to one click.
+   * The anchor moves to the last added row so a following shift-click extends from the end of the
+   * group rather than from wherever the user last clicked.
+   */
+  selectMany(items: readonly T[]): void {
+    if (items.length === 0) {
+      return;
+    }
+
+    const next = new Set(this.selectedKeySet());
+    for (const item of items) {
+      next.add(this.keyFn(item));
+    }
+    this.selectedKeySet.set(next);
+    this.anchorKey = this.keyFn(items[items.length - 1]);
+  }
+
   clear(): void {
     this.selectedKeySet.set(new Set());
     this.anchorKey = null;
