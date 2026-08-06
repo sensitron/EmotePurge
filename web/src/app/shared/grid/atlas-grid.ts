@@ -18,6 +18,15 @@ export const ATLAS_GAP_PX = 4;
 export const ATLAS_ROW_PX = ATLAS_CELL_PX + ATLAS_GAP_PX;
 
 /**
+ * Shell header (h-14) + workspace tabs (h-10) — the top of a workspace page's own sticky layer, and
+ * a cross-page contract (design doc §8.5). A sheet's sidecar pins below the page's own toolbar,
+ * whose height depends on how many rows the filters wrap into, so the offset is this plus a
+ * measurement rather than a single hard-coded number.
+ */
+export const ATLAS_STICKY_TOP_PX = 96;
+export const SIDECAR_GAP_PX = 16;
+
+/**
  * How many cells fit across a container of `width` px.
  *
  * Deliberately measured against the *container*, not `window.innerWidth`. The incumbent grid
@@ -26,13 +35,16 @@ export const ATLAS_ROW_PX = ATLAS_CELL_PX + ATLAS_GAP_PX;
  * stayed 40 px and the rest was padding. Reading the element that actually holds the cells is what
  * makes the atlas fill the width it has.
  */
-export function atlasColumns(width: number): number {
+export function atlasColumns(width: number, cell = ATLAS_CELL_PX): number {
   if (!Number.isFinite(width) || width <= 0) {
     // Pre-measurement (first paint, before ResizeObserver reports): one column is the only
     // honest answer, and it is corrected within a frame.
     return 1;
   }
-  return Math.max(1, Math.floor((width + ATLAS_GAP_PX) / ATLAS_ROW_PX));
+  // `cell` is a parameter because the ballot's cell is not the atlas's: a vote target has to stay
+  // a real target, so on a narrow screen the ballot cell grows instead of the vote buttons
+  // shrinking. Same packing, different edge.
+  return Math.max(1, Math.floor((width + ATLAS_GAP_PX) / (Math.max(cell, 1) + ATLAS_GAP_PX)));
 }
 
 /**

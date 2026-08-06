@@ -1,26 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { chunkIntoRows, computeGridColumns } from './grid-columns';
-
-describe('computeGridColumns', () => {
-  it.each([
-    [1536, 8],
-    [2000, 8],
-    [1280, 7],
-    [1400, 7],
-    [1024, 5],
-    [1100, 5],
-    [768, 4],
-    [900, 4],
-    [640, 3],
-    [700, 3],
-    [639, 2],
-    [320, 2],
-    [0, 2],
-  ])('maps width %i to %i columns', (width, expected) => {
-    expect(computeGridColumns(width)).toBe(expected);
-  });
-});
+import { chunkIntoRows } from './grid-columns';
 
 describe('chunkIntoRows', () => {
   it('splits a flat list into fixed-size rows', () => {

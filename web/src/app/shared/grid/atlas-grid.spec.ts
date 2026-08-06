@@ -27,6 +27,12 @@ describe('atlasColumns', () => {
     expect(atlasColumns(132)).toBe(2);
   });
 
+  it('packs a wider cell, which is what the ballot uses on a narrow screen', () => {
+    // 96 px cell + 4 px gutter: (358 + 4) / 100 = 3 across a 390 px phone's content width.
+    expect(atlasColumns(358, 96)).toBe(3);
+    expect(atlasColumns(992, 96)).toBe(9);
+  });
+
   it('never returns zero columns before the first measurement', () => {
     // A zero width is what the ResizeObserver reports for one frame on a hidden container;
     // returning 0 there would divide the row packing by zero.

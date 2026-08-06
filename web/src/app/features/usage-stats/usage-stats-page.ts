@@ -73,6 +73,8 @@ import {
 import {
   ATLAS_CELL_PX,
   ATLAS_ROW_PX,
+  ATLAS_STICKY_TOP_PX,
+  SIDECAR_GAP_PX,
   atlasColumns,
   atlasRowOfIndex,
   moveInAtlas,
@@ -110,12 +112,6 @@ const USAGE_RELOAD_DEBOUNCE_MS = 1000;
 // readable bar plus gutter — enough to show where the curve's knee sits, few enough that each bar
 // stays a bar rather than a hairline.
 const DISTRIBUTION_BUCKETS = 96;
-
-// Shell header (h-14) + workspace tabs (h-10) — the top of the page's own sticky layer, and a
-// cross-page contract (design doc §8.5). The sidecar has to start below the page's toolbar, whose
-// height depends on how many rows the filters wrap into, so it is measured rather than guessed.
-const ATLAS_STICKY_TOP_PX = 96;
-const SIDECAR_GAP_PX = 16;
 
 function sortableLastUsed(lastUsedDate: string | null): number {
   if (!lastUsedDate) {
