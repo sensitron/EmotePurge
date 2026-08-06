@@ -9,41 +9,87 @@ import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { Button } from '../../shared/ui/button';
 import { ThemeMenu } from '../../shared/ui/theme-menu';
 
+/**
+ * Exactly what `TwitchOAuthDefaults.RequestedScopes` sends to id.twitch.tv/oauth2/authorize
+ * (`src/EmotePurge.Core/Twitch/TwitchModels.cs`). Listed here rather than summarised, because the
+ * visitor is one click away from Twitch's own consent screen and will read the same three lines
+ * there — a page that says "we only need a little" and is then contradicted by the real dialog has
+ * spent its credibility at the worst possible moment.
+ *
+ * All three are read scopes. If a write scope is ever added, this list has to grow with it; the
+ * identifiers stay out of the translation files because they are literals, not language.
+ */
+const SCOPES = [
+  { id: 'user:read:email', key: 'email' },
+  { id: 'user:read:moderated_channels', key: 'moderatedChannels' },
+  { id: 'user:read:subscriptions', key: 'subscriptions' },
+];
+
 @Component({
   selector: 'app-login-page',
   template: `
-    <div
-      class="relative isolate flex min-h-screen flex-col items-center justify-center gap-6 bg-page px-4 text-fg"
-    >
-      <!-- Same subtle top glow as the app shell — the login page renders outside the shell,
-           so it brings the brand background along itself. -->
-      <div class="app-page-glow" aria-hidden="true"></div>
-      <!-- The login page renders outside the shell too, so it brings both display-preference
+    <div class="flex min-h-screen flex-col bg-page text-fg">
+      <!-- The login page renders outside the shell, so it brings both display-preference
            controls along itself rather than leaving the visitor without a theme switch. -->
-      <div class="absolute top-4 right-4 flex items-center gap-2">
-        <app-theme-menu />
-        <app-language-switcher />
-      </div>
-      <a routerLink="/welcome" class="flex items-center gap-2 text-xl font-semibold">
-        <img
-          [ngSrc]="logoSrc"
-          width="28"
-          height="28"
-          disableOptimizedSrcset
-          alt=""
-          class="h-7 w-7"
-        />
-        Emote Purge
-      </a>
-      <div class="app-card w-full max-w-sm p-8 text-center shadow-overlay">
-        <h1 class="mb-2 text-2xl font-semibold text-fg">{{ 'login.title' | transloco }}</h1>
-        <p class="mb-6 text-sm text-fg-muted">
-          {{ 'login.subtitle' | transloco }}
-        </p>
-        <button type="button" appButton="primary" buttonSize="lg" class="w-full" (click)="login()">
-          {{ 'login.loginButton' | transloco }}
-        </button>
-      </div>
+      <header class="flex items-center justify-between px-4 py-3">
+        <a routerLink="/welcome" class="flex items-center gap-2 text-lg font-semibold">
+          <img
+            [ngSrc]="logoSrc"
+            width="24"
+            height="24"
+            disableOptimizedSrcset
+            alt=""
+            class="h-6 w-6"
+          />
+          Emote Purge
+        </a>
+        <div class="flex items-center gap-2">
+          <app-theme-menu />
+          <app-language-switcher />
+        </div>
+      </header>
+
+      <!-- No card. A card is a boundary against its neighbours, and on this page there are none —
+           the old one was a box drawn around the only thing present, floating in a void. What the
+           page owes instead is an answer to the question actually being asked at this moment:
+           what is Twitch about to be asked for. -->
+      <main class="flex flex-1 items-center justify-center px-4 py-12">
+        <div class="flex w-full max-w-md flex-col gap-6">
+          <div class="flex flex-col gap-2">
+            <h1 class="text-3xl font-bold tracking-tight">{{ 'login.title' | transloco }}</h1>
+            <p class="text-fg-muted">{{ 'login.subtitle' | transloco }}</p>
+          </div>
+
+          <button
+            type="button"
+            appButton="primary"
+            buttonSize="lg"
+            class="self-start"
+            (click)="login()"
+          >
+            {{ 'login.loginButton' | transloco }}
+          </button>
+
+          <div class="flex flex-col gap-3 border-t border-border pt-6">
+            <h2
+              class="font-mono text-[11px] font-medium tracking-[0.13em] text-fg-secondary uppercase"
+            >
+              {{ 'login.scopes.title' | transloco }}
+            </h2>
+            <dl class="flex flex-col gap-2">
+              @for (scope of scopes; track scope.id) {
+                <div class="flex flex-col gap-0.5">
+                  <dt class="font-mono text-xs text-fg-secondary">{{ scope.id }}</dt>
+                  <dd class="text-sm text-fg-muted">
+                    {{ 'login.scopes.' + scope.key | transloco }}
+                  </dd>
+                </div>
+              }
+            </dl>
+            <p class="text-sm text-fg-muted">{{ 'login.scopes.note' | transloco }}</p>
+          </div>
+        </div>
+      </main>
     </div>
   `,
   imports: [Button, NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher, ThemeMenu],
@@ -51,6 +97,7 @@ import { ThemeMenu } from '../../shared/ui/theme-menu';
 export class LoginPage {
   private readonly authService = inject(AuthService);
 
+  protected readonly scopes = SCOPES;
   protected readonly logoSrc = LOGO_SRC;
 
   protected login(): void {

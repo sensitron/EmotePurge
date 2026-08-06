@@ -17,7 +17,10 @@ test.describe('unauthenticated visitor', () => {
     // homeGuard sends anonymous visitors to the public marketing page, not straight to /login
     // (see home.guard.ts) — /login itself is still reachable directly, covered by authGuard below.
     await expect(page).toHaveURL(/\/welcome$/);
-    const loginButton = page.getByRole('button', { name: 'Mit Twitch einloggen' });
+    // `.first()` because the landing carries the same call to action twice — once in the hero and
+    // once at the close. Both are the same button doing the same thing; either one satisfies this
+    // test, which is about the redirect, not about the page's composition.
+    const loginButton = page.getByRole('button', { name: 'Mit Twitch einloggen' }).first();
     await expect(loginButton).toBeVisible();
 
     const loginRequest = page.waitForRequest('**/api/auth/twitch/login');
