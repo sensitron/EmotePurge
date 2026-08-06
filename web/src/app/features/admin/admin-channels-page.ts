@@ -20,6 +20,7 @@ import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
+import { StateDot } from '../../shared/ui/state-dot';
 import { StatusBadge } from '../../shared/ui/status-badge';
 import { TypedConfirmDialog, TypedConfirmDialogData } from '../../shared/ui/typed-confirm-dialog';
 
@@ -47,9 +48,15 @@ const LIVE_AGE_TICK_MS = 30_000;
  * alternative was an admin hand-crafting a DELETE against production. It is guarded three ways: the
  * admin-only route, the server-side GlobalAdminAuthorizationFilter, and a typed name confirmation.
  *
- * Rows follow the stretched-link contract like the overview's "my channels" cards: the whole card
- * opens the channel, while the action buttons stay independently clickable via the elevated
- * (`relative z-10`) actions container.
+ * Rows follow the stretched-link contract like the overview's: the whole row opens the drilldown,
+ * while the action buttons stay independently clickable via the elevated (`relative z-10`) actions
+ * container.
+ *
+ * The join form stays *above* the list, unlike the vote-session list's create form which moved
+ * below it. The rule there was that opening a tab asks "what is running", not "let me add one" —
+ * but that form is six fields deep and pushed the answer off the first screen, and this one is a
+ * single input on a single line. Applying the move here would cost an admin a scroll past twenty
+ * rows to reach the field, and buy back one line of space.
  */
 @Component({
   selector: 'app-admin-channels-page',
@@ -60,6 +67,7 @@ const LIVE_AGE_TICK_MS = 30_000;
     ReactiveFormsModule,
     RouterLink,
     SkeletonRows,
+    StateDot,
     StatusBadge,
     TranslocoPipe,
   ],
@@ -119,45 +127,57 @@ const LIVE_AGE_TICK_MS = 30_000;
           [description]="'admin.channels.emptyHint' | transloco"
         />
       } @else {
-        <ul class="flex flex-col gap-2">
+        <!-- Hairline-divided rows, same recipe as the overview and the vote-session list: every row
+             is the same kind of thing, and this is the page an admin scans to find the one that is
+             not. Twenty bordered rectangles gave the healthy rows exactly as much presence as the
+             broken one. -->
+        <ul class="-mx-3 divide-y divide-border border-y border-border">
           @for (channel of channels(); track channel.channelName) {
-            <li class="app-card app-card-interactive relative flex flex-col gap-2 px-4 py-3">
+            <li
+              class="relative flex flex-col gap-2 px-3 py-3 transition-colors hover:bg-surface-inset"
+            >
               <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <!-- The stretched link goes to the admin drilldown, not to the channel workspace:
-                     from this list the next question is almost always "what is wrong with it", and
-                     the workspace stays one deliberate click away inside the drilldown. -->
-                <a
-                  [routerLink]="['/admin/channels', channel.channelName]"
-                  class="app-card-link max-w-full truncate font-medium text-fg"
-                >
-                  #{{ channel.channelName }}
-                </a>
-                <app-status-badge [tone]="channel.isBotActive ? 'success' : 'neutral'">
-                  {{
-                    (channel.isBotActive ? 'admin.channels.active' : 'admin.channels.inactive')
-                      | transloco
-                  }}
-                </app-status-badge>
-                <!-- Three-way on purpose: 'unknown' (worker down, poll disabled, key expired)
-                     renders no badge at all — absence of data must not look like "offline". The
-                     tooltip owns the honesty about the poll lag. -->
-                @if (channel.liveState === 'live') {
-                  <app-status-badge
-                    tone="success"
-                    [title]="'admin.channels.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                  <!-- The stretched link goes to the admin drilldown, not to the channel workspace:
+                       from this list the next question is almost always "what is wrong with it", and
+                       the workspace stays one deliberate click away inside the drilldown. -->
+                  <a
+                    [routerLink]="['/admin/channels', channel.channelName]"
+                    class="app-card-link max-w-full truncate font-medium text-fg hover:underline"
                   >
-                    {{ 'admin.channels.liveBadge' | transloco }}
-                  </app-status-badge>
-                } @else if (channel.liveState === 'offline') {
-                  <app-status-badge
-                    tone="neutral"
-                    [title]="'admin.channels.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
-                  >
-                    {{ 'admin.channels.offlineBadge' | transloco }}
-                  </app-status-badge>
-                }
+                    #{{ channel.channelName }}
+                  </a>
+                  <!-- Still three-way, and the weights now follow the overview's: 'unknown' renders
+                       nothing at all, because absence of data must not look like "offline"; live is
+                       the only thing on the row that is true *right now* and keeps the badge; being
+                       offline is the unremarkable case and says so in plain text, which still tells
+                       it apart from the silence of 'unknown'. The tooltip owns the poll lag. -->
+                  @if (channel.liveState === 'live') {
+                    <app-status-badge
+                      tone="success"
+                      [title]="'admin.channels.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                    >
+                      {{ 'admin.channels.liveBadge' | transloco }}
+                    </app-status-badge>
+                  } @else if (channel.liveState === 'offline') {
+                    <span
+                      class="text-xs text-fg-muted"
+                      [title]="'admin.channels.liveAsOf' | transloco: { minutes: liveAgeMinutes() }"
+                      >{{ 'admin.channels.offlineBadge' | transloco }}</span
+                    >
+                  }
+                </div>
 
-                <div class="relative z-10 ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
+                  <!-- The row's own condition — whether anything is being counted here at all — and
+                       on a healthy list it is the same word twenty times over, so it is a dot and a
+                       word rather than a green pill per row. -->
+                  <app-state-dot [tone]="channel.isBotActive ? 'on' : 'off'">
+                    {{
+                      (channel.isBotActive ? 'admin.channels.active' : 'admin.channels.inactive')
+                        | transloco
+                    }}
+                  </app-state-dot>
                   @if (resyncFeedback() === channel.channelName) {
                     <!-- Transient inline confirmation, same pattern as the vote-session list's copy
                          feedback: a 202 only means "queued". The live stream upgrades the wording to
@@ -166,44 +186,50 @@ const LIVE_AGE_TICK_MS = 30_000;
                       {{ resyncFeedbackKey() | transloco }}
                     </span>
                   }
-                  @if (!channel.isBotActive) {
+                  <div class="relative z-10 flex flex-wrap items-center gap-2">
+                    @if (!channel.isBotActive) {
+                      <button
+                        type="button"
+                        appButton="neutral"
+                        [disabled]="pendingChannel() === channel.channelName"
+                        (click)="join(channel.channelName)"
+                      >
+                        {{ 'admin.channels.actions.join' | transloco }}
+                      </button>
+                    } @else {
+                      <!-- Resync only while the bot is in the channel: the worker resolves the
+                           command against its joined channels, so offering it on an inactive row
+                           would only ever produce a 409. -->
+                      <button
+                        type="button"
+                        appButton="neutral"
+                        [disabled]="pendingChannel() === channel.channelName"
+                        (click)="resync(channel.channelName)"
+                      >
+                        {{ 'admin.channels.actions.resync' | transloco }}
+                      </button>
+                      <button
+                        type="button"
+                        appButton="neutral"
+                        [disabled]="pendingChannel() === channel.channelName"
+                        (click)="leave(channel.channelName)"
+                      >
+                        {{ 'admin.channels.actions.leave' | transloco }}
+                      </button>
+                    }
+                    <!-- The quiet destructive tier, not the outlined one: a purge trigger per row
+                         turned the rarest and heaviest action on the page into a red ladder running
+                         down its whole height. The typed-name confirmation behind it is what
+                         actually guards it, and that is unchanged. -->
                     <button
                       type="button"
-                      appButton="neutral"
+                      appButton="danger-quiet"
                       [disabled]="pendingChannel() === channel.channelName"
-                      (click)="join(channel.channelName)"
+                      (click)="confirmPurge(channel)"
                     >
-                      {{ 'admin.channels.actions.join' | transloco }}
+                      {{ 'admin.channels.actions.purge' | transloco }}
                     </button>
-                  } @else {
-                    <!-- Resync only while the bot is in the channel: the worker resolves the command
-                         against its joined channels, so offering it on an inactive row would only
-                         ever produce a 409. -->
-                    <button
-                      type="button"
-                      appButton="outline"
-                      [disabled]="pendingChannel() === channel.channelName"
-                      (click)="resync(channel.channelName)"
-                    >
-                      {{ 'admin.channels.actions.resync' | transloco }}
-                    </button>
-                    <button
-                      type="button"
-                      appButton="outline"
-                      [disabled]="pendingChannel() === channel.channelName"
-                      (click)="leave(channel.channelName)"
-                    >
-                      {{ 'admin.channels.actions.leave' | transloco }}
-                    </button>
-                  }
-                  <button
-                    type="button"
-                    appButton="danger"
-                    [disabled]="pendingChannel() === channel.channelName"
-                    (click)="confirmPurge(channel)"
-                  >
-                    {{ 'admin.channels.actions.purge' | transloco }}
-                  </button>
+                  </div>
                 </div>
               </div>
 

@@ -18,7 +18,7 @@ import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
-import { StatusBadge } from '../../shared/ui/status-badge';
+import { StateDot } from '../../shared/ui/state-dot';
 
 const PAGE_SIZE = 25;
 
@@ -42,7 +42,7 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
  */
 @Component({
   selector: 'app-admin-users-page',
-  imports: [Button, EmptyState, NoticeBanner, Pager, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [Button, EmptyState, NoticeBanner, Pager, SkeletonRows, StateDot, TranslocoPipe],
   template: `
     <div class="flex flex-col gap-4">
       <!-- The heading doubles as the pager's scroll/focus target (§8.4): tabindex="-1" lets it take
@@ -72,9 +72,12 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
       } @else if (rows().length === 0) {
         <app-empty-state [title]="'admin.users.empty' | transloco" />
       } @else {
-        <ul class="flex flex-col gap-2">
+        <!-- Hairline-divided rows, same recipe as the other lists. Nothing on a user row is
+             clickable as a whole, so there is no hover wash either — it would promise a drilldown
+             that does not exist. -->
+        <ul class="-mx-3 divide-y divide-border border-y border-border">
           @for (row of rows(); track row.twitchUserId) {
-            <li class="app-card flex flex-col gap-2 px-4 py-3">
+            <li class="flex flex-col gap-2 px-3 py-3">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <span class="max-w-full truncate font-medium text-fg">
                   {{ row.displayName }}
@@ -82,14 +85,19 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
                     <span class="font-normal text-fg-muted">({{ row.twitchUsername }})</span>
                   }
                 </span>
-                <app-status-badge [tone]="row.hasRefreshToken ? 'success' : 'neutral'">
-                  {{
-                    (row.hasRefreshToken ? 'admin.users.token.connected' : 'admin.users.token.none')
-                      | transloco
-                  }}
-                </app-status-badge>
 
-                <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
+                  <!-- Whether we still hold a usable Twitch token for this user: the row's own
+                       condition, and "connected" on twenty-five rows in a row, so a dot and a word
+                       rather than a green pill per row. -->
+                  <app-state-dot [tone]="row.hasRefreshToken ? 'on' : 'off'">
+                    {{
+                      (row.hasRefreshToken
+                        ? 'admin.users.token.connected'
+                        : 'admin.users.token.none'
+                      ) | transloco
+                    }}
+                  </app-state-dot>
                   @if (roleCacheFeedback(); as feedback) {
                     @if (feedback.twitchUserId === row.twitchUserId) {
                       <!-- Transient inline confirmation: dropping cache entries changes nothing this
@@ -102,24 +110,28 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
                       </span>
                     }
                   }
-                  <!-- Outline, not danger: nothing is lost, the next role check just resolves live
-                       again — so no confirmation step either (design doc §4.2). -->
-                  <button
-                    type="button"
-                    appButton="outline"
-                    [disabled]="pendingUserId() === row.twitchUserId"
-                    (click)="invalidateRoleCache(row)"
-                  >
-                    {{ 'admin.users.roleCache.button' | transloco }}
-                  </button>
-                  <button
-                    type="button"
-                    appButton="danger"
-                    [disabled]="pendingUserId() === row.twitchUserId"
-                    (click)="confirmRevoke(row)"
-                  >
-                    {{ 'admin.users.revoke.button' | transloco }}
-                  </button>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <!-- Not destructive at all: nothing is lost, the next role check just resolves
+                         live again — so no confirmation step either (design doc §4.2). -->
+                    <button
+                      type="button"
+                      appButton="neutral"
+                      [disabled]="pendingUserId() === row.twitchUserId"
+                      (click)="invalidateRoleCache(row)"
+                    >
+                      {{ 'admin.users.roleCache.button' | transloco }}
+                    </button>
+                    <!-- Quiet destructive tier for the same reason as the channel list's purge: one
+                         per row, twenty-five rows to a page. The confirmation dialog is unchanged. -->
+                    <button
+                      type="button"
+                      appButton="danger-quiet"
+                      [disabled]="pendingUserId() === row.twitchUserId"
+                      (click)="confirmRevoke(row)"
+                    >
+                      {{ 'admin.users.revoke.button' | transloco }}
+                    </button>
+                  </div>
                 </div>
               </div>
 
