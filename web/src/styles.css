@@ -5,6 +5,72 @@
 @import '@angular/cdk/overlay-prebuilt.css';
 
 /* ---------------------------------------------------------------------------
+   TYPEFACES — self-hosted on purpose, never hotlinked from fonts.googleapis.com.
+   Hotlinking transmits the visitor's IP address to Google without consent; LG
+   München I, 3 O 17493/20 (2022-01-20) awarded damages for exactly that. The
+   files are checked in under web/public/fonts/ and served same-origin.
+
+   Both families are VARIABLE fonts, so one file per unicode subset carries the
+   whole 400–700 range — the four separate weight declarations Google's CSS API
+   emits would fetch the same file four times over.
+
+   Archivo (Omnibus-Type, OFL) is the workhorse grotesque; Azeret Mono (Displaay,
+   OFL) carries every number, index and measurement. Mono is used for DATA here,
+   never as a costume for "technical".
+   --------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/archivo-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Azeret Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/azeret-mono-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Azeret Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/azeret-mono-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+/* Not `@theme inline`: unlike the colours these never switch per mode, so the
+   value may be baked into the utilities at build time. */
+@theme {
+  --font-sans: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Azeret Mono', ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+}
+
+/* ---------------------------------------------------------------------------
    COLOUR TOKENS — the only place in web/ that is allowed to name a Tailwind
    palette colour. Everything else writes the semantic utilities registered in
    the @theme inline block below (bg-surface, text-fg-muted, border-border, …).
@@ -37,48 +103,60 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  /* Surfaces */
-  --ep-page: var(--color-slate-950);
-  --ep-surface: var(--color-slate-900);
-  --ep-surface-inset: var(--color-slate-800);
-  --ep-surface-inset-hover: var(--color-slate-700);
-  --ep-field: var(--color-slate-950);
+  /* Surfaces — graphite, not slate. The ramp is deliberately near-neutral with a
+     trace of green rather than slate's blue: the content of this app is several
+     hundred pieces of foreign, fully saturated artwork, and a blue-tinted ground
+     tints every one of them. Graphite stays out of their way. */
+  --ep-page: #0d0f12;
+  --ep-surface: #15181c;
+  --ep-surface-inset: #1f232a;
+  --ep-surface-inset-hover: #282d35;
+  /* A field reads as pressed INTO the surface, so it goes darker than the page
+     rather than matching it. */
+  --ep-field: #0a0c0f;
 
   /* Borders. --ep-border-field is the one token with the SAME value in both
-     modes: it is the only border with a hard 3:1 obligation (WCAG 1.4.11) and
-     slate-500 happens to clear it against both a dark and a light fill. */
-  --ep-border: var(--color-slate-800);
-  --ep-border-strong: var(--color-slate-700);
-  --ep-border-field: var(--color-slate-500);
+     modes: it is the only border that has to make a control recognisable as one
+     against both a dark and a light fill. */
+  --ep-border: #262b32;
+  --ep-border-strong: #353b43;
+  --ep-border-field: #6b747e;
 
-  /* Text. `fg` = foreground on a normal surface. The former text-slate-500
-     step is gone — it never cleared 4,5:1 and folded into fg-muted. */
-  --ep-fg: var(--color-slate-100);
-  --ep-fg-body: var(--color-slate-200);
-  --ep-fg-secondary: var(--color-slate-300);
-  --ep-fg-muted: var(--color-slate-400);
-  --ep-fg-disabled: var(--color-slate-600);
+  /* Text. `fg` = foreground on a normal surface. */
+  --ep-fg: #e9ecee;
+  --ep-fg-body: #d4d9dd;
+  --ep-fg-secondary: #b2b9c0;
+  --ep-fg-muted: #8b939b;
+  --ep-fg-disabled: #565d65;
 
-  /* Accent. Four steps with names, replacing five nameless purple steps.
-     accent-fg  = the accent used AS TEXT on a normal surface (links, "today").
-     on-accent  = the text drawn ON a filled accent surface (white). */
-  --ep-accent: var(--color-purple-500);
-  --ep-accent-solid: var(--color-purple-600);
-  /* Hover DARKENS, in both modes — see the note at --ep-danger-solid-hover. White on purple-600 is
-     5,5:1, on purple-700 7,1:1. The earlier "brighten in dark" step landed on purple-500, where
-     white only reaches 4,1:1: a hover state that quietly drops below AA.
-     All ratios in this block that carry a date of 2026-08-02 are MEASURED in a browser (canvas
-     round-trip of the resolved colour), not computed from hex. Tailwind v4 defines the palette in
-     oklch; the older annotations here were figured from the legacy hex values and read ~0,2 low. */
-  --ep-accent-solid-hover: var(--color-purple-700);
-  --ep-accent-selected: var(--color-purple-700);
-  --ep-accent-fg: var(--color-purple-400);
-  --ep-accent-wash: var(--color-purple-950);
+  /* Accent. accent-fg = the accent used AS TEXT on a normal surface (links,
+     "today"); on-accent = the text drawn ON a filled accent surface (white).
+
+     The guide colour. Packing and layout tools reserve one high-visibility hue
+     for overlays that must never be mistaken for artwork — this turquoise is
+     that, and it is why it was chosen over anything in the artwork's own range.
+     It marks selection, focus and marking. It decorates nothing, and it does not
+     glow: guides are hairlines, not light sources. */
+  --ep-accent: #00d3bc;
+  --ep-accent-solid: #0a6f64;
+  /* Hover still DARKENS, in both modes — the rule survives the palette swap
+     unchanged, and that is why the filled accent is a deep teal rather than the
+     guide turquoise. Nothing readable sits on a saturated turquoise: white
+     reaches about 2,5:1 on it. Splitting the ink per family would have inverted
+     the hover direction for that family only, and then again per mode — two
+     rules where this token block deliberately has one. So the bright turquoise
+     stays a GUIDE (focus ring, selection edge, marks, links), where no text ever
+     sits on it, and every filled surface keeps white via --ep-on-accent.
+     White on #0a6f64 is 5,3:1, on #085a51 6,6:1. */
+  --ep-accent-solid-hover: #085a51;
+  --ep-accent-selected: #0a6f64;
+  --ep-accent-fg: #2fded0;
+  --ep-accent-wash: #06231f;
   /* Accent text ON the accent wash (the badge), as opposed to accent-fg which is accent text on a
      normal surface. Two tokens because the two grounds are different: purple-300 on purple-950 is
      8,4:1, purple-400 on it only 5,7:1 — both pass, but the badge has no reason to give that up.
      In light both collapse onto purple-700 (6,5:1 on the wash, 7,0:1 on the surface). */
-  --ep-accent-wash-fg: var(--color-purple-300);
+  --ep-accent-wash-fg: #57e8d8;
   --ep-on-accent: #fff;
 
   /* Semantic tones — wash = tinted area, fg = text on that wash,
@@ -118,56 +196,72 @@
   --ep-info-wash: var(--color-blue-950);
   --ep-info-fg: var(--color-blue-300);
 
-  --ep-neutral-wash: var(--color-slate-800);
-  --ep-neutral-fg: var(--color-slate-300);
+  --ep-neutral-wash: #1f232a;
+  --ep-neutral-fg: #b2b9c0;
 
   /* Dark's emote canvas — see the note at --color-emote-canvas. */
-  --ep-emote-canvas: var(--color-slate-800);
+  --ep-emote-canvas: #1f232a;
 
   /* Not colours */
   --ep-shadow-card: none;
-  --ep-shadow-card-hover: 0 8px 24px -12px rgb(88 28 135 / 0.55);
+  /* Neutral, not a brand halo. A coloured glow around a hovered card is
+     decoration wearing the costume of depth; the lift here is a real shadow. */
+  --ep-shadow-card-hover: 0 8px 24px -12px rgb(0 0 0 / 0.65);
   --ep-shadow-overlay: 0 10px 30px -12px rgb(0 0 0 / 0.6);
   --ep-backdrop: rgb(0 0 0 / 0.6);
   --ep-sticky-alpha: 85%;
-  --ep-page-glow-1: rgb(147 51 234 / 0.14);
-  --ep-page-glow-2: rgb(236 72 153 / 0.1);
+  /* Fully transparent, deliberately. `.app-page-glow` is still in the markup on
+     three surfaces; zeroing its stops retires the effect app-wide from this one
+     file, and the element itself comes out when those templates are rebuilt.
+     A radial brand haze behind a hero is the single most reliable tell of a
+     generated interface, and this world has no light sources. */
+  --ep-page-glow-1: transparent;
+  --ep-page-glow-2: transparent;
 
-  /* Landing hero heading. The gradient is decorative *and* carries the headline, so the stops owe
-     contrast in their own right: purple-400 (7,7:1) and pink-400 (6,4:1) on the dark page. */
-  --ep-heading-gradient-from: var(--color-purple-400);
-  --ep-heading-gradient-to: var(--color-pink-400);
+  /* Both stops identical on purpose: the landing headline still renders through
+     a gradient utility, and giving it one flat colour retires the gradient
+     without touching the template. Emphasis belongs to weight and size. */
+  --ep-heading-gradient-from: #2fded0;
+  --ep-heading-gradient-to: #2fded0;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --ep-page: var(--color-slate-50);
+  /* The light counterpart is derived from the same world rather than inherited
+     from the old slate ramp: the sheet is paper, the ground is the table it lies
+     on, and the ink is the same graphite seen from the other side. Neutral with
+     the same trace of green, for the same reason — several hundred pieces of
+     foreign artwork must not be tinted by their ground. */
+  --ep-page: #f2f3f5;
   --ep-surface: #fff;
-  --ep-surface-inset: var(--color-slate-100);
-  --ep-surface-inset-hover: var(--color-slate-200);
+  --ep-surface-inset: #eaecef;
+  --ep-surface-inset-hover: #dfe2e6;
   --ep-field: #fff;
 
-  --ep-border: var(--color-slate-200);
-  --ep-border-strong: var(--color-slate-300);
-  --ep-border-field: var(--color-slate-500);
+  --ep-border: #dde0e4;
+  --ep-border-strong: #c4c9cf;
+  --ep-border-field: #6b747e;
 
-  --ep-fg: var(--color-slate-900);
-  --ep-fg-body: var(--color-slate-800);
-  --ep-fg-secondary: var(--color-slate-700);
-  --ep-fg-muted: var(--color-slate-600);
-  --ep-fg-disabled: var(--color-slate-400);
+  --ep-fg: #14171b;
+  --ep-fg-body: #23282e;
+  --ep-fg-secondary: #3f464e;
+  --ep-fg-muted: #5d656e;
+  --ep-fg-disabled: #a2a9b1;
 
-  /* purple-500 would clear 3:1 on white (4,0:1), but with no reserve at all —
-     purple-600 gets 5,2:1 for the same job. The *-solid-hover steps below are
-     identical to the dark ones now: one hover direction for both modes. */
-  --ep-accent: var(--color-purple-600);
-  --ep-accent-solid: var(--color-purple-600);
-  --ep-accent-solid-hover: var(--color-purple-700);
-  --ep-accent-selected: var(--color-purple-700);
-  --ep-accent-fg: var(--color-purple-700);
-  --ep-accent-wash: var(--color-purple-50);
-  --ep-accent-wash-fg: var(--color-purple-700);
+  /* The guide turquoise cannot be the guide here: at #00d3bc it reaches 1,7:1 on
+     white, so on a paper ground the same ROLE is played by the deep teal that
+     dark mode already uses for its fills. The guide is still the most saturated
+     thing on the page, it just has to be dark instead of bright to stay one.
+     #0a6f64 gets 5,3:1 on white, so it carries both the 3:1 boundary duty and
+     ordinary text. Hover darkens, same direction as dark mode. */
+  --ep-accent: #0a6f64;
+  --ep-accent-solid: #0a6f64;
+  --ep-accent-solid-hover: #085a51;
+  --ep-accent-selected: #085a51;
+  --ep-accent-fg: #076156;
+  --ep-accent-wash: #e6f5f2;
+  --ep-accent-wash-fg: #06554b;
   --ep-on-accent: #fff;
 
   --ep-success-wash: var(--color-emerald-50);
@@ -195,30 +289,27 @@
   --ep-danger-dot: var(--color-red-600);
 
   /* Light's emote canvas — see the note at --color-emote-canvas. */
-  --ep-emote-canvas: var(--color-slate-200);
+  --ep-emote-canvas: #e6e8eb;
 
   --ep-info-wash: var(--color-blue-50);
   --ep-info-fg: var(--color-blue-700);
 
-  --ep-neutral-wash: var(--color-slate-100);
-  --ep-neutral-fg: var(--color-slate-700);
+  --ep-neutral-wash: #eaecef;
+  --ep-neutral-fg: #3f464e;
 
-  /* Neutral, not purple: the dark mode's glow shadow is additive light, which
-     turns into a dirty smudge on white rather than into depth. */
-  --ep-shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.1);
-  --ep-shadow-card-hover: 0 8px 24px -12px rgb(15 23 42 / 0.18);
-  --ep-shadow-overlay: 0 10px 30px -10px rgb(15 23 42 / 0.22);
-  --ep-backdrop: rgb(15 23 42 / 0.35);
+  --ep-shadow-card: 0 1px 2px rgb(20 23 27 / 0.06), 0 1px 3px rgb(20 23 27 / 0.1);
+  --ep-shadow-card-hover: 0 8px 24px -12px rgb(20 23 27 / 0.18);
+  --ep-shadow-overlay: 0 10px 30px -10px rgb(20 23 27 / 0.22);
+  --ep-backdrop: rgb(20 23 27 / 0.35);
   /* Light needs more coverage than dark, otherwise text bleeds through the blur. */
   --ep-sticky-alpha: 92%;
-  --ep-page-glow-1: rgb(147 51 234 / 0.06);
-  --ep-page-glow-2: rgb(236 72 153 / 0.04);
+  /* Retired in both modes — see the note on the dark stops. */
+  --ep-page-glow-1: transparent;
+  --ep-page-glow-2: transparent;
 
-  /* The dark stops land at 1,6:1 and 2,1:1 on a light page — far below anything, even for display
-     type. purple-600 gets 5,2:1 and pink-700 5,9:1, so both ends clear 4,5:1 as ordinary text and
-     the headline is safe wherever the eye lands in the ramp. */
-  --ep-heading-gradient-from: var(--color-purple-600);
-  --ep-heading-gradient-to: var(--color-pink-700);
+  /* Both stops identical, same reasoning as dark. */
+  --ep-heading-gradient-from: #076156;
+  --ep-heading-gradient-to: #076156;
 }
 
 @theme inline {

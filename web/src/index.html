@@ -20,17 +20,38 @@
     <meta
       name="theme-color"
       data-theme-mode="dark"
-      content="#020617"
+      content="#0d0f12"
       media="(prefers-color-scheme: dark)"
     />
     <meta
       name="theme-color"
       data-theme-mode="light"
-      content="#f8fafc"
+      content="#f2f3f5"
       media="(prefers-color-scheme: light)"
     />
   </head>
   <body>
+    <!--
+      DIRECTION CONTRACT — Sprite-Atlas. Survives the production build on purpose:
+      a contract nobody can read in the shipped output is a contract nobody audits.
+
+      THESIS: Emotes are sprites, so show them as sprites — packed edge to edge on a
+      sheet, the image IS the cell. Refuses the uniform card grid, where a 40 px emote
+      sits inside a 144 px container of border, name, date and buttons.
+      OWN-WORLD: Graphite ground with a trace of green (never slate), alpha-checker
+      under the artwork, hairline guides that never glow, one signal turquoise used
+      only for selection, focus and marking. Archivo for text, Azeret Mono for every
+      number and index.
+      STORY: The visitor sees where the weight of their set sits, judges sprite by
+      sprite, and marks what leaves. The count is evidence, never the verdict.
+      FIRST VIEWPORT: Edge-code header with the set's figures, one toolbar row,
+      the ranked distribution, then the packed sheet in usage bands; sidecar right,
+      action bar docked at the bottom once anything is marked.
+      FORM: Sprite-Atlas, candidate 4 of the resonance list, seed d5364856. Uniform
+      cell size chosen by the user over size-by-usage — judging beats surveying.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the
+      finish review, the verdict, and DESIGN.md.
+    -->
     <app-root></app-root>
   </body>
 </html>
