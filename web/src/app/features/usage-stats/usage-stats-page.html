@@ -288,13 +288,12 @@
       } @else if (atlasOrder().length === 0) {
         @if (emotes().length === 0) {
           <app-empty-state
-            icon="😀"
             [title]="'usageStats.noActiveEmotes' | transloco"
             [description]="'usageStats.noActiveEmotesHint' | transloco"
           />
         } @else {
           <!-- The set has emotes; the filters hide all of them — offer the way back. -->
-          <app-empty-state icon="🔍" [title]="'usageStats.noMatches' | transloco">
+          <app-empty-state [title]="'usageStats.noMatches' | transloco">
             <button type="button" appButton="neutral" (click)="usageFilter.reset()">
               {{ 'usageStats.resetFilters' | transloco }}
             </button>

@@ -115,7 +115,6 @@ const LIVE_AGE_TICK_MS = 30_000;
         <app-skeleton-rows [count]="3" />
       } @else if (channels().length === 0) {
         <app-empty-state
-          icon="📺"
           [title]="'admin.channels.empty' | transloco"
           [description]="'admin.channels.emptyHint' | transloco"
         />

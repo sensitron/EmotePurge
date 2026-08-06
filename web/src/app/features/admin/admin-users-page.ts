@@ -70,7 +70,7 @@ const EMPTY_PAGE: PagedResult<AdminUser> = {
       @if (isLoading()) {
         <app-skeleton-rows [count]="5" />
       } @else if (rows().length === 0) {
-        <app-empty-state icon="👤" [title]="'admin.users.empty' | transloco" />
+        <app-empty-state [title]="'admin.users.empty' | transloco" />
       } @else {
         <ul class="flex flex-col gap-2">
           @for (row of rows(); track row.twitchUserId) {

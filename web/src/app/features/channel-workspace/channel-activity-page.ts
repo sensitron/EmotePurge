@@ -110,7 +110,6 @@ const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
       } @else if (rows().length === 0) {
         @if (hasActiveFilters()) {
           <app-empty-state
-            icon="🔍"
             [title]="'channelWorkspace.activity.filter.noMatches' | transloco"
             [description]="'channelWorkspace.activity.filter.noMatchesHint' | transloco"
           >
@@ -120,7 +119,6 @@ const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
           </app-empty-state>
         } @else {
           <app-empty-state
-            icon="📋"
             [title]="'channelWorkspace.activity.empty' | transloco"
             [description]="'channelWorkspace.activity.emptyHint' | transloco"
           />
