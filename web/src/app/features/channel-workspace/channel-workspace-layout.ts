@@ -2,7 +2,7 @@ import { Dialog } from '@angular/cdk/dialog';
 import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, effect, inject, input, signal } from '@angular/core';
-import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterOutlet } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ChannelService } from '../../core/channels/channel.service';
@@ -18,22 +18,14 @@ import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
 import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { TabLink } from '../../shared/ui/tab-link';
 
 /** Long enough to read, short enough that a stale "queued" never lingers on screen. */
 const RESYNC_FEEDBACK_MS = 4000;
 
 @Component({
   selector: 'app-channel-workspace-layout',
-  imports: [
-    BackLink,
-    Button,
-    NgOptimizedImage,
-    NoticeBanner,
-    RouterLink,
-    RouterLinkActive,
-    RouterOutlet,
-    TranslocoPipe,
-  ],
+  imports: [BackLink, Button, NgOptimizedImage, NoticeBanner, RouterOutlet, TabLink, TranslocoPipe],
   template: `
     <div>
       <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -113,9 +105,13 @@ const RESYNC_FEEDBACK_MS = 4000;
           </button>
         </app-notice-banner>
         @if (duplicatesExpanded()) {
+          <!-- Neutral, not a second warning-tinted box under the first: the banner above states the
+               problem, and this is the evidence for it. Two stacked amber panels made the evidence
+               argue as loudly as the finding, which is the "notable how often?" rule one level up
+               from the badges — a warning that keeps warning about itself stops being one. -->
           <div
             id="duplicate-names-details"
-            class="mb-4 rounded-md border border-warning-border bg-warning-wash px-4 py-3 text-sm text-warning-fg"
+            class="mb-4 rounded-md border border-border bg-surface-inset px-4 py-3 text-sm text-fg-secondary"
           >
             <p class="mb-3">{{ 'channelWorkspace.duplicateNames.explanation' | transloco }}</p>
             <ul class="flex max-h-64 flex-col gap-2 overflow-y-auto">
@@ -154,50 +150,14 @@ const RESYNC_FEEDBACK_MS = 4000;
            top-24 (= 14 + 10). Links are flex/items-center so the fixed height carries exactly. -->
       <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
         @if (canViewUsageStats()) {
-          <a
-            routerLink="usage-stats"
-            routerLinkActive
-            ariaCurrentWhenActive="page"
-            #usageStatsTab="routerLinkActive"
-            [class]="
-              usageStatsTab.isActive
-                ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
-                : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
-            "
-          >
-            {{ 'channelWorkspace.tabs.usage' | transloco }}
-          </a>
+          <app-tab-link link="usage-stats" [label]="'channelWorkspace.tabs.usage' | transloco" />
         }
-        <a
-          routerLink="vote-sessions"
-          routerLinkActive
-          ariaCurrentWhenActive="page"
-          #voteSessionsTab="routerLinkActive"
-          [class]="
-            voteSessionsTab.isActive
-              ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
-              : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
-          "
-        >
-          {{ 'channelWorkspace.tabs.voting' | transloco }}
-        </a>
+        <app-tab-link link="vote-sessions" [label]="'channelWorkspace.tabs.voting' | transloco" />
         <!-- canManage, not canViewUsageStats: the rows name which moderator did what, and the
              channel's 7TV editors are frequently outside the mod team. The route carries the same
              check as its own guard, so hiding the tab is visibility only. -->
         @if (canManage()) {
-          <a
-            routerLink="activity"
-            routerLinkActive
-            ariaCurrentWhenActive="page"
-            #activityTab="routerLinkActive"
-            [class]="
-              activityTab.isActive
-                ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
-                : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
-            "
-          >
-            {{ 'channelWorkspace.tabs.activity' | transloco }}
-          </a>
+          <app-tab-link link="activity" [label]="'channelWorkspace.tabs.activity' | transloco" />
         }
       </nav>
 

@@ -10,6 +10,16 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Workspace-Rahmen: der Tab ist eine Primitive, und zwei Warnflächen sind eine zu viel
+
+**Betrifft:** `web/src/app/shared/ui/tab-link.ts` (neu) · `web/src/app/features/admin/admin-layout.ts` · `web/src/app/features/channel-workspace/channel-workspace-layout.ts` · `docs/UI-Designsprache.md` (§8.1)
+
+**Die Tab-Klassenkette stand siebenmal von Hand da** — 4× im Admin-Layout, 3× im Workspace — mitsamt der Notiz in §8.1, die Vorkommen bei Änderungen synchron zu halten. Die Notiz sagte die Drift nicht nur voraus, sie war bereits selbst falsch (sie zählte 2 statt 3 im Workspace). Ein Vertrag, den die Designsprache seitenübergreifend nennt, gehört nicht in sieben kopierte String-Literale: `<app-tab-link>` nimmt `link` und `label`, und `ariaCurrentWhenActive="page"` ist damit nicht mehr vergessbar. `display: contents` auf dem Host, weil der Anker selbst das Flex-Kind sein muss — sonst zentriert er in einer eigenen Box, statt die `h-10` der Leiste zu tragen, die der `top`-Offset jeder Filter-Toolbar ist (§8.5).
+
+**Die aufgeklappten Duplikat-Namen waren eine zweite bernsteinfarbene Fläche unter der ersten.** Das Banner nennt den Befund, die Fläche darunter ist sein *Beleg* — als zweite Warnfläche gerendert argumentierte der Beleg so laut wie der Befund. Das ist die „bemerkenswert wie oft?"-Regel eine Ebene über den Badges: eine Warnung, die weiter über sich selbst warnt, hört auf, eine zu sein. Der Beleg ist jetzt neutral (`border-border`, `bg-surface-inset`); das Banner behält seinen Ton.
+
+**Die Aktivitätsseite selbst brauchte nichts.** Sie benutzt bereits `SegmentedControl`, `EmptyState` und das bedingte Zurücksetzen, und ihre Zeilen kommen aus `audit-log-list`, das mit dem Admin-Zug schon auf Linienzeilen umgestellt wurde.
+
 ### 2026-08-06 — „Nur ungenutzte (0×)" war nie ein eigener Filter, sondern min = 0 / max = 0
 
 **Betrifft:** `web/src/app/shared/emotes/usage-range-menu.ts` (neu) · `web/src/app/shared/emotes/emote-usage-filter.{ts,spec.ts}` (`setRange` ersetzt `toggleUnused`) · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/src/app/features/voting/vote-session-detail-page.{ts,html}` · `web/e2e/usage-atlas.e2e.spec.ts` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md` (§4.1)

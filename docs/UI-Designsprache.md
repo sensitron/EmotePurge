@@ -241,26 +241,18 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ### 8.1 Tab-Leisten (Router-Link-Muster)
 
-- **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Kanonisches Snippet — inklusive `ariaCurrentWhenActive="page"`, das ist Pflicht:
+- **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Ein Tab ist `<app-tab-link>`; die Leiste bleibt beim Aufrufer, weil ihre Sticky-Position pro Ebene verschieden ist:
 
   ```html
   <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
-    <a
-      [routerLink]="['...', 'tab']"
-      routerLinkActive
-      ariaCurrentWhenActive="page"
-      #tab="routerLinkActive"
-      [class]="
-        tab.isActive
-          ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
-          : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
-      "
-    >{{ 'x.tab' | transloco }}</a>
+    <app-tab-link link="usage-stats" [label]="'x.tab' | transloco" />
   </nav>
   ```
 
-  Die Klassenkette ist bewusst (noch) keine Primitive — bei Änderungen **alle** Vorkommen synchron halten: `admin-layout.ts` (4×), `channel-workspace-layout.ts` (2×). `h-10` und `flex items-center` (statt `py-2`) sind Teil des Sticky-Vertrags aus §8.5 — die Tab-Leisten-Höhe ist der `top`-Offset der Filter-Toolbars.
-- **Referenz:** `web/src/app/features/admin/admin-layout.ts`.
+  **Seit 2026-08-06 eine Primitive** (`shared/ui/tab-link.ts`). Vorher stand die Klassenkette samt `routerLinkActive`-Template-Referenz siebenmal von Hand da — 4× im Admin-Layout, 3× im Workspace — mit der Notiz „bei Änderungen alle Vorkommen synchron halten". Ein Vertrag, der in sieben kopierten String-Literalen lebt, driftet beim ersten Edit; die Notiz sagte genau das voraus und war schon falsch (3, nicht 2, im Workspace). `ariaCurrentWhenActive="page"` steckt jetzt in der Primitive und ist damit nicht mehr vergessbar. `display: contents` auf dem Host: der Anker muss selbst das Flex-Kind sein, sonst zentriert er in einer eigenen Box statt die `h-10` der Leiste zu tragen.
+
+  `h-10` und `flex items-center` (statt `py-2`) sind Teil des Sticky-Vertrags aus §8.5 — die Tab-Leisten-Höhe ist der `top`-Offset der Filter-Toolbars.
+- **Referenz:** `web/src/app/shared/ui/tab-link.ts`; Leisten in `admin-layout.ts`, `channel-workspace-layout.ts`.
 
 ### 8.2 In-Page-Anker
 
