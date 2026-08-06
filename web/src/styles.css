@@ -219,15 +219,31 @@
      from the old slate ramp: the sheet is paper, the ground is the table it lies
      on, and the ink is the same graphite seen from the other side. Neutral with
      the same trace of green, for the same reason — several hundred pieces of
-     foreign artwork must not be tinted by their ground. */
-  --ep-page: #f2f3f5;
-  --ep-surface: #fff;
-  --ep-surface-inset: #eaecef;
-  --ep-surface-inset-hover: #dfe2e6;
-  --ep-field: #fff;
+     foreign artwork must not be tinted by their ground.
 
-  --ep-border: #dde0e4;
-  --ep-border-strong: #c4c9cf;
+     Since 2026-08-07 the sheet is off-white (#fafbfc) rather than #fff. Surfaces
+     are the largest area on every page here, so on a bright display it was the
+     surface — not the palette — that glared. The whole ramp moved down with it
+     rather than the top alone: page, inset and the two borders keep their former
+     spacing, otherwise the sheet stops reading as a sheet lying on a table. The
+     ink never moved, and there was room for all of it — computed, not estimated:
+     fg-muted 5,91 → 5,71:1 on the sheet and 5,00 → 4,81:1 on the inset, accent
+     6,05 → 5,84:1 and 5,11 → 4,92:1. The inset pair is the thinnest of the set
+     and the one to check first if this ramp ever moves again. The 3:1 gates keep
+     their reserve too (border-field on the field 4,58:1, warning-dot on the
+     inset 4,08:1). Only --ep-on-accent stays pure white: that is lettering on a
+     filled teal, not an area. */
+  --ep-page: #eef0f2;
+  --ep-surface: #fafbfc;
+  --ep-surface-inset: #e5e8eb;
+  --ep-surface-inset-hover: #dadde1;
+  --ep-field: #fafbfc;
+
+  /* Both borders darken by the same step as the surfaces they sit on. Left where
+     they were, --ep-border would have ended up lighter than surface-inset-hover
+     and a hovered inset would have lost its outline. */
+  --ep-border: #d7dade;
+  --ep-border-strong: #bec3ca;
   --ep-border-field: #6b747e;
 
   --ep-fg: #14171b;

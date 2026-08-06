@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-07 — Das helle Blatt ist nicht mehr reinweiß, und die ganze Rampe geht mit
+
+**Betrifft:** `web/src/styles.css` (Tokenblock `:root[data-theme='light']`) · `docs/UI-Designsprache.md` (Kontrastzeile der Checkliste)
+
+**Vom Nutzer nach dem Prod-Blick gemeldet:** „Der helle Modus ist sehr grell" — beobachtet auf einem OLED bei voller Helligkeit. Der Befund trifft nicht die Farbwelt, sondern zwei Tokens: `--ep-surface` und `--ep-field` standen auf `#fff`, und Flächen sind seit Zug 3 der größte Anteil jedes Bildschirms. Der Grund war mit `#f2f3f5` längst gedämpft, die Flächen darüber nicht.
+
+**Entscheidung:** das Blatt auf `#fafbfc` senken — und die Nachbarn im selben Schritt mit. Nur die Spitze zu senken hätte den Abstand zwischen Blatt und Grund von 13 auf 8 Stufen gedrückt und damit genau die Tiefenwirkung gekostet, die im Hellen ohnehin die schwächere ist (Blatt gegen Grund sind 1,10:1, deshalb trägt das Overlay einen echten Schatten). Also: `page` `#f2f3f5` → `#eef0f2`, `surface`/`field` `#fff` → `#fafbfc`, `surface-inset` `#eaecef` → `#e5e8eb`, `surface-inset-hover` `#dfe2e6` → `#dadde1`.
+
+**Die beiden Ränder mussten mit, und das ist der nicht offensichtliche Teil:** an seinem alten Wert wäre `--ep-border` (`#dde0e4`) *heller* geworden als das neue `surface-inset-hover` (`#dadde1`) — ein überfahrenes eingelassenes Feld hätte seine Kontur verloren. Deshalb `--ep-border` → `#d7dade` und `--ep-border-strong` → `#bec3ca`. `--ep-border-field` bleibt, es ist das 3:1-Token und hat mit der Fläche nichts zu tun.
+
+**`--ep-on-accent` bleibt reines Weiß.** Das ist Schrift auf gefülltem Teal, keine Fläche — die Regel lautet „Flächen blenden", nicht „Weiß ist verboten".
+
+**Die Tinte hat sich nicht bewegt**, der Spielraum war da (gerechnet, nicht geschätzt): `fg-muted` 5,91 → 5,71:1 auf dem Blatt und 5,00 → **4,81:1** auf der eingelassenen Fläche, `accent` 6,05 → 5,84:1 bzw. 5,11 → 4,92:1; die 3:1-Tore behalten Reserve (`border-field` auf dem Feld 4,58:1, `warning-dot` auf der eingelassenen Fläche 4,08:1). Der volle helle Audit-Durchlauf ist grün, axe in allen 82 Zuständen. **4,81:1 ist der engste Wert des Satzes** und steht deshalb ab jetzt in der Checkliste von `UI-Designsprache.md` — er reißt zuerst, wenn eine Fläche noch einmal verschoben wird.
+
+**Nebenfund, der älter ist als diese Änderung:** die Kontrastzahlen in der Checkliste (7,0:1 dunkel / 7,6:1 hell) stammten aus der Slate-Palette *vor* dem Redesign und waren schon vorher falsch — tatsächlich 5,72 bzw. 5,91:1. Sie nannten außerdem „die Karte", die es seit Zug 2 nicht mehr gibt. Korrigiert. `docs/Konzept-Light-Mode.md` §5 trägt denselben Fehler im Großen; das Dokument ist ein datierter Konzept-Schnappschuss und bleibt in diesem Commit unangetastet.
+
 ### 2026-08-06 — Der Kopfbereich schweigt, solange der Worker gesund ist — und der Übersichts-Banner entfällt dafür
 
 **Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/features/overview/{overview-page.ts,overview-page.html}` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md` (§4.3, §4.4) · `web/e2e/audit/ui-audit.audit.ts`
