@@ -218,19 +218,6 @@
   --ep-shadow-overlay: 0 10px 30px -12px rgb(0 0 0 / 0.6);
   --ep-backdrop: rgb(0 0 0 / 0.6);
   --ep-sticky-alpha: 85%;
-  /* Fully transparent, deliberately. `.app-page-glow` is still in the markup on
-     three surfaces; zeroing its stops retires the effect app-wide from this one
-     file, and the element itself comes out when those templates are rebuilt.
-     A radial brand haze behind a hero is the single most reliable tell of a
-     generated interface, and this world has no light sources. */
-  --ep-page-glow-1: transparent;
-  --ep-page-glow-2: transparent;
-
-  /* Both stops identical on purpose: the landing headline still renders through
-     a gradient utility, and giving it one flat colour retires the gradient
-     without touching the template. Emphasis belongs to weight and size. */
-  --ep-heading-gradient-from: #2fded0;
-  --ep-heading-gradient-to: #2fded0;
 }
 
 :root[data-theme='light'] {
@@ -316,13 +303,6 @@
   --ep-backdrop: rgb(20 23 27 / 0.35);
   /* Light needs more coverage than dark, otherwise text bleeds through the blur. */
   --ep-sticky-alpha: 92%;
-  /* Retired in both modes — see the note on the dark stops. */
-  --ep-page-glow-1: transparent;
-  --ep-page-glow-2: transparent;
-
-  /* Both stops identical, same reasoning as dark. */
-  --ep-heading-gradient-from: #076156;
-  --ep-heading-gradient-to: #076156;
 }
 
 @theme inline {
@@ -392,13 +372,7 @@
      the audit stubs the CDN with a 1×1 pixel. */
   --color-emote-canvas: var(--ep-emote-canvas);
 
-  --color-heading-gradient-from: var(--ep-heading-gradient-from);
-  --color-heading-gradient-to: var(--ep-heading-gradient-to);
-
   --shadow-overlay: var(--ep-shadow-overlay);
-  /* The landing CTAs' halo. Same token as the interactive card's hover shadow — brand glow in dark,
-     a neutral lift in light, because an additive purple halo on white is a smudge, not depth. */
-  --shadow-glow: var(--ep-shadow-card-hover);
 }
 
 @layer base {
@@ -508,26 +482,6 @@
     z-index: 20;
     background-color: color-mix(in srgb, var(--ep-page) var(--ep-sticky-alpha), transparent);
     backdrop-filter: blur(8px);
-  }
-
-  /* Decorative brand glow behind the hero areas. Extracted from three byte-identical copies
-     (app shell, landing, login) — it had to become one class before it could become themeable.
-     In light mode the two stops drop from .14/.10 to .06/.04: an additive light simulation has
-     no equivalent on a light ground, so it degrades to a faint paper tint rather than pretending
-     to glow. Belongs on an aria-hidden element inside an `isolate` parent (design doc §8.5
-     z-ladder: decorative glow is the -z-10 rung). */
-  .app-page-glow {
-    pointer-events: none;
-    position: absolute;
-    inset-inline: 0;
-    top: 0;
-    z-index: -10;
-    height: calc(var(--spacing) * 96);
-    background-image:
-      radial-gradient(circle at 25% 0%, var(--ep-page-glow-1), transparent 55%),
-      radial-gradient(circle at 80% 0%, var(--ep-page-glow-2), transparent 50%);
-    -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent);
-    mask-image: linear-gradient(to bottom, black 30%, transparent);
   }
 
   /* Skeleton block for page-level loading (NN/g: skeletons for page loads, spinners only for

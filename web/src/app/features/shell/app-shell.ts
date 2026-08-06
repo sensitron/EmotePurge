@@ -39,10 +39,6 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
   },
   template: `
     <div class="isolate min-h-screen bg-page text-fg">
-      <!-- Subtle top glow — decorative only, sits behind everything via -z-10 (root is isolate).
-           The class is shared with the landing hero and the login page, which carried three
-           byte-identical copies of the gradient before; it also carries the per-theme dimming. -->
-      <div class="app-page-glow" aria-hidden="true"></div>
       <!-- h-14 is a contract, not styling: the sticky tab bars pin at top-14 and the sticky
            filter toolbars at top-24, both assuming exactly this header height (design doc §8.5).
            z-30 keeps the header (and its mobile disclosure) above the z-20 sticky bars — it is a
