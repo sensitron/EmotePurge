@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Ein Batch-Endpunkt für die Tagesreihen des ganzen Sets, damit der Sidecar eine Kurve zeigen kann
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/UsageStatsEndpoints.cs` · `src/EmotePurge.Core/Services/IUsageStatQueryService.cs` · `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` · `tests/EmotePurge.Api.Tests/ChannelUsageSeriesWireFormatTests.cs` (neu) · `web/src/app/core/usage-stats/{usage-stat.model.ts,usage-stat.service.ts}` · `web/src/app/shared/emotes/usage-series.ts` · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`
+
+**Vom Nutzer vorgeschlagen:** „wie wär's, wenn wir im Sidecar noch den Nutzungsgraph anzeigen?" Gute Idee — der Sidecar hatte Platz und trug nur Zahlen, und die Kurve beantwortet die eine Frage, die eine Zahl nicht kann: 4.000 Verwendungen über drei Monate und 4.000 an einem Abend sind dieselbe Zahl und entgegengesetzte Urteile.
+
+**Das Problem war der Datenweg, nicht die Anzeige.** Der Sidecar hängt am Zeiger; die Atlas-Zeile kennt aber nur `totalUseCount`. Tagesdaten gab es ausschließlich über `GET /usage-stats/daily` — **ein Aufruf pro Emote**, auf der Gruppen-Policy `ExternalApi` (40/min), und teuer ist dort nicht die Abfrage, sondern der `UsageStatsAccessAuthorizationFilter` davor mit zwei ungecachten 7TV-GraphQL-Aufrufen für jeden Aufrufer außer Admin/Broadcaster/Mod — also ausgerechnet für 7TV-Editoren. Damit wäre Mausbewegung zu Requests geworden: wer den „nie benutzt"-Band durchgeht und je 1,5 s hinsieht, produziert 40 Aufrufe pro Minute, exakt die Decke, geteilt mit dem Rest der Seite. Einen Tag nach dem `/permissions`-Eintrag oben wäre das dieselbe Lektion in die Gegenrichtung gewesen.
+
+**Entscheidung:** `GET /usage-stats/series` liefert die Tagesreihen **des ganzen Sets** in einer Antwort, ein Aufruf pro (Channel, Zeitraum). Die Decke bleibt bei 40; die Nachfrage verschwindet.
+
+**Die Antwort ist kodiert, nicht bloß serialisiert** — drei Entscheidungen, alle aus einem Grund: nichts zwischen Api und Browser komprimiert JSON. Die Api registriert keine `ResponseCompression`, und der nginx-Block auf dem VPS setzt keine `gzip`-Direktive (`docs/VPS-Reverse-Proxy.md` enthält keine); nginx' Voreinstellung komprimiert nur `text/html`. **Das ist zugleich der offene Handgriff daran:** ein `gzip_types application/json` auf dem VPS würde jeden Endpunkt betreffen, nicht nur diesen, und die Kodierung hier weitgehend überflüssig machen — sie ist trotzdem richtig, weil sie nicht von einer Proxy-Einstellung abhängt, die dieses Repo nicht kontrolliert. (1) **Tages-Offsets statt ISO-Daten**: `[3,42]` gegen `{"date":"2026-07-04","useCount":42}` ist rund ein Fünftel; bei ~7.500 Emote-Tagen im 90-Tage-Fenster eines großen Sets sind das ~260 KB gegen ~55 KB. (2) **Paare statt paralleler Arrays**, damit die beiden Hälften nicht auseinanderlaufen können. (3) **Emotes ohne Nutzung fehlen ganz** — bei 900 Emoten ist das tote Band der größte Teil der Antwort, und „fehlt" heißt eine Ebene tiefer, bei den ausgelassenen Tagen, ohnehin schon „keine Nutzung". `liveDays` liegt einmal oben statt pro Emote wiederholt, weil es eine Eigenschaft des Channels ist.
+
+**Diese Kodierung ist ein sprachübergreifender Vertrag** und deshalb festgenagelt: `ChannelUsageSeriesWireFormatTests` prüft die erzeugte JSON-Zeichenkette. Ein gut gemeintes Aufräumen, das die Paare in ein Record verwandelt, würde in C# weiter kompilieren, jeden anderen Test grün lassen und den Sidecar flache Linien zeichnen lassen.
+
+**Der Drilldown-Dialog bleibt** — die zweite Frage des Nutzers. Er ist auf dem Stimmzettel der einzige Weg zur Kurve (dort gibt es keinen Sidecar), unter `lg` ebenfalls, und mit Finger oder Tastatur sowieso. Er hört nur auf, der *einzige* Weg zu sein, und trägt weiterhin, was der Sidecar nicht hat: y-Achse, Spitzensatz, Live-Tag-Legende, erste Verwendung.
+
+**Bewusst nicht bei Live-Events nachgeladen.** Die Totals daneben aktualisieren sich weiter; die Kurve nicht. Ein 30-Sekunden-Flush verschiebt den letzten Tag um ein paar Zähler — bei Sidecar-Breite unsichtbar — während die Antwort das ganze Set umfasst. Der Nachladevorgang würde also am meisten kosten und am wenigsten zeigen. Die Kurve gilt damit für den Zeitraum wie zuletzt gewählt, genau wie der Dialog es mit seinem eigenen Cache immer schon gehandhabt hat.
+
 ### 2026-08-06 — `/permissions` wird pro Channel 30 s zwischengespeichert, statt das Rate-Limit ein drittes Mal anzuheben
 
 **Betrifft:** `web/src/app/core/channels/channel.service.ts` · `web/src/app/core/auth/auth.service.ts` · `web/src/app/core/channels/channel.service.spec.ts`
