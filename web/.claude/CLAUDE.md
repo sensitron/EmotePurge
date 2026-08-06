@@ -3,7 +3,7 @@ You are an expert in TypeScript, Angular, and scalable web application developme
 
 ## UI design language (binding)
 
-**Every UI change under `web/` MUST follow [`docs/UI-Designsprache.md`](../../docs/UI-Designsprache.md)** — surfaces/cards (stretched-link contract), typography scale, button/badge/banner primitives, destructive-action tiers, form and field-error ARIA patterns, loading/empty states, dialogs, navigation, i18n duties, and the accessibility checklist. Use its "Neue UI bauen" checklist before finishing any UI work, and verify layout-affecting changes with the UI audit harness described there. Do not rebuild what `shared/ui/` already provides.
+**Every UI change under `web/` MUST follow [`docs/UI-Designsprache.md`](../../docs/UI-Designsprache.md)** — colour tokens and theming, surfaces and rows (stretched-link contract), the sprite sheet (bands, sidecar, dock), typography scale, button/badge/banner primitives, destructive-action tiers, form and field-error ARIA patterns, loading/empty states, dialogs, navigation, i18n duties, and the accessibility checklist. Use its "Neue UI bauen" checklist before finishing any UI work, and verify layout-affecting changes with the UI audit harness described there. Do not rebuild what `shared/ui/` already provides.
 
 ## TypeScript Best Practices
 

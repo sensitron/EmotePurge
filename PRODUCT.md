@@ -150,10 +150,12 @@ Templates. **Diese Disziplin bleibt**, unabhängig von der Barrierefreiheits-Ent
 - **Zweisprachigkeit de + en.** Jede Typografie- und Layoutentscheidung muss deutsche Wortlängen
   aushalten.
 
-**Ausdrücklich nicht bindend** — beides darf ein visueller Neuanfang ersetzen:
+- **Die Marke ist `web/public/logo.svg`** — eine Datei, flaches Guide-Türkis, trägt auf Graphit wie
+  auf Papierweiß. Es gibt keine helle Zweitfassung und keine getrennte Icon-Version; alle
+  ausgelieferten Rasterdateien werden daraus abgeleitet (`web/branding/README.md`).
 
-- **Das bestehende Logo** (`logo.png`, `logo-hero.png` samt Hell-Varianten, „fliegende
-  Pixel-Quadrate").
+**Ausdrücklich nicht bindend** — ein visueller Neuanfang dürfte es ersetzen:
+
 - **Die Gleichwertigkeit von Hell- und Dunkelmodus.** Achtung, sauber getrennt: „nicht bindend"
   heißt **nicht** „wird abgeschafft". Beide Modi sind vollständig gebaut, ausgeliefert und über
   `theme-init.js` schaltbar. Ihre Abschaffung wäre eine eigene, zu treffende Entscheidung — kein
