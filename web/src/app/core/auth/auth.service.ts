@@ -3,6 +3,7 @@ import { inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { catchError, Observable, of, tap } from 'rxjs';
 
+import { ChannelService } from '../channels/channel.service';
 import { SevenTvTokenService } from '../seven-tv/seven-tv-token.service';
 import { AuthUser } from './auth.model';
 
@@ -15,6 +16,11 @@ export class AuthService {
   // Unrelated token (see seven-tv-token.service.ts), cleared here anyway as cheap hygiene —
   // no reason for a 7TV write-token to outlive the EmotePurge session that granted access to it.
   private readonly sevenTvTokenService = inject(SevenTvTokenService);
+  // Same hygiene one step further: cached channel permissions describe what THIS session may do.
+  // Today a login is always a full page load (login() sets window.location), so the cache could
+  // not survive a user change anyway — but that is an accident of the OAuth redirect, not a
+  // property of the cache, and an in-app login later would turn it into a real leak.
+  private readonly channelService = inject(ChannelService);
 
   readonly currentUser = signal<AuthUser | null>(null);
   private readonly isLoaded = signal(false);
@@ -82,6 +88,7 @@ export class AuthService {
     this.currentUser.set(null);
     this.isLoaded.set(true);
     this.sevenTvTokenService.clearToken();
+    this.channelService.invalidatePermissions();
     this.router.navigateByUrl('/login');
   }
 }
