@@ -77,7 +77,9 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Was gilt:** Die Fläche, auf der ein 7TV-Emote gezeichnet wird, ist `bg-emote-canvas` — ein **eigenes Token**, nicht `surface-inset`. Grund: das Bildmaterial ist fremd, für dunkle Chats gezeichnet und enthält weiße Schrift und helle Outlines. Diese Fläche wird deshalb irgendwann anders entschieden werden müssen als „irgendeine eingelassene Fläche", und dann muss es eine Zeile sein.
 - **Sie folgt dem Theme.** Der erste Entwurf hielt sie in beiden Modi dunkel, um das Fremdmaterial zu schützen. Nach dem Ansehen zurückgenommen: ein fast schwarzer Balken auf **jeder** Karte ist auf einer hellen Seite das lauteste Element, und er steht auf jeder Kachel — während die Emotes, die er schützt, die Minderheit sind. Preis der Rücknahme: ein weiß umrandetes Emote verliert im Hellen seine Kontur. Der Handel ist bewusst und steht an genau einer Stelle.
 - **Der Selektions-Wash liegt auf der Karte, nicht unter dem Bild.** Sonst kämpfen Wash und Bildmaterial um dieselben Pixel — der `inset-ring` (8.5) trägt die Auswahl, die Fläche verstärkt sie nur.
-- **Referenz:** `web/src/styles.css` (`--color-emote-canvas`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
+- **Die Fläche ist flach — kein Alpha-Karo** (seit 2026-08-06). Das Karo beantwortete eine Frage, die diese Seite nie stellt (*welche Pixel sind transparent*), und ließ das Nie-benutzt-Band wie eine andere Art Ding aussehen statt wie dieselbe Sache mit einer Null darauf. Was „nie benutzt" heißt, sagen die Bandüberschrift und der fehlende Füllbalken.
+- **`.app-sprite-cell-void` bleibt** — aber wegen des Stimmzettels, nicht wegen des Atlas: dort markiert dieselbe Klasse ein **archiviertes** Emote, und es gibt keine Überschrift, die das ein zweites Mal sagt.
+- **Referenz:** `web/src/styles.css` (`--color-emote-canvas`, `.app-sprite-cell`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
 
 ## 3. Typografie-Hierarchie
 

@@ -20,13 +20,12 @@ import { groupIntoUsageBands, usageBandThresholds } from '../../shared/emotes/us
  *
  * The counts themselves are a Zipf curve, not measured data, which is why the caption says so.
  *
- * What the figure does NOT borrow from the atlas is the cell itself. The first build drew each one
- * as an `.app-sprite-cell` with the atlas's own hairline fill bar, on the theory that the same
- * notation everywhere is worth something. Rendered, it inverted the message: the alpha checker is
- * near-invisible without artwork on it, so all that showed was a 2 px underline per cell — and the
- * dead band, whose cells carry a visible void plate, became the loudest thing in the picture. The
- * cells are plates with a vertical fill now, so the head is dense and the tail is empty, which is
- * the sentence the figure exists to say.
+ * What the figure does NOT borrow from the atlas is the *fill*. The first build drew each cell with
+ * the atlas's own hairline usage bar, on the theory that the same notation everywhere is worth
+ * something. Rendered, it inverted the message: without artwork on it a cell showed nothing but a
+ * 2 px underline, and the dead band — whose cells carry a visible void plate — became the loudest
+ * thing in the picture, which is the opposite of what the figure says. The cells here take a
+ * vertical fill instead, so the head is dense and the tail is empty.
  */
 
 /** Busiest emote in the diagram. Sets the scale; nothing reads the absolute value. */

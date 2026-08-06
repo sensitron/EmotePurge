@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Das Alpha-Karo unter den Emotes fällt weg
+
+**Betrifft:** `web/src/styles.css` (`.app-sprite-cell`, `.app-sprite-cell-void`, `--ep-emote-canvas-alt` entfernt) · `web/src/index.html` (Direction Contract) · `web/src/app/features/landing/set-shape.ts` (Kommentar)
+
+Der Eintrag vom 2026-08-04 führte das Alpha-Karo als „Material aus der Sache selbst" ein: die Notation, die jedes Werkzeug für transparente Grafik benutzt, und der Grund, warum die Zelle ohne Rahmen als Zelle liest. Das war für die *Kachel* richtig gedacht und für die *Seite* falsch.
+
+**Nutzerbefund, der es umgeworfen hat:** die Frage „wieso haben manche Emotes ein Schachbrett und andere nicht?" — gestellt, weil das Karo als Inkonsistenz gelesen wird, nicht als Aussage. Es *war* eine Aussage (Karo = mindestens einmal benutzt, Void-Platte = nie), aber eine, die die Bandüberschrift und der fehlende Füllbalken bereits machen. Die Entscheidung des Nutzers: **kein Mehrwert, die Kategorien unterteilen ja schon.**
+
+Zwei Dinge stützen das über den Geschmack hinaus. Erstens beantwortet das Alpha-Karo eine Frage, die diese Seite nie stellt — *welche Pixel sind transparent* ist die Frage eines Bildeditors, nicht die eines Nutzungsberichts. Zweitens lag das zweite Feld absichtlich nur ~3 % neben dem Canvas (`#1f232a`/`#262b33`), damit 900 Kacheln keine Textur werden; bei dieser Delta hat es die eigentliche Aufgabe eines Alpha-Karos ohnehin nie erfüllt. Was blieb, war ein Muster, das das Nie-benutzt-Band wie eine **andere Art Ding** aussehen ließ statt wie dieselbe Sache mit einer Null darauf.
+
+**Die Void-Platte bleibt**, und der Grund ist nicht der Atlas: auf dem Stimmzettel markiert dieselbe Klasse ein **archiviertes** Emote, und dort gibt es keine Bandüberschrift, die das ein zweites Mal sagt.
+
+**Nicht per Screenshot verifizierbar** — der Audit-Harness stubt das 7TV-CDN mit einem 1×1-Pixel, das die Zelle vollflächig füllt, das Karo war dort nie sichtbar. Geprüft ist der Umbau über Build, beide Lint-Gates, 443 Unit- und 66 E2E-Tests; das Bild gehört an echte 7TV-Artwork.
+
 ### 2026-08-06 — Zug 3, Admin-Bereich: Die gesunde Seite trägt keine einzige farbige Pille
 
 **Betrifft:** `web/src/app/shared/ui/health-marker.ts` (neu) · `web/src/app/features/admin/{admin-monitoring-page.ts,admin-roster-card.ts,admin-channels-page.ts,admin-users-page.ts,admin-channel-detail-page.ts}` · `web/src/app/shared/audit/audit-log-list.ts` · `docs/UI-Designsprache.md` (§2.1, §4.2, §4.3)
