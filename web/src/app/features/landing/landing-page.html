@@ -10,7 +10,14 @@
            against the base href ("/"), which is a full navigation away from /welcome — the router
            scrolls via anchorScrolling (app.config) instead. -->
       <a routerLink="/welcome" fragment="top" class="flex items-center gap-2 text-lg font-semibold">
-        <img [ngSrc]="logoSrc()" width="24" height="24" alt="" class="h-6 w-6" />
+        <img
+          [ngSrc]="logoSrc"
+          width="24"
+          height="24"
+          disableOptimizedSrcset
+          alt=""
+          class="h-6 w-6"
+        />
         Emote Purge
       </a>
       <div class="flex items-center gap-6">
@@ -46,13 +53,14 @@
          being clipped by this section's bounds. -->
     <section class="relative px-4 pb-20 pt-24 text-center">
       <div class="relative mx-auto max-w-2xl">
-        <!-- Hero mark: the full logo version incl. the flying pixel squares (logo-hero.png);
-             the nav/header use the simplified mark (logo.png) that stays legible when tiny. -->
+        <!-- Hero mark. One vector file serves every size now, so the hero and the nav mark are
+             literally the same asset — there is no simplified twin left to pick between. -->
         <img
-          [ngSrc]="heroLogoSrc()"
+          [ngSrc]="logoSrc"
           width="112"
           height="112"
           priority
+          disableOptimizedSrcset
           alt=""
           class="mx-auto mb-6 h-28 w-28"
         />

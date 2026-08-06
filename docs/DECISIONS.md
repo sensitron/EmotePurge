@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Die Marke ist ein Vektor: eine Datei für alle Größen und beide Modi
+
+**Betrifft:** `web/public/logo.svg` (neu) · `web/public/{logo,logo-light,logo-hero,logo-hero-light}.png` (entfernt) · `web/public/{favicon.ico,apple-touch-icon.png,icon-192,icon-512,icon-maskable-192,icon-maskable-512}.png` · `web/public/og-image.png` (neu) · `web/public/manifest.webmanifest` · `web/src/index.html` · `web/src/app/shared/branding/logo.ts` · `web/src/app/features/{shell/app-shell.ts,login/login-page.ts,landing/landing-page.{ts,html}}` · `web/e2e/theme.spec.ts` · `web/branding/README.md` · `web/branding/make-icons.ps1` (entfernt) · `web/.claude/CLAUDE.md`
+
+**Die Marke selbst bleibt, nur ihre Farbe geht.** Nach dem Palettentausch war das violett-magenta Logo das einzige Bauteil der App in der alten Welt und damit der lauteste Fremdkörper. Der Entwurf einer neuen, atlas-eigenen Marke (Kachel mit Gesicht, ausgebrochene Ecke, durchgestrichenes Fragment) lag vor und wurde **verworfen**: sie war konzeptuell strenger, hielt aber kleine Größen schlechter (die Masse sitzt unten links, die Fragmente werden bei 24 px zu Punkten) und hätte den Wiedererkennungswert ohne Not weggeworfen. Die bestehende Marke gewinnt auf beiden Achsen.
+
+**Das SVG ist nicht nachgezeichnet, sondern aus dem Original gewonnen.** Pro Pixel Klassifikation in Silhouette und fast-schwarze Gesichtszüge, Konturen per Marching Squares auf 512er-Raster, Vereinfachung mit Ramer-Douglas-Peucker bei ~1 px, Sprenkel unter 6 px Spannweite verworfen (Antialiasing an der Körper/Tinte-Grenze erzeugte 21 Störringe). Ergebnis: 4 Körper- und 4 Tinte-Konturen, 3,7 KB gegen 206 KB der Hero-PNG.
+
+**Eine Datei ersetzt vier.** `logo.png`, `logo-light.png`, `logo-hero.png` und `logo-hero-light.png` sind weg. Der Grund ist der Farbwechsel selbst: eine flache Farbe trägt auf Graphit wie auf Papierweiß, also gibt es nichts mehr zu tauschen. Damit fällt auch die Mechanik weg, die das getan hat — `logo.ts` injizierte den `ThemeService` und rechnete den Dateinamen aus; es ist jetzt eine Konstante. Ebenso entfällt die Pflicht, helle und dunkle Zwillinge gegen dieselbe Bounding-Box zu schneiden, damit die Marke beim Moduswechsel nicht springt. Die Füllung ist eine CSS-Custom-Property mit Literal-Fallback: eingebettet folgt sie dem Theme, hinter einem `<img>` greift der Fallback.
+
+**Der E2E-Test hat seine Zusage umgedreht statt sie zu verlieren.** `theme.spec.ts` prüfte, dass die Marke beim Moduswechsel *wechselt*. Sie tut es nicht mehr — also prüft der Test jetzt das Gegenteil: die `src` bleibt gleich, und der Wechsel bleibt still. Die Konsolen-Prüfung war ohnehin der wertvolle Teil (eine Laufzeit-Warnung von `NgOptimizedImage` hört weder der Build noch ein Unit-Test).
+
+**`NgOptimizedImage` bleibt trotz schlechter Passung, mit Ansage.** Die Direktive ist für Rasterbilder gebaut; auf einem Vektor ist ihr Dichte-`srcset` sinnlos, weshalb alle drei Fundstellen `disableOptimizedSrcset` tragen. Sie zu entfernen wäre nicht billiger: `@angular-eslint/template/prefer-ngsrc` kennt keine Ausnahme nach Dateiendung, es bräuchte drei `eslint-disable`-Kommentare statt drei Attribute — dasselbe Rauschen plus eine Lint-Regel mit Löchern. Der Sonderfall steht jetzt in `web/.claude/CLAUDE.md` statt in niemandes Kopf.
+
+**Raster-Assets neu abgeleitet, plus das fehlende OG-Bild.** Gerendert aus dem SVG in headless Chromium auf ein Canvas der Zielgröße; `favicon.ico` als PNG-eingebetteter ICO-Container über 48/32/16. Die maskable-Icons nutzen einen festen Rand von 21 % (Marke füllt ~58 % der Kante, sicher im 80-%-Safe-Zone-Kreis) — konservativer als die frühere radiale Messung, dokumentiert in `web/branding/README.md`. **`og-image.png` (1200×630) existierte bisher überhaupt nicht**, samt der zugehörigen `og:`- und `twitter:card`-Metas. Manifest-Farben folgen der neuen Seite (`#0d0f12`).
+
+**`make-icons.ps1` ist entfernt, weil es gefährlich geworden war.** Das Skript leitete alle Assets aus dem violetten Quellpaar ab; ein einziger Lauf hätte die neue Marke still durch die alte ersetzt. Die Quell-PNGs unter `web/branding/` bleiben liegen — sie sind die Herkunft des Vektors und Archiv, kein Aufräumfall.
+
 ### 2026-08-06 — Visuelle Neuausrichtung, Zug 1: Slate + Lila raus, Graphit + Guide-Türkis rein; Schriften selbstgehostet
 
 **Betrifft:** `web/src/styles.css` · `web/src/index.html` · `web/public/fonts/*` · `PRODUCT.md` (neu) · `docs/UI-Designsprache.md` (Werte-Verweise)

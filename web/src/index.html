@@ -9,9 +9,20 @@
          for why it is not inline. -->
     <script src="theme-init.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The SVG comes first: a browser that understands it gets the vector at every size and
+         resolution, and the .ico stays behind it for the ones that do not. -->
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Emote Purge" />
+    <meta
+      property="og:description"
+      content="Sieh, welche Emotes dein Chat wirklich benutzt — und räum den Rest gebündelt aus 7TV."
+    />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <!-- Two tags with a media query cover the "follow the system" case with no JavaScript at all.
          On an explicit user choice ThemeService rewrites the two `media` attributes (all / not all),
          because otherwise the system preference would still pick the wrong one. The colours live

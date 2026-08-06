@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { logoSrc } from '../../shared/branding/logo';
+import { LOGO_SRC } from '../../shared/branding/logo';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { ThemeMenu } from '../../shared/ui/theme-menu';
 
@@ -61,8 +61,7 @@ export class LandingPage {
 
   protected readonly features = FEATURES;
   protected readonly steps = STEPS;
-  protected readonly logoSrc = logoSrc();
-  protected readonly heroLogoSrc = logoSrc('logo-hero');
+  protected readonly logoSrc = LOGO_SRC;
 
   protected login(): void {
     this.authService.login();

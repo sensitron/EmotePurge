@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { logoSrc } from '../../shared/branding/logo';
+import { LOGO_SRC } from '../../shared/branding/logo';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { Button } from '../../shared/ui/button';
 import { ThemeMenu } from '../../shared/ui/theme-menu';
@@ -25,7 +25,14 @@ import { ThemeMenu } from '../../shared/ui/theme-menu';
         <app-language-switcher />
       </div>
       <a routerLink="/welcome" class="flex items-center gap-2 text-xl font-semibold">
-        <img [ngSrc]="logoSrc()" width="28" height="28" alt="" class="h-7 w-7" />
+        <img
+          [ngSrc]="logoSrc"
+          width="28"
+          height="28"
+          disableOptimizedSrcset
+          alt=""
+          class="h-7 w-7"
+        />
         Emote Purge
       </a>
       <div class="app-card w-full max-w-sm p-8 text-center shadow-overlay">
@@ -44,7 +51,7 @@ import { ThemeMenu } from '../../shared/ui/theme-menu';
 export class LoginPage {
   private readonly authService = inject(AuthService);
 
-  protected readonly logoSrc = logoSrc();
+  protected readonly logoSrc = LOGO_SRC;
 
   protected login(): void {
     this.authService.login();
