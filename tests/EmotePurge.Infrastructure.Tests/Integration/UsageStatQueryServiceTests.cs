@@ -367,6 +367,112 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
         Assert.Empty(series.LiveDays);
     }
 
+    [Fact]
+    public async Task GetChannelSeriesAsync_ReturnsOffsetsFromRangeStart_PerEmote_Ascending()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "seriestest1");
+        var first = await SeedEmoteAsync(db, channel.Id, "First");
+        var second = await SeedEmoteAsync(db, channel.Id, "Second");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = first.Id, Date = new DateOnly(2026, 6, 30), UseCount = 99 }, // before range
+            new UsageStat { EmoteId = first.Id, Date = new DateOnly(2026, 7, 1), UseCount = 3 },   // offset 0
+            new UsageStat { EmoteId = first.Id, Date = new DateOnly(2026, 7, 5), UseCount = 8 },   // offset 4
+            new UsageStat { EmoteId = first.Id, Date = new DateOnly(2026, 7, 8), UseCount = 99 },  // after range
+            new UsageStat { EmoteId = second.Id, Date = new DateOnly(2026, 7, 7), UseCount = 2 }); // offset 6
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        // Both boundary days in, both neighbours out — and the offset is counted from `from`, which
+        // is the whole reason the client can zero-fill without parsing a date.
+        var firstEntry = Assert.Single(series.Emotes, e => e.EmoteId == first.Id);
+        Assert.Equal([[0, 3], [4, 8]], firstEntry.Days);
+        var secondEntry = Assert.Single(series.Emotes, e => e.EmoteId == second.Id);
+        Assert.Equal([[6, 2]], secondEntry.Days);
+        Assert.Equal(new DateOnly(2026, 7, 1), series.From);
+        Assert.Equal(new DateOnly(2026, 7, 7), series.To);
+    }
+
+    [Fact]
+    public async Task GetChannelSeriesAsync_OmitsEmotesWithoutUsageInTheRange()
+    {
+        // The batch's one deliberate asymmetry against GetUsageContextAsync, which zero-fills: on a
+        // 900-emote set the never-used band is most of the response, and "absent" already means
+        // "no usage" one level down, inside an entry's sparse days.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "seriestest2");
+        var used = await SeedEmoteAsync(db, channel.Id, "Used");
+        await SeedEmoteAsync(db, channel.Id, "NeverUsed");
+        var outOfRange = await SeedEmoteAsync(db, channel.Id, "UsedElsewhen");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = used.Id, Date = new DateOnly(2026, 7, 3), UseCount = 1 },
+            new UsageStat { EmoteId = outOfRange.Id, Date = new DateOnly(2026, 8, 3), UseCount = 500 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Equal(used.Id, Assert.Single(series.Emotes).EmoteId);
+    }
+
+    [Fact]
+    public async Task GetChannelSeriesAsync_ExcludesArchivedEmotes_AndOtherChannels()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "seriestest3");
+        var other = await SeedChannelAsync(db, "seriestest3_other");
+        var archived = await SeedEmoteAsync(db, channel.Id, "Gone", isArchived: true);
+        var foreign = await SeedEmoteAsync(db, other.Id, "Foreign");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = archived.Id, Date = new DateOnly(2026, 7, 2), UseCount = 4 },
+            new UsageStat { EmoteId = foreign.Id, Date = new DateOnly(2026, 7, 2), UseCount = 7 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Empty(series.Emotes);
+    }
+
+    [Fact]
+    public async Task GetChannelSeriesAsync_ReturnsLiveDaysAsOffsets_BoundedByTheRange()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "seriestest_live");
+        var other = await SeedChannelAsync(db, "seriestest_live_other");
+        db.ChannelLiveDays.AddRange(
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 6, 30), LiveMinutes = 120 }, // before
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 7, 1), LiveMinutes = 5 },    // offset 0
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 7, 7), LiveMinutes = 300 },  // offset 6
+            new ChannelLiveDay { ChannelId = channel.Id, Date = new DateOnly(2026, 7, 8), LiveMinutes = 60 },   // after
+            new ChannelLiveDay { ChannelId = other.Id, Date = new DateOnly(2026, 7, 3), LiveMinutes = 60 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Equal([0, 6], series.LiveDays);
+    }
+
+    [Fact]
+    public async Task GetChannelSeriesAsync_ForAnUnknownChannel_ReturnsEmptyListsRatherThanThrowing()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            "no-such-channel", new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Empty(series.Emotes);
+        Assert.Empty(series.LiveDays);
+    }
+
     private static async Task<Channel> SeedChannelAsync(AppDbContext db, string channelName)
     {
         var channel = new Channel { ChannelName = channelName, IsBotActive = true };

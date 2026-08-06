@@ -1,22 +1,19 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { Button } from '../ui/button';
+import { NoticeBanner } from '../ui/notice-banner';
 
 @Component({
   selector: 'app-seven-tv-token-input',
-  imports: [Button, ReactiveFormsModule, TranslocoPipe],
+  imports: [Button, NoticeBanner, ReactiveFormsModule, TranslocoPipe],
   template: `
     @if (tokenService.hasToken()) {
       <div class="flex items-center justify-between rounded-md bg-surface-inset px-3 py-2 text-sm">
         <span class="text-success-fg">{{ 'sevenTvToken.tokenSet' | transloco }}</span>
-        <button
-          type="button"
-          class="text-fg-muted hover:underline"
-          (click)="tokenService.clearToken()"
-        >
+        <button type="button" appButton="neutral" (click)="tokenService.clearToken()">
           {{ 'sevenTvToken.remove' | transloco }}
         </button>
       </div>
@@ -37,25 +34,35 @@ import { Button } from '../ui/button';
           </li>
           <li>{{ 'sevenTvToken.step4' | transloco }}</li>
         </ol>
-        <p
-          class="mb-3 rounded-md border border-warning-border bg-warning-wash px-3 py-2 text-xs text-warning-fg"
-        >
+        <app-notice-banner class="mb-3 block" variant="warning">
           {{ 'sevenTvToken.securityWarning' | transloco }}
-        </p>
-        <form class="flex gap-2" (submit)="onSubmit($event)">
-          <label class="sr-only" for="seven-tv-token-input-field">{{
-            'sevenTvToken.placeholder' | transloco
-          }}</label>
-          <input
-            id="seven-tv-token-input-field"
-            type="password"
-            [formControl]="tokenControl"
-            [placeholder]="'sevenTvToken.placeholder' | transloco"
-            class="app-input flex-1"
-          />
-          <button type="submit" appButton="primary" buttonSize="lg">
-            {{ 'sevenTvToken.save' | transloco }}
-          </button>
+        </app-notice-banner>
+        <form class="flex flex-col gap-1" (submit)="onSubmit($event)">
+          <div class="flex gap-2">
+            <label class="sr-only" for="seven-tv-token-input-field">{{
+              'sevenTvToken.placeholder' | transloco
+            }}</label>
+            <input
+              id="seven-tv-token-input-field"
+              type="password"
+              [formControl]="tokenControl"
+              [placeholder]="'sevenTvToken.placeholder' | transloco"
+              [attr.aria-invalid]="showRequiredError() ? 'true' : null"
+              [attr.aria-describedby]="showRequiredError() ? 'seven-tv-token-error' : null"
+              class="app-input flex-1"
+              (input)="showRequiredError.set(false)"
+            />
+            <button type="submit" appButton="primary" buttonSize="lg">
+              {{ 'sevenTvToken.save' | transloco }}
+            </button>
+          </div>
+          <!-- §5.3: a required field that silently does nothing on submit was this file's
+               long-standing exception to the field-error pattern. -->
+          @if (showRequiredError()) {
+            <p id="seven-tv-token-error" class="text-sm text-danger-fg">
+              {{ 'sevenTvToken.required' | transloco }}
+            </p>
+          }
         </form>
       </div>
     }
@@ -67,10 +74,14 @@ export class SevenTvTokenInput {
     nonNullable: true,
     validators: [Validators.required],
   });
+  /** Set by a submit that had nothing to save, cleared as soon as the user types — the control's
+   *  own `touched`/`dirty` state would flag the field before the user ever pressed the button. */
+  protected readonly showRequiredError = signal(false);
 
   protected onSubmit(event: Event): void {
     event.preventDefault();
-    if (this.tokenControl.invalid) {
+    if (this.tokenControl.value.trim().length === 0) {
+      this.showRequiredError.set(true);
       return;
     }
     this.tokenService.setToken(this.tokenControl.value.trim());

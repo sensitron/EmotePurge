@@ -1,100 +1,4 @@
-<div class="flex flex-col gap-6">
-  @if (canManage()) {
-    <section class="app-card p-5">
-      <h2 class="text-lg font-semibold">{{ 'voting.list.createTitle' | transloco }}</h2>
-      <!-- The counterpart of the dialog's "{{count}} emotes selected" line: this entry point has no
-           selection at all, and nothing else on the form said which emotes end up on the ballot. -->
-      <p class="mt-1 mb-3 text-sm text-fg-muted">
-        {{ 'voting.list.wholeSetHint' | transloco }}
-        <a
-          [routerLink]="['/channels', channelName(), 'usage-stats']"
-          class="text-fg-secondary underline-offset-2 hover:text-accent-fg hover:underline"
-        >
-          {{ 'voting.list.wholeSetHintLink' | transloco }}
-        </a>
-      </p>
-      <div class="flex flex-col gap-3">
-        <input
-          id="vote-session-title"
-          type="text"
-          [formControl]="titleControl"
-          [placeholder]="'voting.list.titlePlaceholder' | transloco"
-          [attr.aria-label]="'voting.list.titlePlaceholder' | transloco"
-          [attr.aria-invalid]="titleControl.invalid && titleControl.touched ? 'true' : null"
-          [attr.aria-describedby]="
-            titleControl.invalid && titleControl.touched ? 'vote-session-title-error' : null
-          "
-          class="app-input"
-        />
-        @if (titleControl.invalid && titleControl.touched) {
-          <p id="vote-session-title-error" class="text-sm text-danger-fg">
-            {{ 'voting.list.titleRequired' | transloco }}
-          </p>
-        }
-        <div class="flex gap-4 text-sm text-fg-secondary">
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="audience"
-              [checked]="selectedAudience() === 'everyone'"
-              (change)="selectedAudience.set('everyone')"
-            />
-            {{ 'voting.list.audienceEveryone' | transloco }}
-          </label>
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="audience"
-              [checked]="selectedAudience() === 'subs'"
-              (change)="selectedAudience.set('subs')"
-            />
-            {{ 'voting.list.audienceSubs' | transloco }}
-          </label>
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="audience"
-              [checked]="selectedAudience() === 'mods'"
-              (change)="selectedAudience.set('mods')"
-            />
-            {{ 'voting.list.audienceMods' | transloco }}
-          </label>
-        </div>
-        <label class="flex flex-col gap-1 text-sm text-fg-secondary">
-          {{ 'voting.list.startCountingLabel' | transloco }}
-          <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
-        </label>
-        <div class="flex flex-col gap-1 text-sm text-fg-secondary">
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="checkbox"
-              class="h-4 w-4 accent-accent-solid"
-              [checked]="hideResultsUntilEnd()"
-              (change)="hideResultsUntilEnd.set($any($event.target).checked)"
-              [attr.aria-describedby]="'vote-session-hide-results-hint'"
-            />
-            {{ 'voting.list.hideResultsLabel' | transloco }}
-          </label>
-          <span id="vote-session-hide-results-hint" class="text-xs text-fg-muted">
-            {{ 'voting.list.hideResultsHint' | transloco }}
-          </span>
-        </div>
-        <button
-          type="button"
-          appButton="primary"
-          buttonSize="lg"
-          class="self-start"
-          (click)="createSession()"
-        >
-          {{ 'voting.list.create' | transloco }}
-        </button>
-      </div>
-    </section>
-  }
-
+<div class="flex flex-col gap-8">
   @if (errorMessage(); as message) {
     <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
@@ -103,7 +7,6 @@
     <app-skeleton-rows [count]="4" />
   } @else if (sessions().length === 0 && !errorMessage()) {
     <app-empty-state
-      icon="🗳️"
       [title]="'voting.list.noSessions' | transloco"
       [description]="
         (canManage() ? 'voting.list.noSessionsManagerHint' : 'voting.list.noSessionsVoterHint')
@@ -111,16 +14,22 @@
       "
     />
   } @else {
-    <!-- Plain gap list, no inner scroll box: the pager already bounds the length, and a nested
-         scroll area inside the page scroll was its own usability problem on mobile.
+    <!-- Hairline-divided rows, no card per session — same reasoning as the overview: every row is
+         the same kind of thing, so a rule separates them better than a stack of rectangles does.
+         No inner scroll box either: the pager already bounds the length, and a nested scroll area
+         inside the page scroll was its own usability problem on mobile.
 
-         The list itself is the pager's scroll/focus target (§8.4) — unlike the other paginated
-         pages this one has no heading of its own above the rows, only the create card, which is
-         exactly what a page change must *not* scroll back to. `scroll-mt-24` clears the shell
-         header + workspace tabs, `tabindex="-1"` makes it focusable without adding a tab stop. -->
-    <ul #resultsTop tabindex="-1" class="flex scroll-mt-24 flex-col gap-2">
+         The list is the pager's scroll/focus target (§8.4). It sits at the top of the page now
+         that the create form moved below it, so a page change lands on the first row instead of on
+         a form. `scroll-mt-24` clears the shell header + workspace tabs, `tabindex="-1"` makes it
+         focusable without adding a tab stop. -->
+    <ul
+      #resultsTop
+      tabindex="-1"
+      class="-mx-3 scroll-mt-24 divide-y divide-border border-y border-border"
+    >
       @for (session of sessions(); track session.id) {
-        <li class="app-card app-card-interactive relative px-4 py-3">
+        <li class="relative flex flex-col gap-2 px-3 py-3 transition-colors hover:bg-surface-inset">
           <div class="flex items-start justify-between gap-3">
             <a
               [routerLink]="['/channels', channelName(), 'vote-sessions', session.id]"
@@ -128,36 +37,37 @@
             >
               {{ session.title }}
             </a>
-            <!-- Wraps: with the audience badge this row can carry four items, which no longer fits
-                 one line on a phone. -->
-            <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <!-- Ballot scope: an explicit count for curated sessions, "whole set" otherwise. -->
-              <span class="text-xs text-fg-muted">
-                {{
-                  session.emoteCount === null
-                    ? ('voting.list.emoteCountAll' | transloco)
-                    : ('voting.list.emoteCountSome' | transloco: { count: session.emoteCount })
-                }}
-              </span>
-              <!-- Unconditional, unlike the two badges below: the audience is fixed at creation and
-                   invisible everywhere else, so an ended session must state it too. -->
-              <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
-              <!-- Only while it runs: once ended, the session hides nothing anymore and the badge
-                   would just repeat history. -->
-              @if (session.hideResultsUntilEnd && session.isActive) {
-                <app-status-badge tone="info">
-                  {{ 'voting.list.hiddenBadge' | transloco }}
-                </app-status-badge>
-              }
-              <app-status-badge [tone]="session.isActive ? 'success' : 'neutral'">
-                {{
-                  (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
-                    | transloco
-                }}
-              </app-status-badge>
-            </div>
+            <!-- Whether it is still running is the row's own condition; everything else about it
+                 is a fixed property and lives in the line below. -->
+            <app-state-dot class="shrink-0" [tone]="session.isActive ? 'on' : 'off'">
+              {{
+                (session.isActive ? 'voting.list.statusActive' : 'voting.list.statusEnded')
+                  | transloco
+              }}
+            </app-state-dot>
           </div>
-          <div class="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <!-- One meta line instead of a run of pills. Ballot scope, audience and withheld tally
+               are all fixed at creation and none of them changes while you look at the page. -->
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+            <span>
+              {{
+                session.emoteCount === null
+                  ? ('voting.list.emoteCountAll' | transloco)
+                  : ('voting.list.emoteCountSome' | transloco: { count: session.emoteCount })
+              }}
+            </span>
+            <span aria-hidden="true">·</span>
+            <!-- Unconditional, unlike the withheld marker below: the audience is fixed at creation
+                 and invisible everywhere else, so an ended session must state it too. -->
+            <app-vote-audience-badge [roles]="session.allowedVoterRoles" />
+            <!-- Only while it runs: once ended, the session hides nothing anymore and this would
+                 just repeat history. -->
+            @if (session.hideResultsUntilEnd && session.isActive) {
+              <span aria-hidden="true">·</span>
+              <span>{{ 'voting.list.hiddenBadge' | transloco }}</span>
+            }
+          </div>
+          <div class="mt-1 flex flex-wrap items-center gap-2 text-sm">
             <button
               type="button"
               appButton="neutral"
@@ -193,7 +103,7 @@
                     {{ 'voting.list.end' | transloco }}
                   </button>
                 }
-                <button type="button" appButton="danger" (click)="deleteSession(session)">
+                <button type="button" appButton="danger-quiet" (click)="deleteSession(session)">
                   {{ 'voting.list.delete' | transloco }}
                 </button>
               </div>
@@ -208,5 +118,107 @@
       [scrollTarget]="resultsTop"
       (pageChange)="onPageChange($event)"
     />
+  }
+
+  @if (canManage()) {
+    <!-- Below the list, not above it. Someone opening this tab is asking what is running; creating
+         a session is the rarer errand, and as a card at the top it pushed that answer off the first
+         screen. It stays fully visible rather than folding into a disclosure — whether anyone wants
+         community voting at all is the open question about this feature (PRODUCT.md), and hiding
+         the entry point would answer it by attrition instead of by evidence. -->
+    <section class="flex flex-col gap-3 border-t border-border pt-6">
+      <div>
+        <h2 class="text-lg font-semibold">{{ 'voting.list.createTitle' | transloco }}</h2>
+        <!-- The counterpart of the dialog's "{{count}} emotes selected" line: this entry point has
+             no selection at all, and nothing else on the form said which emotes end up on the
+             ballot. -->
+        <p class="mt-1 text-sm text-fg-muted">
+          {{ 'voting.list.wholeSetHint' | transloco }}
+          <a
+            [routerLink]="['/channels', channelName(), 'usage-stats']"
+            class="text-fg-secondary underline-offset-2 hover:text-accent-fg hover:underline"
+          >
+            {{ 'voting.list.wholeSetHintLink' | transloco }}
+          </a>
+        </p>
+      </div>
+      <input
+        id="vote-session-title"
+        type="text"
+        [formControl]="titleControl"
+        [placeholder]="'voting.list.titlePlaceholder' | transloco"
+        [attr.aria-label]="'voting.list.titlePlaceholder' | transloco"
+        [attr.aria-invalid]="titleControl.invalid && titleControl.touched ? 'true' : null"
+        [attr.aria-describedby]="
+          titleControl.invalid && titleControl.touched ? 'vote-session-title-error' : null
+        "
+        class="app-input"
+      />
+      @if (titleControl.invalid && titleControl.touched) {
+        <p id="vote-session-title-error" class="text-sm text-danger-fg">
+          {{ 'voting.list.titleRequired' | transloco }}
+        </p>
+      }
+      <div class="flex gap-4 text-sm text-fg-secondary">
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="radio"
+            class="h-4 w-4 accent-accent-solid"
+            name="audience"
+            [checked]="selectedAudience() === 'everyone'"
+            (change)="selectedAudience.set('everyone')"
+          />
+          {{ 'voting.list.audienceEveryone' | transloco }}
+        </label>
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="radio"
+            class="h-4 w-4 accent-accent-solid"
+            name="audience"
+            [checked]="selectedAudience() === 'subs'"
+            (change)="selectedAudience.set('subs')"
+          />
+          {{ 'voting.list.audienceSubs' | transloco }}
+        </label>
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="radio"
+            class="h-4 w-4 accent-accent-solid"
+            name="audience"
+            [checked]="selectedAudience() === 'mods'"
+            (change)="selectedAudience.set('mods')"
+          />
+          {{ 'voting.list.audienceMods' | transloco }}
+        </label>
+      </div>
+      <label class="flex flex-col gap-1 text-sm text-fg-secondary">
+        {{ 'voting.list.startCountingLabel' | transloco }}
+        <app-datetime-picker [(value)]="customStartedAt" [max]="maxStartedAt" />
+      </label>
+      <div class="flex flex-col gap-1 text-sm text-fg-secondary">
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="checkbox"
+            class="h-4 w-4 accent-accent-solid"
+            [checked]="hideResultsUntilEnd()"
+            (change)="hideResultsUntilEnd.set($any($event.target).checked)"
+            [attr.aria-describedby]="'vote-session-hide-results-hint'"
+          />
+          {{ 'voting.list.hideResultsLabel' | transloco }}
+        </label>
+        <span id="vote-session-hide-results-hint" class="text-xs text-fg-muted">
+          {{ 'voting.list.hideResultsHint' | transloco }}
+        </span>
+      </div>
+      <button
+        type="button"
+        appButton="primary"
+        buttonSize="lg"
+        class="self-start"
+        (click)="createSession()"
+      >
+        {{ 'voting.list.create' | transloco }}
+      </button>
+    </section>
   }
 </div>

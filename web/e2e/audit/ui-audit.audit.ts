@@ -19,6 +19,7 @@ import {
   mockChannelAuditLog,
   mockChannelPermissions,
   mockChannelStatus,
+  mockUsageChannelSeries,
   mockUsageDaily,
   mockUsageTotals,
   mockWorkerHealth,
@@ -108,6 +109,23 @@ function usageEmotes(count: number) {
     imageUrl: 'https://cdn.7tv.app/emote/stub/1x.webp',
     totalUseCount: Math.max(1, Math.round(98765 / (i + 1))),
   }));
+}
+
+/**
+ * Daily curves for the sidecar sparkline, keyed like the real /series response. Only the emotes the
+ * sidecar can land on need one — it opens on the busiest, which is `e1`.
+ */
+function usageSeries(): Record<string, [number, number][]> {
+  return {
+    e1: Array.from({ length: 18 }, (_, i) => [i * 1.5 + 1, 40 + Math.round(90 * Math.sin(i / 2.2))])
+      .filter(([, count]) => count > 0)
+      .map(([day, count]) => [Math.round(day), count] as [number, number]),
+    e2: [
+      [3, 12],
+      [4, 30],
+      [11, 4],
+    ],
+  };
 }
 
 function voteSummaries(count: number) {
@@ -319,6 +337,18 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The one state in which the header says anything about the worker at all. Worth a shot of its
+    // own precisely because it is rare: at 360px the warning shares the bar with the wordmark and
+    // the menu button, and nothing else in the app ever puts a third thing in that row.
+    slug: 'overview-worker-stale',
+    path: '/',
+    setup: async (page) => {
+      await mockAuthMe(page, AUTH_USER);
+      await mockWorkerHealth(page, 'stale');
+      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+    },
+  },
+  {
     slug: 'overview-reauth',
     path: '/',
     setup: async (page) => {
@@ -499,6 +529,32 @@ const SCENARIOS: Scenario[] = [
       await authedShell(page);
       await channelWorkspace(page);
       await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+      // The sidecar's curve is only visible from lg upwards, so this shows up in the desktop shots
+      // and is correctly absent from the mobile ones.
+      await mockUsageChannelSeries(page, 'sensitron', usageSeries(), [2, 3, 4, 9, 10, 15, 16]);
+    },
+  },
+  {
+    // A set with a real never-used band — the group the whole page exists to find, and until now
+    // the one no shot contained. usageEmotes() never produces a zero, so the tail is spliced on
+    // here. Also the case that shows whether a band of identical cells still reads as "unused"
+    // after they lost their separate plate on 2026-08-06.
+    slug: 'usage-stats-dead-band',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', [
+        ...usageEmotes(10),
+        ...Array.from({ length: 14 }, (_, i) => ({
+          emoteId: `d${i + 1}`,
+          emoteName: `Dead${i + 1}Emote`,
+          sevenTvEmoteId: `7tv-d${i + 1}`,
+          imageUrl: 'https://cdn.7tv.app/emote/stub/1x.webp',
+          totalUseCount: 0,
+        })),
+      ]);
+      await mockUsageChannelSeries(page, 'sensitron', usageSeries(), [2, 3, 4, 9, 10, 15, 16]);
     },
   },
   {
@@ -577,9 +633,11 @@ const SCENARIOS: Scenario[] = [
     },
     afterLoad: async (page) => {
       // Locale-independent handle: the emote name is part of the button's aria-label in both
-      // languages, and Emote1PogU sorts first (highest mocked usage).
-      await page.locator('[aria-label*="Emote1PogU"]').first().click();
-      await page.locator('#emote-drilldown-title').waitFor();
+      // languages, and Emote1PogU sorts first (highest mocked usage). The :not([aria-pressed])
+      // is what tells the sidecar's details trigger apart from the atlas sprite of the same
+      // emote — the sprite rebuild added that second match and `.first()` had been landing on it.
+      await page.locator('[aria-label*="Emote1PogU"]:not([aria-pressed])').first().click();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {
@@ -593,8 +651,8 @@ const SCENARIOS: Scenario[] = [
       await mockUsageDaily(page, 'sensitron', []);
     },
     afterLoad: async (page) => {
-      await page.locator('[aria-label*="Emote1PogU"]').first().click();
-      await page.locator('#emote-drilldown-title').waitFor();
+      await page.locator('[aria-label*="Emote1PogU"]:not([aria-pressed])').first().click();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {
@@ -614,7 +672,7 @@ const SCENARIOS: Scenario[] = [
         .getByRole('button', { name: /export/i })
         .first()
         .click();
-      await page.locator('#export-dialog-title').waitFor();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {

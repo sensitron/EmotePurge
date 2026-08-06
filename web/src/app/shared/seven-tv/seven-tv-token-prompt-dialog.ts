@@ -1,8 +1,11 @@
-import { DialogRef } from '@angular/cdk/dialog';
+import { Dialog, DialogRef } from '@angular/cdk/dialog';
 import { Component, effect, inject } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { Button } from '../ui/button';
+import { openAppDialog } from '../ui/dialog';
+import { DialogShell } from '../ui/dialog-shell';
 import { SevenTvTokenInput } from './seven-tv-token-input';
 
 /** Opened via cdk Dialog when a delete run starts without a stored 7TV token. Closes itself with
@@ -10,18 +13,21 @@ import { SevenTvTokenInput } from './seven-tv-token-input';
  *  confirm dialog — same flow the old hand-built overlay had via its reactive template switch. */
 @Component({
   selector: 'app-seven-tv-token-prompt-dialog',
-  imports: [SevenTvTokenInput, TranslocoPipe],
+  imports: [Button, DialogShell, SevenTvTokenInput, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-surface p-6 shadow-overlay">
+    <app-dialog-shell [dialogTitle]="'sevenTvToken.dialogTitle' | transloco">
       <app-seven-tv-token-input />
+
       <button
+        dialog-actions
         type="button"
-        class="mt-4 text-sm text-fg-muted hover:underline"
+        appButton="outline"
+        buttonSize="lg"
         (click)="dialogRef.close(false)"
       >
         {{ 'common.cancel' | transloco }}
       </button>
-    </div>
+    </app-dialog-shell>
   `,
 })
 export class SevenTvTokenPromptDialog {
@@ -35,4 +41,8 @@ export class SevenTvTokenPromptDialog {
       }
     });
   }
+}
+
+export function openSevenTvTokenPromptDialog(dialog: Dialog): DialogRef<boolean> {
+  return openAppDialog<boolean>(dialog, SevenTvTokenPromptDialog);
 }

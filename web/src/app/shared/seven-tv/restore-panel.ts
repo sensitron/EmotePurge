@@ -9,8 +9,8 @@ import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service'
 import { PurgeRunRow, parsePurgeRunProtocol } from '../export/purge-run-export';
 import { Button } from '../ui/button';
 import { NoticeBanner } from '../ui/notice-banner';
-import { RestoreConfirmDialog, RestoreConfirmDialogData } from './restore-confirm-dialog';
-import { SevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
+import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
+import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
 /**
  * The half of the A6 safety net that survives a reload: re-import of a downloaded purge protocol.
@@ -91,11 +91,7 @@ export class RestorePanel {
     }
 
     if (!this.tokenService.hasToken()) {
-      const promptRef = this.dialog.open<boolean>(SevenTvTokenPromptDialog, {
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      });
-      promptRef.closed.subscribe((saved) => {
+      openSevenTvTokenPromptDialog(this.dialog).closed.subscribe((saved) => {
         if (saved) {
           this.openConfirm(parsed.rows);
         }
@@ -122,22 +118,15 @@ export class RestorePanel {
       names: rows.map((row) => row.name),
       slots: this.restoreSlots.asReadonly(),
     };
-    this.dialog
-      .open<boolean>(RestoreConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'restore-confirm-dialog-title',
-      })
-      .closed.subscribe((confirmed) => {
-        if (confirmed) {
-          const emotes: RunQueueEmote[] = rows.map((row) => ({
-            emoteId: row.emoteId,
-            sevenTvEmoteId: row.sevenTvEmoteId,
-            name: row.name,
-          }));
-          this.restoreService.startRestore(this.setId(), this.channelName(), emotes);
-        }
-      });
+    openRestoreConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (confirmed) {
+        const emotes: RunQueueEmote[] = rows.map((row) => ({
+          emoteId: row.emoteId,
+          sevenTvEmoteId: row.sevenTvEmoteId,
+          name: row.name,
+        }));
+        this.restoreService.startRestore(this.setId(), this.channelName(), emotes);
+      }
+    });
   }
 }

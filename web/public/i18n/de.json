@@ -11,9 +11,7 @@
   },
   "shell": {
     "workerStatus": {
-      "connected": "Worker verbunden",
-      "stale": "Worker getrennt",
-      "unknown": "Worker-Status unbekannt"
+      "stale": "Chat wird nicht gezählt"
     },
     "admin": "Admin",
     "myVotings": "Meine Abstimmungen",
@@ -22,79 +20,109 @@
     "menu": "Menü"
   },
   "login": {
-    "title": "Emote Purge",
+    "title": "Anmelden",
     "subtitle": "Melde dich mit deinem Twitch-Account an, um den Bot für deinen Channel zu verwalten.",
-    "loginButton": "Mit Twitch einloggen"
+    "loginButton": "Mit Twitch einloggen",
+    "scopes": {
+      "title": "Was Twitch dabei freigibt",
+      "email": "Deine bei Twitch hinterlegte E-Mail-Adresse.",
+      "moderatedChannels": "Die Kanäle, in denen du Moderator bist — daran hängt, welche Channels du hier verwalten darfst.",
+      "subscriptions": "Deine Abos — damit abo-beschränkte Abstimmungen wissen, ob du teilnehmen darfst.",
+      "note": "Alle drei sind Leserechte. EmotePurge kann in deinem Namen nichts schreiben, posten oder ändern."
+    }
   },
   "landing": {
     "nav": {
-      "features": "Funktionen",
+      "does": "Was es tut",
       "how": "Ablauf",
       "login": "Login"
     },
     "hero": {
-      "badge": "Für Twitch-Streamer & ihre Mod-Teams",
-      "titleLine1": "Bring Ordnung in dein",
-      "titleHighlight": "7TV-Emote-Set",
-      "subtitle": "EmotePurge zeigt dir, welche Emotes dein Chat wirklich benutzt, und entfernt den Rest gebündelt aus 7TV — ohne Rätselraten. Community-Voting kannst du optional dazuschalten, musst du aber nicht.",
-      "ctaStart": "Jetzt starten",
-      "ctaFeatures": "Funktionen ansehen"
+      "title": "Bring Ordnung in dein 7TV-Emote-Set",
+      "subtitle": "EmotePurge zeigt dir, welche Emotes dein Chat wirklich benutzt, und entfernt den Rest gebündelt aus 7TV — ohne Rätselraten.",
+      "ctaLogin": "Mit Twitch einloggen",
+      "ctaHow": "So läuft das ab",
+      "reading": "Nach ein paar Monaten hat jeder aktive 7TV-Channel hunderte Emotes angesammelt — viele davon längst vergessen, nie benutzt oder von der Community gar nicht gewollt. Von Hand herauszufinden, was wirklich gebraucht wird, ist mühsam und subjektiv. EmotePurge macht daraus eine Entscheidung auf Basis echter Chat-Daten."
     },
-    "problem": {
-      "title": "Emote-Sets wachsen. Der Überblick nicht.",
-      "body": "Nach ein paar Monaten hat jeder aktive 7TV-Channel hunderte Emotes angesammelt — viele davon längst vergessen, nie genutzt oder von der Community gar nicht gewollt. Von Hand herauszufinden, was wirklich gebraucht wird, ist mühsam und subjektiv. EmotePurge macht daraus eine Entscheidung auf Basis echter Chat-Daten — optional ergänzt um echte Stimmen deiner Community."
+    "shape": {
+      "caption": "Schematische Darstellung mit erfundenen Zahlen. Die Einteilung in diese vier Gruppen ist dieselbe, die du später in deinem eigenen Set siehst."
     },
-    "features": {
-      "eyebrow": "Funktionen",
-      "title": "Alles, was du zum Aufräumen brauchst",
-      "subtitle": "Vier Bausteine, die zusammen dafür sorgen, dass dein Emote-Set schlank und relevant bleibt.",
-      "chatAnalytics": {
-        "title": "Chat-Analytics",
-        "description": "EmotePurge verfolgt live, welche Emotes in deinem Chat tatsächlich benutzt werden — pro Emote, über frei wählbare Zeiträume."
+    "does": {
+      "title": "Messen, optional abstimmen, dann löschen",
+      "measure": {
+        "label": "dauerhaft",
+        "title": "Chat-Nutzung messen",
+        "body": "Ein anonymer Bot sitzt im Chat deines Kanals und zählt fortlaufend mit, welches Emote wie oft benutzt wird. Das ist kein Snapshot: weil die Rohdaten über Wochen vorliegen, wählst du den Zeitraum frei — die letzten sieben Tage, den letzten Monat, alles seit dem Join."
       },
-      "communityVoting": {
-        "title": "Community-Voting",
-        "badge": "Optional",
-        "description": "Lass zusätzlich Zuschauer, Subs oder Mods per Daumen hoch/runter abstimmen. Kein Muss — die Chat-Analytics reichen allein schon aus, um Emotes zum Löschen auszuwählen."
+      "vote": {
+        "label": "optional",
+        "title": "Community abstimmen lassen",
+        "body": "Bei strittigen Emotes kannst du Zuschauer, Subs oder Mods abstimmen lassen. Musst du aber nicht — die gemessene Nutzung reicht allein aus."
       },
-      "massDelete": {
-        "title": "7TV Mass-Delete",
-        "description": "Ungewollte Emotes markieren und in einem Rutsch direkt aus deinem 7TV-Set entfernen — kein manuelles Klicken einzeln durch die Liste."
-      },
-      "twitchLogin": {
-        "title": "Twitch-Login & Rollen",
-        "description": "Sicherer Login über Twitch selbst. Broadcaster, Mods und Admins bekommen automatisch genau die Rechte, die ihnen zustehen."
+      "purge": {
+        "label": "endgültig",
+        "title": "Gebündelt aus 7TV entfernen",
+        "body": "Markierte Emotes verlassen dein Set in einem Rutsch. Das passiert direkt bei 7TV und ist von hier aus nicht rückholbar — deshalb erst auswählen, dann bestätigen, dann vollziehen."
       }
     },
     "how": {
-      "eyebrow": "Ablauf",
-      "title": "So funktioniert's",
-      "subtitle": "Vom Login bis zum aufgeräumten Set in vier einfachen Schritten.",
-      "step1": {
+      "title": "Vom Login bis zum aufgeräumten Set",
+      "noteLabel": "Gut zu wissen",
+      "login": {
         "title": "Mit Twitch einloggen",
-        "description": "Ein Klick genügt — kein neues Passwort, keine separate Registrierung."
+        "body": "Ein Klick genügt — kein neues Passwort, keine separate Registrierung. Broadcaster, Moderatoren und 7TV-Editoren bekommen automatisch genau die Rechte, die ihnen zustehen."
       },
-      "step2": {
+      "join": {
         "title": "Channel beitreten",
-        "description": "Der Bot joint deinen Chat und synct dein aktives 7TV-Set automatisch."
+        "body": "Der Bot betritt deinen Chat und synchronisiert dein aktives 7TV-Set.",
+        "note": "Gezählt wird ab dem Beitritt. Die ersten Tage sind deshalb leer — das ist kein Fehler, sondern der Anfang der Messung."
       },
-      "step3": {
-        "title": "Nutzung tracken",
-        "description": "Chat-Nutzung wird automatisch getrackt — Community-Voting kannst du zusätzlich starten, musst du aber nicht."
+      "measure": {
+        "title": "Laufen lassen",
+        "body": "Die Nutzung wird automatisch mitgeschrieben, während du nichts tust. Eine Abstimmung kannst du jederzeit zusätzlich starten."
       },
-      "step4": {
+      "purge": {
         "title": "Aufräumen",
-        "description": "Unerwünschte Emotes auswählen und gebündelt aus 7TV entfernen."
+        "body": "Emotes anhand der gemessenen Nutzung auswählen und gebündelt aus 7TV entfernen.",
+        "note": "Für das Löschen brauchst du ein 7TV-Token, das du einmalig aus den Entwicklertools deines Browsers kopierst. 7TV bietet dafür keinen Login an. Das Token bleibt in deinem Browser."
       }
     },
-    "finalCta": {
+    "close": {
       "title": "Bereit, dein Emote-Set aufzuräumen?",
       "subtitle": "Logg dich mit deinem Twitch-Account ein und leg direkt los.",
-      "button": "Mit Twitch einloggen"
+      "button": "Mit Twitch einloggen",
+      "trust": {
+        "twitch": {
+          "term": "Twitch-Login",
+          "body": "EmotePurge fragt bei Twitch ausschließlich Leserechte an: deine E-Mail-Adresse, die Kanäle, in denen du Moderator bist, und deine Abos. In deinem Namen wird nichts geschrieben."
+        },
+        "token": {
+          "term": "7TV-Token",
+          "body": "Das Token, mit dem gelöscht wird, bleibt in deinem Browser und wird nie an unseren Server geschickt."
+        },
+        "source": {
+          "term": "Quelltext",
+          "body": "EmotePurge ist quelloffen unter der GNU AGPL v3.",
+          "link": "Auf GitHub ansehen"
+        }
+      }
     },
     "footer": {
-      "copyright": "© 2026 EmotePurge"
+      "copyright": "© 2026 EmotePurge",
+      "source": "Quelltext"
     }
+  },
+  "usageRange": {
+    "label": "Nutzung",
+    "menuLabel": "Nutzungsbereich wählen",
+    "presetAll": "alle",
+    "presetUnused": "nie benutzt",
+    "presetCustom": "eigener Bereich",
+    "min": "Mindestens",
+    "max": "Höchstens",
+    "valueBetween": "{{min}}–{{max}}×",
+    "valueAtLeast": "ab {{min}}×",
+    "valueUpTo": "bis {{max}}×"
   },
   "dateRange": {
     "label": "Zeitraum",
@@ -129,7 +157,6 @@
     "sevenTvUnavailable": "7TV-Editor-Status konnte nicht vollständig geprüft werden — Channels, wo du nur 7TV-Editor (ohne Twitch-Mod-Status) bist, fehlen hier ggf.",
     "noChannels": "Keine Channels gefunden.",
     "noChannelsHint": "Du bist in keinem getrackten Channel Broadcaster, Moderator oder 7TV-Editor. Sobald ein Channel dich betrifft, taucht er hier automatisch auf.",
-    "workerDisconnected": "Der Chat-Worker ist gerade nicht verbunden — Chat-Nachrichten werden aktuell nicht gezählt. Das erholt sich in der Regel von selbst.",
     "roleBadges": {
       "broadcaster": "Broadcaster",
       "moderator": "Moderator",
@@ -434,6 +461,10 @@
     "usageLabel": "Nutzung",
     "sortByUsage": "Nutzung",
     "sortByLastUsed": "Zuletzt benutzt",
+    "sortKeyLabel": "Sortieren nach",
+    "sortDirectionLabel": "Reihenfolge",
+    "sortDescending": "Absteigend",
+    "sortAscending": "Aufsteigend",
     "lastUsed": "zuletzt {{ date }}",
     "neverUsed": "nie benutzt",
     "drilldown": {
@@ -459,6 +490,44 @@
       "myVoteDelete": "Deine Stimme: Löschen",
       "myVoteNone": "Du hast noch nicht abgestimmt."
     },
+    "atlas": {
+      "label": "Emote-Bogen",
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Emotes wechseln, mit der Leertaste markieren, mit Enter den Verlauf öffnen. Umschalt+Klick markiert einen ganzen Bereich."
+    },
+    "bands": {
+      "heavy": {
+        "title": "Tragende Emotes",
+        "hint": "die erste Hälfte der Nutzung"
+      },
+      "regular": {
+        "title": "Regelmäßig",
+        "hint": "bis 80 % der Nutzung"
+      },
+      "rare": {
+        "title": "Selten",
+        "hint": "das letzte Fünftel der Nutzung"
+      },
+      "dead": {
+        "title": "Nie benutzt",
+        "hint": "im Zeitraum"
+      },
+      "selectAll": "alle markieren"
+    },
+    "sidecar": {
+      "share": "Anteil",
+      "days": "{{days}} Tage",
+      "peak": "Spitze {{count}} am {{date}}"
+    },
+    "distribution": {
+      "label": "Verteilung",
+      "caption": "Das ganze Set, nach Nutzung gereiht.",
+      "dead": "{{count}} nie benutzt",
+      "concentration": "Das obere Fünftel trägt {{share}} der gesamten Nutzung."
+    },
+    "dock": {
+      "marked": "markiert",
+      "projected": "→ {{projected}} von {{capacity}} Slots nach dem Löschen"
+    },
     "trackedSince": "Wir zählen für diesen Channel seit dem {{ date }}.",
     "rangeBeforeTracking": "Der gewählte Zeitraum beginnt vor dem {{ date }} — davor haben wir für diesen Channel nichts gezählt. Die Zahlen sind für den früheren Teil nicht unvollständig, sondern gar nicht vorhanden.",
     "observationToday": "Neu · heute",
@@ -473,11 +542,13 @@
       "stable": "Stabil gegenüber dem vorherigen Zeitraum",
       "falling": "Im Sinkflug gegenüber dem vorherigen Zeitraum"
     },
-    "filterMinPlaceholder": "Min",
-    "filterMaxPlaceholder": "Max",
+    "trendShort": {
+      "rising": "im Aufwind",
+      "stable": "stabil",
+      "falling": "im Sinkflug"
+    },
     "filterNamePlaceholder": "Name suchen…",
     "filterNameTitle": "Platzhalter möglich: * für beliebig viele Zeichen, ? für ein Zeichen",
-    "showUnusedOnly": "Nur ungenutzte (0x)",
     "loading": "Lädt…",
     "awaitingSync": "Emote-Set wird geladen – der Bot gleicht die Emotes gerade mit 7TV ab. Das dauert einen Moment.",
     "noActiveEmotes": "Keine aktiven Emotes für diesen Zeitraum.",
@@ -576,7 +647,11 @@
     "cancel": "Abbrechen",
     "close": "Schließen",
     "loading": "Lädt …",
-    "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben."
+    "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben.",
+    "andMore": {
+      "one": "… und 1 weiteres",
+      "other": "… und {{count}} weitere"
+    }
   },
   "pager": {
     "label": "Seitennummerierung",
@@ -642,7 +717,9 @@
     "formatCsv": "CSV (Tabellenkalkulation)",
     "formatJson": "JSON",
     "withheldTallies": "Diese Abstimmung läuft mit verdeckten Ergebnissen — die Stimmenspalten sind nicht enthalten.",
-    "withheldUsage": "Nutzungszahlen sind für dich nicht sichtbar und daher nicht enthalten."
+    "withheldUsage": "Nutzungszahlen sind für dich nicht sichtbar und daher nicht enthalten.",
+    "formatLabel": "Format",
+    "submit": "Exportieren"
   },
   "massDelete": {
     "deleteButton": "Löschen ({{ count }})",
@@ -652,10 +729,6 @@
     "confirmTitle": {
       "one": "{{ count }} Emote von 7TV löschen?",
       "other": "{{ count }} Emotes von 7TV löschen?"
-    },
-    "andMore": {
-      "one": "…und ein weiteres",
-      "other": "…und {{ count }} weitere"
     },
     "checkingSharedSets": "Prüfe geteilte Sets…",
     "sharedSetWarningTitle": "Achtung: Das aktive Emote-Set gehört möglicherweise nicht (nur) diesem Channel.",
@@ -695,7 +768,9 @@
     "step4": "Den kopierten Wert unten einfügen.",
     "securityWarning": "⚠ Dieses Token gewährt vollen Schreibzugriff auf deinen 7TV-Account (u. a. Emotes löschen). Behandle es wie ein Passwort — gib es niemandem weiter. Es bleibt nur in diesem Browser-Tab (sessionStorage), wird nie an unseren Server geschickt und ist nach dem Schließen des Tabs wieder weg.",
     "placeholder": "7TV-Token einfügen",
-    "save": "Speichern"
+    "save": "Speichern",
+    "dialogTitle": "7TV-Token hinterlegen",
+    "required": "7TV-Token eingeben."
   },
   "errors": {
     "generic": "Etwas ist schiefgelaufen. Bitte versuch es erneut.",

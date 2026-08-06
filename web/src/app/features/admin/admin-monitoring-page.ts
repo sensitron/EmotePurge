@@ -12,9 +12,10 @@ import { ADMIN_LIVE_URL, LIVE_EVENT_TYPES } from '../../core/live/live-event.mod
 import { liveEvents } from '../../core/live/live-reload';
 import { LiveStatus, LiveUpdateService } from '../../core/live/live-update.service';
 import { Button } from '../../shared/ui/button';
+import { HealthMarker, HealthTone } from '../../shared/ui/health-marker';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
-import { SkeletonRows } from '../../shared/ui/skeleton-rows';
-import { StatusBadge, StatusBadgeTone } from '../../shared/ui/status-badge';
+import { SkeletonSections } from '../../shared/ui/skeleton-sections';
+import { StatusBadge } from '../../shared/ui/status-badge';
 import { UtilizationTone, utilizationTone } from '../../shared/ui/utilization-tone';
 import { AdminRosterCard } from './admin-roster-card';
 
@@ -31,18 +32,20 @@ const TONE_TEXT: Record<UtilizationTone, string> = {
   danger: 'text-danger-fg',
 };
 
-const STATUS_TONES: Record<SevenTvConnectionStatus, StatusBadgeTone> = {
-  connected: 'success',
+const STATUS_TONES: Record<SevenTvConnectionStatus, HealthTone> = {
+  connected: 'ok',
   stale: 'warning',
   disconnected: 'danger',
-  unknown: 'neutral',
-  disabled: 'neutral',
+  unknown: 'idle',
+  disabled: 'idle',
 };
 
-const LIVE_TONES: Record<LiveStatus, StatusBadgeTone> = {
-  idle: 'neutral',
-  connecting: 'warning',
-  open: 'success',
+// `connecting` is deliberately not a warning: every page load passes through it, and a yellow pill
+// that flashes on arrival trains an admin to look past yellow pills.
+const LIVE_TONES: Record<LiveStatus, HealthTone> = {
+  idle: 'idle',
+  connecting: 'idle',
+  open: 'ok',
   closed: 'danger',
 };
 
@@ -57,7 +60,15 @@ const NO_VALUE = '—';
  */
 @Component({
   selector: 'app-admin-monitoring-page',
-  imports: [AdminRosterCard, Button, NoticeBanner, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [
+    AdminRosterCard,
+    Button,
+    HealthMarker,
+    NoticeBanner,
+    SkeletonSections,
+    StatusBadge,
+    TranslocoPipe,
+  ],
   template: `
     <div class="flex flex-col gap-4">
       <header class="flex flex-wrap items-center justify-between gap-3">
@@ -69,9 +80,10 @@ const NO_VALUE = '—';
                refetches on its own — LiveUpdateService has no polling fallback by design, and this
                is the page an admin opens to find out. The badge says which of the two states the
                page is in instead of leaving the button looking vestigial. -->
-          <app-status-badge [tone]="liveTone()">
-            {{ 'admin.monitoring.live.' + liveStatus() | transloco }}
-          </app-status-badge>
+          <app-health-marker
+            [tone]="liveTone()"
+            [label]="'admin.monitoring.live.' + liveStatus() | transloco"
+          />
           <button
             type="button"
             appButton="outline"
@@ -89,7 +101,7 @@ const NO_VALUE = '—';
       }
 
       @if (showSkeleton()) {
-        <app-skeleton-rows [count]="3" />
+        <app-skeleton-sections [count]="3" />
       } @else if (health(); as data) {
         @if (!data.snapshotAvailable) {
           <app-notice-banner variant="warning">
@@ -97,15 +109,23 @@ const NO_VALUE = '—';
           </app-notice-banner>
         }
 
-        <!-- Twitch IRC -->
-        <section class="app-card flex flex-col gap-3 p-4">
+        <!-- Twitch IRC.
+
+             No card box around any of these, unlike before. A card is a boundary against a
+             *different* kind of neighbour, and on this page every neighbour is the same kind of
+             thing: one subsystem reporting on itself. Four bordered rectangles stacked in a column
+             separated nothing that a rule and a heading do not separate better — and the box was
+             competing with the only thing here that has to stand out, which is the one subsystem
+             that is not fine. -->
+        <section class="flex flex-col gap-3 border-t border-border pt-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-base font-semibold">
               {{ 'admin.monitoring.twitch.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="toneFor(data.status)">
-              {{ 'admin.monitoring.status.' + data.status | transloco }}
-            </app-status-badge>
+            <app-health-marker
+              [tone]="toneFor(data.status)"
+              [label]="'admin.monitoring.status.' + data.status | transloco"
+            />
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
@@ -136,14 +156,15 @@ const NO_VALUE = '—';
         <app-admin-roster-card />
 
         <!-- 7TV EventAPI -->
-        <section class="app-card flex flex-col gap-3 p-4">
+        <section class="flex flex-col gap-3 border-t border-border pt-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-base font-semibold">
               {{ 'admin.monitoring.sevenTv.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="toneFor(data.sevenTv.status)">
-              {{ 'admin.monitoring.status.' + data.sevenTv.status | transloco }}
-            </app-status-badge>
+            <app-health-marker
+              [tone]="toneFor(data.sevenTv.status)"
+              [label]="'admin.monitoring.status.' + data.sevenTv.status | transloco"
+            />
           </div>
 
           <div class="flex flex-col gap-1">
@@ -229,15 +250,19 @@ const NO_VALUE = '—';
         </section>
 
         <!-- Batch flush -->
-        <section class="app-card flex flex-col gap-3 p-4">
+        <section class="flex flex-col gap-3 border-t border-border pt-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-base font-semibold">
               {{ 'admin.monitoring.flush.title' | transloco }}
             </h3>
-            <app-status-badge [tone]="hasFlushFailures() ? 'danger' : 'success'">
-              {{ 'admin.monitoring.flush.consecutiveFailures' | transloco }}:
-              {{ formatNumber(data.flush.consecutiveFailures) }}
-            </app-status-badge>
+            <app-health-marker
+              [tone]="hasFlushFailures() ? 'danger' : 'ok'"
+              [label]="
+                ('admin.monitoring.flush.consecutiveFailures' | transloco) +
+                ': ' +
+                formatNumber(data.flush.consecutiveFailures)
+              "
+            />
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <div class="flex justify-between gap-4 sm:block">
@@ -280,7 +305,7 @@ export class AdminMonitoringPage {
   // Service-wide, so with two concurrent streams the last writer wins — harmless here because both
   // subscriptions on this page point at the same endpoint and therefore share a fate.
   protected readonly liveStatus = this.liveUpdateService.status;
-  protected readonly liveTone = computed<StatusBadgeTone>(() => LIVE_TONES[this.liveStatus()]);
+  protected readonly liveTone = computed<HealthTone>(() => LIVE_TONES[this.liveStatus()]);
 
   // value() throws once the resource is in its error state, so it is only ever read behind
   // hasValue() — the error banner below renders from error() instead.
@@ -398,8 +423,8 @@ export class AdminMonitoringPage {
     this.rosterCard()?.reload();
   }
 
-  protected toneFor(status: SevenTvConnectionStatus | WorkerConnectionStatus): StatusBadgeTone {
-    return STATUS_TONES[status] ?? 'neutral';
+  protected toneFor(status: SevenTvConnectionStatus | WorkerConnectionStatus): HealthTone {
+    return STATUS_TONES[status] ?? 'idle';
   }
 
   // LOCALE_ID is bootstrap-time static and can't follow a runtime language switch, so dates and

@@ -23,19 +23,40 @@ export function fillDailySeries(
   from: string,
   to: string,
 ): SparklinePoint[] {
-  const start = Date.parse(`${from}T00:00:00Z`);
-  const end = Date.parse(`${to}T00:00:00Z`);
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
-    return [];
-  }
-
   const byDate = new Map(days.map((day) => [day.date, day.useCount]));
-  const points: SparklinePoint[] = [];
-  for (let time = start; time <= end; time += DAY_MS) {
-    const date = new Date(time).toISOString().slice(0, 10);
-    points.push({ date, useCount: byDate.get(date) ?? 0 });
+  return rangeDates(from, to).map((date) => ({ date, useCount: byDate.get(date) ?? 0 }));
+}
+
+/**
+ * The same, for the batch endpoint's `[dayOffset, useCount]` pairs. Offsets index the dense array
+ * directly, so this needs no date parsing per day at all — which is the point of the encoding.
+ * Offsets outside the range are dropped rather than trusted, same stance as `fillDailySeries`.
+ */
+export function fillOffsetSeries(
+  days: readonly (readonly number[])[],
+  from: string,
+  to: string,
+): SparklinePoint[] {
+  const points = rangeDates(from, to).map((date) => ({ date, useCount: 0 }));
+  for (const [offset, useCount] of days) {
+    if (offset >= 0 && offset < points.length) {
+      points[offset].useCount = useCount;
+    }
   }
   return points;
+}
+
+/**
+ * ISO dates for day offsets counted from `from` — the batch endpoint carries its live days that
+ * way, while `liveBands` speaks dates like the rest of this file. Converted once per response
+ * rather than per emote inspected.
+ */
+export function offsetsToDates(offsets: readonly number[], from: string): string[] {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  if (Number.isNaN(start)) {
+    return [];
+  }
+  return offsets.map((offset) => new Date(start + offset * DAY_MS).toISOString().slice(0, 10));
 }
 
 /**
@@ -123,6 +144,21 @@ export function seriesPeak(
     }
   }
   return peak ? { useCount: peak.useCount, date: peak.date } : null;
+}
+
+/** Every ISO date in [from, to], inclusive. Empty for an invalid or inverted range. */
+function rangeDates(from: string, to: string): string[] {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
+    return [];
+  }
+
+  const dates: string[] = [];
+  for (let time = start; time <= end; time += DAY_MS) {
+    dates.push(new Date(time).toISOString().slice(0, 10));
+  }
+  return dates;
 }
 
 function round(value: number): number {

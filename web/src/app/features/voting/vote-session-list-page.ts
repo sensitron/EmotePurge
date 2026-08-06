@@ -21,11 +21,11 @@ import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
 import { Pager } from '../../shared/pagination/pager';
 import { Button } from '../../shared/ui/button';
-import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { ConfirmDialogData, openConfirmDialog } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
-import { StatusBadge } from '../../shared/ui/status-badge';
+import { StateDot } from '../../shared/ui/state-dot';
 import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
 
 function requiredTrimmed(control: AbstractControl<string>): ValidationErrors | null {
@@ -67,7 +67,7 @@ const EMPTY_PAGE: PagedResult<VoteSessionSummary> = {
     DateTimePicker,
     Pager,
     SkeletonRows,
-    StatusBadge,
+    StateDot,
     VoteAudienceBadge,
     TranslocoPipe,
   ],
@@ -256,11 +256,7 @@ export class VoteSessionListPage {
   // when the dialog was dismissed via Escape or backdrop, which callers treat as "not confirmed".
   private confirm(message: string, confirmLabel: string): Observable<boolean | undefined> {
     const data: ConfirmDialogData = { message, confirmLabel };
-    return this.dialog.open<boolean>(ConfirmDialog, {
-      data,
-      backdropClass: 'app-dialog-backdrop',
-      panelClass: 'app-dialog-panel',
-    }).closed;
+    return openConfirmDialog(this.dialog, data).closed;
   }
 
   // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every

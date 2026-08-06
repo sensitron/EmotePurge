@@ -46,3 +46,27 @@ export interface EmoteUsageSeries {
    */
   liveDays: string[];
 }
+
+/** One emote inside {@link ChannelUsageSeries}: `[dayOffset, useCount]` pairs, ascending. */
+export interface EmoteSeriesEntry {
+  emoteId: string;
+  /** Offsets count days from the response's `from`; only days with usage are present. */
+  days: [number, number][];
+}
+
+/**
+ * GET /api/channels/{c}/usage-stats/series — every unarchived emote's days in one response, so the
+ * atlas can draw a curve for whichever emote the pointer is on without asking per emote.
+ *
+ * Offsets instead of ISO dates and omitted emotes instead of zero-filled ones: this response covers
+ * a whole set where {@link EmoteUsageSeries} covers one emote, and nothing between the Api and the
+ * browser compresses JSON. An emote missing from `emotes` had no usage in the range.
+ */
+export interface ChannelUsageSeries {
+  /** The requested range, both inclusive, echoed back. */
+  from: string;
+  to: string;
+  /** Day offsets from `from` with live coverage — same "absent means unknown" caveat as above. */
+  liveDays: number[];
+  emotes: EmoteSeriesEntry[];
+}

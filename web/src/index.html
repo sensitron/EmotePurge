@@ -9,9 +9,20 @@
          for why it is not inline. -->
     <script src="theme-init.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The SVG comes first: a browser that understands it gets the vector at every size and
+         resolution, and the .ico stays behind it for the ones that do not. -->
+    <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Emote Purge" />
+    <meta
+      property="og:description"
+      content="Sieh, welche Emotes dein Chat wirklich benutzt — und räum den Rest gebündelt aus 7TV."
+    />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <!-- Two tags with a media query cover the "follow the system" case with no JavaScript at all.
          On an explicit user choice ThemeService rewrites the two `media` attributes (all / not all),
          because otherwise the system preference would still pick the wrong one. The colours live
@@ -20,17 +31,40 @@
     <meta
       name="theme-color"
       data-theme-mode="dark"
-      content="#020617"
+      content="#0d0f12"
       media="(prefers-color-scheme: dark)"
     />
     <meta
       name="theme-color"
       data-theme-mode="light"
-      content="#f8fafc"
+      content="#f2f3f5"
       media="(prefers-color-scheme: light)"
     />
   </head>
   <body>
+    <!--
+      DIRECTION CONTRACT — Sprite-Atlas. Survives the production build on purpose:
+      a contract nobody can read in the shipped output is a contract nobody audits.
+
+      THESIS: Emotes are sprites, so show them as sprites — packed edge to edge on a
+      sheet, the image IS the cell. Refuses the uniform card grid, where a 40 px emote
+      sits inside a 144 px container of border, name, date and buttons.
+      OWN-WORLD: Graphite ground with a trace of green (never slate), a flat plate
+      under the artwork, hairline guides that never glow, one signal turquoise used
+      only for selection, focus and marking. Archivo for text, Azeret Mono for every
+      number and index. (The plate carried an alpha checker until 2026-08-06 — it
+      answered a question this page never asks, and made the never-used band look
+      like a different kind of thing instead of the same thing with a zero on it.)
+      STORY: The visitor sees where the weight of their set sits, judges sprite by
+      sprite, and marks what leaves. The count is evidence, never the verdict.
+      FIRST VIEWPORT: Edge-code header with the set's figures, one toolbar row,
+      the ranked distribution, then the packed sheet in usage bands; sidecar right,
+      action bar docked at the bottom once anything is marked.
+      FORM: Sprite-Atlas, candidate 4 of the resonance list, seed d5364856. Uniform
+      cell size chosen by the user over size-by-usage — judging beats surveying.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the
+      finish review, the verdict, and DESIGN.md.
+    -->
     <app-root></app-root>
   </body>
 </html>

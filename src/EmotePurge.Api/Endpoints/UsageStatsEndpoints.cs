@@ -74,6 +74,27 @@ public static class UsageStatsEndpoints
             var series = await usageStatQueryService.GetDailySeriesAsync(channelName, emoteId, fromDate, toDate, ct);
             return series is null ? Results.NotFound() : Results.Ok(series);
         });
+
+        // The batch twin of /daily: every unarchived emote's days in one response. It exists to keep
+        // the atlas's hover readout off the wire entirely — one call per (channel, range) instead of
+        // one per emote inspected. Both live on the same ExternalApi policy, and that is the point:
+        // the ceiling did not move, the demand did.
+        group.MapGet("/series", async (
+            string channelName,
+            string from,
+            string to,
+            IUsageStatQueryService usageStatQueryService,
+            CancellationToken ct) =>
+        {
+            var rangeError = ValidateRange(from, to, out var fromDate, out var toDate);
+            if (rangeError is not null)
+            {
+                return rangeError;
+            }
+
+            var series = await usageStatQueryService.GetChannelSeriesAsync(channelName, fromDate, toDate, ct);
+            return Results.Ok(series);
+        });
     }
 
     /// <summary>

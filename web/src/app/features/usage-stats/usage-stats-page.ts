@@ -1,8 +1,18 @@
 import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
-import { ScrollingModule } from '@angular/cdk/scrolling';
-import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -15,11 +25,16 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
+import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
+import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
-import { CreateVoteSessionDialog, CreateVoteSessionDialogData } from './create-vote-session-dialog';
+import {
+  CreateVoteSessionDialogData,
+  openCreateVoteSessionDialog,
+} from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
-import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
+import { ChannelUsageSeries, EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import {
   DateRangeMenu,
@@ -27,10 +42,9 @@ import {
   allTimeStart,
   toIsoDate,
 } from '../../shared/datetime/date-range-menu';
-import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import {
   EmoteDrilldownData,
-  EmoteDrilldownDialog,
+  openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import {
   UsageTrend,
@@ -39,9 +53,21 @@ import {
   usageTrend,
 } from '../../shared/emotes/emote-context';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
+import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
+import { UsageSparkline } from '../../shared/emotes/usage-sparkline';
+import { fillOffsetSeries, offsetsToDates, seriesPeak } from '../../shared/emotes/usage-series';
+import {
+  UsageBandKey,
+  groupIntoUsageBands,
+  topFifthShare,
+  usageBandOf,
+  usageBandThresholds,
+  usageDistribution,
+  usageFillPercent,
+} from '../../shared/emotes/usage-bands';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportChoice, ExportDialog, ExportDialogData } from '../../shared/export/export-dialog';
+import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -50,22 +76,26 @@ import {
   usageExportFilename,
   usageJson,
 } from '../../shared/export/usage-export';
-import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
+import {
+  ATLAS_CELL_PX,
+  ATLAS_ROW_PX,
+  ATLAS_STICKY_TOP_PX,
+  SIDECAR_GAP_PX,
+  atlasColumns,
+  atlasRowOfIndex,
+  moveInAtlas,
+  packAtlasRows,
+} from '../../shared/grid/atlas-grid';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { RestorePanel } from '../../shared/seven-tv/restore-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
 
 type SortDirection = 'asc' | 'desc';
 type SortKey = 'usage' | 'lastUsed';
-
-// Row height (px) fed to CdkVirtualScrollViewport — must match the fixed card height + row
-// wrapper padding below, since CDK's fixed-size strategy assumes every virtualized row is the same
-// height. Card h-36 (144) + row py-2 (16). Grew from 112/128 when the card gained its "last used"
-// line; both numbers have to move together or the viewport drifts against the rendered rows.
-const ROW_HEIGHT_PX = 160;
 
 // Sorting a never-used emote needs a position, not a crash. It is the deadest thing in the list, so
 // it sorts as older than any real date: descending (most recent first) puts them at the very end,
@@ -84,6 +114,11 @@ const SYNC_POLL_MAX_ATTEMPTS = 15;
 // continuously. One second of debounce merges a burst (several channels' flushes land in the same
 // tick) into a single refetch without making the update feel delayed.
 const USAGE_RELOAD_DEBOUNCE_MS = 1000;
+
+// Buckets in the distribution strip. Around a hundred is what fits across the content width at one
+// readable bar plus gutter — enough to show where the curve's knee sits, few enough that each bar
+// stays a bar rather than a hairline.
+const DISTRIBUTION_BUCKETS = 96;
 
 function sortableLastUsed(lastUsedDate: string | null): number {
   if (!lastUsedDate) {
@@ -104,14 +139,13 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     NgOptimizedImage,
     MassDeletePanel,
     RestorePanel,
-    EmoteCardHeader,
     SlotBudgetBar,
     DateRangeMenu,
+    SegmentedControl,
+    UsageRangeMenu,
+    UsageSparkline,
     TranslocoPipe,
   ],
-  host: {
-    '(window:resize)': 'updateColumns()',
-  },
   templateUrl: './usage-stats-page.html',
 })
 export class UsageStatsPage {
@@ -121,8 +155,18 @@ export class UsageStatsPage {
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly channelService = inject(ChannelService);
   private readonly languageService = inject(LanguageService);
+  private readonly deleteService = inject(SevenTvDeleteService);
+  private readonly restoreService = inject(SevenTvRestoreService);
   private readonly dialog = inject(Dialog);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+
+  // The sheet element is what the column count is measured against — see atlasColumns() for why the
+  // window's width was the wrong ruler. Unconditionally rendered (it wraps the loading, empty and
+  // atlas states alike) so `required` can never miss it.
+  private readonly sheetRef = viewChild.required<ElementRef<HTMLElement>>('sheet');
+  private readonly stickyBarRef = viewChild.required<ElementRef<HTMLElement>>('stickyBar');
+  private readonly viewport = viewChild(CdkVirtualScrollViewport);
 
   // The route guard admits 7TV editors (canViewUsageStats), but creating a vote session is a
   // management action (ChannelManagementAuthorizationFilter on the endpoint) — the button only
@@ -140,8 +184,15 @@ export class UsageStatsPage {
   // liveReload's toObservable effect, by which time the input is set.
   private readonly liveUrl = computed(() => channelLiveUrl(this.channelName()));
 
-  protected readonly rowHeight = ROW_HEIGHT_PX;
-  protected readonly columns = signal(computeGridColumns(window.innerWidth));
+  protected readonly cellPx = ATLAS_CELL_PX;
+  protected readonly rowHeight = ATLAS_ROW_PX;
+  protected readonly sheetWidth = signal(0);
+  protected readonly columns = computed(() => atlasColumns(this.sheetWidth()));
+
+  /** Where the sidecar pins, measured against the toolbar rather than hard-coded — the filter row
+   *  wraps into one, two or three rows depending on the width, and a fixed offset would leave a gap
+   *  at one end and clip the panel's first line at the other. */
+  protected readonly sidecarTop = signal(ATLAS_STICKY_TOP_PX + SIDECAR_GAP_PX);
 
   // trackedSince is not known until the set-status response lands, so the first request uses the
   // widest span the endpoint accepts — identical rows for any channel younger than that. Once the
@@ -151,6 +202,16 @@ export class UsageStatsPage {
   protected readonly to = signal(toIsoDate(new Date()));
   protected readonly sortKey = signal<SortKey>('usage');
   protected readonly sortDirection = signal<SortDirection>('desc');
+
+  protected readonly sortKeyOptions: SegmentedControlOption[] = [
+    { value: 'usage', labelKey: 'usageStats.sortByUsage' },
+    { value: 'lastUsed', labelKey: 'usageStats.sortByLastUsed' },
+  ];
+
+  protected readonly sortDirectionOptions: SegmentedControlOption[] = [
+    { value: 'desc', labelKey: 'usageStats.sortDescending' },
+    { value: 'asc', labelKey: 'usageStats.sortAscending' },
+  ];
 
   // "All time" is the default because this page exists to answer "has this emote ever been used".
   // A rolling 7-day window answered a different question and got it wrong twice over: it made a
@@ -187,11 +248,10 @@ export class UsageStatsPage {
     return !Number.isNaN(trackingStart) && !Number.isNaN(rangeStart) && rangeStart < trackingStart;
   });
   protected readonly isLoading = signal(false);
-  protected readonly skeletonCells = Array.from({ length: 12 }, (_, i) => i);
+  protected readonly skeletonCells = Array.from({ length: 48 }, (_, i) => i);
   protected readonly isAwaitingSync = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
 
-  private readonly destroyRef = inject(DestroyRef);
   private syncPoll?: Subscription;
 
   // Prune, don't clear (S2-16): narrowing a filter keeps the still-visible part of the selection,
@@ -219,19 +279,170 @@ export class UsageStatsPage {
     return items;
   });
 
-  protected readonly rows = computed(() => chunkIntoRows(this.sortedEmotes(), this.columns()));
+  // Derived from the WHOLE set, not from the filtered view: the weight classes are a property of
+  // the channel, and they must not move under the user because they typed three letters into the
+  // name filter. Otherwise an emote would change band while nothing about it changed.
+  private readonly bandThresholds = computed(() =>
+    usageBandThresholds(this.emotes().map((emote) => emote.totalUseCount)),
+  );
+
+  protected readonly bands = computed(() =>
+    groupIntoUsageBands(this.sortedEmotes(), (emote) => emote.totalUseCount, this.bandThresholds()),
+  );
+
+  /**
+   * The atlas's true display order: bands first, the chosen sort within each band. Everything
+   * position-dependent — shift-click ranges, keyboard navigation, the export — reads this rather
+   * than sortedEmotes(), or a shift-click would select a range the user never saw as contiguous.
+   */
+  protected readonly atlasOrder = computed(() => this.bands().flatMap((band) => band.items));
+
+  protected readonly rows = computed(() => packAtlasRows(this.bands(), this.columns()).rows);
+
+  /** Fill-bar width per emote id — precomputed per band peak so the template stays a lookup. */
+  protected readonly fillPercents = computed(() => {
+    const map = new Map<string, number>();
+    for (const band of this.bands()) {
+      for (const emote of band.items) {
+        map.set(emote.emoteId, usageFillPercent(emote.totalUseCount, band.peak));
+      }
+    }
+    return map;
+  });
+
+  /** Ranked usage curve of the whole set — the orientation device above the sheet. */
+  protected readonly distribution = computed(() =>
+    usageDistribution(
+      this.emotes().map((emote) => emote.totalUseCount),
+      DISTRIBUTION_BUCKETS,
+    ),
+  );
+
+  /**
+   * How many leading buckets of the strip belong to the heavy band, so the curve's head is drawn in
+   * the guide colour and the band headers below are recognisable in it. Derived from the share of
+   * heavy emotes rather than counted per bucket — the buckets are equal slices of the ranking, so
+   * the two agree to within one bar and the cheap form is the one worth having.
+   */
+  protected readonly heavyBuckets = computed(() => {
+    const all = this.emotes();
+    if (all.length === 0) {
+      return 0;
+    }
+    const thresholds = this.bandThresholds();
+    const heavy = all.filter(
+      (emote) => usageBandOf(emote.totalUseCount, thresholds) === 'heavy',
+    ).length;
+    // Against the strip's actual bar count, not the requested one — a set smaller than the bucket
+    // budget gets one bar per emote, and the accent prefix has to follow that.
+    return Math.round((heavy / all.length) * this.distribution().length);
+  });
+
+  protected readonly concentration = computed(() =>
+    topFifthShare(this.emotes().map((emote) => emote.totalUseCount)),
+  );
+
+  protected readonly deadCount = computed(
+    () => this.emotes().filter((emote) => emote.totalUseCount === 0).length,
+  );
+
+  private readonly totalUses = computed(() =>
+    this.emotes().reduce((sum, emote) => sum + emote.totalUseCount, 0),
+  );
+
+  /** Position in the set's usage ranking — the inspector's "#003", stable across sort changes. */
+  private readonly usageRank = computed(() => {
+    const ranks = new Map<string, number>();
+    [...this.emotes()]
+      .sort((a, b) => b.totalUseCount - a.totalUseCount)
+      .forEach((emote, index) => ranks.set(emote.emoteId, index + 1));
+    return ranks;
+  });
 
   // Plural follows the number that is actually spelled first ("1 von 409 Emote", not "Emotes").
   protected readonly emoteCountKey = computed(() =>
-    pluralKey(this.sortedEmotes().length, 'emoteCount'),
+    pluralKey(this.atlasOrder().length, 'emoteCount'),
   );
 
-  protected readonly selection = new ListSelection(this.sortedEmotes, (emote) => emote.emoteId);
+  protected readonly selection = new ListSelection(this.atlasOrder, (emote) => emote.emoteId);
+
+  /**
+   * The cell the inspector is describing, held by id rather than by object: a refetch hands out
+   * fresh instances for the same rows, and an object reference would leave the inspector pinned to
+   * a row that no longer exists. Falls back to the busiest emote so the line is never empty —
+   * before the first hover, the top of the set is the honest thing to be looking at.
+   */
+  private readonly inspectedId = signal<string | null>(null);
+  protected readonly inspected = computed(() => {
+    const order = this.atlasOrder();
+    const id = this.inspectedId();
+    return (id ? order.find((emote) => emote.emoteId === id) : undefined) ?? order[0] ?? null;
+  });
+
+  protected readonly inspectedRank = computed(() => {
+    const emote = this.inspected();
+    return emote ? (this.usageRank().get(emote.emoteId) ?? null) : null;
+  });
+
+  protected readonly inspectedBand = computed(() => {
+    const emote = this.inspected();
+    return emote ? usageBandOf(emote.totalUseCount, this.bandThresholds()) : 'dead';
+  });
+
+  protected readonly inspectedShare = computed(() => {
+    const emote = this.inspected();
+    const total = this.totalUses();
+    return emote && total > 0 ? emote.totalUseCount / total : null;
+  });
+
+  /**
+   * Every emote's daily curve for the current range, fetched once (see UsageStatService.
+   * getChannelSeries for why it is not one request per emote). `null` while in flight; a failure
+   * leaves it null and sets seriesFailed, because a missing curve must not take the sidecar's
+   * numbers with it — they come from the totals and are still true.
+   *
+   * Deliberately NOT refetched on live usage events, unlike the totals beside it. A 30-second flush
+   * moves the last day of the curve by a few counts, which is invisible at sidecar width, while the
+   * response covers the whole set — so the refetch would cost the most and show the least. The
+   * curve therefore states the range as of the last range change, exactly like the drilldown
+   * dialog's own cached series has always done.
+   */
+  private readonly channelSeries = signal<ChannelUsageSeries | null>(null);
+  protected readonly seriesFailed = signal(false);
+  protected readonly seriesPending = computed(
+    () => this.channelSeries() === null && !this.seriesFailed(),
+  );
+
+  private readonly seriesByEmote = computed(
+    () => new Map(this.channelSeries()?.emotes.map((entry) => [entry.emoteId, entry.days]) ?? []),
+  );
+
+  /** Channel-level, so converted once per response rather than per emote inspected. */
+  protected readonly liveDayDates = computed(() => {
+    const series = this.channelSeries();
+    return series ? offsetsToDates(series.liveDays, series.from) : [];
+  });
+
+  protected readonly inspectedPoints = computed(() => {
+    const series = this.channelSeries();
+    const emote = this.inspected();
+    if (!series || !emote) {
+      return [];
+    }
+    // An emote absent from the response had no usage in the range — the same statement its absent
+    // days would make, one level up. Zero-filling here is what turns that into a flat baseline.
+    return fillOffsetSeries(this.seriesByEmote().get(emote.emoteId) ?? [], series.from, series.to);
+  });
+
+  protected readonly inspectedPeak = computed(() => seriesPeak(this.inspectedPoints()));
+
+  /** The single tab stop in the grid (WAI-ARIA grid pattern) — arrow keys move it. */
+  protected readonly activeIndex = signal(0);
 
   // Resolved items, not selection.selectedKeys(): the delete engine needs sevenTvEmoteId and the
   // display name, which only the loaded row carries. Safe because every path that removes a row
-  // from sortedEmotes() while keeping the page open (filter change, reload, finished delete)
-  // clears the selection — so nothing selected can be missing here.
+  // from the atlas while keeping the page open (filter change, reload, finished delete) clears the
+  // selection — so nothing selected can be missing here.
   protected readonly selectedForDelete = computed<DeletableEmote[]>(() =>
     this.selection.selectedItems().map((emote) => ({
       emoteId: emote.emoteId,
@@ -239,6 +450,32 @@ export class UsageStatsPage {
       name: emote.emoteName,
     })),
   );
+
+  /**
+   * The action bar is bound to the selection, but it must not disappear the moment a finished
+   * delete clears it: the run summary carries the protocol download, and that file is the only
+   * durable record of what was removed. So a live or settled run keeps the dock mounted.
+   */
+  protected readonly dockVisible = computed(
+    () =>
+      this.selection.selectedKeys().length > 0 ||
+      this.deleteService.isRunning() ||
+      this.deleteService.queue().length > 0 ||
+      this.restoreService.isRunning() ||
+      this.restoreService.queue().length > 0,
+  );
+
+  /** Occupied slots after the pending selection would be deleted — the dock's one number. */
+  protected readonly projectedSlots = computed(() => {
+    const status = this.setStatus();
+    if (!status || status.capacity === null) {
+      return null;
+    }
+    return {
+      projected: Math.max(status.occupiedSlots - this.selection.selectedKeys().length, 0),
+      capacity: status.capacity,
+    };
+  });
 
   constructor() {
     effect(() => {
@@ -254,6 +491,37 @@ export class UsageStatsPage {
       const trackedSinceDate = this.trackedSinceDate();
       if (this.rangePreset() === 'all' && trackedSinceDate) {
         this.from.set(allTimeStart(trackedSinceDate));
+      }
+    });
+
+    // The column count follows the element that actually holds the cells. The incumbent grid read
+    // window.innerWidth while the shell caps content at 1024 px, which is how a 2560 px monitor
+    // ended up with eight 113 px cards in a 992 px container.
+    effect((onCleanup) => {
+      const element = this.sheetRef().nativeElement;
+      this.sheetWidth.set(element.clientWidth);
+      const observer = new ResizeObserver((entries) => {
+        this.sheetWidth.set(entries[0].contentRect.width);
+      });
+      observer.observe(element);
+      onCleanup(() => observer.disconnect());
+    });
+
+    effect((onCleanup) => {
+      const element = this.stickyBarRef().nativeElement;
+      const measure = () =>
+        this.sidecarTop.set(ATLAS_STICKY_TOP_PX + element.offsetHeight + SIDECAR_GAP_PX);
+      measure();
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      onCleanup(() => observer.disconnect());
+    });
+
+    // A shorter list must not leave the tab stop pointing past its end — the next arrow key would
+    // then find no row to move from and the grid would be unreachable by keyboard.
+    effect(() => {
+      if (this.activeIndex() >= this.atlasOrder().length) {
+        this.activeIndex.set(0);
       }
     });
 
@@ -279,27 +547,111 @@ export class UsageStatsPage {
     });
   }
 
-  protected updateColumns(): void {
-    this.columns.set(computeGridColumns(window.innerWidth));
-  }
-
   protected refresh(): void {
     this.load(this.channelName(), this.from(), this.to());
   }
 
-  protected toggleSort(key: SortKey): void {
+  /** Signature takes `string` because SegmentedControl is untyped by design — one control for every
+   *  small mutually-exclusive set, and a generic there would have to be threaded through every use. */
+  protected setSortKey(key: string): void {
     if (this.sortKey() === key) {
-      this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
       return;
     }
 
-    this.sortKey.set(key);
+    this.sortKey.set(key as SortKey);
+    // Every key change starts at "most first" again. Carrying an ascending order over to a
+    // different column silently answers a question nobody asked twice.
     this.sortDirection.set('desc');
     // A different sort key reorders the whole grid, and the selection carries shift-range anchors
     // into that new order — keeping it would let the next shift-click sweep up rows the user never
     // saw next to each other. Flipping the direction alone reverses a list they are still looking
-    // at, so that keeps the selection.
+    // at, so that keeps the selection (see setSortDirection, which does not clear).
     this.selection.clear();
+  }
+
+  /** Keeps the selection on purpose: reversing a list the user is still looking at does not move
+   *  anything out from under a shift-range anchor the way a different column does. */
+  protected setSortDirection(direction: string): void {
+    this.sortDirection.set(direction as SortDirection);
+  }
+
+  protected inspect(emote: EmoteUsageTotal): void {
+    this.inspectedId.set(emote.emoteId);
+  }
+
+  /** Pointer or focus landing on a cell makes it both the inspected row and the grid's tab stop. */
+  protected onCellFocus(emote: EmoteUsageTotal, index: number): void {
+    this.inspectedId.set(emote.emoteId);
+    this.activeIndex.set(index);
+  }
+
+  /**
+   * A click selects, and it also pins the inspector to the clicked cell.
+   *
+   * The pinning is what makes the inspector usable without a pointer at all: on a touch screen
+   * there is no hover to drive it, so without this the line would keep describing the busiest emote
+   * no matter what the user tapped. Safari also does not focus a button on click, so relying on the
+   * focus handler alone would leave the same gap on a desktop browser.
+   */
+  protected onCellClick(emote: EmoteUsageTotal, index: number, event: MouseEvent): void {
+    this.inspectedId.set(emote.emoteId);
+    this.activeIndex.set(index);
+    this.selection.onRowClick(emote, event);
+  }
+
+  protected onAtlasKeydown(event: KeyboardEvent): void {
+    // Space marks, Enter opens the history. They used to do the same thing, because both fire a
+    // native click on a <button> — which left the keyboard with no way at all to reach the per-cell
+    // trigger without giving it a second tab stop in a grid that deliberately has one.
+    if (event.key === 'Enter') {
+      const emote = this.atlasOrder()[this.activeIndex()];
+      if (emote) {
+        // Before the browser turns this keydown into a click on the cell, which would select it.
+        event.preventDefault();
+        this.openDrilldown(emote);
+      }
+      return;
+    }
+
+    const next = moveInAtlas(this.rows(), this.activeIndex(), event.key);
+    if (next === null) {
+      return;
+    }
+
+    // Only now: an unhandled key (typing into nothing, Tab out of the grid) must keep its default.
+    event.preventDefault();
+    this.activeIndex.set(next);
+    this.focusCell(next);
+  }
+
+  protected selectBand(key: UsageBandKey): void {
+    const band = this.bands().find((candidate) => candidate.key === key);
+    if (band) {
+      this.selection.selectMany(band.items);
+    }
+  }
+
+  protected fillPercent(emote: EmoteUsageTotal): number {
+    return this.fillPercents().get(emote.emoteId) ?? 0;
+  }
+
+  /** Compact figure printed onto the sprite — "9,4k" fits a 64 px cell, "9412" does not. */
+  protected shortCount(count: number): string {
+    const locale = toLocale(this.languageService.lang());
+    return count >= 1000
+      ? `${(count / 1000).toLocaleString(locale, { maximumFractionDigits: 1 })}k`
+      : count.toLocaleString(locale);
+  }
+
+  protected formatCount(count: number): string {
+    return count.toLocaleString(toLocale(this.languageService.lang()));
+  }
+
+  protected formatPercent(share: number): string {
+    return share.toLocaleString(toLocale(this.languageService.lang()), {
+      style: 'percent',
+      maximumFractionDigits: share < 0.1 ? 1 : 0,
+    });
   }
 
   protected trendFor(emote: EmoteUsageTotal): UsageTrend {
@@ -376,24 +728,18 @@ export class UsageStatsPage {
       // so it is a date a human would recognise on every path.
       usageFromDate: this.from(),
     };
-    this.dialog
-      .open<VoteSessionSummary | undefined>(CreateVoteSessionDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'create-vote-session-title',
-      })
-      .closed.subscribe((created) => {
-        if (created) {
-          this.selection.clear();
-          this.router.navigate(['/channels', this.channelName(), 'vote-sessions', created.id]);
-        }
-      });
+    openCreateVoteSessionDialog(this.dialog, data).closed.subscribe((created) => {
+      if (created) {
+        this.selection.clear();
+        this.router.navigate(['/channels', this.channelName(), 'vote-sessions', created.id]);
+      }
+    });
   }
 
-  // Opened from the card's info icon — the card click itself belongs to the selection. The dialog
-  // loads the series on its own through the service cache; this only hands over what the page
-  // already knows (trend inputs), so nothing is fetched before the user explicitly opens it.
+  // Opened from the inspector, not from the cell: the cell click belongs to the selection, and a
+  // 64 px sprite has no room for a second control that would not be a mis-click waiting to happen.
+  // The dialog loads the series on its own through the service cache, so nothing is fetched until
+  // the user explicitly asks for the history.
   protected openDrilldown(emote: EmoteUsageTotal): void {
     const data: EmoteDrilldownData = {
       channelName: this.channelName(),
@@ -406,55 +752,43 @@ export class UsageStatsPage {
       previousWindowUseCount: emote.previousWindowUseCount,
       trackedSince: this.trackedSince(),
     };
-    this.dialog.open<void>(EmoteDrilldownDialog, {
-      data,
-      backdropClass: 'app-dialog-backdrop',
-      panelClass: 'app-dialog-panel',
-      ariaLabelledBy: 'emote-drilldown-title',
-    });
+    openEmoteDrilldownDialog(this.dialog, data);
   }
 
-  // Exports the *visible* list (filtered + sorted) by default, or — chosen in the dialog — the
-  // current grid selection: the same rows that drive mass-delete and vote-session creation.
+  // Exports the *visible* list (filtered + sorted, in atlas order) by default, or — chosen in the
+  // dialog — the current selection: the same rows that drive mass-delete and vote-session creation.
   // Client-side serialization on purpose — the read model is already loaded, and a download must
   // never see more than the page does (A12).
   protected openExport(): void {
     const data: ExportDialogData = {
-      rowCount: this.sortedEmotes().length,
+      rowCount: this.atlasOrder().length,
       filtered: this.usageFilter.isAnyActive(),
       selectionCount: this.selection.selectedKeys().length,
       // Whoever can open this page sees every usage figure — nothing to explain away here.
       noticeKeys: [],
     };
-    this.dialog
-      .open<ExportChoice | undefined>(ExportDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'export-dialog-title',
-      })
-      .closed.subscribe((choice) => {
-        if (!choice) {
-          return;
-        }
-        // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
-        // the same reason as selectedForDelete: everything that removes rows from sortedEmotes()
-        // also clears or prunes the selection.
-        const input: UsageExportInput = {
-          channelName: this.channelName(),
-          from: this.from(),
-          to: this.to(),
-          rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.sortedEmotes(),
-          scope: choice.scope,
-          filtered: this.usageFilter.isAnyActive(),
-          trendFor: (row) => this.trendFor(row),
-        };
-        if (choice.format === 'csv') {
-          downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
-        } else {
-          downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
-        }
-      });
+    openExportDialog(this.dialog, data).closed.subscribe((choice) => {
+      if (!choice) {
+        return;
+      }
+      // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
+      // the same reason as selectedForDelete: everything that removes rows from the atlas also
+      // clears or prunes the selection.
+      const input: UsageExportInput = {
+        channelName: this.channelName(),
+        from: this.from(),
+        to: this.to(),
+        rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.atlasOrder(),
+        scope: choice.scope,
+        filtered: this.usageFilter.isAnyActive(),
+        trendFor: (row) => this.trendFor(row),
+      };
+      if (choice.format === 'csv') {
+        downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
+      } else {
+        downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
+      }
+    });
   }
 
   // The delete run finished on 7TV, but the backend could not confirm it — refetch instead of
@@ -462,6 +796,31 @@ export class UsageStatsPage {
   protected onReloadRequested(): void {
     this.selection.clear();
     this.refresh();
+  }
+
+  /**
+   * Moves DOM focus onto a cell that the virtual scroller may not have rendered yet.
+   *
+   * The straightforward `querySelector().focus()` covers every move inside the mounted range, which
+   * is the common case; only a jump past the buffer (Home, End, an arrow at the edge) needs the
+   * viewport scrolled first and the focus deferred until CDK has mounted the new range.
+   */
+  private focusCell(index: number): void {
+    const find = () =>
+      this.sheetRef().nativeElement.querySelector<HTMLElement>(`[data-atlas-index="${index}"]`);
+
+    const rendered = find();
+    if (rendered) {
+      rendered.focus();
+      return;
+    }
+
+    const rowIndex = atlasRowOfIndex(this.rows(), index);
+    if (rowIndex < 0) {
+      return;
+    }
+    this.viewport()?.scrollToIndex(rowIndex);
+    requestAnimationFrame(() => find()?.focus());
   }
 
   // Quiet counterpart to the set-status fetch in load(): no sync-poll, and a failed refetch keeps
@@ -497,6 +856,19 @@ export class UsageStatsPage {
     });
 
     this.loadTotals(channelName, from, to);
+    this.loadChannelSeries(channelName, from, to);
+  }
+
+  // No error surface of its own: the sidecar simply carries no curve, and the page's numbers are
+  // unaffected. Raising a banner here would report a failure of the secondary readout as a failure
+  // of the page.
+  private loadChannelSeries(channelName: string, from: string, to: string): void {
+    this.channelSeries.set(null);
+    this.seriesFailed.set(false);
+    this.usageStatService.getChannelSeries(channelName, from, to).subscribe({
+      next: (series) => this.channelSeries.set(series),
+      error: () => this.seriesFailed.set(true),
+    });
   }
 
   // Waits for the worker's 7TV sync to fill in the set id, then loads the totals once more.

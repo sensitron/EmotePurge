@@ -36,30 +36,33 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Erzwungen**, nicht erbeten: `npm run lint` fährt `web/scripts/check-color-tokens.mjs` mit und verbietet Paletten-Utilities unterhalb `web/src/app/`.
 - **Referenz:** `web/src/styles.css` (Tokenblock), `docs/Konzept-Light-Mode.md` §4.
 
-### 2.1 Kartenfläche
+### 2.1 Flächen: geriffelte Zeile und randloser Abschnitt
 
-- **Was gilt:** `.app-card` (in `web/src/styles.css`) ist die **einzige** Kartenoberfläche: `border`-Rand, `surface`-Fläche, `radius-lg`, plus die Elevation aus `--ep-shadow-card`. Keine randlosen `bg-surface`-Rechtecke, keine eigenen Karten-Klassenketten.
-- **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit (der Rand liegt bei 1,4:1 und trägt die Karte nicht), hell über einen echten Elevationsschatten (Weiß auf `slate-50` sind 1,05:1 und könnten es nicht). Die *Richtung* bleibt in beiden Modi gleich — eine erhöhte Fläche entfernt sich vom Grund, eine eingelassene (`surface-inset`) geht zu ihm zurück. Nur die physikalische Richtung von „eingelassen" dreht sich; genau dafür sind Rollennamen da.
-- **Wann anwenden:** Jede abgegrenzte Inhaltsfläche — Listen-Zeilen, Formular-Boxen, Monitoring-Karten, statische Sektionen.
-- **Referenz:** `web/src/styles.css` (`.app-card`), Verwendung überall unter `web/src/app/features/`.
+- **Die Karte ist abgeschafft** (2026-08-06). `.app-card` und `.app-card-interactive` sind aus `styles.css` entfernt, zusammen mit den beiden `--ep-shadow-card*`-Tokens, deren einzige Leser sie waren. Es gibt **keine** Kartenklasse mehr und es kommt keine zurück.
+- **Die Prüffrage, die sie gekostet hat:** eine Karte ist eine Grenze gegen einen **andersartigen** Nachbarn. Fast überall, wo welche standen, war jeder Nachbar dieselbe Sorte Ding — in einer Liste ist jede Zeile eine Zeile, auf einer Diagnoseseite ist jede Sektion ein Subsystem, das über sich selbst berichtet. Die Ränder zeichneten dort acht Rechtecke, wo eine Linie „Liste" deutlicher sagt, und konkurrierten mit dem Einzigen, was auffallen muss: dem Subsystem, das nicht in Ordnung ist. Wer eine Fläche abgrenzen will, beantwortet zuerst diese Frage.
+- **Zeilenliste:** `-mx-3 divide-y divide-border border-y border-border` am `<ul>`, `px-3 py-3` je `<li>`. Klickbare Zeilen zusätzlich `relative transition-colors hover:bg-surface-inset`. Der negative Rand lässt den Hover-Wisch über den Text hinausatmen, während die Inhalte auf der linken Kante der Seite bleiben. Umgesetzt in `overview-page.html`, `vote-session-list-page.html`, `my-votings-page.ts`, `admin-channels-page.ts`, `admin-users-page.ts`, `audit-log-list.ts`.
+- **Abschnittsstapel:** `flex flex-col gap-3 border-t border-border pt-4` je Sektion, Überschrift links und Statusmarker rechts. Umgesetzt in `admin-monitoring-page.ts`, `admin-channel-detail-page.ts`.
+- **Getönter Block** (`rounded-md bg-surface-inset px-3 py-3`) für das, was tatsächlich gegen Andersartiges grenzt: Panels *in* einer Seite, das 7TV-Token-Formular, der Fortschrittslauf. Fläche statt Rand — die Tönung sagt „hier gilt etwas anderes", ohne ein Rechteck zu zeichnen.
+- **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit (der Rand liegt bei 1,4:1), hell über einen echten Elevationsschatten (Weiß auf `slate-50` sind 1,05:1). Die *Richtung* bleibt gleich — erhöht entfernt sich vom Grund, eingelassen (`surface-inset`) geht zu ihm zurück. Seit dem Wegfall der Karten ist das Overlay die einzige noch erhöhte Fläche, also ist `--ep-shadow-overlay` das letzte dieser Tokens.
+- **Referenz:** `web/src/styles.css`, `web/src/app/features/overview/overview-page.html`.
 
 ### 2.2 Hover nur bei Klickbarkeit
 
-- **Was gilt:** `.app-card-interactive` (lila Rand-Hover + Glow-Schatten) kommt **nur** auf tatsächlich klickbare Karten (Stretched-Link-Zeilen). Statische Karten bleiben beim Basisstil — Hover darf nie einen Klick versprechen, den es nicht gibt.
-- **Wann anwenden:** Genau dann, wenn die Karte den Stretched-Link-Kontrakt (2.3) erfüllt. Bedingte Anwendung ist erlaubt (`[class]`-Binding schaltet `app-card-interactive relative` nur bei Klickbarkeit zu).
+- **Was gilt:** Eine Hover-Reaktion kommt **nur** auf tatsächlich klickbare Zeilen — `relative transition-colors hover:bg-surface-inset`. Statische Zeilen und Abschnitte bleiben stumm: Hover darf nie einen Klick versprechen, den es nicht gibt.
+- **Wann anwenden:** Genau dann, wenn die Zeile den Stretched-Link-Kontrakt (2.3) erfüllt. Bedingte Anwendung ist erlaubt und der Normalfall — `[class]`-Binding schaltet den Hover-Teil nur bei Klickbarkeit zu (`overview-page.html` tut das pro Channel über `isTracked`).
 - **Referenz:** `web/src/app/features/admin/admin-channels-page.ts` (bedingt), `web/src/app/features/overview/overview-page.html`.
 
-### 2.3 Stretched-Link-Kontrakt (vollflächig klickbare Karten)
+### 2.3 Stretched-Link-Kontrakt (vollflächig klickbare Zeilen)
 
-- **Was gilt:** Klickbare Listen-Karten nutzen das Stretched-Link-Pattern über `.app-card-link` (Inclusive-Components-„Cards"-Muster). Der Kontrakt hat drei Pflichtteile:
-  1. Kartencontainer ist `relative` (+ `app-card-interactive`).
-  2. **Ein** kurzer echter Link (Titel/Name) trägt `app-card-link` — sein `::after` dehnt die Klickfläche über die ganze Karte; Screenreader hören nur den kurzen Namen.
-  3. **Jede** Sekundäraktion in der Karte (Buttons, weitere Links) liegt in einem Container mit `relative z-10` und bleibt separat klick- und fokussierbar.
+- **Was gilt:** Klickbare Listenzeilen nutzen das Stretched-Link-Pattern über `.app-card-link` (Inclusive-Components-„Cards"-Muster). Der Klassenname stammt aus der Kartenzeit und ist als einziger davon geblieben, weil er das Pseudoelement benennt, nicht die Fläche. Der Kontrakt hat drei Pflichtteile:
+  1. Zeilencontainer ist `relative`.
+  2. **Ein** kurzer echter Link (Titel/Name) trägt `app-card-link` — sein `::after` dehnt die Klickfläche über die ganze Zeile; Screenreader hören nur den kurzen Namen.
+  3. **Jede** Sekundäraktion in der Zeile (Buttons, weitere Links) liegt in einem Container mit `relative z-10` und bleibt separat klick- und fokussierbar.
 
   Kanonisches Markup:
 
   ```html
-  <li class="app-card app-card-interactive relative flex ...">
+  <li class="relative flex items-center gap-4 px-3 py-3 transition-colors hover:bg-surface-inset">
     <a [routerLink]="[...]" class="app-card-link max-w-full truncate font-medium">#{{ name }}</a>
     <div class="relative z-10 ml-auto flex gap-2">
       <button type="button" appButton="danger" (click)="...">…</button>
@@ -67,7 +70,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   </li>
   ```
 
-- **Wann anwenden:** Jede Listen-Karte, deren primäre Aktion „öffnen/ansehen" ist. **Nicht:** die ganze Karte als `<a>` wrappen (ungültig bei inneren Buttons, aufgeblähter Accessible Name) oder ein JS-Klick-Handler auf dem Container.
+- **Wann anwenden:** Jede Listenzeile, deren primäre Aktion „öffnen/ansehen" ist. **Nicht:** die ganze Zeile als `<a>` wrappen (ungültig bei inneren Buttons, aufgeblähter Accessible Name) oder ein JS-Klick-Handler auf dem Container.
 - **Referenz:** `web/src/app/features/overview/overview-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/voting/vote-session-list-page.html`.
 
 ### 2.4 Bildfläche einer Emote-Kachel
@@ -75,7 +78,9 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Was gilt:** Die Fläche, auf der ein 7TV-Emote gezeichnet wird, ist `bg-emote-canvas` — ein **eigenes Token**, nicht `surface-inset`. Grund: das Bildmaterial ist fremd, für dunkle Chats gezeichnet und enthält weiße Schrift und helle Outlines. Diese Fläche wird deshalb irgendwann anders entschieden werden müssen als „irgendeine eingelassene Fläche", und dann muss es eine Zeile sein.
 - **Sie folgt dem Theme.** Der erste Entwurf hielt sie in beiden Modi dunkel, um das Fremdmaterial zu schützen. Nach dem Ansehen zurückgenommen: ein fast schwarzer Balken auf **jeder** Karte ist auf einer hellen Seite das lauteste Element, und er steht auf jeder Kachel — während die Emotes, die er schützt, die Minderheit sind. Preis der Rücknahme: ein weiß umrandetes Emote verliert im Hellen seine Kontur. Der Handel ist bewusst und steht an genau einer Stelle.
 - **Der Selektions-Wash liegt auf der Karte, nicht unter dem Bild.** Sonst kämpfen Wash und Bildmaterial um dieselben Pixel — der `inset-ring` (8.5) trägt die Auswahl, die Fläche verstärkt sie nur.
-- **Referenz:** `web/src/styles.css` (`--color-emote-canvas`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
+- **Die Fläche ist flach — kein Alpha-Karo** (seit 2026-08-06). Das Karo beantwortete eine Frage, die diese Seite nie stellt (*welche Pixel sind transparent*), und ließ das Nie-benutzt-Band wie eine andere Art Ding aussehen statt wie dieselbe Sache mit einer Null darauf. Was „nie benutzt" heißt, sagen die Bandüberschrift und der fehlende Füllbalken.
+- **`.app-sprite-cell-void` ist Stimmzettel-only** (seit 2026-08-06). Dort markiert sie ein **archiviertes** Emote mitten in einem gemischten Raster, in dem keine Überschrift das sagt — der Fall, für den eine eigene Platte da ist. Der Atlas hat sie für „im Zeitraum nie benutzt" verloren: dort stehen diese Emotes geschlossen unter einer Überschrift, die es sagt, jede Zelle druckt eine 0, und der Füllbalken fehlt. Drei Aussagen reichen; die vierte kostete nur die Gleichmäßigkeit des Bogens. Beim Streichen des Alpha-Karos war diese Trennung schon **beschrieben**, aber noch nicht umgesetzt — die Regel stand hier, der Atlas hielt sich nicht daran.
+- **Referenz:** `web/src/styles.css` (`--color-emote-canvas`, `.app-sprite-cell`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
 
 ## 3. Typografie-Hierarchie
 
@@ -86,7 +91,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   | Seitentitel | `text-2xl font-bold tracking-tight` | `<h1>` in Layouts, `<h2>` auf Seiten ohne eigenes Layout-`<h1>` |
   | Sektionstitel | `text-lg font-semibold` | `<h2>` |
   | Kartentitel | `text-base font-semibold` | `<h3>` |
-  | Listen-Karten-Titellink | `font-medium` (Textgröße erbt vom Kontext) | `<a class="app-card-link">` / `<span>` |
+  | Listenzeilen-Titellink | `font-medium` (Textgröße erbt vom Kontext) | `<a class="app-card-link">` / `<span>` |
 
   Karten-`<h3>`s tragen **nie** die Sektionsgröße `text-lg` — genau diese Kollision (Admin-Monitoring) war ein Audit-Befund und ist behoben.
 - **Wann anwenden:** Immer. Das Heading-**Level** folgt der Dokumentstruktur (eine Seite unter einem Layout-`<h1>` beginnt bei `<h2>`), die **Optik** folgt der Tabelle — beides ist unabhängig voneinander einzuhalten.
@@ -97,7 +102,7 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ### 4.1 Buttons: `appButton`
 
-- **Was gilt:** Jeder Button/Aktions-Link nutzt die Attribut-Direktive `appButton` (`web/src/app/shared/ui/button.ts`) — keine kopierten Utility-Ketten. Varianten `primary`/`neutral`/`outline`/`danger`/`danger-solid`, Größen `md` (Default)/`lg`. Element-spezifisches Layout (`ml-auto`, `relative z-10`, …) bleibt am eigenen `class`-Attribut, Angular merged beides.
+- **Was gilt:** Jeder Button/Aktions-Link nutzt die Attribut-Direktive `appButton` (`web/src/app/shared/ui/button.ts`) — keine kopierten Utility-Ketten. Varianten `primary`/`neutral`/`outline`/`danger`/`danger-quiet`/`danger-solid`, Größen `md` (Default)/`lg`. Element-spezifisches Layout (`ml-auto`, `relative z-10`, …) bleibt am eigenen `class`-Attribut, Angular merged beides.
 
   | Variante | Einsatz |
   |---|---|
@@ -105,41 +110,55 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   | `neutral` | Sekundäraktionen mit Fläche (Aktualisieren, Kopieren) |
   | `outline` | leise Sekundäraktionen, Abbrechen in Dialogen |
   | `danger` | siehe 4.2 |
+  | `danger-quiet` | siehe 4.2 |
   | `danger-solid` | siehe 4.2 |
 
-- **Referenz:** `web/src/app/shared/ui/button.ts`.
+- **Schalter: `[buttonPressed]` statt einer eigenen Klassenkette** (seit 2026-08-06). Ein Button mit `aria-pressed` bekommt seinen Ein-Zustand vom Primitiv; die Variante bleibt daneben stehen und gilt im Aus-Zustand. Die Füllung ist bewusst dieselbe wie beim gewählten Segment des `SegmentedControl`: „dieses hier ist an" soll gleich aussehen, ob allein oder als eines von mehreren. Einziger Unterschied ist der Hover-Schritt — ein einzelner Schalter lässt sich erneut drücken, ein gewähltes Radio nicht.
+  - **Warum es das gibt:** das Primitiv modellierte Schalter nicht, also improvisierte jeder Aufrufer. In der Nutzungs-Werkzeugleiste standen dadurch **vier `aria-pressed`-Controls in einer Reihe in drei Darstellungen** — zwei zeigten ihren Zustand nur über einen an das Label gehängten Pfeil (die Information erreichte Screenreader und sonst niemanden), zwei kopierten die Klassen von Hand samt einer Größenkette, die `SIZE_CLASSES` doppelte.
+- **Ein Filter mit benannten Bereichen plus freien Feldern ist ein Popover-Menü**, kein Lauf einzelner Felder: Trigger nennt die aktuelle Einstellung, Panel enthält die Voreinstellungen und tauscht seinen Inhalt gegen die Felder, sobald „eigener Bereich" gewählt ist (`DateRangeMenu`, `UsageRangeMenu`). Die Nutzungs-Werkzeugleiste hatte dafür drei Controls, von denen eines — der „Nur ungenutzte (0×)"-Schalter — gar kein eigener Filter war, sondern min = 0/max = 0 und damit die zwei Felder daneben still überschrieb.
+- **Eins-aus-N ist kein Schalterpaar, sondern `<app-segmented-control>`.** Die Sortierung der Nutzungsseite war zwei Toggle-Buttons, bei denen ein Klick auf den bereits aktiven die *Richtung* umdrehte — die einzige Möglichkeit, aufsteigend zu sortieren, und nichts auf dem Bildschirm sagte das. Schlüssel und Richtung sind zwei Fragen und heute zwei Segmented Controls.
+- **Referenz:** `web/src/app/shared/ui/button.ts`, `web/src/app/shared/ui/segmented-control.ts`; Schalter-Aufrufstellen `web/src/app/features/usage-stats/usage-stats-page.html`.
 
 ### 4.2 Destruktiv-Stufung: Flow-Position, nicht Schwere
 
-- **Was gilt:** Die zwei Destruktiv-Stufen kodieren die **Position im Bestätigungs-Flow**, nicht die Schwere der Aktion:
-  - `danger` (Outline): der **auslösende** destruktive Button im Seitenkontext, der neben anderen Controls steht und noch einen Bestätigungsschritt vor sich hat (Channel verlassen, Session löschen, Channel-Purge öffnen).
+- **Was gilt:** Die Destruktiv-Stufen kodieren die **Position im Bestätigungs-Flow**, nicht die Schwere der Aktion:
+  - `danger` (Outline): der **auslösende** destruktive Button im Seitenkontext, der neben anderen Controls steht und noch einen Bestätigungsschritt vor sich hat (Channel verlassen, Channel-Purge öffnen).
+  - `danger-quiet` (nur Schrift, Wash beim Hover): **derselbe Auslöser, wenn er sich je Listenzeile wiederholt.** Seit 2026-08-06, gemessen an der Voting-Liste: zwanzig rot umrandete „Löschen"-Knöpfe untereinander machen die seltenste Aktion der Seite zu ihrem lautesten Element. Die Stufe ist an die **Wiederholung** gekoppelt, nicht an geringere Schwere — der Bestätigungsdialog dahinter bleibt unverändert, es fällt allein der dauerhafte rote Kasten weg.
   - `danger-solid` (gefüllt): der **ausführende** Button — der Bestätigen-Button in `ConfirmDialog`/`TypedConfirmDialog`/Mass-Delete-Dialog sowie der Seiten-Haupt-CTA des Mass-Delete-Panels.
 
-  Merksatz: Outline löst aus, Solid vollzieht. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
-- **Wann anwenden:** Jede destruktive Aktion bekommt beide Stufen: `danger`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen.
-- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/admin/admin-channels-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
+  Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
+- **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen.
+- **Die Admin-Listen sind am 2026-08-06 nachgezogen** und damit ist der offene Punkt von oben entschieden. Die Vermutung war, Purge und Session-Revoke wögen schwerer und rechtfertigten den Kasten; im gerenderten Bild war die Users-Seite mit **25 Zeilen** die schlimmste Farbleiter im ganzen Projekt — deutlich schlimmer als die zwanzig der Voting-Liste, an der die Stufe entstanden ist. Schwere rechtfertigt keine Wiederholung; die typisierte Namensbestätigung vor der Purge ist das, was sie tatsächlich absichert.
+- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`; in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
 
-- **Was gilt:** Jedes status-artige Label (Rolle, Bot-, Session-, Worker-Zustand) ist ein `<app-status-badge>` mit einem der festen Tones — der Baustein kennt nur Töne, die Bedeutung liegt beim Aufrufer. Gelebte Zuordnung (beibehalten, nicht umdeuten):
+- **Was gilt:** Ein `<app-status-badge>` markiert eine **bemerkenswerte** Eigenschaft, nicht jede Eigenschaft. Der Baustein kennt nur Töne, die Bedeutung liegt beim Aufrufer:
 
   | Tone | Verwendung im Bestand |
   |---|---|
-  | `accent` | Broadcaster |
-  | `info` | Moderator |
-  | `success` | 7TV-Editor · Bot aktiv · „läuft"-Zustände |
+  | `accent` | hervorgehobene Eigenschaft |
+  | `info` | Hinweis-Eigenschaft |
+  | `success` | LIVE · „läuft"-Zustände |
   | `neutral` | inaktiv/neutral |
   | `warning` | degradiert/Warnung |
   | `danger` | Fehler/getrennt |
 
   Die Tones hießen bis 2026-08-02 `purple`/`blue`/`emerald`/`slate`/`amber`/`red`. Die Namen sind mit dem hellen Modus zu Bedeutungen geworden, weil der Wert dahinter pro Modus ein anderer ist — s. 2.0.
 
-- **Referenz:** `web/src/app/shared/ui/status-badge.ts`; Verwendung `overview-page.html`, `admin-channels-page.ts`.
+- **Die Prüffrage lautet „bemerkenswert wie oft?"** (seit 2026-08-06). Eine Pille, die in jeder Zeile steht, markiert nichts mehr — sie ist eine Farbleiter. Drei Muster sind daraus zurückgebaut worden: die **Rollen** in der Übersicht (Broadcaster/Moderator/7TV-Editor) sind eine Tatsache über *dich* und auf den meisten Konten in jeder Zeile dasselbe Wort → stiller Text. Die **Abstimmungs-Zielgruppe** stand auf der Hälfte der Zeilen als blaue Pille → stiller Text, Einschränkung nur noch als eine Kontraststufe. **Offline** ist der unauffällige Fall → stiller Text; nur **LIVE** behält die Pille, weil es das Einzige ist, was *gerade jetzt* gilt.
+- **Zustand ≠ Eigenschaft.** Wovon eine Zeile gerade *ist* (Bot misst / Session läuft / Twitch-Token vorhanden), ist `<app-state-dot>` mit `tone="on"|"off"` — Punkt plus Wort statt Pille. Damit konkurriert der Zustand nicht mit den Eigenschaften daneben, und die Farbe trägt keine Bedeutung, die das Wort nicht schon trägt.
+- **Subsysteme, die ihre eigene Gesundheit melden, benutzen `<app-health-marker>`** (seit 2026-08-06). Der Baustein entscheidet die Darstellung anhand des Tons: `ok`/`idle` werden zum Punkt, `warning`/`danger` zur Pille. Damit trägt eine gesunde Monitoring-Seite **keine einzige farbige Pille**, und das erste auffällige Subsystem ist ohne Zutun das lauteste Element auf ihr. Das ist derselbe Satz wie oben, nur andersherum gelesen: die Aussage entsteht durch **Abwesenheit**, und Abwesenheit funktioniert nur, wenn nichts anderes sie ausgibt. Aufrufer bilden ihren Domänenstatus auf den `HealthTone` ab (`admin-monitoring-page.ts`, `admin-roster-card.ts`, `admin-channel-detail-page.ts`).
+- **Der App-Rahmen schweigt im Normalfall ganz** (seit 2026-08-06). Für den Kopfbereich gilt die Regel eine Stufe strenger als für eine Seite: was dort steht, steht auf **jedem** Bildschirm in **jeder** Sitzung, und selbst der stille Punkt-plus-Wort-Zustand von `HealthMarker` ist dafür zu viel. Der Worker-Status war ein Punkt plus „Worker verbunden" neben der Wortmarke und damit das am häufigsten wiederholte Element der ganzen Anwendung — bei einem Zustand, der fast immer derselbe ist. Jetzt steht dort bei `connected` und bei `unknown` **nichts** und bei `stale` eine Warn-Pille. `unknown` schweigt mit, weil es der Zustand vor der ersten Antwort ist: eine Warnung dort blitzt bei jedem Kaltstart auf. **Folge fürs Ganze:** der Banner „Chat-Worker nicht verbunden" auf der Übersicht ist entfallen — er existierte laut seinem eigenen Kommentar nur, weil der Kopf-Punkt „ein 10-px-Signal ist, das niemand bemerkt", und diese Prämisse gilt nicht mehr. Zwei Aussagen derselben Tatsache auf einem Bildschirm sind genau das, was der Rest dieses Kapitels abräumt.
+- **Ein transienter Zustand ist keine Warnung.** Der SSE-Stream steht beim Laden jeder Admin-Seite kurz auf `connecting`; als `warning` gerendert hätte das bei jedem Seitenaufruf eine gelbe Pille aufblitzen lassen und einem Admin beigebracht, gelbe Pillen zu übersehen. `connecting` ist deshalb `idle`.
+- **Das Label geht als `label`-Input hinein, nicht als projizierter Inhalt.** Ein `<ng-content>` in zwei Zweigen eines Control-Flow-Blocks wird von Angular nur einmal befüllt — beim Wechsel zwischen Punkt und Pille wäre der Text sonst still verschwunden.
+- **Referenz:** `web/src/app/shared/ui/status-badge.ts`, `web/src/app/shared/ui/state-dot.ts`, `web/src/app/shared/ui/health-marker.ts`; Verwendung `overview-page.html`, `vote-session-list-page.html`, `admin-*`.
 
 ### 4.4 NoticeBanner
 
 - **Was gilt:** Jede seitenweite Meldung ist ein `<app-notice-banner>`; keine Ad-hoc-Fehlerboxen oder gefärbten Absätze. `variant="error"` rendert `role="alert"` (wird vorgelesen), `info`/`warning` bleiben `role="status"` (still). Aktions-Button in den `[notice-action]`-Slot (rechtsbündig).
-- **Wann anwenden:** `error` = fehlgeschlagener Request (Text via `apiErrorTranslationKey`, s. 9), `warning` = degradierter Zustand (Worker down, Reauth nötig, Bot inaktiv), `info` = gutartiger Wartezustand (Sync ausstehend).
+- **Wann anwenden:** `error` = fehlgeschlagener Request (Text via `apiErrorTranslationKey`, s. 9), `warning` = degradierter Zustand (Reauth nötig, Bot inaktiv), `info` = gutartiger Wartezustand (Sync ausstehend).
+- **Nicht für etwas, das der App-Rahmen schon sagt** (seit 2026-08-06). „Worker down" stand hier bis dahin als Beispiel und war einer — der Kopfbereich trägt diesen Zustand jetzt selbst (4.3), und der Banner wäre die zweite Stimme. Ein Banner ist für das, was **diese Seite** betrifft.
 - **Referenz:** `web/src/app/shared/ui/notice-banner.ts`; Verwendung `overview-page.html`, `usage-stats-page.html`.
 
 ## 5. Formulare & Validierung
@@ -189,28 +208,38 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 ### 6.1 Skeleton vs. Spinner (NN/g-Regel)
 
 - **Was gilt:** **Skeleton für Seiten-/Listen-Ladevorgänge, disabled-Button (Label bleibt konstant) für isolierte Aktionen.** Keine „Lädt…"-Textzeilen, keine Spinner für Seitenladen.
-  - Listen: `<app-skeleton-rows [count]="3" />`.
-  - Abweichende Formen (Grids): handgerolltes Skeleton nach demselben A11y-Muster — **ein** `role="status"`-Element mit übersetztem `aria-label`, die Schimmer-Blöcke (`.app-skeleton`) in einem `aria-hidden="true"`-Container, Zellen in der Form des echten Inhalts.
+  - Geriffelte Listen: `<app-skeleton-rows [count]="3" />`.
+  - Abschnittsseiten (Admin-Monitoring, Admin-Channel-Detail): `<app-skeleton-sections [count]="3" />`.
+  - Abweichende Formen (Atlas, Stimmzettel): handgerolltes Skeleton nach demselben A11y-Muster — **ein** `role="status"`-Element mit übersetztem `aria-label`, die Schimmer-Blöcke (`.app-skeleton`) in einem `aria-hidden="true"`-Container.
   - Aktionen (Refresh, Join, Purge): Button `[disabled]="isLoading()"`, Label bleibt.
-- **Referenz:** `web/src/app/shared/ui/skeleton-rows.ts`, Grid-Variante `web/src/app/features/usage-stats/usage-stats-page.html`.
+- **Das Skeleton zeichnet den Umriss des echten Inhalts, nicht irgendeinen Platzhalter** — Rahmen, Abstand und horizontale Kante inklusive. Galt bis 2026-08-06 nur für Grids und wurde deshalb genau dort verletzt, wo es niemand geprüft hat: `SkeletonRows` blieb ein Kartenstapel, nachdem die Listen ihre Karten verloren hatten, und war zuletzt die einzige verbliebene `.app-card`-Nutzung der App. Sichtbar wurde das als seitlich springender Text auf sechs Seiten (Skeleton `px-4` in einer Box gegen `-mx-3 … px-3` in der echten Zeile). **Ein Skeleton, dessen Umriss vom Inhalt abweicht, lässt das Eintreffen des Inhalts wie einen Layoutfehler aussehen** — es kostet damit genau die Ruhe, für die es überhaupt da ist. Wer eine Listen-/Abschnittsform ändert, prüft das zugehörige Skeleton im selben Commit.
+- **Referenz:** `web/src/app/shared/ui/skeleton-rows.ts`, `skeleton-sections.ts`, Grid-Variante `web/src/app/features/usage-stats/usage-stats-page.html`.
 
 ### 6.2 EmptyState
 
-- **Was gilt:** Jeder Leerzustand ist ein `<app-empty-state>` mit `title` (warum leer) + möglichst `description` und projiziertem CTA (was als Nächstes tun). Optionales Emoji-`icon` im lila Quadrat. Kein nackter grauer Satz.
+- **Was gilt:** Jeder Leerzustand ist ein `<app-empty-state>` mit `title` (warum leer) + möglichst `description` und projiziertem CTA (was als Nächstes tun). Kein nackter grauer Satz.
+- **Kein Emoji, keine gestrichelte Box, nicht zentriert** (seit 2026-08-06). Der `icon`-Input ist ersatzlos **entfernt**, damit keine Aufrufstelle ein Emoji behalten kann; neun Flächen hatten eines von hier geerbt. Ein Bilderrahmen um 🔍 ist kein Icon-System, sondern dessen Abwesenheit — und eine zentrierte Textspalte in einer linksbündigen Seite liest sich wie ein Platzhalter, den jemand vergessen hat, was für einen korrekten und erwarteten Zustand genau die falsche Lesart ist. Stattdessen dieselbe Haarlinie-plus-Label-Form, die die Atlas-Bänder und die Landing-Stufen benutzen.
 - **Wann anwenden:** Liste/Grid ohne Einträge, Filter ohne Treffer — aber erst **nach** abgeschlossenem Laden (Skeleton verhindert das Aufblitzen des EmptyState während `rxResource`-Loads mit `defaultValue`).
-- **Referenz:** `web/src/app/shared/ui/empty-state.ts`; Verwendung `overview-page.html` (📺), `usage-stats-page.html` (😀/🔍).
+- **Referenz:** `web/src/app/shared/ui/empty-state.ts`; Verwendung `overview-page.html`, `usage-stats-page.html`.
 
 ## 7. Dialoge
 
-- **Was gilt:** **Jeder** Dialog läuft über `Dialog.open(..., { backdropClass: 'app-dialog-backdrop', panelClass: 'app-dialog-panel' })` aus `@angular/cdk/dialog` — nie `window.confirm`, nie handgebaute Overlays. Fokus-Trap, Escape, Backdrop-Klick, `aria-modal`, Fokus-Rückgabe kommen vom CDK.
+- **Was gilt:** **Jeder** Dialog läuft über `@angular/cdk/dialog` — nie `window.confirm`, nie handgebaute Overlays. Fokus-Trap, Escape, Backdrop-Klick, `aria-modal`, Fokus-Rückgabe kommen vom CDK.
+- **Öffnen: nie `Dialog.open` direkt.** Jede Dialog-Komponente exportiert ihre eigene `open<X>Dialog(dialog, data)`-Funktion neben sich, die intern `openAppDialog` (`shared/ui/dialog.ts`) aufruft — dort sitzen `backdropClass`, `panelClass` und die Benennung. Der Grund ist gemessen: der Dreizeiler stand an zwölf Aufrufstellen von Hand, fünf davon hatten `ariaLabelledBy` vergessen. Ein neuer Dialog bekommt seine `open…()`-Funktion im selben Commit wie die Komponente.
+- **Innen: `<app-dialog-shell>`** (`shared/ui/dialog-shell.ts`) — Fläche, Padding, Überschrift, Body, Aktionszeile. Abstände macht die Shell (Flex-Spalte), **nicht** `mb-*` an jedem Kind; enger zusammengehörender Inhalt wickelt sich in ein eigenes `flex flex-col gap-1`. Die Breite gehört dem Pane (`.cdk-overlay-pane.app-dialog-panel`), nie dem Inhalt.
+- **Benennung (jeder Dialog braucht einen Accessible Name):** entweder eine sichtbare Überschrift — dann `[dialogTitle]` bzw. ein `[dialog-header]`-Slot mit `id="app-dialog-title"`, und `openAppDialog` verdrahtet `ariaLabelledBy` selbst — **oder** ein `ariaLabel` mit einer kurzen Aktionsphrase. Ein Dialog ohne beides ist ein Fehler.
+- **Aktionszeile: Abbrechen steht immer zuerst.** Damit landet der `first-tabbable`-Default des CDK auf dem harmlosen Knopf; ein explizites `cdkFocusInitial` erübrigt sich. Eine *Wahl* (Format, Bereich) gehört in den Body als Radiogruppe, nicht als zweiter Ausgangsknopf in die Fußzeile — sonst konkurrieren gleichrangige Optionen als Buttons und eine muss willkürlich leiser gestuft werden.
+- **Farbe im Dialog meint „dieser Fall ist ungewöhnlich".** Hinweise, die für *jeden* Durchlauf gelten (»unwiderruflich«, »nicht alle Channels erkennbar«), sind still — `fg-secondary`/`fg-muted`. Nur der Befund, der diesen Durchlauf von den anderen unterscheidet, wird `<app-notice-banner>`. Vier gestapelte Warnfarben im Lösch-Dialog hießen faktisch: keine davon ist wichtig.
+- **Namenslisten** (»das wird gelöscht«) über `<app-name-preview-list>` — Kappung bei 50 plus gezählter Rest, geriffelte Zeilen nach §2.1, voll blutend gegen das `p-6` der Shell.
 - **Wahlkriterium:**
-  - `ConfirmDialog` (`shared/ui/confirm-dialog.ts`): destruktive Aktion, die eine Ja/Nein-Bestätigung braucht (Channel verlassen, Session löschen). Aufrufer übergibt fertig übersetzte `message`/`confirmLabel`; schließt nur bei explizitem Bestätigen mit `true`.
-  - `TypedConfirmDialog` (`shared/ui/typed-confirm-dialog.ts`): Aktion ist unwiderruflich **und** zeilenbezogen (Channel-Purge) — Nachtippen beweist, *welche* Zeile gemeint war. Vergleich getrimmt, aber case-sensitiv. Bei `title` zusätzlich `ariaLabelledBy` an `Dialog.open` übergeben.
-  - Eigener Dialog nur, wenn keiner der beiden passt (z. B. Mass-Delete mit Fortschritt) — dann gleiche `backdropClass`/`panelClass`-Konvention.
+  - `ConfirmDialog` (`shared/ui/confirm-dialog.ts`): destruktive Aktion, die eine Ja/Nein-Bestätigung braucht (Channel verlassen, Session löschen). Aufrufer übergibt fertig übersetzte `message`/`confirmLabel`. Bewusst **ohne** Überschrift — jede seiner Meldungen beginnt schon mit der Aktion; benannt wird er per `ariaLabel`.
+  - `TypedConfirmDialog` (`shared/ui/typed-confirm-dialog.ts`): Aktion ist unwiderruflich **und** zeilenbezogen (Channel-Purge) — Nachtippen beweist, *welche* Zeile gemeint war. Vergleich getrimmt, aber case-sensitiv. `title` ist Pflicht.
+  - Eigener Dialog nur, wenn keiner der beiden passt (z. B. Mass-Delete mit Fortschritt) — dann trotzdem `DialogShell` + eigene `open…()`.
+- **Gesperrter Bestätigen-Knopf braucht seinen Grund als Text** neben sich (`mr-auto` in der Aktionszeile, per `aria-describedby` verbunden). Ausgegraut allein ist keine wahrnehmbare Erklärung (WCAG) — gilt für das Nachtipp-Feld genauso wie für den laufenden Shared-Set-Check.
 - **CDK-Fallen (beide live gefunden):**
   1. Der Overlay-Container hängt **außerhalb** der App-Shell-DOM — er erbt keine Textfarbe. Dialog-Panel und `.app-input` brauchen explizites `color` (haben sie; bei neuen Overlay-Styles daran denken).
   2. CDK injiziert seine Overlay-Styles zur Laufzeit **hinter** allen Bundle-Stylesheets. Panel-Chrome muss deshalb unlayered und mit erhöhter Spezifität definiert werden (`.cdk-overlay-pane.app-dialog-panel`) — neue Panel-Regeln nach demselben Muster.
-- **Referenz:** `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/ui/typed-confirm-dialog.ts`, `web/src/styles.css` (Dialog-Klassen), Aufrufer `channel-workspace-layout.ts`, `admin-channels-page.ts`.
+- **Referenz:** `web/src/app/shared/ui/dialog.ts`, `dialog-shell.ts`, `name-preview-list.ts`, `confirm-dialog.ts`, `typed-confirm-dialog.ts`, `web/src/styles.css` (Dialog-Klassen), Aufrufer `channel-workspace-layout.ts`, `admin-channels-page.ts`.
 
 ### 7.1 Popover (nicht-modal)
 
@@ -224,26 +253,18 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ### 8.1 Tab-Leisten (Router-Link-Muster)
 
-- **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Kanonisches Snippet — inklusive `ariaCurrentWhenActive="page"`, das ist Pflicht:
+- **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Ein Tab ist `<app-tab-link>`; die Leiste bleibt beim Aufrufer, weil ihre Sticky-Position pro Ebene verschieden ist:
 
   ```html
   <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
-    <a
-      [routerLink]="['...', 'tab']"
-      routerLinkActive
-      ariaCurrentWhenActive="page"
-      #tab="routerLinkActive"
-      [class]="
-        tab.isActive
-          ? 'flex items-center border-b-2 border-accent px-3 text-sm text-fg transition'
-          : 'flex items-center border-b-2 border-transparent px-3 text-sm text-fg-muted transition hover:text-fg-body'
-      "
-    >{{ 'x.tab' | transloco }}</a>
+    <app-tab-link link="usage-stats" [label]="'x.tab' | transloco" />
   </nav>
   ```
 
-  Die Klassenkette ist bewusst (noch) keine Primitive — bei Änderungen **alle** Vorkommen synchron halten: `admin-layout.ts` (4×), `channel-workspace-layout.ts` (2×). `h-10` und `flex items-center` (statt `py-2`) sind Teil des Sticky-Vertrags aus §8.5 — die Tab-Leisten-Höhe ist der `top`-Offset der Filter-Toolbars.
-- **Referenz:** `web/src/app/features/admin/admin-layout.ts`.
+  **Seit 2026-08-06 eine Primitive** (`shared/ui/tab-link.ts`). Vorher stand die Klassenkette samt `routerLinkActive`-Template-Referenz siebenmal von Hand da — 4× im Admin-Layout, 3× im Workspace — mit der Notiz „bei Änderungen alle Vorkommen synchron halten". Ein Vertrag, der in sieben kopierten String-Literalen lebt, driftet beim ersten Edit; die Notiz sagte genau das voraus und war schon falsch (3, nicht 2, im Workspace). `ariaCurrentWhenActive="page"` steckt jetzt in der Primitive und ist damit nicht mehr vergessbar. `display: contents` auf dem Host: der Anker muss selbst das Flex-Kind sein, sonst zentriert er in einer eigenen Box statt die `h-10` der Leiste zu tragen.
+
+  `h-10` und `flex items-center` (statt `py-2`) sind Teil des Sticky-Vertrags aus §8.5 — die Tab-Leisten-Höhe ist der `top`-Offset der Filter-Toolbars.
+- **Referenz:** `web/src/app/shared/ui/tab-link.ts`; Leisten in `admin-layout.ts`, `channel-workspace-layout.ts`.
 
 ### 8.2 In-Page-Anker
 
@@ -288,6 +309,13 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 - **Textfilter laufen über `query.textFilter(key, debounceMs)`, nie über ein eigenes `signal()` + `debounceTime`.** Das Tippen bleibt lokal und sofort sichtbar, die URL bekommt erst den ausgeruhten Wert — eine Router-Navigation zwischen Taste und Zeichen frisst Eingaben, und ein Wert, der mitten im Wort aus der URL zurückkommt, überschreibt den Cursor. Dass `setParams` die Drafts der Keys mitleert, die es schreibt, ist Teil des Vertrags und kein Detail: ein Wert, der noch im Debounce-Fenster hängt, hat die URL nie erreicht und würde sich sonst 300 ms später selbst zurückschreiben — unter einer Filterkombination, die die Seite gerade ausgeschlossen hat.
 - **Nicht abgedeckt:** eine Seitennummer außerhalb des Bereichs (`?page=9999`) wird durchgereicht — das Backend antwortet mit einer leeren Seite und die Liste zeigt ihren Leerzustand. Clamping bräuchte `totalPages`, das es erst *nach* der Antwort gibt, die mit diesem Zustand angefordert wird.
 - **Referenz:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`), `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`); Verwendung `admin-audit-log-page.ts` (drei Filter), `channel-activity-page.ts` (zwei), `admin-users-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (Anker ist die `<ul>` — die Seite hat über den Zeilen keine eigene Überschrift, nur die Anlege-Karte, und genau dorthin darf ein Seitenwechsel *nicht* zurückspringen). Flow-Test `web/e2e/channel-activity.e2e.spec.ts`.
+
+### 8.4a Inhaltsbreite (eine, bewusst)
+
+- **Was gilt:** Die Inhaltsspalte hat **eine** Breite, app-weit: `max-w-5xl` (64 rem) an der Header-Zeile und an `<main>`. Keine Seite und keine Route setzt eine eigene.
+- **Der Gegenversuch und warum er weg ist:** Am 2026-08-06 lief kurz eine zweite Breite (96 rem) für die beiden Sprite-Blätter, routengesteuert über `data.wideLayout`. Sachlich stimmte die Begründung — auf dem Atlas ist Breite keine Dekoration, sondern Emote-Spalten. Im Gebrauch überwog trotzdem das andere: **beim Wechsel zwischen einer Blatt- und einer Listenseite springt der Rahmen**, und ein Layout, das bei jeder Navigation die Breite ändert, ist unruhiger als eine Blattseite, die 500 px verschenkt. Die Entscheidung fiel am selben Tag durch Ausprobieren, nicht am Reißbrett.
+- **Falls die Blätter ihre Breite je zurückbekommen:** dann ohne den Rahmen zu bewegen — also nicht über die Shell-Spalte, sondern indem die Blattfläche *innerhalb* der konstanten Spalte ausbricht. Ein zweiter Anlauf über Routen-Daten ist kein neuer Vorschlag, sondern derselbe.
+- **Referenz:** `web/src/app/features/shell/app-shell.ts` (Kommentar an der Header-Zeile).
 
 ### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
 
@@ -346,9 +374,9 @@ Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.*
 
 Vor dem Abschluss jeder UI-Änderung abhaken:
 
-1. [ ] **Primitives statt Utility-Ketten:** `appButton`, `StatusBadge`, `NoticeBanner`, `EmptyState`, `SkeletonRows`, `SegmentedControl`, `ConfirmDialog`/`TypedConfirmDialog`, `Pager`, `ThemeMenu`, `.app-card*`, `.app-input*` — nichts davon nachbauen.
+1. [ ] **Primitives statt Utility-Ketten:** `appButton`, `StatusBadge`, `NoticeBanner`, `EmptyState`, `SkeletonRows`/`SkeletonSections`, `SegmentedControl`, `ConfirmDialog`/`TypedConfirmDialog`, `Pager`, `ThemeMenu`, `.app-input*` — nichts davon nachbauen.
 2. [ ] **Farbe aus Tokens** (2.0): keine Paletten-Utility unter `web/src/app/` — `npm run lint` erzwingt das. Fehlt ein Token, wird es **ergänzt**, mit Werten für **beide** Modi und gerechnetem Kontrast in der Commit-Message. Und: **beide Modi angesehen**, nicht nur den, in dem gerade gearbeitet wurde.
-3. [ ] **Flächen:** `.app-card`; `app-card-interactive` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
+3. [ ] **Flächen:** geriffelte Zeile bzw. randloser Abschnitt (2.1); `.app-card-link` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
 4. [ ] **Typo-Skala** eingehalten (Abschnitt 3), Heading-Level folgt Dokumentstruktur.
 5. [ ] **Destruktiv-Flow:** `danger`-Auslöser → Dialog → `danger-solid`-Vollzug (4.2).
 6. [ ] **Ladezustand:** Skeleton (Seite/Liste) bzw. disabled-Button (Aktion) — kein Lade-Text (6.1).

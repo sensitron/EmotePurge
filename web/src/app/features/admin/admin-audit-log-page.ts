@@ -123,7 +123,6 @@ const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
       } @else if (rows().length === 0) {
         @if (hasActiveFilters()) {
           <app-empty-state
-            icon="🔍"
             [title]="'admin.audit.filter.noMatches' | transloco"
             [description]="'admin.audit.filter.noMatchesHint' | transloco"
           >
@@ -133,7 +132,6 @@ const EMPTY_PAGE: PagedResult<AuditLogEntry> = {
           </app-empty-state>
         } @else {
           <app-empty-state
-            icon="📋"
             [title]="'admin.audit.empty' | transloco"
             [description]="'admin.audit.emptyHint' | transloco"
           />

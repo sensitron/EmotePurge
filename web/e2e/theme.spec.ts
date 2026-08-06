@@ -89,10 +89,12 @@ test.describe('theme', () => {
     expect(themeAtBoot).toBe('light');
   });
 
-  test('switching modes swaps the logo without any runtime complaint', async ({ page }) => {
-    // The brand mark is bound rather than static, and NgOptimizedImage has opinions about an ngSrc
-    // that changes after init — opinions it voices at runtime, where neither the build nor a unit
-    // test would hear them. So this asserts on the console, not just on the attribute.
+  test('the logo is one asset in both modes and survives the switch silently', async ({ page }) => {
+    // This test used to assert that the mark SWAPS between a dark and a light PNG. It no longer
+    // does: the mark is a single flat-colour SVG that carries on both grounds, so the guarantee
+    // worth holding is the opposite one — the src must NOT change when the mode does, and the
+    // switch must stay silent. The console check is the part that earned this test its keep;
+    // neither the build nor a unit test hears a runtime image warning.
     const problems: string[] = [];
     page.on('console', (message) => {
       if (message.type() === 'error' || message.type() === 'warning') {
@@ -105,11 +107,12 @@ test.describe('theme', () => {
     await mockMyChannels(page, []);
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto('/');
-    await expect(page.locator('header img').first()).toHaveAttribute('src', /logo\.png/);
+    await expect(page.locator('header img').first()).toHaveAttribute('src', /logo\.svg/);
 
     await page.emulateMedia({ colorScheme: 'light' });
 
-    await expect(page.locator('header img').first()).toHaveAttribute('src', /logo-light\.png/);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('header img').first()).toHaveAttribute('src', /logo\.svg/);
     expect(problems, problems.join('\n')).toEqual([]);
   });
 

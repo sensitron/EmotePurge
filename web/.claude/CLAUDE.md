@@ -21,6 +21,12 @@ You are an expert in TypeScript, Angular, and scalable web application developme
 - Do NOT use the `@HostBinding` and `@HostListener` decorators. Put host bindings inside the `host` object of the `@Component` or `@Directive` decorator instead
 - Use `NgOptimizedImage` for all static images.
   - `NgOptimizedImage` does not work for inline base64 images.
+  - **SVG: use it, but add `disableOptimizedSrcset`.** The directive is built for raster images —
+    it generates a density `srcset`, warns about intrinsic-versus-rendered size, and preconnects to
+    the image loader. A vector has no resolution, so the `srcset` is meaningless and the size checks
+    have nothing to measure. The directive stays anyway, because `@angular-eslint/template/prefer-ngsrc`
+    has no per-extension exemption and swapping it for three `eslint-disable` comments trades the
+    same noise for a lint rule with holes. Revisit if Angular ever ships an SVG-aware opt-out.
 
 ## Accessibility Requirements
 

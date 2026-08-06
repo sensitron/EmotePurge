@@ -10,7 +10,7 @@ import {
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { CSV_MIME } from '../export/csv';
-import { ExportChoice, ExportDialog, ExportDialogData } from '../export/export-dialog';
+import { ExportDialogData, openExportDialog } from '../export/export-dialog';
 import { JSON_MIME } from '../export/export-envelope';
 import { downloadFile } from '../export/file-download';
 import {
@@ -20,10 +20,10 @@ import {
   purgeRunJson,
 } from '../export/purge-run-export';
 import { Button } from '../ui/button';
-import { DeleteConfirmDialog, DeleteConfirmDialogData } from './delete-confirm-dialog';
-import { RestoreConfirmDialog, RestoreConfirmDialogData } from './restore-confirm-dialog';
+import { DeleteConfirmDialogData, openDeleteConfirmDialog } from './delete-confirm-dialog';
+import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
 import { RunProgressPanel } from './run-progress-panel';
-import { SevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
+import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
 export interface DeletableEmote {
   emoteId: string;
@@ -238,11 +238,7 @@ export class MassDeletePanel {
     // the token is saved, which chains straight into the confirm dialog — the flow the old
     // hand-built overlay produced via its reactive template switch.
     if (!this.tokenService.hasToken()) {
-      const promptRef = this.dialog.open<boolean>(SevenTvTokenPromptDialog, {
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      });
-      promptRef.closed.subscribe((saved) => {
+      openSevenTvTokenPromptDialog(this.dialog).closed.subscribe((saved) => {
         if (saved) {
           this.openConfirmDialog();
         }
@@ -273,31 +269,24 @@ export class MassDeletePanel {
       selectionCount: 0,
       noticeKeys: [],
     };
-    this.dialog
-      .open<ExportChoice | undefined>(ExportDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'export-dialog-title',
-      })
-      .closed.subscribe((choice) => {
-        if (choice?.format === 'csv') {
-          downloadFile(
-            purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'csv'),
-            purgeRunCsv(protocol),
-            CSV_MIME,
-          );
-        } else if (choice?.format === 'json') {
-          downloadFile(
-            purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'json'),
-            purgeRunJson(protocol),
-            JSON_MIME,
-          );
-        }
-        if (choice) {
-          this.protocolSaved.set(true);
-        }
-      });
+    openExportDialog(this.dialog, data).closed.subscribe((choice) => {
+      if (choice?.format === 'csv') {
+        downloadFile(
+          purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'csv'),
+          purgeRunCsv(protocol),
+          CSV_MIME,
+        );
+      } else if (choice?.format === 'json') {
+        downloadFile(
+          purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'json'),
+          purgeRunJson(protocol),
+          JSON_MIME,
+        );
+      }
+      if (choice) {
+        this.protocolSaved.set(true);
+      }
+    });
   }
 
   protected openRestoreConfirm(): void {
@@ -311,11 +300,7 @@ export class MassDeletePanel {
     }
 
     if (!this.tokenService.hasToken()) {
-      const promptRef = this.dialog.open<boolean>(SevenTvTokenPromptDialog, {
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      });
-      promptRef.closed.subscribe((saved) => {
+      openSevenTvTokenPromptDialog(this.dialog).closed.subscribe((saved) => {
         if (saved) {
           this.openRestoreConfirmDialog(doneItems);
         }
@@ -345,26 +330,19 @@ export class MassDeletePanel {
       names: doneItems.map((item) => item.name),
       slots: this.restoreSlots.asReadonly(),
     };
-    this.dialog
-      .open<boolean>(RestoreConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'restore-confirm-dialog-title',
-      })
-      .closed.subscribe((confirmed) => {
-        if (confirmed) {
-          this.restoreService.startRestore(
-            this.setId(),
-            this.channelName(),
-            doneItems.map((item) => ({
-              emoteId: item.emoteId,
-              sevenTvEmoteId: item.sevenTvEmoteId,
-              name: item.name,
-            })),
-          );
-        }
-      });
+    openRestoreConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (confirmed) {
+        this.restoreService.startRestore(
+          this.setId(),
+          this.channelName(),
+          doneItems.map((item) => ({
+            emoteId: item.emoteId,
+            sevenTvEmoteId: item.sevenTvEmoteId,
+            name: item.name,
+          })),
+        );
+      }
+    });
   }
 
   private openConfirmDialog(): void {
@@ -380,13 +358,7 @@ export class MassDeletePanel {
       warning: this.setWarning.asReadonly(),
       warningLoading: this.warningLoading.asReadonly(),
     };
-    const confirmRef = this.dialog.open<boolean>(DeleteConfirmDialog, {
-      data,
-      backdropClass: 'app-dialog-backdrop',
-      panelClass: 'app-dialog-panel',
-      ariaLabelledBy: 'delete-confirm-dialog-title',
-    });
-    confirmRef.closed.subscribe((confirmed) => {
+    openDeleteConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
       if (confirmed) {
         this.startDelete();
       }

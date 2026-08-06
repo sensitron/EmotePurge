@@ -152,6 +152,67 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             liveDays);
     }
 
+    public async Task<ChannelUsageSeriesDto> GetChannelSeriesAsync(
+        string channelName, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        if (from > to)
+        {
+            throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
+        }
+
+        var normalized = ChannelName.Normalize(channelName);
+
+        var channelId = await db.Channels
+            .Where(c => c.ChannelName == normalized)
+            .Select(c => c.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (channelId is null)
+        {
+            return new ChannelUsageSeriesDto(from, to, [], []);
+        }
+
+        // Same exclusion as GetUsageContextAsync: this feeds the usage grid, and an archived emote
+        // is not on it. The single-emote series keeps archived emotes because a ballot can still
+        // list them — that caller asks by id and knows what it is asking for.
+        var emoteIds = await db.Emotes
+            .Where(e => e.ChannelId == channelId && !e.IsArchived)
+            .Select(e => e.Id)
+            .ToListAsync(cancellationToken);
+
+        var liveDays = await db.ChannelLiveDays
+            .Where(l => l.ChannelId == channelId && l.Date >= from && l.Date <= to && l.LiveMinutes > 0)
+            .OrderBy(l => l.Date)
+            .Select(l => l.Date)
+            .ToListAsync(cancellationToken);
+        var liveDayOffsets = liveDays.Select(d => d.DayNumber - from.DayNumber).ToList();
+
+        if (emoteIds.Count == 0)
+        {
+            return new ChannelUsageSeriesDto(from, to, liveDayOffsets, []);
+        }
+
+        // One index-only scan over (EmoteId, Date) INCLUDE (UseCount) for the whole channel, then
+        // grouped in memory. Deliberately not a GroupBy in SQL: the grouping here is pure
+        // partitioning with no aggregate to push down, so the database would do the same work and
+        // hand back the same number of rows either way — and rule 10 makes a navigation-joined
+        // GroupBy the fragile shape to reach for. Ordering by (EmoteId, Date) is what lets the
+        // in-memory GroupBy below emit each emote's days already ascending.
+        var rows = await db.UsageStats
+            .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
+            .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
+            .Select(u => new { u.EmoteId, u.Date, u.UseCount })
+            .ToListAsync(cancellationToken);
+
+        var emotes = rows
+            .GroupBy(r => r.EmoteId)
+            .Select(g => new EmoteSeriesEntryDto(
+                g.Key,
+                g.Select(r => new[] { r.Date.DayNumber - from.DayNumber, r.UseCount }).ToList()))
+            .ToList();
+
+        return new ChannelUsageSeriesDto(from, to, liveDayOffsets, emotes);
+    }
+
     public async Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(
         IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
     {

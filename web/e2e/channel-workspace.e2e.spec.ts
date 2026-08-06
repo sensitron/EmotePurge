@@ -62,8 +62,13 @@ test.describe('authenticated broadcaster', () => {
 
     await expect(page).toHaveURL(/\/channels\/sensitron\/usage-stats$/);
     await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
-    await expect(page.getByText('PogU')).toBeVisible();
-    await expect(page.getByText('42x')).toBeVisible();
+    // The atlas prints no name on the cell — the sprite is the cell, and the name lives in the
+    // sidecar, which describes the busiest emote until the pointer says otherwise. The cell itself
+    // carries name and count in its accessible name, which is what a screen reader gets, so the
+    // second assertion covers both at once. Scoped, because the narrow-viewport variant of the same
+    // readout is in the DOM too, just hidden by CSS at this width.
+    await expect(page.getByRole('complementary').getByText('PogU')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'PogU · 42×' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Channel verlassen' })).toBeVisible();
   });
 
@@ -196,7 +201,11 @@ test.describe('authenticated broadcaster', () => {
     );
 
     await page.goto('/channels/sensitron/usage-stats');
-    await expect(page.getByText('Emote0', { exact: true })).toBeVisible();
+    // Scoped to the sidecar: the same readout also exists as a line for narrow viewports, hidden by
+    // CSS at this width but still in the DOM, so an unscoped text locator matches twice.
+    await expect(
+      page.getByRole('complementary').getByText('Emote0', { exact: true }),
+    ).toBeVisible();
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);

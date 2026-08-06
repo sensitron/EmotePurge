@@ -1,9 +1,13 @@
-import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
+import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
 import { Component, Signal, computed, inject } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { pluralKey } from '../../core/i18n/plural';
 import { Button } from '../ui/button';
+import { openAppDialog } from '../ui/dialog';
+import { DialogShell } from '../ui/dialog-shell';
+import { NamePreviewList } from '../ui/name-preview-list';
+import { NoticeBanner } from '../ui/notice-banner';
 
 export interface RestoreConfirmDialogData {
   /** Names of the emotes about to be re-added — the preview list, capped like the delete's. */
@@ -21,47 +25,54 @@ export interface RestoreConfirmDialogData {
  */
 @Component({
   selector: 'app-restore-confirm-dialog',
-  imports: [Button, TranslocoPipe],
+  imports: [Button, DialogShell, NamePreviewList, NoticeBanner, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-surface p-6 shadow-overlay">
-      <h2 id="restore-confirm-dialog-title" class="mb-3 text-lg font-semibold">
-        {{ titleKey | transloco: { count: data.names.length } }}
-      </h2>
-      <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-fg-secondary">
-        @for (name of previewNames(); track name) {
-          <li>{{ name }}</li>
-        }
-        @if (data.names.length > previewNames().length) {
-          <li class="text-fg-muted">
-            {{ andMoreKey() | transloco: { count: data.names.length - previewNames().length } }}
-          </li>
-        }
-      </ul>
+    <app-dialog-shell [dialogTitle]="titleKey | transloco: { count: data.names.length }">
+      <app-name-preview-list [names]="data.names" />
 
       @if (projection(); as slots) {
-        <p class="mb-1 text-sm" [class]="slots.overflow ? 'text-warning-fg' : 'text-fg-muted'">
-          {{
-            'restore.capacityProjection'
-              | transloco: { projected: slots.projected, capacity: slots.capacity }
-          }}
-        </p>
         @if (slots.overflow) {
-          <p class="mb-1 text-sm text-warning-fg" role="alert">
-            {{ 'restore.capacityWarning' | transloco }}
+          <app-notice-banner variant="warning">
+            <span class="flex flex-col gap-1">
+              <span>
+                {{
+                  'restore.capacityProjection'
+                    | transloco: { projected: slots.projected, capacity: slots.capacity }
+                }}
+              </span>
+              <span>{{ 'restore.capacityWarning' | transloco }}</span>
+            </span>
+          </app-notice-banner>
+        } @else {
+          <p class="text-sm text-fg-muted">
+            {{
+              'restore.capacityProjection'
+                | transloco: { projected: slots.projected, capacity: slots.capacity }
+            }}
           </p>
         }
       }
-      <p class="mb-4 text-xs text-fg-muted">{{ 'restore.historyNote' | transloco }}</p>
+      <p class="text-xs text-fg-muted">{{ 'restore.historyNote' | transloco }}</p>
 
-      <div class="flex justify-end gap-2">
-        <button type="button" appButton="outline" buttonSize="lg" (click)="dialogRef.close(false)">
-          {{ 'common.cancel' | transloco }}
-        </button>
-        <button type="button" appButton="primary" buttonSize="lg" (click)="dialogRef.close(true)">
-          {{ 'restore.confirmExecute' | transloco }}
-        </button>
-      </div>
-    </div>
+      <button
+        dialog-actions
+        type="button"
+        appButton="outline"
+        buttonSize="lg"
+        (click)="dialogRef.close(false)"
+      >
+        {{ 'common.cancel' | transloco }}
+      </button>
+      <button
+        dialog-actions
+        type="button"
+        appButton="primary"
+        buttonSize="lg"
+        (click)="dialogRef.close(true)"
+      >
+        {{ 'restore.confirmExecute' | transloco }}
+      </button>
+    </app-dialog-shell>
   `,
 })
 export class RestoreConfirmDialog {
@@ -69,10 +80,6 @@ export class RestoreConfirmDialog {
   protected readonly dialogRef = inject<DialogRef<boolean>>(DialogRef);
 
   protected readonly titleKey = pluralKey(this.data.names.length, 'restore.confirmTitle');
-  protected readonly previewNames = computed(() => this.data.names.slice(0, 50));
-  protected readonly andMoreKey = computed(() =>
-    pluralKey(this.data.names.length - this.previewNames().length, 'massDelete.andMore'),
-  );
 
   protected readonly projection = computed(() => {
     const slots = this.data.slots();
@@ -82,4 +89,11 @@ export class RestoreConfirmDialog {
     const projected = slots.occupied + this.data.names.length;
     return { projected, capacity: slots.capacity, overflow: projected > slots.capacity };
   });
+}
+
+export function openRestoreConfirmDialog(
+  dialog: Dialog,
+  data: RestoreConfirmDialogData,
+): DialogRef<boolean> {
+  return openAppDialog<boolean, RestoreConfirmDialogData>(dialog, RestoreConfirmDialog, { data });
 }

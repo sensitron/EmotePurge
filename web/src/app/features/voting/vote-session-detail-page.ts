@@ -2,7 +2,16 @@ import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -22,13 +31,12 @@ import {
   VoteType,
 } from '../../core/voting/vote-session.model';
 import { VoteSessionService } from '../../core/voting/vote-session.service';
-import { EmoteCardHeader } from '../../shared/emotes/emote-card-header';
 import {
   EmoteDrilldownData,
-  EmoteDrilldownDialog,
+  openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportChoice, ExportDialog, ExportDialogData } from '../../shared/export/export-dialog';
+import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -40,27 +48,46 @@ import {
 } from '../../shared/export/voting-export';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
-import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { ConfirmDialogData, openConfirmDialog } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
-import { StatusBadge } from '../../shared/ui/status-badge';
 import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
-import { chunkIntoRows, computeGridColumns } from '../../shared/grid/grid-columns';
+import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
+import {
+  ATLAS_GAP_PX,
+  ATLAS_STICKY_TOP_PX,
+  SIDECAR_GAP_PX,
+  atlasColumns,
+} from '../../shared/grid/atlas-grid';
+import { chunkIntoRows } from '../../shared/grid/grid-columns';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
 
-// Row height (px) fed to CdkVirtualScrollViewport — see the identical comment in UsageStatsPage.
-// Taller than the usage-stats grid: each card also carries the stats lines and the vote buttons.
-// Card h-44 (176) + row py-2 (16). One height for all breakpoints: below `sm` the buttons sit
-// side by side at 44px, which needs *less* height than the stacked desktop pair.
-//
-// What the 176 has to hold (desktop, the taller of the two): p-2 16 + name header h-5 20 + image
-// block h-10 40 + the two stacked stat lines 2x15 + vote buttons (2x min-h-6 + gap-1) 52 + three
-// gap-1 12 = 170. Stacking the score under the usage cost 10 of the 16 px that were spare, so it
-// still fits without touching this constant — but the remaining 6 px is the whole budget. Anything
-// further added to the card raises h-44 and this number together.
-const ROW_HEIGHT_PX = 192;
+/**
+ * The ballot cell, in two sizes.
+ *
+ * This is not the usage atlas, and the difference is the task: there the cell is a thing to mark in
+ * bulk, here it carries two vote targets that have to stay real targets. So the cell does NOT
+ * shrink to 64 px everywhere — below roughly 600 px of room it grows instead, because the people
+ * voting are viewers and viewers are on phones. At 96 px the emote is more than twice the size it
+ * had on the old card (40 px), the vote buttons keep their 44 px height, and three fit across a
+ * phone where two cards did.
+ *
+ * Above that width the pointer is precise and the reader is usually a moderator working through the
+ * result, so the dense 64 px cell takes over.
+ *
+ * The threshold is measured against the CONTAINER, not the viewport — the sheet sits next to a
+ * sidecar from `lg` up, so the window's width says nothing about the room the cells actually have.
+ */
+const CELL_WIDE_PX = 64;
+const CELL_NARROW_PX = 96;
+const STRIP_WIDE_PX = 24;
+const STRIP_NARROW_PX = 44;
+const NARROW_BELOW_PX = 600;
+
+/** Ratio bar under the vote strip, plus the gutter between rows. */
+const RATIO_BAR_PX = 2;
 
 // Votes from other people arrive one by one. Half a second is short enough to feel live and long
 // enough that a moderator clicking through ten emotes produces one refetch, not ten. The same
@@ -82,17 +109,13 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     Button,
     EmptyState,
     NoticeBanner,
-    StatusBadge,
     VoteAudienceBadge,
     ScrollingModule,
     NgOptimizedImage,
     MassDeletePanel,
-    EmoteCardHeader,
+    UsageRangeMenu,
     TranslocoPipe,
   ],
-  host: {
-    '(window:resize)': 'onResize()',
-  },
   templateUrl: './vote-session-detail-page.html',
 })
 export class VoteSessionDetailPage {
@@ -113,9 +136,26 @@ export class VoteSessionDetailPage {
   protected readonly voteType = VoteType;
   protected readonly currentUser = this.authService.currentUser;
 
-  private readonly viewportWidth = signal(window.innerWidth);
-  protected readonly columns = computed(() => computeGridColumns(this.viewportWidth()));
-  protected readonly rowHeight = ROW_HEIGHT_PX;
+  // Measured, not derived from the window — see the note at CELL_WIDE_PX, and the same defect
+  // fixed on the usage atlas: the shell caps content at 1024 px while window.innerWidth kept
+  // counting to 2560, so a wide monitor got eight stretched cards in 992 px.
+  private readonly sheetRef = viewChild.required<ElementRef<HTMLElement>>('sheet');
+  private readonly stickyBarRef = viewChild<ElementRef<HTMLElement>>('stickyBar');
+  protected readonly sheetWidth = signal(0);
+
+  protected readonly cellPx = computed(() =>
+    this.sheetWidth() > 0 && this.sheetWidth() < NARROW_BELOW_PX ? CELL_NARROW_PX : CELL_WIDE_PX,
+  );
+  protected readonly stripPx = computed(() =>
+    this.cellPx() === CELL_NARROW_PX ? STRIP_NARROW_PX : STRIP_WIDE_PX,
+  );
+  /** Enough room for the thumb icon beside the tally; below it the number carries the button. */
+  protected readonly showVoteIcons = computed(() => this.stripPx() >= STRIP_NARROW_PX);
+  protected readonly rowHeight = computed(
+    () => this.cellPx() + this.stripPx() + RATIO_BAR_PX + ATLAS_GAP_PX,
+  );
+  protected readonly columns = computed(() => atlasColumns(this.sheetWidth(), this.cellPx()));
+  protected readonly sidecarTop = signal(ATLAS_STICKY_TOP_PX + SIDECAR_GAP_PX);
 
   protected readonly results = signal<VoteSessionResults | null>(null);
   protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
@@ -247,9 +287,47 @@ export class VoteSessionDetailPage {
     })),
   );
 
+  /**
+   * The emote the readout is describing, held by id rather than by object: every vote reloads the
+   * results, and an object reference would pin the panel to a stale copy. Falls back to the first
+   * row so the panel is never empty.
+   */
+  private readonly inspectedId = signal<string | null>(null);
+  protected readonly inspected = computed(() => {
+    const list = this.emotes();
+    const id = this.inspectedId();
+    return (id ? list.find((emote) => emote.emoteId === id) : undefined) ?? list[0] ?? null;
+  });
+
   constructor() {
     // Deferred, not called directly — see the identical comment in VoteSessionListPage.
     effect(() => this.load());
+
+    effect((onCleanup) => {
+      const element = this.sheetRef().nativeElement;
+      this.sheetWidth.set(element.clientWidth);
+      const observer = new ResizeObserver((entries) => {
+        this.sheetWidth.set(entries[0].contentRect.width);
+      });
+      observer.observe(element);
+      onCleanup(() => observer.disconnect());
+    });
+
+    // The toolbar only exists above FILTER_TOOLBAR_MIN_EMOTES, so this one is optional — without it
+    // the sidecar pins directly under the workspace tabs, which is exactly right.
+    effect((onCleanup) => {
+      const element = this.stickyBarRef()?.nativeElement;
+      if (!element) {
+        this.sidecarTop.set(ATLAS_STICKY_TOP_PX + SIDECAR_GAP_PX);
+        return;
+      }
+      const measure = () =>
+        this.sidecarTop.set(ATLAS_STICKY_TOP_PX + element.offsetHeight + SIDECAR_GAP_PX);
+      measure();
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      onCleanup(() => observer.disconnect());
+    });
 
     // Live tally *and* live usage, off the one channel stream this page already holds open.
     // Results reload on every relevant event; the channel-status side-load only when a
@@ -268,14 +346,12 @@ export class VoteSessionDetailPage {
     });
   }
 
-  protected onResize(): void {
-    this.viewportWidth.set(window.innerWidth);
-  }
-
-  // One guarded entry point for click/Enter/Space on a card. preventDefault only fires on the
-  // keyboard path and only when the card is selectable — an unselectable card must keep Space's
-  // default page scroll.
+  // One guarded entry point for click/Enter/Space on the sprite. preventDefault only fires on the
+  // keyboard path and only when the sprite is selectable — an unselectable sprite must keep Space's
+  // default page scroll. Also pins the readout, so a tap on a touch screen (where nothing hovers)
+  // still tells the voter which emote they are looking at.
   protected onCardActivate(emote: VoteSessionResult, event: MouseEvent | KeyboardEvent): void {
+    this.inspectedId.set(emote.emoteId);
     if (!this.canSelectForDelete()) {
       return;
     }
@@ -283,6 +359,19 @@ export class VoteSessionDetailPage {
       event.preventDefault();
     }
     this.selection.onRowClick(emote, event as MouseEvent);
+  }
+
+  protected inspect(emote: VoteSessionResult): void {
+    this.inspectedId.set(emote.emoteId);
+  }
+
+  /** Share of the keep votes in the ratio bar under the strip; null while a tally is withheld. */
+  protected keepShare(emote: VoteSessionResult): number | null {
+    if (emote.keepVotes === null || emote.deleteVotes === null) {
+      return null;
+    }
+    const total = emote.keepVotes + emote.deleteVotes;
+    return total === 0 ? null : (emote.keepVotes / total) * 100;
   }
 
   protected formatDateTime(iso: string): string {
@@ -364,12 +453,7 @@ export class VoteSessionDetailPage {
         myVote: emote.myVote,
       },
     };
-    this.dialog.open<void>(EmoteDrilldownDialog, {
-      data,
-      backdropClass: 'app-dialog-backdrop',
-      panelClass: 'app-dialog-panel',
-      ariaLabelledBy: 'emote-drilldown-title',
-    });
+    openEmoteDrilldownDialog(this.dialog, data);
   }
 
   // Exports the *visible* list (filtered + frozen order). Client-side serialization of the loaded
@@ -400,20 +484,13 @@ export class VoteSessionDetailPage {
       selectionCount: 0,
       noticeKeys,
     };
-    this.dialog
-      .open<ExportChoice | undefined>(ExportDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'export-dialog-title',
-      })
-      .closed.subscribe((choice) => {
-        if (choice?.format === 'csv') {
-          downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
-        } else if (choice?.format === 'json') {
-          downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
-        }
-      });
+    openExportDialog(this.dialog, data).closed.subscribe((choice) => {
+      if (choice?.format === 'csv') {
+        downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
+      } else if (choice?.format === 'json') {
+        downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
+      }
+    });
   }
 
   /**
@@ -426,25 +503,19 @@ export class VoteSessionDetailPage {
       message: this.translocoService.translate('voting.detail.endConfirm', { title }),
       confirmLabel: this.translocoService.translate('voting.list.end'),
     };
-    this.dialog
-      .open<boolean>(ConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      })
-      .closed.subscribe((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        this.errorMessage.set(null);
-        this.voteSessionService.end(this.channelName(), Number(this.sessionId())).subscribe({
-          // Full reload, not a local patch of isActive: the endpoint answers with a summary while
-          // this page holds results, and ending a secret ballot unseals every tally at once — the
-          // page after the click shows materially more than the page before it.
-          next: () => this.load({ freeze: false }),
-          error: (error: HttpErrorResponse) => this.errorMessage.set(apiErrorTranslationKey(error)),
-        });
+    openConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.errorMessage.set(null);
+      this.voteSessionService.end(this.channelName(), Number(this.sessionId())).subscribe({
+        // Full reload, not a local patch of isActive: the endpoint answers with a summary while
+        // this page holds results, and ending a secret ballot unseals every tally at once — the
+        // page after the click shows materially more than the page before it.
+        next: () => this.load({ freeze: false }),
+        error: (error: HttpErrorResponse) => this.errorMessage.set(apiErrorTranslationKey(error)),
       });
+    });
   }
 
   protected vote(emote: VoteSessionResult, type: VoteType): void {

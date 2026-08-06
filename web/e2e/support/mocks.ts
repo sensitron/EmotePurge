@@ -668,6 +668,32 @@ export async function mockUsageDaily(
 }
 
 /**
+ * GET /api/channels/{channelName}/usage-stats/series — the whole set's daily curves in one
+ * response, which is what feeds the atlas sidecar's sparkline.
+ *
+ * `days` is keyed by emote id and holds `[dayOffset, useCount]` pairs counted from the range's
+ * `from` — the encoding the real endpoint uses, deliberately not prettied up here, because a mock
+ * that speaks a friendlier dialect than the server is a mock that cannot catch a decoding bug.
+ * Emotes absent from the map get no entry at all, which is how the server says "no usage".
+ */
+export async function mockUsageChannelSeries(
+  page: Page,
+  channelName: string,
+  days: Record<string, [number, number][]>,
+  liveDays: number[] = [],
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/usage-stats/series**`, (route) => {
+    const url = new URL(route.request().url());
+    return fulfillJson(route, 200, {
+      from: url.searchParams.get('from') ?? '2026-07-01',
+      to: url.searchParams.get('to') ?? '2026-07-28',
+      liveDays,
+      emotes: Object.entries(days).map(([emoteId, entries]) => ({ emoteId, days: entries })),
+    });
+  });
+}
+
+/**
  * GET /api/channels/{channelName}/emotes/active-set — needed for the mass-delete panel to render,
  * and the source of the slot-budget bar above the grid.
  */
@@ -785,10 +811,13 @@ export async function mockVoteSessionResults(
         emoteName: emote.emoteName,
         sevenTvEmoteId: emote.sevenTvEmoteId ?? `7tv-${emote.emoteId}`,
         imageUrl: emote.imageUrl ?? 'https://cdn.7tv.app/emote/1/1x.webp',
-        totalUseCount: emote.totalUseCount ?? 10,
-        keepVotes: emote.keepVotes ?? 2,
-        deleteVotes: emote.deleteVotes ?? 1,
-        score: emote.score ?? 1,
+        // `?? default` would swallow an explicit null, and null is not "unset" here — it is the
+        // server's withholding verdict for a running secret ballot, which a spec has to be able
+        // to express. Only `undefined` falls back.
+        totalUseCount: emote.totalUseCount === undefined ? 10 : emote.totalUseCount,
+        keepVotes: emote.keepVotes === undefined ? 2 : emote.keepVotes,
+        deleteVotes: emote.deleteVotes === undefined ? 1 : emote.deleteVotes,
+        score: emote.score === undefined ? 1 : emote.score,
         isArchived: emote.isArchived ?? false,
         myVote: emote.myVote ?? null,
       })),

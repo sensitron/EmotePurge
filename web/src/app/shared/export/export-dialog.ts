@@ -1,9 +1,12 @@
-import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
+import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
 import { Component, computed, inject, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { pluralKey } from '../../core/i18n/plural';
 import { Button } from '../ui/button';
+import { openAppDialog } from '../ui/dialog';
+import { DialogShell } from '../ui/dialog-shell';
+import { NoticeBanner } from '../ui/notice-banner';
 
 export type ExportFormat = 'csv' | 'json';
 
@@ -33,18 +36,21 @@ export interface ExportDialogData {
   noticeKeys: readonly string[];
 }
 
-/** Closes with the chosen format + scope, or `undefined` on cancel/Escape/backdrop. */
+/**
+ * Closes with the chosen format + scope, or `undefined` on cancel/Escape/backdrop.
+ *
+ * The format used to be two footer buttons next to Cancel, which made a *choice* look like two
+ * competing exits and forced one of the two equal formats into the quieter variant. It is a radio
+ * group now, matching the scope choice directly above it, and the footer states one action.
+ */
 @Component({
   selector: 'app-export-dialog',
-  imports: [Button, TranslocoPipe],
+  imports: [Button, DialogShell, NoticeBanner, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-surface p-6 shadow-overlay">
-      <h2 id="export-dialog-title" class="mb-1 text-lg font-semibold">
-        {{ 'export.title' | transloco }}
-      </h2>
+    <app-dialog-shell [dialogTitle]="'export.title' | transloco">
       @if (data.selectionCount > 0) {
         <div
-          class="mb-1 flex flex-wrap gap-4 text-sm text-fg-secondary"
+          class="flex flex-wrap gap-4 text-sm text-fg-secondary"
           role="radiogroup"
           [attr.aria-label]="'export.scopeLabel' | transloco"
         >
@@ -70,27 +76,60 @@ export interface ExportDialogData {
           </label>
         </div>
       }
-      <p class="mb-1 text-sm text-fg-secondary">
-        {{ rowCountKey() | transloco: { count: exportRowCount() } }}
-      </p>
-      @if (data.filtered && scope() === 'visible') {
-        <p class="mb-1 text-xs text-fg-muted">{{ 'export.filteredHint' | transloco }}</p>
-      }
-      @for (noticeKey of data.noticeKeys; track noticeKey) {
-        <p class="mt-2 text-sm text-warning-fg" role="status">{{ noticeKey | transloco }}</p>
-      }
-      <div class="mt-4 flex flex-wrap justify-end gap-2">
-        <button type="button" appButton="outline" buttonSize="lg" (click)="dialogRef.close()">
-          {{ 'common.cancel' | transloco }}
-        </button>
-        <button type="button" appButton="neutral" buttonSize="lg" (click)="close('json')">
-          {{ 'export.formatJson' | transloco }}
-        </button>
-        <button type="button" appButton="primary" buttonSize="lg" (click)="close('csv')">
+
+      <div
+        class="flex flex-wrap gap-4 text-sm text-fg-secondary"
+        role="radiogroup"
+        [attr.aria-label]="'export.formatLabel' | transloco"
+      >
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="radio"
+            class="h-4 w-4 accent-accent-solid"
+            name="export-format"
+            [checked]="format() === 'csv'"
+            (change)="format.set('csv')"
+          />
           {{ 'export.formatCsv' | transloco }}
-        </button>
+        </label>
+        <label class="flex items-center gap-2 py-1">
+          <input
+            type="radio"
+            class="h-4 w-4 accent-accent-solid"
+            name="export-format"
+            [checked]="format() === 'json'"
+            (change)="format.set('json')"
+          />
+          {{ 'export.formatJson' | transloco }}
+        </label>
       </div>
-    </div>
+
+      <div class="flex flex-col gap-1">
+        <p class="text-sm text-fg-secondary">
+          {{ rowCountKey() | transloco: { count: exportRowCount() } }}
+        </p>
+        @if (data.filtered && scope() === 'visible') {
+          <p class="text-xs text-fg-muted">{{ 'export.filteredHint' | transloco }}</p>
+        }
+      </div>
+
+      @for (noticeKey of data.noticeKeys; track noticeKey) {
+        <app-notice-banner variant="info">{{ noticeKey | transloco }}</app-notice-banner>
+      }
+
+      <button
+        dialog-actions
+        type="button"
+        appButton="outline"
+        buttonSize="lg"
+        (click)="dialogRef.close()"
+      >
+        {{ 'common.cancel' | transloco }}
+      </button>
+      <button dialog-actions type="button" appButton="primary" buttonSize="lg" (click)="submit()">
+        {{ 'export.submit' | transloco }}
+      </button>
+    </app-dialog-shell>
   `,
 })
 export class ExportDialog {
@@ -100,6 +139,8 @@ export class ExportDialog {
   // Defaults to the visible list even when a selection exists: the selection also drives
   // mass-delete and vote-session creation, and an export must never silently narrow to it.
   protected readonly scope = signal<ExportScope>('visible');
+  // CSV first — it is what the spreadsheet the mods actually use opens; JSON is the escape hatch.
+  protected readonly format = signal<ExportFormat>('csv');
 
   protected readonly exportRowCount = computed(() =>
     this.scope() === 'selection' ? this.data.selectionCount : this.data.rowCount,
@@ -109,7 +150,14 @@ export class ExportDialog {
     pluralKey(this.exportRowCount(), 'export.rowCount'),
   );
 
-  protected close(format: ExportFormat): void {
-    this.dialogRef.close({ format, scope: this.scope() });
+  protected submit(): void {
+    this.dialogRef.close({ format: this.format(), scope: this.scope() });
   }
+}
+
+export function openExportDialog(
+  dialog: Dialog,
+  data: ExportDialogData,
+): DialogRef<ExportChoice | undefined> {
+  return openAppDialog<ExportChoice | undefined, ExportDialogData>(dialog, ExportDialog, { data });
 }

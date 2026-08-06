@@ -15,9 +15,12 @@ import { AuditRow } from './audit-row';
   selector: 'app-audit-log-list',
   imports: [RouterLink, TranslocoPipe],
   template: `
-    <ul class="flex flex-col gap-2">
+    <!-- Hairline-divided rows, same recipe as the other lists. A log is the clearest case for it:
+         the rows are strictly homogeneous and their only job is to be read down the column, which a
+         stack of bordered rectangles actively works against. -->
+    <ul class="-mx-3 divide-y divide-border border-y border-border">
       @for (row of rows(); track row.id) {
-        <li class="app-card flex flex-col gap-1 px-4 py-3">
+        <li class="flex flex-col gap-1 px-3 py-3">
           <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span class="font-medium text-fg">
               @if (row.actionKey; as key) {

@@ -65,6 +65,46 @@ public record EmoteUsageSeriesDto(
     IReadOnlyList<EmoteDailyUsageDto> Days,
     IReadOnlyList<DateOnly> LiveDays);
 
+/// <summary>
+/// One emote's day rows inside <see cref="ChannelUsageSeriesDto"/>.
+/// </summary>
+/// <param name="Days">
+/// One <c>[dayOffset, useCount]</c> pair per day with actual usage, ascending, where the offset
+/// counts days from the range's <c>From</c>. Sparse for the same reason the single-emote series is
+/// sparse, and offset-encoded rather than ISO-dated because this is the batch: a channel-wide
+/// response carries thousands of these, an ISO date costs about five times what an offset does, and
+/// nothing between the Api and the browser compresses JSON (the reverse proxy's gzip covers
+/// text/html only). Pairs rather than two parallel arrays so the two halves cannot desynchronize.
+/// </param>
+public record EmoteSeriesEntryDto(string EmoteId, IReadOnlyList<int[]> Days);
+
+/// <summary>
+/// Every active emote's daily usage for one channel and range in a single response — the batch twin
+/// of <see cref="EmoteUsageSeriesDto"/>.
+/// </summary>
+/// <remarks>
+/// Exists because the consumer is a hover readout over a sheet of up to a thousand emotes. Asking
+/// <see cref="IUsageStatQueryService.GetDailySeriesAsync"/> per emote would turn pointer movement
+/// into requests against the endpoint group's rate limiter, and every one of those requests pays
+/// for the access filter's two uncached 7TV lookups. One call per (channel, range) removes the
+/// question instead of budgeting for it.
+/// </remarks>
+/// <param name="LiveDays">
+/// Day offsets from <paramref name="From"/> on which the channel was live — channel-level, so
+/// carried once here rather than repeated per emote as the single-emote series has to. Same
+/// "absent means unknown, not offline" caveat as <see cref="EmoteUsageSeriesDto.LiveDays"/>.
+/// </param>
+/// <param name="Emotes">
+/// Only emotes with at least one day of usage in the range, and only unarchived ones. An emote the
+/// caller knows about but does not find here has no usage in the window — the same statement the
+/// omitted days inside an entry make, one level up.
+/// </param>
+public record ChannelUsageSeriesDto(
+    DateOnly From,
+    DateOnly To,
+    IReadOnlyList<int> LiveDays,
+    IReadOnlyList<EmoteSeriesEntryDto> Emotes);
+
 public interface IUsageStatQueryService
 {
     Task<IReadOnlyList<EmoteUsageDto>> GetUsageStatsAsync(string channelName, CancellationToken cancellationToken = default);
@@ -85,6 +125,15 @@ public interface IUsageStatQueryService
     /// </summary>
     Task<EmoteUsageSeriesDto?> GetDailySeriesAsync(
         string channelName, string emoteId, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every unarchived emote's daily usage for the channel and range at once. An unknown channel
+    /// answers with empty lists rather than <c>null</c>: unlike the single-emote series there is no
+    /// id to get wrong, and the caller's access filter has already decided whether the channel may
+    /// be looked at.
+    /// </summary>
+    Task<ChannelUsageSeriesDto> GetChannelSeriesAsync(
+        string channelName, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Range totals for a known set of emote ids, keyed by id and omitting the ones without usage.

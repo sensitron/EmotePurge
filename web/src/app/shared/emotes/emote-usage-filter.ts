@@ -83,14 +83,17 @@ export class EmoteUsageFilter<T extends FilterableEmote> {
     this.onChange();
   }
 
-  toggleUnused(): void {
-    if (this.isUnusedActive()) {
-      this.minCount.set(null);
-      this.maxCount.set(null);
-    } else {
-      this.minCount.set(0);
-      this.maxCount.set(0);
-    }
+  /**
+   * Both bounds at once, for a control that offers named ranges rather than two free fields.
+   *
+   * Replaces `toggleUnused()` (2026-08-06), which was a toggle for a state that is really one of
+   * several: "never used" is just the 0/0 range, and it lived as a button beside the very two inputs
+   * it silently overwrote. Toggling is also the wrong verb once the ranges are presented as a
+   * choice — re-picking the selected option in a radio group must not clear it.
+   */
+  setRange(min: number | null, max: number | null): void {
+    this.minCount.set(min);
+    this.maxCount.set(max);
     this.onChange();
   }
 

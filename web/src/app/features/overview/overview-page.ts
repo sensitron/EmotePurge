@@ -8,13 +8,13 @@ import { AuthService } from '../../core/auth/auth.service';
 import { MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 import { GENERIC_ERROR_TRANSLATION_KEY, apiErrorTranslationKey } from '../../core/i18n/api-error';
-import { WorkerHealthService } from '../../core/health/worker-health.service';
 import { LIVE_EVENT_TYPES, LIVE_STATUS_URL } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
+import { StateDot } from '../../shared/ui/state-dot';
 import { StatusBadge } from '../../shared/ui/status-badge';
 
 const OVERVIEW_RELOAD_DEBOUNCE_MS = 250;
@@ -22,20 +22,22 @@ const LIVE_AGE_TICK_MS = 30_000;
 
 @Component({
   selector: 'app-overview-page',
-  imports: [Button, EmptyState, NoticeBanner, RouterLink, SkeletonRows, StatusBadge, TranslocoPipe],
+  imports: [
+    Button,
+    EmptyState,
+    NoticeBanner,
+    RouterLink,
+    SkeletonRows,
+    StateDot,
+    StatusBadge,
+    TranslocoPipe,
+  ],
   templateUrl: './overview-page.html',
 })
 export class OverviewPage {
   private readonly authService = inject(AuthService);
   private readonly channelService = inject(ChannelService);
   private readonly router = inject(Router);
-  private readonly workerHealthService = inject(WorkerHealthService);
-
-  // The header dot alone is a 10px signal nobody notices — while the worker is down, nothing is
-  // being counted, which deserves a real page-level notice on the entry page.
-  protected readonly workerDisconnected = computed(
-    () => this.workerHealthService.status() === 'stale',
-  );
 
   // rxResource instead of a one-shot constructor subscribe: live.changed pushes reload the list.
   // Two different mechanisms keep the rows on screen across such a reload: the resource itself holds
@@ -117,6 +119,25 @@ export class OverviewPage {
 
     const tick = setInterval(() => this.nowMs.set(Date.now()), LIVE_AGE_TICK_MS);
     inject(DestroyRef).onDestroy(() => clearInterval(tick));
+  }
+
+  /**
+   * The roles this account holds in a channel, as translation keys, in the order the old badge run
+   * used. Built here rather than in the template because a template cannot join a conditional list
+   * without repeating the separator logic three times.
+   */
+  protected roleKeys(channel: MyChannelDto): string[] {
+    const keys: string[] = [];
+    if (channel.isBroadcaster) {
+      keys.push('overview.roleBadges.broadcaster');
+    }
+    if (channel.isModerator) {
+      keys.push('overview.roleBadges.moderator');
+    }
+    if (channel.isSevenTvEditor) {
+      keys.push('overview.roleBadges.sevenTvEditor');
+    }
+    return keys;
   }
 
   protected join(channelName: string): void {

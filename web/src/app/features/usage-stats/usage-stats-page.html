@@ -1,5 +1,8 @@
-<div class="flex flex-col gap-6">
-  <!-- Same header layout as the voting-detail page: title left, refresh top-right, filters below. -->
+<!-- The atlas surface. The per-emote card is gone: a 144 px box around a 40 px sprite spent 92 % of
+     its area on chrome, and at ~900 emotes that chrome was 18.000 px of scrolling. Here the sprite
+     IS the cell, weight is carried by order, band and a hairline fill bar, and the labels that used
+     to be printed 900 times over live once in the inspector line under the toolbar. -->
+<div [class]="'flex flex-col gap-5 ' + (dockVisible() ? 'pb-40' : '')">
   <header class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-lg font-semibold">{{ 'usageStats.title' | transloco }}</h2>
     <div class="flex items-center gap-2">
@@ -9,7 +12,7 @@
         type="button"
         appButton="neutral"
         class="disabled:cursor-not-allowed"
-        [disabled]="sortedEmotes().length === 0"
+        [disabled]="atlasOrder().length === 0"
         [attr.aria-label]="'export.buttonAriaLabel' | transloco"
         (click)="openExport()"
       >
@@ -27,104 +30,165 @@
     </div>
   </header>
 
-  <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). -->
-  <div class="app-sticky-bar top-24 flex flex-wrap items-center gap-2 py-2 text-sm">
-    <app-date-range-menu
-      [(from)]="from"
-      [(to)]="to"
-      [(preset)]="rangePreset"
-      [earliest]="trackedSinceDate()"
-    />
-    <button
-      type="button"
-      appButton="neutral"
-      [attr.aria-pressed]="sortKey() === 'usage'"
-      (click)="toggleSort('usage')"
-    >
-      {{ 'usageStats.sortByUsage' | transloco
-      }}{{ sortKey() === 'usage' ? (sortDirection() === 'desc' ? ' ↓' : ' ↑') : '' }}
-    </button>
-    <button
-      type="button"
-      appButton="neutral"
-      [attr.aria-pressed]="sortKey() === 'lastUsed'"
-      (click)="toggleSort('lastUsed')"
-    >
-      {{ 'usageStats.sortByLastUsed' | transloco
-      }}{{ sortKey() === 'lastUsed' ? (sortDirection() === 'desc' ? ' ↓' : ' ↑') : '' }}
-    </button>
-    <input
-      type="number"
-      min="0"
-      [placeholder]="'usageStats.filterMinPlaceholder' | transloco"
-      [attr.aria-label]="'usageStats.filterMinPlaceholder' | transloco"
-      [value]="usageFilter.min() ?? ''"
-      (change)="usageFilter.setMinCount($any($event.target).value)"
-      class="app-input-sm w-20"
-    />
-    <input
-      type="number"
-      min="0"
-      [placeholder]="'usageStats.filterMaxPlaceholder' | transloco"
-      [attr.aria-label]="'usageStats.filterMaxPlaceholder' | transloco"
-      [value]="usageFilter.max() ?? ''"
-      (change)="usageFilter.setMaxCount($any($event.target).value)"
-      class="app-input-sm w-20"
-    />
-    <input
-      type="text"
-      [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
-      [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
-      [title]="'usageStats.filterNameTitle' | transloco"
-      [value]="usageFilter.nameQuery()"
-      (input)="usageFilter.setNameFilter($any($event.target).value)"
-      class="app-input-sm w-40"
-    />
-    <!-- Constant label + pressed state instead of swapping the text ("Alle anzeigen"), which
-           changed the button's width on every toggle and made it jump between toolbar rows. -->
-    <button
-      type="button"
-      class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-      [class]="
-        usageFilter.isUnusedActive()
-          ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
-          : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
-      "
-      [attr.aria-pressed]="usageFilter.isUnusedActive()"
-      (click)="usageFilter.toggleUnused()"
-    >
-      {{ 'usageStats.showUnusedOnly' | transloco }}
-    </button>
-    <!-- Orthogonal to the unused filter on purpose: a fresh emote necessarily has 0 uses, so
-         dropping it from that list silently would make the count line stop adding up and leave the
-         moderator unable to find the emote they just added. Opting out is a separate act. -->
-    <button
-      type="button"
-      class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-      [class]="
-        usageFilter.isHideObservedActive()
-          ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
-          : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
-      "
-      [attr.aria-pressed]="usageFilter.isHideObservedActive()"
-      [title]="'usageStats.hideObservedTitle' | transloco"
-      (click)="usageFilter.toggleHideObserved()"
-    >
-      {{ 'usageStats.hideObserved' | transloco }}
-    </button>
-    <!-- The filter's own readout, so it sits with the controls that produce it and stays visible
-         while the grid scrolls. It used to be a lone paragraph above the slot bar, where two
-         unrelated "x of y" lines ended up stacked on top of each other. ml-auto parks it at the
-         right end of whichever toolbar row it lands on; at 360 px that is a row of its own. -->
-    <p
-      role="status"
-      [class]="
-        'ml-auto whitespace-nowrap ' +
-        (usageFilter.isAnyActive() ? 'font-medium text-accent-fg' : 'text-fg-muted')
-      "
-    >
-      {{ emoteCountKey() | transloco: { shown: sortedEmotes().length, total: emotes().length } }}
-    </p>
+  <!-- Sticky below header (top-14) + workspace tabs (h-10): top-24 (design doc §8.5). The inspector
+       is a second row of this ONE sticky element rather than a third sticky layer — the ladder is a
+       cross-page contract and this page does not get to add a rung to it. -->
+  <!-- Not pinned on a phone: the toolbar plus the inspector is around 200 px of chrome, and pinning
+       that into an 844 px viewport leaves a quarter of the screen for the thing the page is about.
+       On a phone it scrolls away and comes back on the way up; from `sm` it pins as before. -->
+  <div #stickyBar class="app-sticky-bar top-24 flex flex-col max-sm:static">
+    <!-- Row one: which slice of time the page is about, and in what order it is laid out. Both
+         answer "what am I looking at", neither removes anything from the sheet — which is what
+         separates them from row two. The toolbar used to be one undifferentiated run of nine grey
+         boxes in which time scope, ordering, filtering and the result count all looked alike. -->
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 text-sm">
+      <app-date-range-menu
+        [(from)]="from"
+        [(to)]="to"
+        [(preset)]="rangePreset"
+        [earliest]="trackedSinceDate()"
+      />
+      <!-- Two segmented controls instead of two toggle buttons that flipped direction when you
+           clicked the already-active one. That re-click was the only way to sort ascending and
+           nothing on screen said so; the arrow appeared afterwards, as the sole evidence of a state
+           the button's own appearance never showed. Key and direction are separate questions, and
+           the control that answers "one of these" already exists. -->
+      <app-segmented-control
+        [options]="sortKeyOptions"
+        [value]="sortKey()"
+        (valueChange)="setSortKey($event)"
+        [ariaLabel]="'usageStats.sortKeyLabel' | transloco"
+      />
+      <app-segmented-control
+        [options]="sortDirectionOptions"
+        [value]="sortDirection()"
+        (valueChange)="setSortDirection($event)"
+        [ariaLabel]="'usageStats.sortDirectionLabel' | transloco"
+      />
+    </div>
+
+    <!-- Row two: what is taken *out* of the sheet, ending in what is left of it. The count keeps its
+         place at the end of this row rather than moving to a line of its own — it is the filters'
+         result, and it belongs next to its cause. -->
+    <div class="flex flex-wrap items-center gap-2 py-2 text-sm">
+      <!-- Three controls collapsed into one: `Min`, `Max` and an "unused only (0×)" toggle that was
+           not a filter of its own but *was* min = 0 / max = 0, sitting beside the two fields it
+           silently overwrote. See UsageRangeMenu. -->
+      <app-usage-range-menu
+        [min]="usageFilter.min()"
+        [max]="usageFilter.max()"
+        (rangeChange)="usageFilter.setRange($event.min, $event.max)"
+      />
+      <input
+        type="text"
+        [placeholder]="'usageStats.filterNamePlaceholder' | transloco"
+        [attr.aria-label]="'usageStats.filterNamePlaceholder' | transloco"
+        [title]="'usageStats.filterNameTitle' | transloco"
+        [value]="usageFilter.nameQuery()"
+        (input)="usageFilter.setNameFilter($any($event.target).value)"
+        class="app-input-sm w-40"
+      />
+      <!-- Orthogonal to the unused range on purpose: a fresh emote necessarily has 0 uses, so
+           dropping it from that list silently would make the count line stop adding up and leave the
+           moderator unable to find the emote they just added. Opting out is a separate act. -->
+      <button
+        type="button"
+        appButton="neutral"
+        [buttonPressed]="usageFilter.isHideObservedActive()"
+        [attr.aria-pressed]="usageFilter.isHideObservedActive()"
+        [title]="'usageStats.hideObservedTitle' | transloco"
+        (click)="usageFilter.toggleHideObserved()"
+      >
+        {{ 'usageStats.hideObserved' | transloco }}
+      </button>
+      <!-- Only while something is filtered, like the audit log's. Until now the way back existed
+           only when the filter emptied the sheet completely — the reset lived in the empty state.
+           Narrow the sheet rather than empty it and you had to undo each control by hand, and
+           remember which ones you had touched. -->
+      @if (usageFilter.isAnyActive()) {
+        <button type="button" appButton="outline" (click)="usageFilter.reset()">
+          {{ 'usageStats.resetFilters' | transloco }}
+        </button>
+      }
+      <p
+        role="status"
+        [class]="
+          'ml-auto whitespace-nowrap ' +
+          (usageFilter.isAnyActive() ? 'font-medium text-accent-fg' : 'text-fg-muted')
+        "
+      >
+        {{ emoteCountKey() | transloco: { shown: atlasOrder().length, total: emotes().length } }}
+      </p>
+    </div>
+
+    <!-- The inspector. Every label the old card printed on all 900 tiles — name, last used, age,
+         trend — lives here once, for whichever cell the pointer or the keyboard is on. Deliberately
+         NOT an aria-live region: it changes on every hover, and announcing that would be a stream
+         of noise. Each cell carries its own name and count in its accessible label instead. -->
+    @if (inspected(); as emote) {
+      <div
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden"
+      >
+        <span class="app-sprite-cell flex h-7 w-7 shrink-0 items-center justify-center">
+          <img
+            [ngSrc]="emote.imageUrl"
+            width="28"
+            height="28"
+            disableOptimizedSrcset
+            alt=""
+            class="h-full w-full object-contain p-0.5"
+          />
+        </span>
+        <span class="font-medium text-fg">{{ emote.emoteName }}</span>
+        @if (inspectedRank(); as rank) {
+          <span class="font-mono">#{{ rank }}</span>
+        }
+        <!-- Which band this one is in. The header that says so may be dozens of rows up by the time
+             the pointer is here, and "is this still the regular cast or already the tail" is the
+             whole question the atlas is scanned for. -->
+        <span>{{ 'usageStats.bands.' + inspectedBand() + '.title' | transloco }}</span>
+        <span class="font-mono text-fg-body">
+          {{ formatCount(emote.totalUseCount) }}×
+          @if (inspectedShare(); as share) {
+            <span class="text-fg-muted">({{ formatPercent(share) }})</span>
+          }
+        </span>
+        <!-- Suppressed entirely rather than rendered as "stable" when the comparison would be an
+             artefact — a wrong direction is worse than none. -->
+        @if (trendFor(emote); as trend) {
+          @if (trend !== 'unknown') {
+            <span
+              [class]="
+                trend === 'rising'
+                  ? 'text-success-fg'
+                  : trend === 'falling'
+                    ? 'text-warning-fg'
+                    : 'text-fg-muted'
+              "
+              [title]="'usageStats.trend.' + trend | transloco"
+              >{{ 'usageStats.trendShort.' + trend | transloco }}</span
+            >
+          }
+        }
+        <span>
+          @if (emote.lastUsedDate) {
+            {{ 'usageStats.lastUsed' | transloco: { date: formatDate(emote.lastUsedDate) } }}
+          } @else {
+            {{ 'usageStats.neverUsed' | transloco }}
+          }
+        </span>
+        @if (isUnderObservation(emote)) {
+          <span class="text-info-fg">{{
+            observationLabelKey(emote) | transloco: { days: observationDays(emote) }
+          }}</span>
+        }
+        <!-- No history button here any more. It could not work: this line follows the pointer, so
+             the way to it from a cell crosses other cells and it repoints under way. The trigger
+             lives on the cell (zero travel), is permanently visible on a coarse pointer where
+             there is no hover to reveal it, and answers Enter on the keyboard. This line is a
+             readout, and only a readout. -->
+      </div>
+    }
   </div>
 
   @if (trackedSince(); as since) {
@@ -141,8 +205,6 @@
     }
   }
 
-  <!-- Deliberately not sticky: the top-24 chain (shell header h-14 + workspace tabs h-10) is a
-       layout contract, and pinning a third bar would push every filter toolbar in the app down. -->
   @if (setStatus(); as status) {
     <app-slot-budget-bar
       [capacity]="status.capacity"
@@ -151,189 +213,431 @@
     />
   }
 
-  @if (activeEmoteSetId(); as setId) {
-    <app-mass-delete-panel
-      [setId]="setId"
-      [channelName]="channelName()"
-      [selectedEmotes]="selectedForDelete()"
-      (deleted)="onDeleted($event)"
-      (reloadRequested)="onReloadRequested()"
-      (selectionCleared)="selection.clear()"
-    >
-      <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up
-           as a curated vote-session ballot. Count in the label + disabled at zero, mirroring the
-           delete button's conventions; managers only (the endpoint would 403 a 7TV editor).
-           Projected into the panel's action row so both selection consumers share one line;
-           ngProjectAs because an @if block itself carries no selector attribute. -->
-      <ng-container ngProjectAs="[selection-actions]">
-        @if (canManage()) {
-          <button
-            type="button"
-            appButton="primary"
-            buttonSize="lg"
-            class="disabled:cursor-not-allowed"
-            [disabled]="selection.selectedKeys().length === 0"
-            (click)="openCreateVoteSession()"
-          >
-            {{
-              'usageStats.createVoteSession' | transloco: { count: selection.selectedKeys().length }
-            }}
-          </button>
+  <!-- The ranked usage curve of the whole set, bucketed so it stays a curve rather than a smear at
+       900 emotes. It answers the question the atlas cannot show at a glance — how steep the head is
+       and how long the dead tail runs — and it is annotated with the two numbers that matter, so it
+       never has to be read as decoration. Not sticky: this is read once, on arrival. -->
+  @if (emotes().length > 0 && !isLoading()) {
+    <div class="flex flex-wrap items-end gap-x-5 gap-y-2">
+      <div class="w-28 shrink-0">
+        <span class="text-[10px] font-semibold tracking-[0.13em] text-fg-muted uppercase">
+          {{ 'usageStats.distribution.label' | transloco }}
+        </span>
+        <p class="mt-0.5 text-[11px] leading-snug text-fg-muted">
+          {{ 'usageStats.distribution.caption' | transloco }}
+        </p>
+      </div>
+      <div class="flex h-11 min-w-40 flex-1 items-end gap-px" aria-hidden="true">
+        @for (bucket of distribution(); track $index) {
+          <i
+            [class]="
+              'min-h-px flex-1 ' + ($index < heavyBuckets() ? 'bg-accent-fg' : 'bg-fg-disabled')
+            "
+            [style.height.%]="bucket * 100"
+          ></i>
         }
-      </ng-container>
-    </app-mass-delete-panel>
-    <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
-         Usage page only — this is where the purge decision lives. -->
-    <app-restore-panel [setId]="setId" [channelName]="channelName()" />
+      </div>
+      <p class="shrink-0 text-right text-[11px] leading-snug text-fg-muted">
+        <span class="block font-mono text-sm font-semibold text-fg-body">
+          {{ 'usageStats.distribution.dead' | transloco: { count: formatCount(deadCount()) } }}
+        </span>
+        @if (concentration(); as share) {
+          {{ 'usageStats.distribution.concentration' | transloco: { share: formatPercent(share) } }}
+        }
+      </p>
+    </div>
   }
 
   @if (errorMessage(); as message) {
     <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
   }
 
-  @if (isLoading()) {
-    <!-- Emote-card-shaped skeleton grid (NN/g: skeleton for page loads); one status element
-         carries the accessible loading text, the shimmer blocks are decorative. -->
-    <div role="status" [attr.aria-label]="'usageStats.loading' | transloco">
-      <div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6" aria-hidden="true">
-        @for (cell of skeletonCells; track cell) {
-          <div class="app-skeleton h-28"></div>
-        }
-      </div>
-    </div>
-  } @else if (isAwaitingSync()) {
-    <app-notice-banner variant="info">{{
-      'usageStats.awaitingSync' | transloco
-    }}</app-notice-banner>
-  } @else if (sortedEmotes().length === 0) {
-    @if (emotes().length === 0) {
-      <app-empty-state
-        icon="😀"
-        [title]="'usageStats.noActiveEmotes' | transloco"
-        [description]="'usageStats.noActiveEmotesHint' | transloco"
-      />
-    } @else {
-      <!-- The set has emotes; the filters hide all of them — offer the way back. -->
-      <app-empty-state icon="🔍" [title]="'usageStats.noMatches' | transloco">
-        <button type="button" appButton="neutral" (click)="usageFilter.reset()">
-          {{ 'usageStats.resetFilters' | transloco }}
-        </button>
-      </app-empty-state>
-    }
-  } @else {
-    <!-- Virtualized against the window scroll (scrollWindow): the page scrolls as one document,
-         the sticky bars pin over the rows passing beneath them (design doc §8.5). -->
-    <cdk-virtual-scroll-viewport
-      scrollWindow
-      [itemSize]="rowHeight"
-      [minBufferPx]="rowHeight"
-      [maxBufferPx]="rowHeight * 2"
-    >
-      <div
-        *cdkVirtualFor="let row of rows()"
-        class="grid gap-3 py-2"
-        [style.grid-template-columns]="'repeat(' + columns() + ', minmax(0, 1fr))'"
-      >
-        @for (emote of row; track emote.emoteId) {
-          <div
-            role="button"
-            tabindex="0"
-            [attr.aria-pressed]="selection.isSelected(emote)"
-            [class]="
-              'relative flex h-36 cursor-pointer flex-col gap-1 rounded-md border border-border p-2 text-center transition hover:bg-surface-inset/70 ' +
-              (selection.isSelected(emote)
-                ? 'inset-ring-2 inset-ring-accent bg-accent-wash'
-                : 'bg-surface')
-            "
-            (click)="selection.onRowClick(emote, $event)"
-            (mousedown)="$event.shiftKey && $event.preventDefault()"
-            (keydown.enter)="selection.onRowClick(emote, $any($event))"
-            (keydown.space)="$event.preventDefault(); selection.onRowClick(emote, $any($event))"
-          >
-            <!-- Second affordance beside the selection click (A5): stopPropagation on click *and*
-                 keydown, because Enter on the button would otherwise bubble into the card's
-                 selection handler — same isolation the vote buttons use on the voting cards.
-                 Absolutely positioned so ROW_HEIGHT_PX stays untouched; the name row keeps pr-6
-                 clear of it. The before: inset grows the hit area to 44px for touch without
-                 growing the visible 24px glyph — it may only overhang into the grid gap, never
-                 reach the neighbouring card. -->
-            <button
-              type="button"
-              class="absolute top-1 right-1 z-10 flex h-6 w-6 items-center justify-center rounded-full text-xs text-fg-muted transition before:absolute before:-inset-2.5 hover:bg-surface-inset hover:text-fg-body"
-              [attr.aria-label]="'usageStats.drilldown.open' | transloco: { name: emote.emoteName }"
-              (click)="$event.stopPropagation(); openDrilldown(emote)"
-              (keydown)="$event.stopPropagation()"
-              (mousedown)="$event.stopPropagation()"
-            >
-              ⓘ
+  <!-- Second column only when there is something to put in it: an empty state or a skeleton would
+       otherwise be squeezed into the sheet column while 16rem sit reserved and blank beside it. -->
+  <div
+    [class]="'grid items-start gap-5 ' + (inspected() ? 'lg:grid-cols-[minmax(0,1fr)_16rem]' : '')"
+  >
+    <!-- The element the column count is measured against (see atlasColumns). It wraps every result
+       state, so it exists from the first frame and the ResizeObserver never has nothing to watch. -->
+    <div #sheet>
+      @if (isLoading()) {
+        <!-- Atlas-shaped skeleton (NN/g: skeleton for page loads); one status element carries the
+           accessible loading text, the shimmer blocks are decorative. -->
+        <div role="status" [attr.aria-label]="'usageStats.loading' | transloco">
+          <div class="flex flex-wrap gap-1" aria-hidden="true">
+            @for (cell of skeletonCells; track cell) {
+              <div class="app-skeleton h-16 w-16 rounded-none"></div>
+            }
+          </div>
+        </div>
+      } @else if (isAwaitingSync()) {
+        <app-notice-banner variant="info">{{
+          'usageStats.awaitingSync' | transloco
+        }}</app-notice-banner>
+      } @else if (atlasOrder().length === 0) {
+        @if (emotes().length === 0) {
+          <app-empty-state
+            [title]="'usageStats.noActiveEmotes' | transloco"
+            [description]="'usageStats.noActiveEmotesHint' | transloco"
+          />
+        } @else {
+          <!-- The set has emotes; the filters hide all of them — offer the way back. -->
+          <app-empty-state [title]="'usageStats.noMatches' | transloco">
+            <button type="button" appButton="neutral" (click)="usageFilter.reset()">
+              {{ 'usageStats.resetFilters' | transloco }}
             </button>
-            <app-emote-card-header [name]="emote.emoteName" class="pr-6" />
-            <!-- bg-emote-canvas is its own token rather than surface-inset: the plate an emote is
-                 drawn on is a distinct role, because 7TV artwork is authored for dark chat and some
-                 of it carries white outlines. It follows the theme (the reasoning, and how to make
-                 it theme-fixed again in one line, is at the token in web/src/styles.css). Separate
-                 from the selection wash on purpose — that one lives on the card now, not under the
-                 image, where it used to fight the artwork for the same pixels. -->
-            <div class="flex h-10 shrink-0 items-center justify-center rounded bg-emote-canvas">
+          </app-empty-state>
+        }
+      } @else {
+        <p id="atlas-hint" class="sr-only">{{ 'usageStats.atlas.keyboardHint' | transloco }}</p>
+        <!-- Virtualized against the window scroll (scrollWindow): the page scrolls as one document,
+           the sticky bars pin over the rows passing beneath them (design doc §8.5). Band headers
+           are rows of the same height as a row of cells — CDK's fixed-size strategy needs one
+           uniform item size, and a heading wants the air anyway. -->
+        <cdk-virtual-scroll-viewport
+          scrollWindow
+          [itemSize]="rowHeight"
+          [minBufferPx]="rowHeight * 4"
+          [maxBufferPx]="rowHeight * 8"
+          role="group"
+          aria-describedby="atlas-hint"
+          [attr.aria-label]="'usageStats.atlas.label' | transloco"
+          (keydown)="onAtlasKeydown($event)"
+        >
+          <div *cdkVirtualFor="let row of rows()" [style.height.px]="rowHeight">
+            @if (row.kind === 'band') {
+              <div class="flex h-full items-end gap-3 pb-2">
+                <h3 class="text-[11px] font-semibold tracking-[0.13em] text-fg-secondary uppercase">
+                  {{ 'usageStats.bands.' + row.band + '.title' | transloco }}
+                </h3>
+                <span class="font-mono text-[11px] whitespace-nowrap text-fg-muted">
+                  {{ 'usageStats.bands.' + row.band + '.hint' | transloco }} ·
+                  {{ formatCount(row.count) }}
+                </span>
+                <span class="h-px min-w-4 flex-1 bg-border"></span>
+                <!-- Only on the dead band: it is the one group whose members are candidates by
+                   definition, so "all of them" is a sentence a moderator actually means. Offering
+                   it on the heavy band would be a loaded gun with no purpose. -->
+                @if (row.band === 'dead') {
+                  <button
+                    type="button"
+                    class="shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium text-accent-fg transition hover:bg-surface-inset"
+                    (click)="selectBand('dead')"
+                  >
+                    {{ 'usageStats.bands.selectAll' | transloco }}
+                  </button>
+                }
+              </div>
+            } @else {
+              <div
+                class="grid gap-1"
+                [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx + 'px)'"
+              >
+                @for (emote of row.items; track emote.emoteId; let i = $index) {
+                  <!-- Wrapper, not a nested button: the history trigger has to sit ON the cell, and a
+                     <button> inside a <button> is invalid HTML. Both are siblings inside a
+                     positioned box instead, so the trigger overlays the cell without nesting. -->
+                  <div class="group relative h-16 w-16">
+                    <!-- One tab stop for the whole grid, moved by the arrow keys (WAI-ARIA roving
+                       tabindex). 900 individual tab stops is what the incumbent card grid had, and
+                       it made the keyboard route through the page unusable.
+                       scroll-mt keeps a focused cell clear of the two sticky bars above when the
+                       browser scrolls it into view. -->
+                    <!-- Every cell gets the same plate, including the never-used ones. They carried
+                       the void plate until 2026-08-06, which said "unused" a third time: they stand
+                       as a closed block under a heading that says it, and each one prints a 0. A
+                       marking that applies to every member of the group it sits in marks nothing —
+                       and here it also cost the sheet its evenness, because a whole band rendered
+                       as a different KIND of surface rather than as the same surface with a zero on
+                       it. The void plate stays where it still separates unlike things inside one
+                       grid: an archived emote on a ballot, which has no heading to say it. -->
+                    <button
+                      type="button"
+                      [class]="
+                        'app-sprite-cell relative block h-full w-full scroll-mt-48 transition-shadow ' +
+                        (selection.isSelected(emote)
+                          ? ''
+                          : 'hover:inset-ring-1 hover:inset-ring-border-strong')
+                      "
+                      [attr.data-atlas-index]="row.startIndex + i"
+                      [attr.tabindex]="activeIndex() === row.startIndex + i ? 0 : -1"
+                      [attr.aria-pressed]="selection.isSelected(emote)"
+                      [attr.aria-label]="
+                        emote.emoteName + ' · ' + formatCount(emote.totalUseCount) + '×'
+                      "
+                      (click)="onCellClick(emote, row.startIndex + i, $event)"
+                      (mousedown)="$event.shiftKey && $event.preventDefault()"
+                      (mouseenter)="inspect(emote)"
+                      (focus)="onCellFocus(emote, row.startIndex + i)"
+                    >
+                      <img
+                        [ngSrc]="emote.imageUrl"
+                        width="64"
+                        height="64"
+                        alt=""
+                        class="h-full w-full object-contain p-1"
+                      />
+                      <!-- The figure is printed onto the sprite rather than under it: a caption row
+                       would cost a third of the cell, and the scrim is what makes it legible over
+                       whatever the artwork puts beneath. -->
+                      <span
+                        class="absolute bottom-0 left-0 px-1 font-mono text-[9px] leading-[1.4] font-medium"
+                        [style.background-color]="'var(--ep-sprite-scrim)'"
+                        [style.color]="'var(--ep-sprite-scrim-fg)'"
+                        >{{ shortCount(emote.totalUseCount) }}</span
+                      >
+                      <!-- Weight without a change of size: the bar is the only thing on the cell that
+                       differs by usage, measured against its own band's peak. -->
+                      @if (emote.totalUseCount > 0) {
+                        <span class="absolute inset-x-0 bottom-0 block h-0.5 bg-border">
+                          <i
+                            class="block h-full bg-accent-fg/75"
+                            [style.width.%]="fillPercent(emote)"
+                          ></i>
+                        </span>
+                      }
+                      @if (selection.isSelected(emote)) {
+                        <!-- Wash AND ring on one element, rendered last. An `inset-ring` on the button
+                         itself paints below its children, so the wash and the sprite covered it —
+                         measured, not assumed: the marked cells came out as a pale tint with no
+                         visible edge. Drawn geometry rather than a glyph for the corner mark: a
+                         solid square reads as "marked" at 64 px, survives a run of adjacent marked
+                         cells whose rings merge into one another, and never collides with the
+                         artwork the way a centred tick would. -->
+                        <span
+                          class="pointer-events-none absolute inset-0 bg-accent-wash/70 inset-ring-2 inset-ring-accent-fg"
+                          aria-hidden="true"
+                        ></span>
+                        <span
+                          class="pointer-events-none absolute top-0 right-0 h-2.5 w-2.5 bg-accent-fg"
+                          aria-hidden="true"
+                        ></span>
+                      }
+                    </button>
+                    <!-- The history trigger belongs ON the cell, not in the inspector line.
+                       A panel that follows the pointer cannot hold a click target: reaching it from
+                       a cell in the middle of the sheet means crossing other cells, and the panel
+                       repoints under way. That is a property of hover, not of where the panel sits
+                       — a right-hand sidecar would have exactly the same problem the moment it
+                       carried a button. So the target sits where the pointer already is, with zero
+                       travel. Revealed on hover and while the cell holds the grid's tab stop, so
+                       900 of these do not clutter the sheet; top-left because the count sits bottom
+                       left and the selection mark top right. tabindex -1 keeps it out of the roving
+                       tab order — the keyboard reaches the same dialog through the inspector's
+                       button, which for keyboard and touch is perfectly reachable. -->
+                    <button
+                      type="button"
+                      [class]="
+                        'absolute top-0 left-0 flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 ' +
+                        (activeIndex() === row.startIndex + i ? 'opacity-100' : '')
+                      "
+                      tabindex="-1"
+                      [style.background-color]="'var(--ep-sprite-scrim)'"
+                      [attr.aria-label]="
+                        'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
+                      "
+                      (click)="openDrilldown(emote)"
+                    >
+                      <!-- Drawn geometry, not a glyph: three bars, which is what the dialog behind
+                         this button actually shows. -->
+                      <svg
+                        viewBox="0 0 10 10"
+                        class="h-3 w-3 fill-accent-fg"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <rect x="0" y="6" width="2" height="4" />
+                        <rect x="4" y="3" width="2" height="7" />
+                        <rect x="8" y="0" width="2" height="10" />
+                      </svg>
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </cdk-virtual-scroll-viewport>
+      }
+    </div>
+
+    <!-- Sidecar: what the inspector line says, plus the one thing a line has no room for — the
+         curve. From lg upwards only; below that the line does the job and the drilldown dialog
+         stays the way to the history, as it is on the ballot, on touch and for the keyboard.
+         Deliberately WITHOUT a history button: reaching one here from a cell in the middle of the
+         sheet would cross other cells and repoint the panel on the way, exactly like the line. The
+         trigger stays on the cell. -->
+    @if (inspected(); as emote) {
+      <aside class="sticky hidden lg:block" [style.top.px]="sidecarTop()">
+        <div class="flex flex-col gap-3 border-l border-border pl-4">
+          <div class="flex items-start gap-3">
+            <span class="app-sprite-cell flex h-14 w-14 shrink-0 items-center justify-center">
               <img
                 [ngSrc]="emote.imageUrl"
-                width="40"
-                height="40"
+                width="56"
+                height="56"
+                disableOptimizedSrcset
                 alt=""
-                class="max-h-10 max-w-10 object-contain"
+                class="h-full w-full object-contain p-1"
               />
-            </div>
-            <span class="truncate text-sm font-medium text-fg-body"
-              >{{ emote.totalUseCount }}x
-              <span class="text-xs font-normal text-fg-muted">{{
-                'usageStats.usageLabel' | transloco
-              }}</span>
-              <!-- Suppressed entirely rather than rendered as "stable" when the comparison would be
-                   an artefact — a wrong direction is worse than none. -->
-              @if (trendFor(emote); as trend) {
-                @if (trend !== 'unknown') {
-                  <span
-                    [class]="
-                      'text-xs ' +
-                      (trend === 'rising'
-                        ? 'text-success-fg'
-                        : trend === 'falling'
-                          ? 'text-warning-fg'
-                          : 'text-fg-muted')
-                    "
-                    [title]="'usageStats.trend.' + trend | transloco"
-                    >{{ trend === 'rising' ? '↗' : trend === 'falling' ? '↘' : '→' }}</span
-                  >
+            </span>
+            <div class="min-w-0">
+              <p class="text-sm font-semibold break-all text-fg">{{ emote.emoteName }}</p>
+              <p class="mt-0.5 font-mono text-[11px] text-fg-muted">
+                @if (inspectedRank(); as rank) {
+                  #{{ rank }} ·
                 }
-              }
-            </span>
-            <!-- "New" lives on the time line instead of over the image: it is a statement about
-                 how long the emote has been around, and the badge it replaces covered the emote it
-                 was labelling. A card-edge marker was the alternative and was dropped — a coloured
-                 ring or border reads as "selected" on a grid built for bulk selection (§8.5 keeps
-                 inset-ring-purple for exactly that). The displaced last-used text moves into the
-                 title so nothing is lost. -->
-            <span
-              [class]="
-                'truncate text-xs ' + (isUnderObservation(emote) ? 'text-info-fg' : 'text-fg-muted')
-              "
-              [title]="
-                emote.lastUsedDate
-                  ? ('usageStats.lastUsed' | transloco: { date: formatDate(emote.lastUsedDate) })
-                  : ('usageStats.neverUsed' | transloco)
-              "
-            >
-              @if (isUnderObservation(emote)) {
-                {{ observationLabelKey(emote) | transloco: { days: observationDays(emote) } }}
-              } @else if (emote.lastUsedDate) {
-                {{ 'usageStats.lastUsed' | transloco: { date: formatDate(emote.lastUsedDate) } }}
-              } @else {
-                {{ 'usageStats.neverUsed' | transloco }}
-              }
-            </span>
+                {{ 'usageStats.bands.' + inspectedBand() + '.title' | transloco }}
+              </p>
+            </div>
           </div>
-        }
-      </div>
-    </cdk-virtual-scroll-viewport>
+          <!-- The curve for whichever emote the pointer is on, drawn from the batch the page loaded
+               once for the whole set (see UsageStatService.getChannelSeries). It answers the
+               question the single number under it cannot: 4.000 uses spread over three months and
+               4.000 uses in one evening are the same figure and opposite verdicts.
+               The peak line below it is what keeps this from being a graphic that carries meaning
+               alone (WCAG 1.4.1), the same division of labour the drilldown dialog uses. -->
+          @if (inspectedPoints().length > 0) {
+            <div class="flex flex-col gap-1">
+              <div class="h-12 rounded-md bg-surface-inset p-1.5">
+                <app-usage-sparkline
+                  class="block h-full w-full"
+                  [points]="inspectedPoints()"
+                  [liveDays]="liveDayDates()"
+                  [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
+                />
+              </div>
+              @if (inspectedPeak(); as peak) {
+                <p class="font-mono text-[11px] text-fg-muted">
+                  {{
+                    'usageStats.sidecar.peak'
+                      | transloco
+                        : { count: formatCount(peak.useCount), date: formatDate(peak.date) }
+                  }}
+                </p>
+              }
+            </div>
+          } @else if (seriesPending()) {
+            <!-- Same outline as the chart it stands in for, peak line included (design doc 6.1). -->
+            <div class="flex flex-col gap-1">
+              <div class="app-skeleton h-12"></div>
+              <div class="app-skeleton h-3 w-32 max-w-full"></div>
+            </div>
+          }
+          <dl class="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5">
+            <dt class="text-[10px] font-semibold tracking-[0.11em] text-fg-muted uppercase">
+              {{ 'usageStats.sortByUsage' | transloco }}
+            </dt>
+            <dd class="text-right font-mono text-xs text-fg-body">
+              {{ formatCount(emote.totalUseCount) }}
+            </dd>
+            @if (inspectedShare(); as share) {
+              <dt class="text-[10px] font-semibold tracking-[0.11em] text-fg-muted uppercase">
+                {{ 'usageStats.sidecar.share' | transloco }}
+              </dt>
+              <dd class="text-right font-mono text-xs text-fg-body">{{ formatPercent(share) }}</dd>
+            }
+            <dt class="text-[10px] font-semibold tracking-[0.11em] text-fg-muted uppercase">
+              {{ 'usageStats.sortByLastUsed' | transloco }}
+            </dt>
+            <dd class="text-right font-mono text-xs text-fg-body">
+              {{ emote.lastUsedDate ? formatDate(emote.lastUsedDate) : '—' }}
+            </dd>
+            <dt class="text-[10px] font-semibold tracking-[0.11em] text-fg-muted uppercase">
+              {{ 'usageStats.drilldown.inSet' | transloco }}
+            </dt>
+            <dd class="text-right font-mono text-xs text-fg-body">
+              {{ 'usageStats.sidecar.days' | transloco: { days: observationDays(emote) } }}
+            </dd>
+          </dl>
+          @if (trendFor(emote); as trend) {
+            @if (trend !== 'unknown') {
+              <p
+                [class]="
+                  'text-xs ' +
+                  (trend === 'rising'
+                    ? 'text-success-fg'
+                    : trend === 'falling'
+                      ? 'text-warning-fg'
+                      : 'text-fg-muted')
+                "
+              >
+                {{ 'usageStats.trend.' + trend | transloco }}
+              </p>
+            }
+          }
+          @if (isUnderObservation(emote)) {
+            <p class="text-xs text-info-fg">
+              {{ observationLabelKey(emote) | transloco: { days: observationDays(emote) } }}
+            </p>
+          }
+        </div>
+      </aside>
+    }
+  </div>
+
+  @if (activeEmoteSetId(); as setId) {
+    <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
+         Usage page only — this is where the purge decision lives. Stays in the flow rather than in
+         the dock: it is a recovery affordance, not part of marking. -->
+    <app-restore-panel [setId]="setId" [channelName]="channelName()" />
   }
 </div>
+
+<!-- The action bar. It exists only while there is something to act on, which is what allows the
+     surface above it to be nothing but emotes. Kept mounted through a settled run as well, because
+     the run summary carries the protocol download and that file is the only durable record. -->
+@if (activeEmoteSetId(); as setId) {
+  @if (dockVisible()) {
+    <div class="app-dock">
+      <div class="mx-auto flex max-w-5xl flex-col gap-2 overflow-y-auto px-4 py-3 max-h-[70vh]">
+        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span class="font-mono text-base font-semibold text-accent-fg">{{
+            selection.selectedKeys().length
+          }}</span>
+          <span class="text-[10px] font-semibold tracking-[0.13em] text-fg-muted uppercase">
+            {{ 'usageStats.dock.marked' | transloco }}
+          </span>
+          @if (projectedSlots(); as slots) {
+            <span class="font-mono text-xs text-fg-muted">
+              {{
+                'usageStats.dock.projected'
+                  | transloco: { projected: slots.projected, capacity: slots.capacity }
+              }}
+            </span>
+          }
+        </div>
+        <app-mass-delete-panel
+          [setId]="setId"
+          [channelName]="channelName()"
+          [selectedEmotes]="selectedForDelete()"
+          (deleted)="onDeleted($event)"
+          (reloadRequested)="onReloadRequested()"
+          (selectionCleared)="selection.clear()"
+        >
+          <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up
+               as a curated vote-session ballot. Count in the label + disabled at zero, mirroring the
+               delete button's conventions; managers only (the endpoint would 403 a 7TV editor).
+               Projected into the panel's action row so both selection consumers share one line;
+               ngProjectAs because an @if block itself carries no selector attribute. -->
+          <ng-container ngProjectAs="[selection-actions]">
+            @if (canManage()) {
+              <button
+                type="button"
+                appButton="primary"
+                buttonSize="lg"
+                class="disabled:cursor-not-allowed"
+                [disabled]="selection.selectedKeys().length === 0"
+                (click)="openCreateVoteSession()"
+              >
+                {{
+                  'usageStats.createVoteSession'
+                    | transloco: { count: selection.selectedKeys().length }
+                }}
+              </button>
+            }
+          </ng-container>
+        </app-mass-delete-panel>
+      </div>
+    </div>
+  }
+}
