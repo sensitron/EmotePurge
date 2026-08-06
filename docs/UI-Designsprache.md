@@ -112,7 +112,10 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   | `danger-quiet` | siehe 4.2 |
   | `danger-solid` | siehe 4.2 |
 
-- **Referenz:** `web/src/app/shared/ui/button.ts`.
+- **Schalter: `[buttonPressed]` statt einer eigenen Klassenkette** (seit 2026-08-06). Ein Button mit `aria-pressed` bekommt seinen Ein-Zustand vom Primitiv; die Variante bleibt daneben stehen und gilt im Aus-Zustand. Die Füllung ist bewusst dieselbe wie beim gewählten Segment des `SegmentedControl`: „dieses hier ist an" soll gleich aussehen, ob allein oder als eines von mehreren. Einziger Unterschied ist der Hover-Schritt — ein einzelner Schalter lässt sich erneut drücken, ein gewähltes Radio nicht.
+  - **Warum es das gibt:** das Primitiv modellierte Schalter nicht, also improvisierte jeder Aufrufer. In der Nutzungs-Werkzeugleiste standen dadurch **vier `aria-pressed`-Controls in einer Reihe in drei Darstellungen** — zwei zeigten ihren Zustand nur über einen an das Label gehängten Pfeil (die Information erreichte Screenreader und sonst niemanden), zwei kopierten die Klassen von Hand samt einer Größenkette, die `SIZE_CLASSES` doppelte.
+- **Eins-aus-N ist kein Schalterpaar, sondern `<app-segmented-control>`.** Die Sortierung der Nutzungsseite war zwei Toggle-Buttons, bei denen ein Klick auf den bereits aktiven die *Richtung* umdrehte — die einzige Möglichkeit, aufsteigend zu sortieren, und nichts auf dem Bildschirm sagte das. Schlüssel und Richtung sind zwei Fragen und heute zwei Segmented Controls.
+- **Referenz:** `web/src/app/shared/ui/button.ts`, `web/src/app/shared/ui/segmented-control.ts`; Schalter-Aufrufstellen `web/src/app/features/usage-stats/usage-stats-page.html`.
 
 ### 4.2 Destruktiv-Stufung: Flow-Position, nicht Schwere
 

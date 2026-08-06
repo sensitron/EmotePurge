@@ -27,6 +27,20 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
 };
 
 /**
+ * The look of a toggle that is currently on, and the reason `buttonPressed` exists at all: the
+ * primitive did not model toggles, so every caller improvised. On the usage toolbar that produced
+ * four `aria-pressed` controls in one row wearing three different appearances — the two sort buttons
+ * showed their state only through an arrow appended to the label (visually identical to an
+ * unpressed button, so the information reached screen readers and nobody else), while the two
+ * boolean filters hand-copied the classes below plus a size chain that duplicates SIZE_CLASSES.
+ *
+ * Deliberately the same fill as `SegmentedControl`'s selected segment: "this one is on" should look
+ * the same whether it is one of a set or on its own. The hover step is the one addition — a
+ * standalone toggle can still be pressed again, a selected radio cannot be unselected.
+ */
+const PRESSED_CLASSES = 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid';
+
+/**
  * A real disabled appearance rather than `disabled:opacity-50`. Half-opacity white over a
  * half-opacity purple over white lands at 2,3:1 in light mode — that reads as broken rather than as
  * unavailable. Flattening to the inset surface plus the disabled text token says the same thing at
@@ -53,9 +67,11 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
 export class Button {
   readonly appButton = input.required<ButtonVariant>();
   readonly buttonSize = input<ButtonSize>('md');
+  /** For toggles. Overrides the variant's look while on; the caller still owns `aria-pressed`. */
+  readonly buttonPressed = input(false);
 
-  protected readonly classes = computed(
-    () =>
-      `rounded-md text-sm whitespace-nowrap transition ${DISABLED_CLASSES} ${SIZE_CLASSES[this.buttonSize()]} ${VARIANT_CLASSES[this.appButton()]}`,
-  );
+  protected readonly classes = computed(() => {
+    const look = this.buttonPressed() ? PRESSED_CLASSES : VARIANT_CLASSES[this.appButton()];
+    return `rounded-md text-sm whitespace-nowrap transition ${DISABLED_CLASSES} ${SIZE_CLASSES[this.buttonSize()]} ${look}`;
+  });
 }

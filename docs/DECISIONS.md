@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Werkzeugleiste: vier Schalter in drei Darstellungen, und `appButton` kannte keinen gedrückten Zustand
+
+**Betrifft:** `web/src/app/shared/ui/button.ts` (`buttonPressed`) · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` · `web/public/i18n/{de,en}.json` (4 Schlüssel) · `docs/UI-Designsprache.md` (§4.1)
+
+**Die Werkzeugleiste der Nutzungsseite war ein Lauf aus neun grauen Kästen, in dem vier verschiedene Arten von Ding gleich aussahen:** Zeitraum (Popover), Ordnung (2 Knöpfe), Filter (3 Eingaben + 2 Schalter) und ganz rechts die **Ergebniszahl** — als wäre sie ein weiteres Bedienelement. Sie ist jetzt in zwei Zeilen mit klarer Zuständigkeit geteilt: *was betrachte ich und in welcher Reihenfolge* (Zeitraum, Sortierung), darunter *was nehme ich heraus* (Filter), endend in dem, was übrig bleibt. Die Zahl behält ihren Platz am Ende der Filterzeile — sie ist deren Ergebnis und steht bei ihrer Ursache.
+
+**Der Defekt darunter: vier `aria-pressed`-Controls in einer Reihe, drei Darstellungen.** Die beiden Sortier-Knöpfe zeigten ihren gedrückten Zustand ausschließlich über einen an das Label gehängten Pfeil — der Knopf selbst sah gedrückt aus wie ungedrückt, die Information erreichte also Screenreader und sonst niemanden. Die beiden Bool-Filter bauten sich ihren Aktiv-Zustand von Hand zusammen, inklusive einer Größenkette, die `SIZE_CLASSES` doppelte. **Ursache: `appButton` modellierte Schalter nicht**, also improvisierte jeder Aufrufer. Neu ist `[buttonPressed]`, mit derselben Füllung wie das gewählte Segment des `SegmentedControl` — „dieses hier ist an" soll gleich aussehen, ob allein oder als eines von mehreren.
+
+**Die Sortierung war außerdem funktional versteckt.** Ein Klick auf den *bereits aktiven* Sortierknopf drehte die Richtung um. Das war die einzige Möglichkeit, aufsteigend zu sortieren, und nichts auf dem Bildschirm sagte es; der Pfeil erschien erst danach, als einziger Beleg für einen Zustand, den die Schaltfläche nie zeigte. Schlüssel und Richtung sind zwei Fragen und heute zwei `<app-segmented-control>` — dasselbe Primitiv, das eine Seite weiter im Audit-Log schon eins-aus-N beantwortet.
+
+Die Auswahl-Semantik bleibt exakt erhalten: ein Wechsel des Schlüssels ordnet das ganze Gitter um und leert deshalb die Auswahl (Shift-Anker zeigten sonst auf eine Reihenfolge, die der Nutzer nie gesehen hat), ein Richtungswechsel dreht eine Liste um, die er gerade ansieht, und behält sie.
+
+**Was bewusst NICHT passiert ist:** kein Control ist weggefallen. „Nur ungenutzte (0x)" beantwortet, was das Nie-benutzt-Band ohnehin als beschriftete Fläche zeigt, und Min/Max sind die kryptischsten Bedienelemente der Seite — das Ausdünnen ist besprochen und vertagt, nicht übersehen.
+
 ### 2026-08-06 — Das Alpha-Karo unter den Emotes fällt weg
 
 **Betrifft:** `web/src/styles.css` (`.app-sprite-cell`, `.app-sprite-cell-void`, `--ep-emote-canvas-alt` entfernt) · `web/src/index.html` (Direction Contract) · `web/src/app/features/landing/set-shape.ts` (Kommentar)

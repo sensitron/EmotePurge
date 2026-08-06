@@ -37,31 +37,40 @@
        that into an 844 px viewport leaves a quarter of the screen for the thing the page is about.
        On a phone it scrolls away and comes back on the way up; from `sm` it pins as before. -->
   <div #stickyBar class="app-sticky-bar top-24 flex flex-col max-sm:static">
-    <div class="flex flex-wrap items-center gap-2 py-2 text-sm">
+    <!-- Row one: which slice of time the page is about, and in what order it is laid out. Both
+         answer "what am I looking at", neither removes anything from the sheet — which is what
+         separates them from row two. The toolbar used to be one undifferentiated run of nine grey
+         boxes in which time scope, ordering, filtering and the result count all looked alike. -->
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 text-sm">
       <app-date-range-menu
         [(from)]="from"
         [(to)]="to"
         [(preset)]="rangePreset"
         [earliest]="trackedSinceDate()"
       />
-      <button
-        type="button"
-        appButton="neutral"
-        [attr.aria-pressed]="sortKey() === 'usage'"
-        (click)="toggleSort('usage')"
-      >
-        {{ 'usageStats.sortByUsage' | transloco
-        }}{{ sortKey() === 'usage' ? (sortDirection() === 'desc' ? ' ↓' : ' ↑') : '' }}
-      </button>
-      <button
-        type="button"
-        appButton="neutral"
-        [attr.aria-pressed]="sortKey() === 'lastUsed'"
-        (click)="toggleSort('lastUsed')"
-      >
-        {{ 'usageStats.sortByLastUsed' | transloco
-        }}{{ sortKey() === 'lastUsed' ? (sortDirection() === 'desc' ? ' ↓' : ' ↑') : '' }}
-      </button>
+      <!-- Two segmented controls instead of two toggle buttons that flipped direction when you
+           clicked the already-active one. That re-click was the only way to sort ascending and
+           nothing on screen said so; the arrow appeared afterwards, as the sole evidence of a state
+           the button's own appearance never showed. Key and direction are separate questions, and
+           the control that answers "one of these" already exists. -->
+      <app-segmented-control
+        [options]="sortKeyOptions"
+        [value]="sortKey()"
+        (valueChange)="setSortKey($event)"
+        [ariaLabel]="'usageStats.sortKeyLabel' | transloco"
+      />
+      <app-segmented-control
+        [options]="sortDirectionOptions"
+        [value]="sortDirection()"
+        (valueChange)="setSortDirection($event)"
+        [ariaLabel]="'usageStats.sortDirectionLabel' | transloco"
+      />
+    </div>
+
+    <!-- Row two: what is taken *out* of the sheet, ending in what is left of it. The count keeps its
+         place at the end of this row rather than moving to a line of its own — it is the filters'
+         result, and it belongs next to its cause. -->
+    <div class="flex flex-wrap items-center gap-2 py-2 text-sm">
       <input
         type="number"
         min="0"
@@ -90,15 +99,13 @@
         class="app-input-sm w-40"
       />
       <!-- Constant label + pressed state instead of swapping the text ("Alle anzeigen"), which
-           changed the button's width on every toggle and made it jump between toolbar rows. -->
+           changed the button's width on every toggle and made it jump between toolbar rows.
+           `buttonPressed` replaces the hand-copied class chain these two carried — including a size
+           chain that duplicated the primitive's own. -->
       <button
         type="button"
-        class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-        [class]="
-          usageFilter.isUnusedActive()
-            ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
-            : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
-        "
+        appButton="neutral"
+        [buttonPressed]="usageFilter.isUnusedActive()"
         [attr.aria-pressed]="usageFilter.isUnusedActive()"
         (click)="usageFilter.toggleUnused()"
       >
@@ -109,12 +116,8 @@
            moderator unable to find the emote they just added. Opting out is a separate act. -->
       <button
         type="button"
-        class="rounded-md px-3 py-1.5 whitespace-nowrap transition"
-        [class]="
-          usageFilter.isHideObservedActive()
-            ? 'bg-accent-selected font-medium text-on-accent hover:bg-accent-solid'
-            : 'bg-surface-inset text-fg-body hover:bg-surface-inset-hover'
-        "
+        appButton="neutral"
+        [buttonPressed]="usageFilter.isHideObservedActive()"
         [attr.aria-pressed]="usageFilter.isHideObservedActive()"
         [title]="'usageStats.hideObservedTitle' | transloco"
         (click)="usageFilter.toggleHideObserved()"

@@ -86,6 +86,7 @@ import { ListSelection } from '../../shared/selection/list-selection';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
+import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmented-control';
 
 type SortDirection = 'asc' | 'desc';
 type SortKey = 'usage' | 'lastUsed';
@@ -134,6 +135,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     RestorePanel,
     SlotBudgetBar,
     DateRangeMenu,
+    SegmentedControl,
     TranslocoPipe,
   ],
   templateUrl: './usage-stats-page.html',
@@ -192,6 +194,16 @@ export class UsageStatsPage {
   protected readonly to = signal(toIsoDate(new Date()));
   protected readonly sortKey = signal<SortKey>('usage');
   protected readonly sortDirection = signal<SortDirection>('desc');
+
+  protected readonly sortKeyOptions: SegmentedControlOption[] = [
+    { value: 'usage', labelKey: 'usageStats.sortByUsage' },
+    { value: 'lastUsed', labelKey: 'usageStats.sortByLastUsed' },
+  ];
+
+  protected readonly sortDirectionOptions: SegmentedControlOption[] = [
+    { value: 'desc', labelKey: 'usageStats.sortDescending' },
+    { value: 'asc', labelKey: 'usageStats.sortAscending' },
+  ];
 
   // "All time" is the default because this page exists to answer "has this emote ever been used".
   // A rolling 7-day window answered a different question and got it wrong twice over: it made a
@@ -490,19 +502,28 @@ export class UsageStatsPage {
     this.load(this.channelName(), this.from(), this.to());
   }
 
-  protected toggleSort(key: SortKey): void {
+  /** Signature takes `string` because SegmentedControl is untyped by design — one control for every
+   *  small mutually-exclusive set, and a generic there would have to be threaded through every use. */
+  protected setSortKey(key: string): void {
     if (this.sortKey() === key) {
-      this.sortDirection.update((direction) => (direction === 'desc' ? 'asc' : 'desc'));
       return;
     }
 
-    this.sortKey.set(key);
+    this.sortKey.set(key as SortKey);
+    // Every key change starts at "most first" again. Carrying an ascending order over to a
+    // different column silently answers a question nobody asked twice.
     this.sortDirection.set('desc');
     // A different sort key reorders the whole grid, and the selection carries shift-range anchors
     // into that new order — keeping it would let the next shift-click sweep up rows the user never
     // saw next to each other. Flipping the direction alone reverses a list they are still looking
-    // at, so that keeps the selection.
+    // at, so that keeps the selection (see setSortDirection, which does not clear).
     this.selection.clear();
+  }
+
+  /** Keeps the selection on purpose: reversing a list the user is still looking at does not move
+   *  anything out from under a shift-range anchor the way a different column does. */
+  protected setSortDirection(direction: string): void {
+    this.sortDirection.set(direction as SortDirection);
   }
 
   protected inspect(emote: EmoteUsageTotal): void {

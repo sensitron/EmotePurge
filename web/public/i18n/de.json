@@ -452,6 +452,10 @@
     "usageLabel": "Nutzung",
     "sortByUsage": "Nutzung",
     "sortByLastUsed": "Zuletzt benutzt",
+    "sortKeyLabel": "Sortieren nach",
+    "sortDirectionLabel": "Reihenfolge",
+    "sortDescending": "Absteigend",
+    "sortAscending": "Aufsteigend",
     "lastUsed": "zuletzt {{ date }}",
     "neverUsed": "nie benutzt",
     "drilldown": {
