@@ -26,6 +26,8 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 **Der Export hatte drei Fußzeilen-Knöpfe für zwei Dinge.** »CSV« und »JSON« sind gleichrangige Optionen einer *Wahl*; nebeneinander als Buttons zwangen sie eine der beiden willkürlich in die leisere Variante. Die Wahl ist jetzt eine Radiogruppe im Body — parallel zur Bereichswahl direkt darüber — und die Fußzeile nennt eine Aktion.
 
+**Nachzug im Lauf-Panel und der Token-Eingabe.** Beide hängen am selben Flow und hatten ihn nie mitgemacht: fünf Buttons an der `appButton`-Direktive vorbei (darunter ein handgebautes `danger-quiet` und eine Kette mit eigenem Kommentar zur 24-px-Grenze, die die Primitive längst einhält), zwei weitere Ad-hoc-Warnkästen statt `NoticeBanner`, und in `seven-tv-token-input.ts` ein `Validators.required` **ohne jede Fehleranzeige** — §5.3 führt genau diese Datei namentlich als die zu vermeidende Ausnahme. Der Absenden-Versuch setzt jetzt einen Fehler, der beim Tippen wieder verschwindet; die Control-eigenen `touched`/`dirty` wären zu früh dran, weil sie das Feld schon markieren, bevor der Nutzer den Knopf überhaupt gedrückt hat.
+
 **Nebenbefund im Audit-Harness:** die beiden Drilldown-Fälle liefen seit dem Sprite-Umbau ins Leere. `[aria-label*="Emote1PogU"]` traf seither auch die Atlas-Kachel, `.first()` klickte sie an und wartete danach vergeblich auf den Dialog. Handle ist jetzt `:not([aria-pressed])` — der Sidecar-Trigger ist der einzige Treffer ohne Pressed-Zustand.
 
 ### 2026-08-06 — Zug 3, Workspace-Rahmen: der Tab ist eine Primitive, und zwei Warnflächen sind eine zu viel

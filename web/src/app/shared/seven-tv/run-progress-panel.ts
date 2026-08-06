@@ -3,6 +3,8 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { RunQueueItem } from '../../core/seven-tv/seven-tv-run-engine';
 import { SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
+import { Button } from '../ui/button';
+import { NoticeBanner } from '../ui/notice-banner';
 
 /** Renamed from DeleteProgressPanel when the restore run (A6) became its second consumer — the
  *  mechanics (bar, cancel, rate-limit countdown, failure list) are run-generic; only the wording
@@ -10,7 +12,7 @@ import { SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
  *  `'prefix.' + key` pattern, and the input union keeps them findable. */
 @Component({
   selector: 'app-run-progress-panel',
-  imports: [TranslocoPipe],
+  imports: [Button, NoticeBanner, TranslocoPipe],
   template: `
     <div class="rounded-md bg-surface-inset px-4 py-3" role="status">
       <div class="mb-2 flex items-center justify-between text-sm">
@@ -18,16 +20,11 @@ import { SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
           labelPrefix() + '.progress' | transloco: { finished: finished(), total: total() }
         }}</span>
         @if (isRunning()) {
-          <button type="button" class="text-danger-fg hover:underline" (click)="cancelled.emit()">
+          <button type="button" appButton="danger-quiet" (click)="cancelled.emit()">
             {{ 'common.cancel' | transloco }}
           </button>
         } @else {
-          <!-- h-7 + px-2 keeps this above the 24px target floor (the audit gate counts every button). -->
-          <button
-            type="button"
-            class="flex h-7 items-center rounded px-2 text-fg-muted transition hover:bg-surface-inset-hover hover:text-fg-body"
-            (click)="dismissed.emit()"
-          >
+          <button type="button" appButton="neutral" (click)="dismissed.emit()">
             {{ 'common.close' | transloco }}
           </button>
         }
@@ -66,22 +63,20 @@ import { SyncReportState } from '../../core/seven-tv/seven-tv-delete.service';
       }
 
       @if (syncReportFailed()) {
-        <div
-          class="mt-3 rounded-md border border-warning-border bg-warning-wash px-3 py-2 text-sm"
-          role="alert"
-        >
-          <p class="font-medium text-warning-fg">
-            {{ labelPrefix() + '.syncFailedTitle' | transloco }}
-          </p>
-          <p class="mt-1 text-warning-fg">{{ labelPrefix() + '.syncFailed' | transloco }}</p>
+        <app-notice-banner class="mt-3 block" variant="warning">
+          <span class="flex flex-col gap-1">
+            <span class="font-medium">{{ labelPrefix() + '.syncFailedTitle' | transloco }}</span>
+            <span>{{ labelPrefix() + '.syncFailed' | transloco }}</span>
+          </span>
           <button
+            notice-action
             type="button"
-            class="mt-2 text-warning-fg hover:underline"
+            appButton="outline"
             (click)="syncRetryRequested.emit()"
           >
             {{ labelPrefix() + '.syncRetry' | transloco }}
           </button>
-        </div>
+        </app-notice-banner>
       } @else if (syncReport() === 'succeeded' && !isRunning()) {
         <p class="mt-3 text-sm text-fg-muted">
           {{ labelPrefix() + '.syncRetrySucceeded' | transloco }}
