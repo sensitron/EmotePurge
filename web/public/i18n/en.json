@@ -140,7 +140,6 @@
     "liveBadge": "LIVE",
     "offlineBadge": "Offline",
     "liveAsOf": "As of {{minutes}} min ago",
-    "open": "Open",
     "add": "Add",
     "reactivate": "Reactivate bot",
     "notTrackedYet": "Not tracked yet — a mod has to add the bot first."

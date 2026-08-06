@@ -54,7 +54,18 @@
               "
             >
               <div class="flex min-w-0 flex-wrap items-center gap-2">
-                <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
+                <!-- The name carries the stretched link for tracked channels — there is no
+                     separate "Öffnen" button anymore, it only forced a second line on phones. -->
+                @if (channel.isTracked) {
+                  <a
+                    [routerLink]="['/channels', channel.channelName]"
+                    class="app-card-link max-w-full truncate font-medium hover:underline"
+                  >
+                    #{{ channel.channelName }}
+                  </a>
+                } @else {
+                  <span class="max-w-full truncate font-medium">#{{ channel.channelName }}</span>
+                }
                 <!-- Three-way on purpose: 'unknown' (worker down, poll disabled, channel not
                      polled) renders no badge at all — absence of data must not look like
                      "offline". The tooltip owns the honesty about the poll lag. -->
@@ -109,13 +120,6 @@
                       {{ 'overview.reactivate' | transloco }}
                     </button>
                   }
-                  <a
-                    [routerLink]="['/channels', channel.channelName]"
-                    appButton="neutral"
-                    class="app-card-link"
-                  >
-                    {{ 'overview.open' | transloco }}
-                  </a>
                 } @else if (channel.isBroadcaster || channel.isModerator) {
                   <button type="button" appButton="primary" (click)="join(channel.channelName)">
                     {{ 'overview.add' | transloco }}
