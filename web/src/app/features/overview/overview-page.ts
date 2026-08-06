@@ -8,7 +8,6 @@ import { AuthService } from '../../core/auth/auth.service';
 import { MyChannelDto } from '../../core/channels/channel.model';
 import { ChannelService } from '../../core/channels/channel.service';
 import { GENERIC_ERROR_TRANSLATION_KEY, apiErrorTranslationKey } from '../../core/i18n/api-error';
-import { WorkerHealthService } from '../../core/health/worker-health.service';
 import { LIVE_EVENT_TYPES, LIVE_STATUS_URL } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
 import { Button } from '../../shared/ui/button';
@@ -39,13 +38,6 @@ export class OverviewPage {
   private readonly authService = inject(AuthService);
   private readonly channelService = inject(ChannelService);
   private readonly router = inject(Router);
-  private readonly workerHealthService = inject(WorkerHealthService);
-
-  // The header dot alone is a 10px signal nobody notices — while the worker is down, nothing is
-  // being counted, which deserves a real page-level notice on the entry page.
-  protected readonly workerDisconnected = computed(
-    () => this.workerHealthService.status() === 'stale',
-  );
 
   // rxResource instead of a one-shot constructor subscribe: live.changed pushes reload the list.
   // Two different mechanisms keep the rows on screen across such a reload: the resource itself holds

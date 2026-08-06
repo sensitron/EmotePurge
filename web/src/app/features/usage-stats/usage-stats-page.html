@@ -343,11 +343,18 @@
                        it made the keyboard route through the page unusable.
                        scroll-mt keeps a focused cell clear of the two sticky bars above when the
                        browser scrolls it into view. -->
+                    <!-- Every cell gets the same plate, including the never-used ones. They carried
+                       the void plate until 2026-08-06, which said "unused" a third time: they stand
+                       as a closed block under a heading that says it, and each one prints a 0. A
+                       marking that applies to every member of the group it sits in marks nothing —
+                       and here it also cost the sheet its evenness, because a whole band rendered
+                       as a different KIND of surface rather than as the same surface with a zero on
+                       it. The void plate stays where it still separates unlike things inside one
+                       grid: an archived emote on a ballot, which has no heading to say it. -->
                     <button
                       type="button"
                       [class]="
                         'app-sprite-cell relative block h-full w-full scroll-mt-48 transition-shadow ' +
-                        (emote.totalUseCount === 0 ? 'app-sprite-cell-void ' : '') +
                         (selection.isSelected(emote)
                           ? ''
                           : 'hover:inset-ring-1 hover:inset-ring-border-strong')
@@ -453,10 +460,12 @@
       }
     </div>
 
-    <!-- Sidecar: the same readout as the inspector line, given room. From lg upwards only — below
-         that there is no width to spare and the line does the job. Deliberately WITHOUT a history
-         button: reaching one here from a cell in the middle of the sheet would cross other cells
-         and repoint the panel on the way, exactly like the line. The trigger stays on the cell. -->
+    <!-- Sidecar: what the inspector line says, plus the one thing a line has no room for — the
+         curve. From lg upwards only; below that the line does the job and the drilldown dialog
+         stays the way to the history, as it is on the ballot, on touch and for the keyboard.
+         Deliberately WITHOUT a history button: reaching one here from a cell in the middle of the
+         sheet would cross other cells and repoint the panel on the way, exactly like the line. The
+         trigger stays on the cell. -->
     @if (inspected(); as emote) {
       <aside class="sticky hidden lg:block" [style.top.px]="sidecarTop()">
         <div class="flex flex-col gap-3 border-l border-border pl-4">
@@ -481,6 +490,39 @@
               </p>
             </div>
           </div>
+          <!-- The curve for whichever emote the pointer is on, drawn from the batch the page loaded
+               once for the whole set (see UsageStatService.getChannelSeries). It answers the
+               question the single number under it cannot: 4.000 uses spread over three months and
+               4.000 uses in one evening are the same figure and opposite verdicts.
+               The peak line below it is what keeps this from being a graphic that carries meaning
+               alone (WCAG 1.4.1), the same division of labour the drilldown dialog uses. -->
+          @if (inspectedPoints().length > 0) {
+            <div class="flex flex-col gap-1">
+              <div class="h-12 rounded-md bg-surface-inset p-1.5">
+                <app-usage-sparkline
+                  class="block h-full w-full"
+                  [points]="inspectedPoints()"
+                  [liveDays]="liveDayDates()"
+                  [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
+                />
+              </div>
+              @if (inspectedPeak(); as peak) {
+                <p class="font-mono text-[11px] text-fg-muted">
+                  {{
+                    'usageStats.sidecar.peak'
+                      | transloco
+                        : { count: formatCount(peak.useCount), date: formatDate(peak.date) }
+                  }}
+                </p>
+              }
+            </div>
+          } @else if (seriesPending()) {
+            <!-- Same outline as the chart it stands in for, peak line included (design doc 6.1). -->
+            <div class="flex flex-col gap-1">
+              <div class="app-skeleton h-12"></div>
+              <div class="app-skeleton h-3 w-32 max-w-full"></div>
+            </div>
+          }
           <dl class="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1.5">
             <dt class="text-[10px] font-semibold tracking-[0.11em] text-fg-muted uppercase">
               {{ 'usageStats.sortByUsage' | transloco }}

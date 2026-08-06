@@ -10,6 +10,32 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Der Kopfbereich schweigt, solange der Worker gesund ist — und der Übersichts-Banner entfällt dafür
+
+**Betrifft:** `web/src/app/features/shell/app-shell.ts` · `web/src/app/features/overview/{overview-page.ts,overview-page.html}` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md` (§4.3, §4.4) · `web/e2e/audit/ui-audit.audit.ts`
+
+**Vom Nutzer beim Durchsehen gemeldet:** „das ‚Worker verbunden' passt nicht mehr so richtig zur Designsprache. Entweder streichen wir das restlos, oder du machst einen Vorschlag." Der Befund stimmt, und die Begründung stand schon im eigenen Haus: Zug 3 hat die Prüffrage **„bemerkenswert wie oft?"** und die Regel **„gesund ist still"** (`HealthMarker`: `ok`/`idle` → Punkt, nur `warning`/`danger` → Pille) für jede Fläche der App durchgesetzt — nur nicht für das eine Element, das auf **jedem** Bildschirm in **jeder** Sitzung steht und praktisch immer dasselbe sagt.
+
+**Entscheidung:** nicht streichen, sondern die Regel eine Stufe strenger anwenden, als `HealthMarker` sie selbst zieht. Der Kopfbereich zeigt bei `connected` **nichts** — kein Punkt, kein Text — und bei `stale` eine Warn-Pille. Für eine Seite ist Punkt-plus-Wort die stille Form; für einen Rahmen, der auf jedem Bildschirm mitläuft, ist auch das noch zu viel. `unknown` schweigt mit: das ist der Zustand vor der ersten Antwort des 30-Sekunden-Polls, und eine Warnung dort blitzt bei jedem Kaltstart auf.
+
+**Der Text ist mitgewandert.** „Worker getrennt" war Fachjargon für einen Zustand, in dem der Leser wissen will, was *für ihn* nicht stimmt. Jetzt: „Chat wird nicht gezählt" / „Chat is not being counted". Das ist genau die Aussage, die `WorkerHealthStatus.Derive` trägt — `stale` fasst `disconnected` und „verbunden, aber seit 15 min kein Frame" zusammen, und beides heißt: die Zahlen wachsen gerade nicht.
+
+**Folge, die erst das gerenderte Bild gezeigt hat:** die Übersicht sagte dieselbe Sache direkt darunter noch einmal, als `NoticeBanner`. Dessen Kommentar begründete ihn wörtlich damit, dass „der Header-Punkt allein ein 10-px-Signal ist, das niemand bemerkt" — eine Prämisse, die diese Änderung entfernt. Der Banner ist deshalb weg: die Pille ist lauter als der Punkt je war und steht auf **jeder** Seite statt nur auf der Eingangsseite, also dort, wo die Zahlen stehen, um die es geht. Zwei Aussagen derselben Tatsache auf einem Bildschirm sind genau das, was der Rest des Redesigns abgeräumt hat. Preis: der zweite Satz des Banners („erholt sich in der Regel von selbst") hat kein Zuhause mehr — bewusst in Kauf genommen, eine Warn-Pille mit einer Tatsachenbehauptung ist kein Alarm, der beruhigt werden müsste.
+
+**Geprüft wurde das an der engsten Stelle**, nicht am Schreibtisch: bei 360 px teilt sich die Pille die Kopfleiste mit Wortmarke und Menüknopf, und nichts sonst in der App stellt ein drittes Element in diese Zeile. Dafür gibt es jetzt den Audit-Fall `overview-worker-stale` — der einzige Zustand, in dem der Kopf überhaupt etwas über den Worker sagt, hatte bis dahin kein einziges Bild.
+
+### 2026-08-06 — Der Atlas verliert die Void-Platte; der Stimmzettel behält sie
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.html` · `web/src/styles.css` (`.app-sprite-cell-void`) · `docs/UI-Designsprache.md` (§2.4) · `web/e2e/audit/ui-audit.audit.ts`
+
+**Vom Nutzer gemeldet:** „die Emotes bei ‚nie benutzt' haben immer noch einen anderen Background als die anderen — brauchen wir das überhaupt?" Nein. Auf dem Atlas stehen diese Emotes geschlossen unter einer Überschrift, die „nie benutzt" sagt, jede Zelle druckt eine `0`, und der Füllbalken fehlt ihnen. Die andere Platte war die vierte Aussage über denselben Sachverhalt — und weil sie in diesem Band ausnahmslos **jede** Zelle betrifft, unterschied sie dort nichts. Sie kostete nur die Gleichmäßigkeit des Bogens: ein ganzes Band las sich als eine andere *Art* Fläche statt als dieselbe Fläche mit einer Null darauf.
+
+**Auf dem Stimmzettel bleibt sie**, und zwar aus dem Grund, für den eine eigene Platte da ist: dort markiert `.app-sprite-cell-void` ein **archiviertes** Emote, gemischt unter lebende, ohne Überschrift, die es sagen würde.
+
+**Bemerkenswert am Fund:** §2.4 beschrieb diese Trennung bereits — beim Streichen des Alpha-Karos am selben Tag war notiert worden, die Klasse bleibe „wegen des Stimmzettels, nicht wegen des Atlas". Die Regel stand also da; der Atlas hielt sich nicht daran. Beim Redesign die Designdoku **gegen den Code** prüfen, nicht nur fortschreiben.
+
+**Neuer Audit-Fall `usage-stats-dead-band`:** `usageEmotes()` erzeugt nie eine Null, deshalb enthielt kein einziger Screenshot je das Band, für das die ganze Seite existiert. Jetzt schon — und er ist zugleich der Beleg, dass ein Band identischer Zellen ohne eigene Platte weiterhin als „nie benutzt" liest.
+
 ### 2026-08-06 — Ein Batch-Endpunkt für die Tagesreihen des ganzen Sets, damit der Sidecar eine Kurve zeigen kann
 
 **Betrifft:** `src/EmotePurge.Api/Endpoints/UsageStatsEndpoints.cs` · `src/EmotePurge.Core/Services/IUsageStatQueryService.cs` · `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` · `tests/EmotePurge.Api.Tests/ChannelUsageSeriesWireFormatTests.cs` (neu) · `web/src/app/core/usage-stats/{usage-stat.model.ts,usage-stat.service.ts}` · `web/src/app/shared/emotes/usage-series.ts` · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`

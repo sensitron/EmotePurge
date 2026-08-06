@@ -9,11 +9,12 @@
     <section>
       <h2 class="mb-4 text-2xl font-bold tracking-tight">{{ 'overview.title' | transloco }}</h2>
 
-      @if (workerDisconnected()) {
-        <app-notice-banner variant="warning" class="mb-3 block">
-          {{ 'overview.workerDisconnected' | transloco }}
-        </app-notice-banner>
-      }
+      <!-- The worker-offline banner stood here until 2026-08-06. It existed because the header's
+           only signal was a 10px dot that was green on almost every load; now the header says
+           nothing at all while the pipeline is healthy and shows a warning marker when it is not,
+           which is louder than the dot ever was and appears on every page rather than only on this
+           one. Two statements of one fact on a single screen is what the rest of the redesign spent
+           its time removing, so this is the one that goes. -->
       @if (reauthRequired()) {
         <app-notice-banner variant="warning" class="mb-3 block">
           {{ 'overview.reauthRequired' | transloco }}

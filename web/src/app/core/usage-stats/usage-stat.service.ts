@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
 
-import { EmoteUsageSeries, EmoteUsageTotal } from './usage-stat.model';
+import { ChannelUsageSeries, EmoteUsageSeries, EmoteUsageTotal } from './usage-stat.model';
 
 @Injectable({ providedIn: 'root' })
 export class UsageStatService {
@@ -14,6 +14,9 @@ export class UsageStatService {
    * clearSeriesCache() — the pages call it when the channel or date range changes.
    */
   private readonly seriesCache = new Map<string, Observable<EmoteUsageSeries>>();
+
+  /** The same, one level up: per (channel, range), because /series answers for the whole set. */
+  private readonly channelSeriesCache = new Map<string, Observable<ChannelUsageSeries>>();
 
   getTotals(channelName: string, from: string, to: string): Observable<EmoteUsageTotal[]> {
     return this.http.get<EmoteUsageTotal[]>(`/api/channels/${channelName}/usage-stats/totals`, {
@@ -43,7 +46,32 @@ export class UsageStatService {
     return series$;
   }
 
+  /**
+   * Every emote's days for one channel and range in a single request.
+   *
+   * This is what keeps the atlas's hover readout off the wire: asking {@link getDailySeries} for
+   * whichever emote the pointer is over would turn mouse movement into requests, and each one costs
+   * a permit from the same 40/min bucket plus two uncached 7TV lookups in the endpoint's access
+   * filter. Cached like the per-emote series, so re-inspecting is free and the range menu is the
+   * only thing that ever triggers a new one.
+   */
+  getChannelSeries(channelName: string, from: string, to: string): Observable<ChannelUsageSeries> {
+    const key = `${channelName}|${from}|${to}`;
+    let series$ = this.channelSeriesCache.get(key);
+    if (!series$) {
+      series$ = this.http
+        .get<ChannelUsageSeries>(`/api/channels/${channelName}/usage-stats/series`, {
+          params: { from, to },
+        })
+        .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+      this.channelSeriesCache.set(key, series$);
+      series$.subscribe({ error: () => this.channelSeriesCache.delete(key) });
+    }
+    return series$;
+  }
+
   clearSeriesCache(): void {
     this.seriesCache.clear();
+    this.channelSeriesCache.clear();
   }
 }

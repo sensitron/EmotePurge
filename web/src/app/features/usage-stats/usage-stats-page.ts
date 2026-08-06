@@ -34,7 +34,7 @@ import {
 } from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
-import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
+import { ChannelUsageSeries, EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import {
   DateRangeMenu,
@@ -54,6 +54,8 @@ import {
 } from '../../shared/emotes/emote-context';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
+import { UsageSparkline } from '../../shared/emotes/usage-sparkline';
+import { fillOffsetSeries, offsetsToDates, seriesPeak } from '../../shared/emotes/usage-series';
 import {
   UsageBandKey,
   groupIntoUsageBands,
@@ -141,6 +143,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     DateRangeMenu,
     SegmentedControl,
     UsageRangeMenu,
+    UsageSparkline,
     TranslocoPipe,
   ],
   templateUrl: './usage-stats-page.html',
@@ -391,6 +394,47 @@ export class UsageStatsPage {
     const total = this.totalUses();
     return emote && total > 0 ? emote.totalUseCount / total : null;
   });
+
+  /**
+   * Every emote's daily curve for the current range, fetched once (see UsageStatService.
+   * getChannelSeries for why it is not one request per emote). `null` while in flight; a failure
+   * leaves it null and sets seriesFailed, because a missing curve must not take the sidecar's
+   * numbers with it — they come from the totals and are still true.
+   *
+   * Deliberately NOT refetched on live usage events, unlike the totals beside it. A 30-second flush
+   * moves the last day of the curve by a few counts, which is invisible at sidecar width, while the
+   * response covers the whole set — so the refetch would cost the most and show the least. The
+   * curve therefore states the range as of the last range change, exactly like the drilldown
+   * dialog's own cached series has always done.
+   */
+  private readonly channelSeries = signal<ChannelUsageSeries | null>(null);
+  protected readonly seriesFailed = signal(false);
+  protected readonly seriesPending = computed(
+    () => this.channelSeries() === null && !this.seriesFailed(),
+  );
+
+  private readonly seriesByEmote = computed(
+    () => new Map(this.channelSeries()?.emotes.map((entry) => [entry.emoteId, entry.days]) ?? []),
+  );
+
+  /** Channel-level, so converted once per response rather than per emote inspected. */
+  protected readonly liveDayDates = computed(() => {
+    const series = this.channelSeries();
+    return series ? offsetsToDates(series.liveDays, series.from) : [];
+  });
+
+  protected readonly inspectedPoints = computed(() => {
+    const series = this.channelSeries();
+    const emote = this.inspected();
+    if (!series || !emote) {
+      return [];
+    }
+    // An emote absent from the response had no usage in the range — the same statement its absent
+    // days would make, one level up. Zero-filling here is what turns that into a flat baseline.
+    return fillOffsetSeries(this.seriesByEmote().get(emote.emoteId) ?? [], series.from, series.to);
+  });
+
+  protected readonly inspectedPeak = computed(() => seriesPeak(this.inspectedPoints()));
 
   /** The single tab stop in the grid (WAI-ARIA grid pattern) — arrow keys move it. */
   protected readonly activeIndex = signal(0);
@@ -812,6 +856,19 @@ export class UsageStatsPage {
     });
 
     this.loadTotals(channelName, from, to);
+    this.loadChannelSeries(channelName, from, to);
+  }
+
+  // No error surface of its own: the sidecar simply carries no curve, and the page's numbers are
+  // unaffected. Raising a banner here would report a failure of the secondary readout as a failure
+  // of the page.
+  private loadChannelSeries(channelName: string, from: string, to: string): void {
+    this.channelSeries.set(null);
+    this.seriesFailed.set(false);
+    this.usageStatService.getChannelSeries(channelName, from, to).subscribe({
+      next: (series) => this.channelSeries.set(series),
+      error: () => this.seriesFailed.set(true),
+    });
   }
 
   // Waits for the worker's 7TV sync to fill in the set id, then loads the totals once more.

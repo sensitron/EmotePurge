@@ -480,10 +480,14 @@
     background-color: var(--ep-emote-canvas);
   }
 
-  /* A cell with nothing behind it: no usage in the range on the atlas, an archived emote on a
-     ballot. Flat page colour with a hairline outline, so it reads as an empty slot rather than as
-     artwork. This survived the checker's removal because on a ballot it is the *only* thing marking
-     an archived emote — there is no band heading there to say it a second time. */
+  /* A cell with nothing behind it: an archived emote on a ballot. Flat page colour with a hairline
+     outline, so it reads as an empty slot rather than as artwork.
+
+     Ballot only, since 2026-08-06. The atlas used it for "no usage in the range" and that was the
+     same mistake the checker made one layer up: the never-used emotes there sit as a closed block
+     under a heading that already says so, each printing a 0, so a third statement distinguished
+     nothing — it only broke the evenness of the sheet. On a ballot the archived ones are mixed in
+     among live ones with no heading to separate them, which is exactly the case a plate is for. */
   .app-sprite-cell-void {
     background-color: var(--ep-page);
     box-shadow: inset 0 0 0 1px var(--ep-border);

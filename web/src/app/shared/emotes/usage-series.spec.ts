@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { fillDailySeries, liveBands, seriesPeak, toPolylinePoints } from './usage-series';
+import {
+  fillDailySeries,
+  fillOffsetSeries,
+  liveBands,
+  offsetsToDates,
+  seriesPeak,
+  toPolylinePoints,
+} from './usage-series';
 
 describe('fillDailySeries', () => {
   it('zero-fills the gaps of a sparse series', () => {
@@ -44,6 +51,61 @@ describe('fillDailySeries', () => {
   it('returns [] for an inverted or invalid range', () => {
     expect(fillDailySeries([], '2026-07-05', '2026-07-01')).toEqual([]);
     expect(fillDailySeries([], 'nonsense', '2026-07-01')).toEqual([]);
+  });
+});
+
+describe('fillOffsetSeries', () => {
+  it('places each pair at its offset and zero-fills the rest', () => {
+    const points = fillOffsetSeries(
+      [
+        [0, 3],
+        [2, 5],
+      ],
+      '2026-07-01',
+      '2026-07-04',
+    );
+    // Identical output to fillDailySeries on the same data — the two encodings are the same series.
+    expect(points).toEqual([
+      { date: '2026-07-01', useCount: 3 },
+      { date: '2026-07-02', useCount: 0 },
+      { date: '2026-07-03', useCount: 5 },
+      { date: '2026-07-04', useCount: 0 },
+    ]);
+  });
+
+  it('drops offsets outside the range rather than growing the array', () => {
+    const points = fillOffsetSeries(
+      [
+        [-1, 99],
+        [1, 4],
+        [7, 99],
+      ],
+      '2026-07-01',
+      '2026-07-02',
+    );
+    expect(points).toEqual([
+      { date: '2026-07-01', useCount: 0 },
+      { date: '2026-07-02', useCount: 4 },
+    ]);
+  });
+
+  it('returns [] for an inverted or invalid range', () => {
+    expect(fillOffsetSeries([[0, 1]], '2026-07-05', '2026-07-01')).toEqual([]);
+    expect(fillOffsetSeries([[0, 1]], 'nonsense', '2026-07-01')).toEqual([]);
+  });
+});
+
+describe('offsetsToDates', () => {
+  it('counts days from the range start, across a month boundary', () => {
+    expect(offsetsToDates([0, 1, 31], '2026-07-31')).toEqual([
+      '2026-07-31',
+      '2026-08-01',
+      '2026-08-31',
+    ]);
+  });
+
+  it('returns [] for an invalid start date', () => {
+    expect(offsetsToDates([0], 'nonsense')).toEqual([]);
   });
 });
 

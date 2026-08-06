@@ -11,9 +11,7 @@
   },
   "shell": {
     "workerStatus": {
-      "connected": "Worker verbunden",
-      "stale": "Worker getrennt",
-      "unknown": "Worker-Status unbekannt"
+      "stale": "Chat wird nicht gezählt"
     },
     "admin": "Admin",
     "myVotings": "Meine Abstimmungen",
@@ -159,7 +157,6 @@
     "sevenTvUnavailable": "7TV-Editor-Status konnte nicht vollständig geprüft werden — Channels, wo du nur 7TV-Editor (ohne Twitch-Mod-Status) bist, fehlen hier ggf.",
     "noChannels": "Keine Channels gefunden.",
     "noChannelsHint": "Du bist in keinem getrackten Channel Broadcaster, Moderator oder 7TV-Editor. Sobald ein Channel dich betrifft, taucht er hier automatisch auf.",
-    "workerDisconnected": "Der Chat-Worker ist gerade nicht verbunden — Chat-Nachrichten werden aktuell nicht gezählt. Das erholt sich in der Regel von selbst.",
     "roleBadges": {
       "broadcaster": "Broadcaster",
       "moderator": "Moderator",
@@ -518,7 +515,8 @@
     },
     "sidecar": {
       "share": "Anteil",
-      "days": "{{days}} Tage"
+      "days": "{{days}} Tage",
+      "peak": "Spitze {{count}} am {{date}}"
     },
     "distribution": {
       "label": "Verteilung",

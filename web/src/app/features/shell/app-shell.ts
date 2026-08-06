@@ -4,28 +4,18 @@ import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
-import { WorkerHealthService, WorkerHealthStatus } from '../../core/health/worker-health.service';
+import { WorkerHealthService } from '../../core/health/worker-health.service';
 import { LOGO_SRC } from '../../shared/branding/logo';
 import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
 import { Button } from '../../shared/ui/button';
+import { HealthMarker } from '../../shared/ui/health-marker';
 import { ThemeMenu } from '../../shared/ui/theme-menu';
-
-const STATUS_DOT_CLASS: Record<WorkerHealthStatus, string> = {
-  connected: 'bg-success-dot',
-  stale: 'bg-warning-dot',
-  unknown: 'bg-fg-disabled',
-};
-
-const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
-  connected: 'shell.workerStatus.connected',
-  stale: 'shell.workerStatus.stale',
-  unknown: 'shell.workerStatus.unknown',
-};
 
 @Component({
   selector: 'app-shell',
   imports: [
     Button,
+    HealthMarker,
     NgOptimizedImage,
     RouterLink,
     RouterOutlet,
@@ -53,7 +43,7 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
                jumps on every navigation between a sheet page and a list page, and that is the worse
                deal. If the sheets get their width back, it has to be without moving the frame.
 
-               Logo and worker-health dot form one anchored group — a lone justify-between middle
+               Logo and the worker warning form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
           <div class="flex min-w-0 items-center gap-3">
             <a
@@ -70,15 +60,18 @@ const STATUS_LABEL_KEY: Record<WorkerHealthStatus, string> = {
               />
               Emote Purge
             </a>
-            <!-- Dot always visible, text label only when there's room. -->
-            <span
-              class="inline-flex min-w-0 items-center gap-2 text-xs text-fg-muted"
-              [attr.title]="statusLabelKey() | transloco"
-            >
-              <span class="h-2.5 w-2.5 shrink-0 rounded-full" [class]="statusDotClass()"></span>
-              <span class="hidden truncate md:inline">{{ statusLabelKey() | transloco }}</span>
-              <span class="sr-only md:hidden">{{ statusLabelKey() | transloco }}</span>
-            </span>
+            <!-- Nothing at all while the pipeline is healthy. This spot carried a dot plus "Worker
+                 verbunden" on every page of the app until 2026-08-06, which is the one thing the
+                 design language forbids twice over (both in §4.3): a marker present on every screen
+                 in every session marks nothing, and a healthy subsystem stays quiet so the first
+                 unhealthy one is the loudest thing on screen without shouting. The header holds the
+                 stricter version of that rule — HealthMarker's own quiet state is a dot plus a
+                 word, and even that is more than an app frame should spend on "as expected".
+                 'unknown' stays silent too: it is the state before the first poll answers, so
+                 speaking there would flash a warning on every cold load. -->
+            @if (workerStale()) {
+              <app-health-marker tone="warning" [label]="'shell.workerStatus.stale' | transloco" />
+            }
           </div>
 
           <!-- Desktop: everything inline, as before. -->
@@ -218,8 +211,7 @@ export class AppShell {
   private readonly menuButton = viewChild.required<ElementRef<HTMLButtonElement>>('menuButton');
 
   protected readonly currentUser = this.authService.currentUser;
-  protected readonly statusDotClass = computed(() => STATUS_DOT_CLASS[this.healthService.status()]);
-  protected readonly statusLabelKey = computed(() => STATUS_LABEL_KEY[this.healthService.status()]);
+  protected readonly workerStale = computed(() => this.healthService.status() === 'stale');
   protected readonly menuOpen = signal(false);
   protected readonly logoSrc = LOGO_SRC;
 
