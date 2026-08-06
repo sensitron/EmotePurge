@@ -219,15 +219,22 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
 
 ## 7. Dialoge
 
-- **Was gilt:** **Jeder** Dialog läuft über `Dialog.open(..., { backdropClass: 'app-dialog-backdrop', panelClass: 'app-dialog-panel' })` aus `@angular/cdk/dialog` — nie `window.confirm`, nie handgebaute Overlays. Fokus-Trap, Escape, Backdrop-Klick, `aria-modal`, Fokus-Rückgabe kommen vom CDK.
+- **Was gilt:** **Jeder** Dialog läuft über `@angular/cdk/dialog` — nie `window.confirm`, nie handgebaute Overlays. Fokus-Trap, Escape, Backdrop-Klick, `aria-modal`, Fokus-Rückgabe kommen vom CDK.
+- **Öffnen: nie `Dialog.open` direkt.** Jede Dialog-Komponente exportiert ihre eigene `open<X>Dialog(dialog, data)`-Funktion neben sich, die intern `openAppDialog` (`shared/ui/dialog.ts`) aufruft — dort sitzen `backdropClass`, `panelClass` und die Benennung. Der Grund ist gemessen: der Dreizeiler stand an zwölf Aufrufstellen von Hand, fünf davon hatten `ariaLabelledBy` vergessen. Ein neuer Dialog bekommt seine `open…()`-Funktion im selben Commit wie die Komponente.
+- **Innen: `<app-dialog-shell>`** (`shared/ui/dialog-shell.ts`) — Fläche, Padding, Überschrift, Body, Aktionszeile. Abstände macht die Shell (Flex-Spalte), **nicht** `mb-*` an jedem Kind; enger zusammengehörender Inhalt wickelt sich in ein eigenes `flex flex-col gap-1`. Die Breite gehört dem Pane (`.cdk-overlay-pane.app-dialog-panel`), nie dem Inhalt.
+- **Benennung (jeder Dialog braucht einen Accessible Name):** entweder eine sichtbare Überschrift — dann `[dialogTitle]` bzw. ein `[dialog-header]`-Slot mit `id="app-dialog-title"`, und `openAppDialog` verdrahtet `ariaLabelledBy` selbst — **oder** ein `ariaLabel` mit einer kurzen Aktionsphrase. Ein Dialog ohne beides ist ein Fehler.
+- **Aktionszeile: Abbrechen steht immer zuerst.** Damit landet der `first-tabbable`-Default des CDK auf dem harmlosen Knopf; ein explizites `cdkFocusInitial` erübrigt sich. Eine *Wahl* (Format, Bereich) gehört in den Body als Radiogruppe, nicht als zweiter Ausgangsknopf in die Fußzeile — sonst konkurrieren gleichrangige Optionen als Buttons und eine muss willkürlich leiser gestuft werden.
+- **Farbe im Dialog meint „dieser Fall ist ungewöhnlich".** Hinweise, die für *jeden* Durchlauf gelten (»unwiderruflich«, »nicht alle Channels erkennbar«), sind still — `fg-secondary`/`fg-muted`. Nur der Befund, der diesen Durchlauf von den anderen unterscheidet, wird `<app-notice-banner>`. Vier gestapelte Warnfarben im Lösch-Dialog hießen faktisch: keine davon ist wichtig.
+- **Namenslisten** (»das wird gelöscht«) über `<app-name-preview-list>` — Kappung bei 50 plus gezählter Rest, geriffelte Zeilen nach §2.1, voll blutend gegen das `p-6` der Shell.
 - **Wahlkriterium:**
-  - `ConfirmDialog` (`shared/ui/confirm-dialog.ts`): destruktive Aktion, die eine Ja/Nein-Bestätigung braucht (Channel verlassen, Session löschen). Aufrufer übergibt fertig übersetzte `message`/`confirmLabel`; schließt nur bei explizitem Bestätigen mit `true`.
-  - `TypedConfirmDialog` (`shared/ui/typed-confirm-dialog.ts`): Aktion ist unwiderruflich **und** zeilenbezogen (Channel-Purge) — Nachtippen beweist, *welche* Zeile gemeint war. Vergleich getrimmt, aber case-sensitiv. Bei `title` zusätzlich `ariaLabelledBy` an `Dialog.open` übergeben.
-  - Eigener Dialog nur, wenn keiner der beiden passt (z. B. Mass-Delete mit Fortschritt) — dann gleiche `backdropClass`/`panelClass`-Konvention.
+  - `ConfirmDialog` (`shared/ui/confirm-dialog.ts`): destruktive Aktion, die eine Ja/Nein-Bestätigung braucht (Channel verlassen, Session löschen). Aufrufer übergibt fertig übersetzte `message`/`confirmLabel`. Bewusst **ohne** Überschrift — jede seiner Meldungen beginnt schon mit der Aktion; benannt wird er per `ariaLabel`.
+  - `TypedConfirmDialog` (`shared/ui/typed-confirm-dialog.ts`): Aktion ist unwiderruflich **und** zeilenbezogen (Channel-Purge) — Nachtippen beweist, *welche* Zeile gemeint war. Vergleich getrimmt, aber case-sensitiv. `title` ist Pflicht.
+  - Eigener Dialog nur, wenn keiner der beiden passt (z. B. Mass-Delete mit Fortschritt) — dann trotzdem `DialogShell` + eigene `open…()`.
+- **Gesperrter Bestätigen-Knopf braucht seinen Grund als Text** neben sich (`mr-auto` in der Aktionszeile, per `aria-describedby` verbunden). Ausgegraut allein ist keine wahrnehmbare Erklärung (WCAG) — gilt für das Nachtipp-Feld genauso wie für den laufenden Shared-Set-Check.
 - **CDK-Fallen (beide live gefunden):**
   1. Der Overlay-Container hängt **außerhalb** der App-Shell-DOM — er erbt keine Textfarbe. Dialog-Panel und `.app-input` brauchen explizites `color` (haben sie; bei neuen Overlay-Styles daran denken).
   2. CDK injiziert seine Overlay-Styles zur Laufzeit **hinter** allen Bundle-Stylesheets. Panel-Chrome muss deshalb unlayered und mit erhöhter Spezifität definiert werden (`.cdk-overlay-pane.app-dialog-panel`) — neue Panel-Regeln nach demselben Muster.
-- **Referenz:** `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/ui/typed-confirm-dialog.ts`, `web/src/styles.css` (Dialog-Klassen), Aufrufer `channel-workspace-layout.ts`, `admin-channels-page.ts`.
+- **Referenz:** `web/src/app/shared/ui/dialog.ts`, `dialog-shell.ts`, `name-preview-list.ts`, `confirm-dialog.ts`, `typed-confirm-dialog.ts`, `web/src/styles.css` (Dialog-Klassen), Aufrufer `channel-workspace-layout.ts`, `admin-channels-page.ts`.
 
 ### 7.1 Popover (nicht-modal)
 

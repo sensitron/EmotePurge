@@ -649,7 +649,11 @@
     "cancel": "Cancel",
     "close": "Close",
     "loading": "Loading …",
-    "typedConfirmHint": "Type “{{text}}” exactly to continue."
+    "typedConfirmHint": "Type “{{text}}” exactly to continue.",
+    "andMore": {
+      "one": "… and 1 more",
+      "other": "… and {{count}} more"
+    }
   },
   "pager": {
     "label": "Pagination",
@@ -715,7 +719,9 @@
     "formatCsv": "CSV (spreadsheet)",
     "formatJson": "JSON",
     "withheldTallies": "This vote runs with hidden results — the vote columns are not included.",
-    "withheldUsage": "Usage figures are not visible to you and therefore not included."
+    "withheldUsage": "Usage figures are not visible to you and therefore not included.",
+    "formatLabel": "Format",
+    "submit": "Export"
   },
   "massDelete": {
     "deleteButton": "Delete ({{ count }})",
@@ -725,10 +731,6 @@
     "confirmTitle": {
       "one": "Delete {{ count }} emote from 7TV?",
       "other": "Delete {{ count }} emotes from 7TV?"
-    },
-    "andMore": {
-      "one": "…and 1 more",
-      "other": "…and {{ count }} more"
     },
     "checkingSharedSets": "Checking shared sets…",
     "sharedSetWarningTitle": "Warning: the active emote set may not (only) belong to this channel.",
@@ -768,7 +770,9 @@
     "step4": "Paste the copied value below.",
     "securityWarning": "⚠ This token grants full write access to your 7TV account (including deleting emotes). Treat it like a password — never share it. It stays only in this browser tab (sessionStorage), is never sent to our server, and is gone once you close the tab.",
     "placeholder": "Paste 7TV token",
-    "save": "Save"
+    "save": "Save",
+    "dialogTitle": "Add your 7TV token",
+    "required": "Enter your 7TV token."
   },
   "errors": {
     "generic": "Something went wrong. Please try again.",

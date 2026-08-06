@@ -649,7 +649,11 @@
     "cancel": "Abbrechen",
     "close": "Schließen",
     "loading": "Lädt …",
-    "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben."
+    "typedConfirmHint": "Zum Fortfahren exakt „{{text}}“ eingeben.",
+    "andMore": {
+      "one": "… und 1 weiteres",
+      "other": "… und {{count}} weitere"
+    }
   },
   "pager": {
     "label": "Seitennummerierung",
@@ -715,7 +719,9 @@
     "formatCsv": "CSV (Tabellenkalkulation)",
     "formatJson": "JSON",
     "withheldTallies": "Diese Abstimmung läuft mit verdeckten Ergebnissen — die Stimmenspalten sind nicht enthalten.",
-    "withheldUsage": "Nutzungszahlen sind für dich nicht sichtbar und daher nicht enthalten."
+    "withheldUsage": "Nutzungszahlen sind für dich nicht sichtbar und daher nicht enthalten.",
+    "formatLabel": "Format",
+    "submit": "Exportieren"
   },
   "massDelete": {
     "deleteButton": "Löschen ({{ count }})",
@@ -725,10 +731,6 @@
     "confirmTitle": {
       "one": "{{ count }} Emote von 7TV löschen?",
       "other": "{{ count }} Emotes von 7TV löschen?"
-    },
-    "andMore": {
-      "one": "…und ein weiteres",
-      "other": "…und {{ count }} weitere"
     },
     "checkingSharedSets": "Prüfe geteilte Sets…",
     "sharedSetWarningTitle": "Achtung: Das aktive Emote-Set gehört möglicherweise nicht (nur) diesem Channel.",
@@ -768,7 +770,9 @@
     "step4": "Den kopierten Wert unten einfügen.",
     "securityWarning": "⚠ Dieses Token gewährt vollen Schreibzugriff auf deinen 7TV-Account (u. a. Emotes löschen). Behandle es wie ein Passwort — gib es niemandem weiter. Es bleibt nur in diesem Browser-Tab (sessionStorage), wird nie an unseren Server geschickt und ist nach dem Schließen des Tabs wieder weg.",
     "placeholder": "7TV-Token einfügen",
-    "save": "Speichern"
+    "save": "Speichern",
+    "dialogTitle": "7TV-Token hinterlegen",
+    "required": "7TV-Token eingeben."
   },
   "errors": {
     "generic": "Etwas ist schiefgelaufen. Bitte versuch es erneut.",

@@ -33,10 +33,10 @@ import {
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import {
   EmoteDrilldownData,
-  EmoteDrilldownDialog,
+  openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportChoice, ExportDialog, ExportDialogData } from '../../shared/export/export-dialog';
+import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -48,7 +48,7 @@ import {
 } from '../../shared/export/voting-export';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
-import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { ConfirmDialogData, openConfirmDialog } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { VoteAudienceBadge } from '../../shared/voting/vote-audience-badge';
@@ -453,12 +453,7 @@ export class VoteSessionDetailPage {
         myVote: emote.myVote,
       },
     };
-    this.dialog.open<void>(EmoteDrilldownDialog, {
-      data,
-      backdropClass: 'app-dialog-backdrop',
-      panelClass: 'app-dialog-panel',
-      ariaLabelledBy: 'emote-drilldown-title',
-    });
+    openEmoteDrilldownDialog(this.dialog, data);
   }
 
   // Exports the *visible* list (filtered + frozen order). Client-side serialization of the loaded
@@ -489,20 +484,13 @@ export class VoteSessionDetailPage {
       selectionCount: 0,
       noticeKeys,
     };
-    this.dialog
-      .open<ExportChoice | undefined>(ExportDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'export-dialog-title',
-      })
-      .closed.subscribe((choice) => {
-        if (choice?.format === 'csv') {
-          downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
-        } else if (choice?.format === 'json') {
-          downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
-        }
-      });
+    openExportDialog(this.dialog, data).closed.subscribe((choice) => {
+      if (choice?.format === 'csv') {
+        downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
+      } else if (choice?.format === 'json') {
+        downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
+      }
+    });
   }
 
   /**
@@ -515,25 +503,19 @@ export class VoteSessionDetailPage {
       message: this.translocoService.translate('voting.detail.endConfirm', { title }),
       confirmLabel: this.translocoService.translate('voting.list.end'),
     };
-    this.dialog
-      .open<boolean>(ConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      })
-      .closed.subscribe((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        this.errorMessage.set(null);
-        this.voteSessionService.end(this.channelName(), Number(this.sessionId())).subscribe({
-          // Full reload, not a local patch of isActive: the endpoint answers with a summary while
-          // this page holds results, and ending a secret ballot unseals every tally at once — the
-          // page after the click shows materially more than the page before it.
-          next: () => this.load({ freeze: false }),
-          error: (error: HttpErrorResponse) => this.errorMessage.set(apiErrorTranslationKey(error)),
-        });
+    openConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.errorMessage.set(null);
+      this.voteSessionService.end(this.channelName(), Number(this.sessionId())).subscribe({
+        // Full reload, not a local patch of isActive: the endpoint answers with a summary while
+        // this page holds results, and ending a secret ballot unseals every tally at once — the
+        // page after the click shows materially more than the page before it.
+        next: () => this.load({ freeze: false }),
+        error: (error: HttpErrorResponse) => this.errorMessage.set(apiErrorTranslationKey(error)),
       });
+    });
   }
 
   protected vote(emote: VoteSessionResult, type: VoteType): void {

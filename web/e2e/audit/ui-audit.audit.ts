@@ -577,9 +577,11 @@ const SCENARIOS: Scenario[] = [
     },
     afterLoad: async (page) => {
       // Locale-independent handle: the emote name is part of the button's aria-label in both
-      // languages, and Emote1PogU sorts first (highest mocked usage).
-      await page.locator('[aria-label*="Emote1PogU"]').first().click();
-      await page.locator('#emote-drilldown-title').waitFor();
+      // languages, and Emote1PogU sorts first (highest mocked usage). The :not([aria-pressed])
+      // is what tells the sidecar's details trigger apart from the atlas sprite of the same
+      // emote — the sprite rebuild added that second match and `.first()` had been landing on it.
+      await page.locator('[aria-label*="Emote1PogU"]:not([aria-pressed])').first().click();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {
@@ -593,8 +595,8 @@ const SCENARIOS: Scenario[] = [
       await mockUsageDaily(page, 'sensitron', []);
     },
     afterLoad: async (page) => {
-      await page.locator('[aria-label*="Emote1PogU"]').first().click();
-      await page.locator('#emote-drilldown-title').waitFor();
+      await page.locator('[aria-label*="Emote1PogU"]:not([aria-pressed])').first().click();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {
@@ -614,7 +616,7 @@ const SCENARIOS: Scenario[] = [
         .getByRole('button', { name: /export/i })
         .first()
         .click();
-      await page.locator('#export-dialog-title').waitFor();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {

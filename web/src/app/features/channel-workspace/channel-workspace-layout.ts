@@ -16,7 +16,7 @@ import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.servic
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { BackLink } from '../../shared/ui/back-link';
 import { Button } from '../../shared/ui/button';
-import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { ConfirmDialogData, openConfirmDialog } from '../../shared/ui/confirm-dialog';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { TabLink } from '../../shared/ui/tab-link';
 
@@ -243,27 +243,21 @@ export class ChannelWorkspaceLayout {
       }),
       confirmLabel: this.translocoService.translate('channelWorkspace.leaveChannel'),
     };
-    this.dialog
-      .open<boolean>(ConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      })
-      .closed.subscribe((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        this.channelService.leave(this.channelName()).subscribe({
-          next: () => this.router.navigateByUrl('/'),
-          error: (error: HttpErrorResponse) => {
-            this.errorMessage.set(
-              error.status === 403
-                ? 'channelWorkspace.errors.leaveForbidden'
-                : 'channelWorkspace.errors.leaveFailed',
-            );
-          },
-        });
+    openConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.channelService.leave(this.channelName()).subscribe({
+        next: () => this.router.navigateByUrl('/'),
+        error: (error: HttpErrorResponse) => {
+          this.errorMessage.set(
+            error.status === 403
+              ? 'channelWorkspace.errors.leaveForbidden'
+              : 'channelWorkspace.errors.leaveFailed',
+          );
+        },
       });
+    });
   }
 
   // Deliberately no confirmation and no navigation: reactivating is non-destructive and the admin is

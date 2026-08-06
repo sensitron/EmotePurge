@@ -1,4 +1,4 @@
-import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
+import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, inject, signal } from '@angular/core';
 import {
@@ -14,6 +14,8 @@ import { AllowedRoles, VoteSessionSummary } from '../../core/voting/vote-session
 import { VoteSessionService } from '../../core/voting/vote-session.service';
 import { DateTimePicker } from '../../shared/datetime/datetime-picker';
 import { Button } from '../../shared/ui/button';
+import { openAppDialog } from '../../shared/ui/dialog';
+import { DialogShell } from '../../shared/ui/dialog-shell';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 
 // Same rule as the inline create form on VoteSessionListPage (whitespace-only titles are empty).
@@ -45,14 +47,9 @@ export interface CreateVoteSessionDialogData {
  */
 @Component({
   selector: 'app-create-vote-session-dialog',
-  imports: [Button, DateTimePicker, NoticeBanner, ReactiveFormsModule, TranslocoPipe],
+  imports: [Button, DateTimePicker, DialogShell, NoticeBanner, ReactiveFormsModule, TranslocoPipe],
   template: `
-    <div
-      class="flex w-[28rem] max-w-[90vw] flex-col gap-3 rounded-lg bg-surface p-6 shadow-overlay"
-    >
-      <h2 id="create-vote-session-title" class="text-lg font-semibold">
-        {{ 'voting.create.dialogTitle' | transloco }}
-      </h2>
+    <app-dialog-shell [dialogTitle]="'voting.create.dialogTitle' | transloco">
       <p class="text-sm text-fg-muted">
         {{ 'voting.create.selectedCount' | transloco: { count: data.emoteIds.length } }}
       </p>
@@ -130,26 +127,26 @@ export interface CreateVoteSessionDialogData {
       @if (errorMessage(); as message) {
         <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
       }
-      <div class="flex justify-end gap-2">
-        <button
-          type="button"
-          appButton="outline"
-          buttonSize="lg"
-          (click)="dialogRef.close(undefined)"
-        >
-          {{ 'common.cancel' | transloco }}
-        </button>
-        <button
-          type="button"
-          appButton="primary"
-          buttonSize="lg"
-          [disabled]="isSubmitting()"
-          (click)="create()"
-        >
-          {{ 'voting.create.submit' | transloco }}
-        </button>
-      </div>
-    </div>
+      <button
+        dialog-actions
+        type="button"
+        appButton="outline"
+        buttonSize="lg"
+        (click)="dialogRef.close(undefined)"
+      >
+        {{ 'common.cancel' | transloco }}
+      </button>
+      <button
+        dialog-actions
+        type="button"
+        appButton="primary"
+        buttonSize="lg"
+        [disabled]="isSubmitting()"
+        (click)="create()"
+      >
+        {{ 'voting.create.submit' | transloco }}
+      </button>
+    </app-dialog-shell>
   `,
 })
 export class CreateVoteSessionDialog {
@@ -204,4 +201,15 @@ export class CreateVoteSessionDialog {
         },
       });
   }
+}
+
+export function openCreateVoteSessionDialog(
+  dialog: Dialog,
+  data: CreateVoteSessionDialogData,
+): DialogRef<VoteSessionSummary | undefined> {
+  return openAppDialog<VoteSessionSummary | undefined, CreateVoteSessionDialogData>(
+    dialog,
+    CreateVoteSessionDialog,
+    { data },
+  );
 }

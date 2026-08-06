@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-06 — Zug 3, Dialoge: die Hülle ist eine Primitive, das Öffnen gehört dem Dialog
+
+**Betrifft:** `web/src/app/shared/ui/dialog.ts`, `dialog-shell.ts`, `name-preview-list.ts` (alle neu) · `confirm-dialog.ts` · `typed-confirm-dialog.ts` · `web/src/app/shared/seven-tv/{delete,restore}-confirm-dialog.ts`, `seven-tv-token-prompt-dialog.ts`, `mass-delete-panel.ts`, `restore-panel.ts` · `web/src/app/shared/export/export-dialog.ts` · `web/src/app/shared/emotes/emote-drilldown-dialog.ts` · `web/src/app/features/usage-stats/create-vote-session-dialog.ts` · sechs Aufrufer-Seiten · `web/e2e/audit/ui-audit.audit.ts` · `web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md` (§7)
+
+**Es gab keine geteilte Dialog-Hülle.** Geteilt war nur das CDK-Chrome in `styles.css`; alles darin stand pro Datei — die Kette `rounded-lg bg-surface p-6 shadow-overlay` neunmal wortgleich, dazu fünf Überschriften-Varianten, drei Überschriften-Abstände und drei Breiten, von denen zwei die Pane-Kappung entweder wiederholten oder gegen sie arbeiteten. `<app-dialog-shell>` nimmt das; die Breite gehört seither dem Pane, die Abstände der Flex-Spalte statt einem `mb-*` je Kind.
+
+**Das Öffnen war der eigentliche Vertragsbruch.** Der Dreizeiler `backdropClass`/`panelClass`/`ariaLabelledBy` stand an zwölf Aufrufstellen von Hand — und **fünf davon hatten die Benennung vergessen**, darunter beide Dialoge ohne Überschrift, die damit gar keinen Accessible Name hatten. Ein Aufrufer kann nicht wissen, welche `id` die Überschrift eines fremden Dialogs trägt; das ist Wissen des Dialogs. Also exportiert jeder Dialog jetzt seine eigene `open…()`-Funktion über `openAppDialog`, und die `id` ist ein einziges festes `app-dialog-title` — kollisionsfrei, weil nie zwei Dialoge gleichzeitig offen sind.
+
+**Benannt wird auf zwei Wegen, weil es zwei Fälle gibt.** Sichtbare Überschrift → `ariaLabelledBy`. Die Confirm-Dialoge dagegen bekommen bewusst *keine* Überschrift: jede ihrer Meldungen beginnt schon mit der Aktion (»Channel #x wirklich verlassen?«), eine Überschrift darüber wäre derselbe Satz zweimal. Sie tragen ein `ariaLabel` mit der kurzen Aktionsphrase.
+
+**Vier Warnfarben im Lösch-Dialog hießen: keine ist wichtig.** Rote Shared-Set-Box, gelbe »konnte nicht prüfen«-Box, `warning-fg`-Unwiderruflichkeit und ein grauer Nachsatz standen übereinander, bevor der Nutzer den Bestätigen-Knopf erreichte. Die beiden unteren gelten für *jeden* Durchlauf — Konstanten, die nicht laut sein dürfen; laut bleibt nur, was diesen Durchlauf von den anderen unterscheidet. Dieselbe Regel wie bei den Admin-Badges, eine Ebene tiefer. Die beiden handgebauten Kästen sind jetzt `<app-notice-banner>`, die zwei Dauerhinweise still.
+
+**Der Lade-Text ist geblieben, gegen §6.1 — mit Grund.** Der Bestätigen-Knopf ist während des Shared-Set-Checks gesperrt, und ein gesperrter Knopf ohne Begründung ist keine wahrnehmbare Erklärung (WCAG). §6.1 verbietet Lade-*Text für ladende Inhalte*; das hier ist der Grund einer Sperre und steht deshalb — wie der Nachtipp-Hinweis im `TypedConfirmDialog` — als `mr-auto`-Zeile in der Aktionszeile, per `aria-describedby` verbunden.
+
+**Der Export hatte drei Fußzeilen-Knöpfe für zwei Dinge.** »CSV« und »JSON« sind gleichrangige Optionen einer *Wahl*; nebeneinander als Buttons zwangen sie eine der beiden willkürlich in die leisere Variante. Die Wahl ist jetzt eine Radiogruppe im Body — parallel zur Bereichswahl direkt darüber — und die Fußzeile nennt eine Aktion.
+
+**Nebenbefund im Audit-Harness:** die beiden Drilldown-Fälle liefen seit dem Sprite-Umbau ins Leere. `[aria-label*="Emote1PogU"]` traf seither auch die Atlas-Kachel, `.first()` klickte sie an und wartete danach vergeblich auf den Dialog. Handle ist jetzt `:not([aria-pressed])` — der Sidecar-Trigger ist der einzige Treffer ohne Pressed-Zustand.
+
 ### 2026-08-06 — Zug 3, Workspace-Rahmen: der Tab ist eine Primitive, und zwei Warnflächen sind eine zu viel
 
 **Betrifft:** `web/src/app/shared/ui/tab-link.ts` (neu) · `web/src/app/features/admin/admin-layout.ts` · `web/src/app/features/channel-workspace/channel-workspace-layout.ts` · `docs/UI-Designsprache.md` (§8.1)

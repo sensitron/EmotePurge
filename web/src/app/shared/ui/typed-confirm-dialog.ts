@@ -1,16 +1,17 @@
-import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
+import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
 import { Component, computed, inject, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { Button } from './button';
+import { openAppDialog } from './dialog';
+import { DialogShell } from './dialog-shell';
 
 /** Caller passes already-translated strings, exactly like ConfirmDialog — the call sites
  *  interpolate params (channel name, counts) via TranslocoService anyway. */
 export interface TypedConfirmDialogData {
-  /** Rendered as the dialog heading under the id `typed-confirm-dialog-title`. A caller that passes
-   *  one should also pass `ariaLabelledBy: 'typed-confirm-dialog-title'` to `Dialog.open`, the way
-   *  DeleteConfirmDialog's call site does — that is what names the dialog for assistive tech. */
-  title?: string;
+  /** Required, unlike ConfirmDialog's: this dialog has a heading, and the heading is what names it
+   *  for assistive tech (`DIALOG_TITLE_ID`). */
+  title: string;
   message: string;
   /** The exact, case-sensitive text the user must retype before confirming (e.g. the channel name). */
   requiredText: string;
@@ -29,56 +30,58 @@ export interface TypedConfirmDialogData {
  */
 @Component({
   selector: 'app-typed-confirm-dialog',
-  imports: [Button, TranslocoPipe],
+  imports: [Button, DialogShell, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-surface p-6 shadow-overlay">
-      @if (data.title; as title) {
-        <h2 id="typed-confirm-dialog-title" class="mb-3 text-lg font-semibold text-fg">
-          {{ title }}
-        </h2>
-      }
-      <p class="mb-4 text-sm whitespace-pre-line text-fg-body">{{ data.message }}</p>
+    <app-dialog-shell [dialogTitle]="data.title">
+      <p class="text-sm whitespace-pre-line text-fg-body">{{ data.message }}</p>
 
-      <label class="mb-1 block text-sm text-fg-secondary" for="typed-confirm-input">
-        {{ data.inputLabel }}
-      </label>
-      <input
-        id="typed-confirm-input"
-        type="text"
-        class="app-input mb-5 w-full"
-        autocomplete="off"
-        autocapitalize="off"
-        autocorrect="off"
-        spellcheck="false"
-        [attr.aria-describedby]="matches() ? null : 'typed-confirm-hint'"
-        [value]="typedText()"
-        (input)="onInput($event)"
-        (keydown.enter)="confirmIfMatching()"
-      />
-
-      <div class="flex flex-wrap items-center justify-end gap-2">
-        <!-- The reason the confirm button is disabled, in text — a greyed-out button alone is not a
-             perceivable explanation (WCAG), and it is the whole point of this dialog. -->
-        @if (!matches()) {
-          <p id="typed-confirm-hint" class="mr-auto text-xs text-fg-muted">
-            {{ 'common.typedConfirmHint' | transloco: { text: data.requiredText } }}
-          </p>
-        }
-        <button type="button" appButton="outline" buttonSize="lg" (click)="dialogRef.close(false)">
-          {{ 'common.cancel' | transloco }}
-        </button>
-        <button
-          type="button"
-          appButton="danger-solid"
-          buttonSize="lg"
-          class="disabled:cursor-not-allowed"
-          [disabled]="!matches()"
-          (click)="confirmIfMatching()"
-        >
-          {{ data.confirmLabel }}
-        </button>
+      <div class="flex flex-col gap-1">
+        <label class="text-sm text-fg-secondary" for="typed-confirm-input">
+          {{ data.inputLabel }}
+        </label>
+        <input
+          id="typed-confirm-input"
+          type="text"
+          class="app-input w-full"
+          autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          [attr.aria-describedby]="matches() ? null : 'typed-confirm-hint'"
+          [value]="typedText()"
+          (input)="onInput($event)"
+          (keydown.enter)="confirmIfMatching()"
+        />
       </div>
-    </div>
+
+      <!-- The reason the confirm button is disabled, in text — a greyed-out button alone is not a
+           perceivable explanation (WCAG), and it is the whole point of this dialog. -->
+      @if (!matches()) {
+        <p dialog-actions id="typed-confirm-hint" class="mr-auto text-xs text-fg-muted">
+          {{ 'common.typedConfirmHint' | transloco: { text: data.requiredText } }}
+        </p>
+      }
+      <button
+        dialog-actions
+        type="button"
+        appButton="outline"
+        buttonSize="lg"
+        (click)="dialogRef.close(false)"
+      >
+        {{ 'common.cancel' | transloco }}
+      </button>
+      <button
+        dialog-actions
+        type="button"
+        appButton="danger-solid"
+        buttonSize="lg"
+        class="disabled:cursor-not-allowed"
+        [disabled]="!matches()"
+        (click)="confirmIfMatching()"
+      >
+        {{ data.confirmLabel }}
+      </button>
+    </app-dialog-shell>
   `,
 })
 export class TypedConfirmDialog {
@@ -102,4 +105,11 @@ export class TypedConfirmDialog {
       this.dialogRef.close(true);
     }
   }
+}
+
+export function openTypedConfirmDialog(
+  dialog: Dialog,
+  data: TypedConfirmDialogData,
+): DialogRef<boolean> {
+  return openAppDialog<boolean, TypedConfirmDialogData>(dialog, TypedConfirmDialog, { data });
 }

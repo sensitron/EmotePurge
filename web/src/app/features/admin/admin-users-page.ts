@@ -14,7 +14,7 @@ import { PagedResult } from '../../core/models/paged-result.model';
 import { listQueryState } from '../../core/routing/list-query-state';
 import { Pager } from '../../shared/pagination/pager';
 import { Button } from '../../shared/ui/button';
-import { ConfirmDialog, ConfirmDialogData } from '../../shared/ui/confirm-dialog';
+import { ConfirmDialogData, openConfirmDialog } from '../../shared/ui/confirm-dialog';
 import { EmptyState } from '../../shared/ui/empty-state';
 import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
@@ -281,29 +281,23 @@ export class AdminUsersPage {
       confirmLabel: this.translocoService.translate('admin.users.revoke.confirm'),
     };
 
-    this.dialog
-      .open<boolean>(ConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-      })
-      .closed.subscribe((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        this.actionError.set(null);
-        this.pendingUserId.set(user.twitchUserId);
-        this.adminService.revokeSessions(user.twitchUserId).subscribe({
-          next: () => {
-            this.pendingUserId.set(null);
-            // Full reload: the row's sessionsValidFromUtc and token badge both changed server-side.
-            this.usersResource.reload();
-          },
-          error: (error: HttpErrorResponse) => {
-            this.pendingUserId.set(null);
-            this.actionError.set(apiErrorTranslationKey(error));
-          },
-        });
+    openConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.actionError.set(null);
+      this.pendingUserId.set(user.twitchUserId);
+      this.adminService.revokeSessions(user.twitchUserId).subscribe({
+        next: () => {
+          this.pendingUserId.set(null);
+          // Full reload: the row's sessionsValidFromUtc and token badge both changed server-side.
+          this.usersResource.reload();
+        },
+        error: (error: HttpErrorResponse) => {
+          this.pendingUserId.set(null);
+          this.actionError.set(apiErrorTranslationKey(error));
+        },
       });
+    });
   }
 }

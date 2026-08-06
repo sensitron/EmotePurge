@@ -1,10 +1,14 @@
-import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
+import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
 import { Component, Signal, computed, inject } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteSetWarning } from '../../core/emotes/emote-admin.service';
 import { pluralKey } from '../../core/i18n/plural';
 import { Button } from '../ui/button';
+import { openAppDialog } from '../ui/dialog';
+import { DialogShell } from '../ui/dialog-shell';
+import { NamePreviewList } from '../ui/name-preview-list';
+import { NoticeBanner } from '../ui/notice-banner';
 
 /** Live view onto the host panel's state: the warning check finishes while the dialog is open,
  *  so the dialog reads the panel's signals instead of taking a snapshot. */
@@ -14,100 +18,96 @@ export interface DeleteConfirmDialogData {
   warningLoading: Signal<boolean>;
 }
 
-/** Opened via cdk Dialog (S3-16) — closes with `true` when the user confirms the delete run.
- *  Focus trap, Escape, backdrop click and aria-modal come from the CDK container. */
+/**
+ * The last screen before emotes leave 7TV for good. Focus trap, Escape, backdrop click and
+ * aria-modal come from the CDK container; closes with `true` when the user confirms the run.
+ *
+ * Colour here means *this run is unusual*, nothing else. The two notes at the bottom are true of
+ * every delete, so they are quiet; the shared-set finding is true of some, so it is a banner. The
+ * old version said all four in amber or red at once and the one that mattered had to compete.
+ */
 @Component({
   selector: 'app-delete-confirm-dialog',
-  imports: [Button, TranslocoPipe],
+  imports: [Button, DialogShell, NamePreviewList, NoticeBanner, TranslocoPipe],
   template: `
-    <div class="rounded-lg bg-surface p-6 shadow-overlay">
-      <h2 id="delete-confirm-dialog-title" class="mb-3 text-lg font-semibold">
-        {{ confirmTitleKey() | transloco: { count: data.emotes().length } }}
-      </h2>
-      <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-fg-secondary">
-        @for (emote of previewEmotes(); track emote) {
-          <li>{{ emote }}</li>
-        }
-        @if (data.emotes().length > previewEmotes().length) {
-          <li class="text-fg-muted">
-            {{ andMoreKey() | transloco: { count: data.emotes().length - previewEmotes().length } }}
-          </li>
-        }
-      </ul>
+    <app-dialog-shell [dialogTitle]="titleKey() | transloco: { count: data.emotes().length }">
+      <app-name-preview-list [names]="data.emotes()" />
 
-      @if (data.warningLoading()) {
-        <p class="mb-4 text-sm text-fg-muted" role="status">
-          {{ 'massDelete.checkingSharedSets' | transloco }}
-        </p>
-      } @else if (hasSharedSetWarning(); as warning) {
-        <div
-          class="mb-4 rounded-md border border-danger-border bg-danger-wash px-3 py-2 text-sm text-danger-fg"
-          role="alert"
-        >
-          <p class="font-medium">{{ 'massDelete.sharedSetWarningTitle' | transloco }}</p>
-          @if (!warning.isOwnSet) {
-            <p class="mt-1">{{ 'massDelete.notOwnSet' | transloco }}</p>
-          }
-          @if (warning.otherTrackedChannelsSharingSet.length > 0) {
-            <p class="mt-1">
-              {{
-                'massDelete.knownAffected'
-                  | transloco: { list: warning.otherTrackedChannelsSharingSet.join(', ') }
-              }}
-            </p>
-          }
-          @if (warning.otherModeratedChannelsSharingSet.length > 0) {
-            <p class="mt-1">
-              {{
-                'massDelete.moderatedAffected'
-                  | transloco: { list: warning.otherModeratedChannelsSharingSet.join(', ') }
-              }}
-            </p>
-          }
-        </div>
+      @if (hasSharedSetWarning(); as warning) {
+        <app-notice-banner variant="error">
+          <span class="flex flex-col gap-1">
+            <span class="font-medium">{{ 'massDelete.sharedSetWarningTitle' | transloco }}</span>
+            @if (!warning.isOwnSet) {
+              <span>{{ 'massDelete.notOwnSet' | transloco }}</span>
+            }
+            @if (warning.otherTrackedChannelsSharingSet.length > 0) {
+              <span>
+                {{
+                  'massDelete.knownAffected'
+                    | transloco: { list: warning.otherTrackedChannelsSharingSet.join(', ') }
+                }}
+              </span>
+            }
+            @if (warning.otherModeratedChannelsSharingSet.length > 0) {
+              <span>
+                {{
+                  'massDelete.moderatedAffected'
+                    | transloco: { list: warning.otherModeratedChannelsSharingSet.join(', ') }
+                }}
+              </span>
+            }
+          </span>
+        </app-notice-banner>
       } @else if (ownershipCheckUnavailable()) {
-        <div
-          class="mb-4 rounded-md border border-warning-border bg-warning-wash px-3 py-2 text-sm text-warning-fg"
-          role="alert"
-        >
-          <p>{{ 'massDelete.ownershipCheckUnavailable' | transloco }}</p>
-        </div>
+        <app-notice-banner variant="warning">
+          {{ 'massDelete.ownershipCheckUnavailable' | transloco }}
+        </app-notice-banner>
       }
 
-      <p class="mb-1 text-sm text-warning-fg">
-        {{ 'massDelete.irreversibleNotice' | transloco }}
-      </p>
-      <p class="mb-4 text-xs text-fg-muted">
-        {{ 'massDelete.undetectableChannelsNotice' | transloco }}
-      </p>
-      <div class="flex justify-end gap-2">
-        <button type="button" appButton="outline" buttonSize="lg" (click)="dialogRef.close(false)">
-          {{ 'common.cancel' | transloco }}
-        </button>
-        <button
-          type="button"
-          appButton="danger-solid"
-          buttonSize="lg"
-          class="disabled:cursor-not-allowed"
-          [disabled]="data.warningLoading()"
-          (click)="dialogRef.close(true)"
-        >
-          {{ 'massDelete.startDelete' | transloco }}
-        </button>
+      <div class="flex flex-col gap-1">
+        <p class="text-sm text-fg-secondary">{{ 'massDelete.irreversibleNotice' | transloco }}</p>
+        <p class="text-xs text-fg-muted">
+          {{ 'massDelete.undetectableChannelsNotice' | transloco }}
+        </p>
       </div>
-    </div>
+
+      <!-- Why the confirm button is locked, stated rather than left to the greyed-out button —
+           same rule as TypedConfirmDialog's retype hint, and it replaces the old loading line. -->
+      @if (data.warningLoading()) {
+        <p dialog-actions id="delete-confirm-hint" class="mr-auto text-xs text-fg-muted">
+          {{ 'massDelete.checkingSharedSets' | transloco }}
+        </p>
+      }
+      <button
+        dialog-actions
+        type="button"
+        appButton="outline"
+        buttonSize="lg"
+        (click)="dialogRef.close(false)"
+      >
+        {{ 'common.cancel' | transloco }}
+      </button>
+      <button
+        dialog-actions
+        type="button"
+        appButton="danger-solid"
+        buttonSize="lg"
+        class="disabled:cursor-not-allowed"
+        [disabled]="data.warningLoading()"
+        [attr.aria-describedby]="data.warningLoading() ? 'delete-confirm-hint' : null"
+        (click)="dialogRef.close(true)"
+      >
+        {{ 'massDelete.startDelete' | transloco }}
+      </button>
+    </app-dialog-shell>
   `,
 })
 export class DeleteConfirmDialog {
   protected readonly data = inject<DeleteConfirmDialogData>(DIALOG_DATA);
   protected readonly dialogRef = inject<DialogRef<boolean>>(DialogRef);
 
-  protected readonly previewEmotes = computed(() => this.data.emotes().slice(0, 50));
-  protected readonly confirmTitleKey = computed(() =>
+  protected readonly titleKey = computed(() =>
     pluralKey(this.data.emotes().length, 'massDelete.confirmTitle'),
-  );
-  protected readonly andMoreKey = computed(() =>
-    pluralKey(this.data.emotes().length - this.previewEmotes().length, 'massDelete.andMore'),
   );
 
   // Only surface the alarming (red) block when the check actually *ran* and found something to
@@ -131,4 +131,11 @@ export class DeleteConfirmDialog {
     const w = this.data.warning();
     return w !== null && !w.available;
   });
+}
+
+export function openDeleteConfirmDialog(
+  dialog: Dialog,
+  data: DeleteConfirmDialogData,
+): DialogRef<boolean> {
+  return openAppDialog<boolean, DeleteConfirmDialogData>(dialog, DeleteConfirmDialog, { data });
 }

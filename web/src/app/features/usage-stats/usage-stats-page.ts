@@ -28,7 +28,10 @@ import { pluralKey } from '../../core/i18n/plural';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
-import { CreateVoteSessionDialog, CreateVoteSessionDialogData } from './create-vote-session-dialog';
+import {
+  CreateVoteSessionDialogData,
+  openCreateVoteSessionDialog,
+} from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
@@ -41,7 +44,7 @@ import {
 } from '../../shared/datetime/date-range-menu';
 import {
   EmoteDrilldownData,
-  EmoteDrilldownDialog,
+  openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import {
   UsageTrend,
@@ -62,7 +65,7 @@ import {
 } from '../../shared/emotes/usage-bands';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportChoice, ExportDialog, ExportDialogData } from '../../shared/export/export-dialog';
+import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -681,19 +684,12 @@ export class UsageStatsPage {
       // so it is a date a human would recognise on every path.
       usageFromDate: this.from(),
     };
-    this.dialog
-      .open<VoteSessionSummary | undefined>(CreateVoteSessionDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'create-vote-session-title',
-      })
-      .closed.subscribe((created) => {
-        if (created) {
-          this.selection.clear();
-          this.router.navigate(['/channels', this.channelName(), 'vote-sessions', created.id]);
-        }
-      });
+    openCreateVoteSessionDialog(this.dialog, data).closed.subscribe((created) => {
+      if (created) {
+        this.selection.clear();
+        this.router.navigate(['/channels', this.channelName(), 'vote-sessions', created.id]);
+      }
+    });
   }
 
   // Opened from the inspector, not from the cell: the cell click belongs to the selection, and a
@@ -712,12 +708,7 @@ export class UsageStatsPage {
       previousWindowUseCount: emote.previousWindowUseCount,
       trackedSince: this.trackedSince(),
     };
-    this.dialog.open<void>(EmoteDrilldownDialog, {
-      data,
-      backdropClass: 'app-dialog-backdrop',
-      panelClass: 'app-dialog-panel',
-      ariaLabelledBy: 'emote-drilldown-title',
-    });
+    openEmoteDrilldownDialog(this.dialog, data);
   }
 
   // Exports the *visible* list (filtered + sorted, in atlas order) by default, or — chosen in the
@@ -732,35 +723,28 @@ export class UsageStatsPage {
       // Whoever can open this page sees every usage figure — nothing to explain away here.
       noticeKeys: [],
     };
-    this.dialog
-      .open<ExportChoice | undefined>(ExportDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        ariaLabelledBy: 'export-dialog-title',
-      })
-      .closed.subscribe((choice) => {
-        if (!choice) {
-          return;
-        }
-        // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
-        // the same reason as selectedForDelete: everything that removes rows from the atlas also
-        // clears or prunes the selection.
-        const input: UsageExportInput = {
-          channelName: this.channelName(),
-          from: this.from(),
-          to: this.to(),
-          rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.atlasOrder(),
-          scope: choice.scope,
-          filtered: this.usageFilter.isAnyActive(),
-          trendFor: (row) => this.trendFor(row),
-        };
-        if (choice.format === 'csv') {
-          downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
-        } else {
-          downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
-        }
-      });
+    openExportDialog(this.dialog, data).closed.subscribe((choice) => {
+      if (!choice) {
+        return;
+      }
+      // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
+      // the same reason as selectedForDelete: everything that removes rows from the atlas also
+      // clears or prunes the selection.
+      const input: UsageExportInput = {
+        channelName: this.channelName(),
+        from: this.from(),
+        to: this.to(),
+        rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.atlasOrder(),
+        scope: choice.scope,
+        filtered: this.usageFilter.isAnyActive(),
+        trendFor: (row) => this.trendFor(row),
+      };
+      if (choice.format === 'csv') {
+        downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
+      } else {
+        downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
+      }
+    });
   }
 
   // The delete run finished on 7TV, but the backend could not confirm it — refetch instead of

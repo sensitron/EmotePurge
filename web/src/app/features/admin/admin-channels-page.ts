@@ -22,7 +22,10 @@ import { NoticeBanner } from '../../shared/ui/notice-banner';
 import { SkeletonRows } from '../../shared/ui/skeleton-rows';
 import { StateDot } from '../../shared/ui/state-dot';
 import { StatusBadge } from '../../shared/ui/status-badge';
-import { TypedConfirmDialog, TypedConfirmDialogData } from '../../shared/ui/typed-confirm-dialog';
+import {
+  TypedConfirmDialogData,
+  openTypedConfirmDialog,
+} from '../../shared/ui/typed-confirm-dialog';
 
 const NO_CHANNELS: AdminChannel[] = [];
 
@@ -434,20 +437,12 @@ export class AdminChannelsPage {
       confirmLabel: this.translocoService.translate('admin.channels.purge.confirm'),
     };
 
-    this.dialog
-      .open<boolean>(TypedConfirmDialog, {
-        data,
-        backdropClass: 'app-dialog-backdrop',
-        panelClass: 'app-dialog-panel',
-        // Names the dialog for assistive tech (same wiring as DeleteConfirmDialog's call site).
-        ariaLabelledBy: 'typed-confirm-dialog-title',
-      })
-      .closed.subscribe((confirmed) => {
-        if (!confirmed) {
-          return;
-        }
-        this.runAction(channel.channelName, () => this.channelService.purge(channel.channelName));
-      });
+    openTypedConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+      this.runAction(channel.channelName, () => this.channelService.purge(channel.channelName));
+    });
   }
 
   // LOCALE_ID is bootstrap-time static and cannot follow a runtime language switch, so dates and
