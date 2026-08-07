@@ -225,7 +225,12 @@
                   [attr.aria-haspopup]="cellAction() === 'drilldown' ? 'dialog' : null"
                   [attr.aria-label]="
                     cellAction() === 'drilldown'
-                      ? ('usageStats.drilldown.open' | transloco: { name: emote.emoteName })
+                      ? (drilldownLabelKey(emote)
+                        | transloco
+                          : {
+                              name: emote.emoteName,
+                              count: formatUseCount(emote.totalUseCount),
+                            })
                       : cellAction() === 'select'
                         ? emote.emoteName
                         : null

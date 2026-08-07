@@ -159,6 +159,9 @@ test.describe('touch: reading and voting only', () => {
     // The tell that the sprite is no longer a selection toggle — on a mouse it carries aria-pressed.
     await expect(sprite).not.toHaveAttribute('aria-pressed', /.*/);
     await expect(sprite).toHaveAttribute('aria-haspopup', 'dialog');
+    // Same reasoning as the atlas cell: the ballot's readout row is `pointer-coarse:hidden` too, so
+    // the label is the only place a screen reader reads the count here.
+    await expect(sprite).toHaveAttribute('aria-label', 'Details zu catJAM anzeigen (10×)');
 
     // Asserted BEFORE anything is opened, and on the element rather than on its role: the CDK
     // aria-hides the whole background while a modal is up, so a role query run after the tap would

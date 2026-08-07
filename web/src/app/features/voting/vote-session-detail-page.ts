@@ -428,6 +428,24 @@ export class VoteSessionDetailPage {
     }).format(value);
   }
 
+  // Which of the two drilldown labels the sprite carries. The count belongs in the accessible name
+  // on a coarse pointer, because the readout row that states it is `pointer-coarse:hidden` there —
+  // without it a screen reader on a phone cannot learn an emote's usage without opening the dialog.
+  // The server withholds the count for a plain voter, and then there is nothing to name.
+  protected drilldownLabelKey(emote: VoteSessionResult): string {
+    return emote.totalUseCount === null
+      ? 'usageStats.drilldown.open'
+      : 'usageStats.drilldown.openWithCount';
+  }
+
+  // Unsigned counterpart to formatScore(), same locale reasoning. Returns '' for the withheld case,
+  // where the key picked above has no {{count}} placeholder to fill.
+  protected formatUseCount(count: number | null): string {
+    return count === null
+      ? ''
+      : new Intl.NumberFormat(toLocale(this.languageService.lang())).format(count);
+  }
+
   // Full, untruncated stats wording as a tooltip — the visible lines may still ellipsize on narrow
   // cards. Omits whichever half the server withheld, so the tooltip never states a number the card
   // deliberately doesn't have.
