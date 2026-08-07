@@ -23,5 +23,20 @@ export default defineConfig({
     reuseExistingServer: !process.env['CI'],
     timeout: 120_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: /touch-mobile\.e2e\.spec\.ts/,
+    },
+    // A second project rather than a per-test context: `pointer: coarse` follows from the device
+    // descriptor's hasTouch/isMobile, and those are context-level options that a test cannot set for
+    // itself. Only touch-mobile.e2e.spec.ts runs here — every other spec asserts desktop behaviour
+    // and would have to be rewritten for a viewport it was never about.
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['Pixel 5'] },
+      testMatch: /touch-mobile\.e2e\.spec\.ts/,
+    },
+  ],
 });

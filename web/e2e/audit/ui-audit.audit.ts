@@ -641,6 +641,20 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The overview's two-line row shape below sm. The long "not tracked yet" sentence is the branch
+    // that used to drop the whole right-hand group onto a second, right-aligned line and wrap again
+    // inside it; German is 26 % longer than English, so this is the locale that shows it.
+    slug: 'overview-narrow-rows',
+    path: '/channels',
+    setup: async (page) => {
+      await authedShell(page);
+      // TYPICAL_CHANNELS carries 'untrackedbuddy' — the one row that hits the notTrackedYet branch
+      // this case exists to show; without it the fetch would go unmocked and the screenshot would
+      // just be an error banner.
+      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+    },
+  },
+  {
     // The same dialog on an emote without any usage — the empty state is its own layout.
     slug: 'usage-stats-drilldown-empty',
     path: '/channels/sensitron/usage-stats',
