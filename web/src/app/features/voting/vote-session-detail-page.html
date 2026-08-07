@@ -222,6 +222,7 @@
                   [attr.aria-pressed]="
                     cellAction() === 'select' ? selection.isSelected(emote) : null
                   "
+                  [attr.aria-haspopup]="cellAction() === 'drilldown' ? 'dialog' : null"
                   [attr.aria-label]="
                     cellAction() === 'drilldown'
                       ? ('usageStats.drilldown.open' | transloco: { name: emote.emoteName })

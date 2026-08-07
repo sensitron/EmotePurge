@@ -469,6 +469,7 @@
     "neverUsed": "nie benutzt",
     "drilldown": {
       "open": "Details zu {{name}} anzeigen",
+      "openWithCount": "Details zu {{name}} anzeigen ({{count}}×)",
       "chartLabel": "Tagesverlauf der Nutzung",
       "range": "{{from}} bis {{to}}",
       "loading": "Tagesverlauf wird geladen",

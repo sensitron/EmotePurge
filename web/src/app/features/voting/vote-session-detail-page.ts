@@ -372,21 +372,26 @@ export class VoteSessionDetailPage {
     });
   }
 
-  // One guarded entry point for click/Enter/Space on the sprite, branched on cellAction. preventDefault
-  // only fires on the keyboard path and only for the 'select' branch — a drilldown or dead sprite must
-  // keep Space's default page scroll. Also pins the readout, so a tap on a touch screen (where nothing
-  // hovers) still tells the voter which emote they are looking at.
+  // One guarded entry point for click/Enter/Space on the sprite, branched on cellAction. Both acting
+  // branches swallow the keyboard default: the element carries role="button", and the ARIA button
+  // pattern requires Space not to scroll the page as well as activate. On the drilldown branch that
+  // is currently invisible — the CDK freezes background scrolling the moment the dialog opens — but
+  // an element does not get to rely on what the thing it opens happens to do. The 'none' branch is
+  // neither focusable nor a button and keeps every default.
+  // Also pins the readout, so a tap on a touch screen (where nothing hovers) still tells the voter
+  // which emote they are looking at.
   protected onCardActivate(emote: VoteSessionResult, event: MouseEvent | KeyboardEvent): void {
     this.inspectedId.set(emote.emoteId);
-    if (this.cellAction() === 'drilldown') {
-      this.openDrilldown(emote);
-      return;
-    }
-    if (this.cellAction() !== 'select') {
+    const action = this.cellAction();
+    if (action === 'none') {
       return;
     }
     if (event.type === 'keydown') {
       event.preventDefault();
+    }
+    if (action === 'drilldown') {
+      this.openDrilldown(emote);
+      return;
     }
     this.selection.onRowClick(emote, event as MouseEvent);
   }

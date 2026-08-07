@@ -351,6 +351,11 @@
                        as a different KIND of surface rather than as the same surface with a zero on
                        it. The void plate stays where it still separates unlike things inside one
                        grid: an archived emote on a ballot, which has no heading to say it. -->
+                    <!-- The coarse label keeps the usage count: the inspector row that carries the
+                       number for a fine pointer is `pointer-coarse:hidden`, so a bare "Details zu
+                       catJAM anzeigen" would leave a screen-reader user on a phone unable to read
+                       an emote's count at all without opening the dialog. aria-haspopup because on
+                       coarse this cell is the drilldown trigger, not a toggle. -->
                     <button
                       type="button"
                       [class]="
@@ -362,9 +367,12 @@
                       [attr.data-atlas-index]="row.startIndex + i"
                       [attr.tabindex]="activeIndex() === row.startIndex + i ? 0 : -1"
                       [attr.aria-pressed]="isCoarse() ? null : selection.isSelected(emote)"
+                      [attr.aria-haspopup]="isCoarse() ? 'dialog' : null"
                       [attr.aria-label]="
                         isCoarse()
-                          ? ('usageStats.drilldown.open' | transloco: { name: emote.emoteName })
+                          ? ('usageStats.drilldown.openWithCount'
+                            | transloco
+                              : { name: emote.emoteName, count: formatCount(emote.totalUseCount) })
                           : emote.emoteName + ' · ' + formatCount(emote.totalUseCount) + '×'
                       "
                       (click)="onCellClick(emote, row.startIndex + i, $event)"
