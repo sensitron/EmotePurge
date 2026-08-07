@@ -499,9 +499,22 @@
                alone (WCAG 1.4.1), the same division of labour the drilldown dialog uses. -->
           @if (inspectedPoints().length > 0) {
             <div class="flex flex-col gap-1">
-              <div class="h-12 rounded-md bg-surface-inset p-1.5">
+              <div class="flex h-12 gap-1.5 rounded-md bg-surface-inset p-1.5">
+                <!-- Scale in HTML beside the SVG, not inside it: the sparkline's viewBox is
+                     stretched non-uniformly, so text within it would distort (same reason as in the
+                     drilldown dialog). Hidden from AT — the peak line below states the maximum in
+                     words, which is also what keeps the graphic from carrying meaning alone. -->
+                @if (inspectedPeak(); as peak) {
+                  <div
+                    class="flex shrink-0 flex-col justify-between text-right font-mono text-[10px] leading-none text-fg-muted"
+                    aria-hidden="true"
+                  >
+                    <span>{{ formatCount(peak.useCount) }}</span>
+                    <span>0</span>
+                  </div>
+                }
                 <app-usage-sparkline
-                  class="block h-full w-full"
+                  class="block h-full min-w-0 flex-1"
                   [points]="inspectedPoints()"
                   [liveDays]="liveDayDates()"
                   [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
@@ -516,11 +529,26 @@
                   }}
                 </p>
               }
+              <!-- Only with coverage: an older range predates the live poll, and "0 of 13 days"
+                   would state an absence we did not measure. -->
+              @if (liveDayDates().length > 0) {
+                <p class="flex items-center gap-1.5 font-mono text-[11px] text-fg-muted">
+                  <span
+                    class="inline-block h-2 w-2 shrink-0 rounded-sm bg-success-dot"
+                    aria-hidden="true"
+                  ></span>
+                  {{
+                    'usageStats.drilldown.liveDays'
+                      | transloco: { live: liveDayDates().length, total: inspectedPoints().length }
+                  }}
+                </p>
+              }
             </div>
           } @else if (seriesPending()) {
-            <!-- Same outline as the chart it stands in for, peak line included (design doc 6.1). -->
+            <!-- Same outline as the chart it stands in for, caption lines included (design doc 6.1). -->
             <div class="flex flex-col gap-1">
               <div class="app-skeleton h-12"></div>
+              <div class="app-skeleton h-3 w-28 max-w-full"></div>
               <div class="app-skeleton h-3 w-32 max-w-full"></div>
             </div>
           }

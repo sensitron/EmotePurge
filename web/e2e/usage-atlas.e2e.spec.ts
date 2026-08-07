@@ -9,6 +9,7 @@ import {
   mockChannelStatus,
   mockDuplicateEmoteNames,
   mockMyChannels,
+  mockUsageChannelSeries,
   mockUsageDaily,
   mockUsageTotals,
   mockWorkerHealth,
@@ -164,6 +165,49 @@ test.describe('emote atlas', () => {
 
     await expect(sidecar).toContainText('Sadge');
     await expect(sidecar).toContainText('Selten');
+  });
+
+  test('the curve states its scale, and the green bands say what they are', async ({ page }) => {
+    // catJAM's 900 uses, as a curve peaking at 700. Distinct from every other number the sidecar
+    // prints, so an exact-text match can tell the axis apart from the totals below it.
+    await mockUsageChannelSeries(
+      page,
+      'sensitron',
+      {
+        e1: [
+          [1, 200],
+          [3, 700],
+        ],
+      },
+      [3, 4, 5, 9],
+    );
+    await openAtlas(page);
+    const sidecar = page.getByRole('complementary');
+
+    // The axis is aria-hidden — the peak line carries the same maximum in words, which is what
+    // keeps the graphic from meaning anything on its own. Asserted on the rendered text all the
+    // same, because a scale nobody can read is the thing this exists to prevent.
+    await expect(sidecar.getByText('700', { exact: true })).toBeVisible();
+    await expect(sidecar.getByText('0', { exact: true })).toBeVisible();
+    // Day count left open: it follows the tracking start against today, and pinning it would make
+    // this fail on a calendar rather than on a regression.
+    await expect(sidecar).toContainText(/Live an 4 von \d+ Tagen/);
+  });
+
+  test('says nothing about live days for a range with no coverage', async ({ page }) => {
+    // "0 von 57 Tagen" would report an absence we never measured: a range older than the live poll
+    // has no coverage data at all, which is not the same as a channel that never went live.
+    await mockUsageChannelSeries(page, 'sensitron', {
+      e1: [
+        [1, 200],
+        [3, 700],
+      ],
+    });
+    await openAtlas(page);
+    const sidecar = page.getByRole('complementary');
+
+    await expect(sidecar.getByText('700', { exact: true })).toBeVisible();
+    await expect(sidecar).not.toContainText('Live an');
   });
 
   test('below the sidecar breakpoint the same readout is a line, and only one of them shows', async ({
