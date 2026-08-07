@@ -4,6 +4,17 @@ import { Directive, ElementRef, OnDestroy, inject, input } from '@angular/core';
 import { shouldDismiss } from './sheet-drag-policy';
 
 /**
+ * How far a pointer has to travel before this is a drag rather than a press.
+ *
+ * Load-bearing, not cosmetic. Taking pointer capture on `pointerdown` retargets the following
+ * `click` to the capture element, so with a mouse-type pointer every button inside the sheet stops
+ * working — and `(pointer: coarse)` matches with a mouse in exactly the configuration this branch
+ * is tested in (DevTools' "Emulate CSS media feature pointer: coarse"). A press that never moves
+ * must therefore leave no trace at all: no capture, no inline style, nothing.
+ */
+const DRAG_START_THRESHOLD_PX = 4;
+
+/**
  * Drag-to-dismiss for the bottom-sheet form of a dialog.
  *
  * Applied to the shell's hull but transforming the overlay pane, because the pane is what the
@@ -14,6 +25,16 @@ import { shouldDismiss } from './sheet-drag-policy';
  * The gesture only starts on the handle or with the pane scrolled to the top. Otherwise a downward
  * drag means "scroll the content up", and taking it would make a long sheet unreadable.
  *
+ * A press is recorded but not acted on: capture and the transition override wait for the first move
+ * past DRAG_START_THRESHOLD_PX. Everything short of that is somebody tapping a button.
+ *
+ * Only `pointerdown` is a host binding. Move/up/cancel are attached to `window` for the duration of
+ * a gesture and removed again afterwards — permanent host bindings for `pointermove` would notify
+ * the (zoneless) scheduler on every frame of every pointer that crosses an open dialog, including
+ * while the directive is switched off. `window` rather than the host element because before capture
+ * is taken a finger may leave the hull mid-gesture, and after it is taken the events still bubble
+ * through here.
+ *
  * Dismissal goes through DialogRef.close(), so it is not a fourth way out — backdrop tap and Escape
  * are untouched, and every consumer's close handling keeps working unchanged.
  */
@@ -21,9 +42,6 @@ import { shouldDismiss } from './sheet-drag-policy';
   selector: '[appSheetDrag]',
   host: {
     '(pointerdown)': 'onPointerDown($event)',
-    '(pointermove)': 'onPointerMove($event)',
-    '(pointerup)': 'onPointerEnd($event)',
-    '(pointercancel)': 'onPointerEnd($event)',
   },
 })
 export class SheetDrag implements OnDestroy {
@@ -38,14 +56,27 @@ export class SheetDrag implements OnDestroy {
   private startY = 0;
   private startedAt = 0;
   private distance = 0;
+  private dragging = false;
 
   // The host can be destroyed while its pane survives: the sheet chrome sits behind a
   // viewport-width @if, so a breakpoint crossing mid-drag (a rotation, a resize) destroys this
   // directive without the dialog closing — pointerup/pointercancel never fire because the element
   // they would land on is already gone. Without this, the pane would be left at whatever transform
-  // the drag had reached, and the host would still hold pointer capture nobody will use again.
+  // the drag had reached, the host would still hold pointer capture nobody will use again, and the
+  // window listeners would outlive the directive that owns them.
   ngOnDestroy(): void {
-    this.endGesture();
+    const pane = this.pane;
+    const pointerId = this.pointerId;
+    const wasDragging = this.dragging;
+
+    this.forgetGesture();
+
+    if (!wasDragging || !pane || pointerId === null) {
+      return;
+    }
+    this.releaseCapture(pointerId);
+    pane.style.transition = '';
+    pane.style.transform = '';
   }
 
   protected onPointerDown(event: PointerEvent): void {
@@ -64,45 +95,61 @@ export class SheetDrag implements OnDestroy {
       return;
     }
 
+    // Eligibility and origin only. Nothing here may be observable from the outside — see
+    // DRAG_START_THRESHOLD_PX.
     this.pane = pane;
     this.pointerId = event.pointerId;
     this.startY = event.clientY;
     this.startedAt = event.timeStamp;
     this.distance = 0;
-    // The spring-back transition would otherwise animate every move event.
-    pane.style.transition = 'none';
-    try {
-      this.host.nativeElement.setPointerCapture(event.pointerId);
-    } catch {
-      // Not fatal, deliberately swallowed: a pointer that refuses capture still delivers move/up
-      // events here via ordinary bubbling, it just stops redirecting them once the finger leaves the
-      // element's bounds. The alternative — bailing out here — would abandon a gesture that has
-      // already recorded its start position for no gain.
-    }
+    this.dragging = false;
+    window.addEventListener('pointermove', this.onMove);
+    window.addEventListener('pointerup', this.onEnd);
+    window.addEventListener('pointercancel', this.onEnd);
   }
 
-  protected onPointerMove(event: PointerEvent): void {
-    if (this.pointerId !== event.pointerId || !this.pane) {
+  private onPointerMove(event: PointerEvent): void {
+    const pane = this.pane;
+    if (this.pointerId !== event.pointerId || !pane) {
       return;
+    }
+
+    const travelled = event.clientY - this.startY;
+    if (!this.dragging) {
+      // Measured on the absolute travel: an upward flick past the threshold is still a drag, it
+      // just has nowhere to go — the clamp below turns it into a docked sheet, not a dead one.
+      if (Math.abs(travelled) < DRAG_START_THRESHOLD_PX) {
+        return;
+      }
+      this.beginDrag(pane, event.pointerId);
     }
 
     // No resistance upwards: a sheet that follows the finger past its docked edge reads as broken.
-    this.distance = Math.max(0, event.clientY - this.startY);
-    this.pane.style.transform = `translateY(${this.distance}px)`;
+    this.distance = Math.max(0, travelled);
+    pane.style.transform = `translateY(${this.distance}px)`;
   }
 
-  protected onPointerEnd(event: PointerEvent): void {
-    if (this.pointerId !== event.pointerId || !this.pane) {
+  private onPointerEnd(event: PointerEvent): void {
+    const pane = this.pane;
+    if (this.pointerId !== event.pointerId || !pane) {
       return;
     }
 
-    const pane = this.pane;
     const distance = this.distance;
+    const wasDragging = this.dragging;
     // Guarded against 0 so a same-timestamp release cannot produce Infinity.
     const elapsedMs = Math.max(1, event.timeStamp - this.startedAt);
 
-    this.pane = null;
-    this.pointerId = null;
+    this.forgetGesture();
+
+    // An ordinary press. Capture was never taken and no style was ever written, so there is nothing
+    // to undo — and, decisively, the click that follows reaches the button it started on.
+    if (!wasDragging) {
+      return;
+    }
+
+    // Capture is released implicitly by pointerup/pointercancel; only the transition override is
+    // ours to undo.
     pane.style.transition = '';
 
     // Only skip the spring-back when a close was actually issued: a pane inside anything that isn't
@@ -117,23 +164,47 @@ export class SheetDrag implements OnDestroy {
     pane.style.transform = '';
   }
 
-  /** Releases pointer capture and puts the pane back to its undragged state. */
-  private endGesture(): void {
-    if (this.pointerId === null || !this.pane) {
+  /** Promotes the recorded press to a real drag — the first point at which anything is observable. */
+  private beginDrag(pane: HTMLElement, pointerId: number): void {
+    this.dragging = true;
+    // The spring-back transition would otherwise animate every move event.
+    pane.style.transition = 'none';
+    try {
+      this.host.nativeElement.setPointerCapture(pointerId);
+    } catch {
+      // Not fatal, deliberately swallowed: a pointer that refuses capture still delivers move/up
+      // events here via the window listeners, it just stops redirecting them once the finger leaves
+      // the element's bounds. The alternative — bailing out here — would abandon a gesture that has
+      // already recorded its start position for no gain.
+    }
+  }
+
+  /** Detaches the gesture's listeners and forgets its state. Touches no DOM of the sheet itself. */
+  private forgetGesture(): void {
+    if (this.pointerId === null) {
       return;
     }
+    window.removeEventListener('pointermove', this.onMove);
+    window.removeEventListener('pointerup', this.onEnd);
+    window.removeEventListener('pointercancel', this.onEnd);
+    this.pane = null;
+    this.pointerId = null;
+    this.distance = 0;
+    this.dragging = false;
+  }
 
+  private releaseCapture(pointerId: number): void {
     // The pointer may already be gone (gesture ended, element mid-detach) — releasing then throws
     // a DOMException that means nothing here, there is nothing left to release.
     try {
-      this.host.nativeElement.releasePointerCapture(this.pointerId);
+      this.host.nativeElement.releasePointerCapture(pointerId);
     } catch {
       // Ignored — see above.
     }
-
-    this.pane.style.transition = '';
-    this.pane.style.transform = '';
-    this.pane = null;
-    this.pointerId = null;
   }
+
+  // Stable references so the listeners a gesture adds are the ones it can remove again. Last in the
+  // class because member-ordering counts a bound arrow field as a private method definition.
+  private readonly onMove = (event: PointerEvent): void => this.onPointerMove(event);
+  private readonly onEnd = (event: PointerEvent): void => this.onPointerEnd(event);
 }

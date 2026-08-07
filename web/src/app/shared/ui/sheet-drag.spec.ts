@@ -132,10 +132,36 @@ describe('SheetDrag', () => {
     expect(pane.style.transform).toBe('');
   });
 
+  // The reason the directive defers everything to the first move. Capturing on pointerdown
+  // retargets the following click to the capture element, which kills every button inside the
+  // sheet whenever `(pointer: coarse)` matches while the input is a mouse — DevTools' pointer
+  // emulation, verified in real Chrome. A press has to be inert.
+  it('leaves an ordinary press completely untouched — no capture, no inline style', () => {
+    down(handle, 0);
+    up(handle);
+
+    expect(capture.set).not.toHaveBeenCalled();
+    expect(pane.style.transition).toBe('');
+    expect(pane.style.transform).toBe('');
+    expect(closeSpy).not.toHaveBeenCalled();
+  });
+
+  it('stays inert while the pointer only jitters below the drag threshold', () => {
+    down(handle, 0);
+    move(handle, 3);
+    up(handle);
+
+    expect(capture.set).not.toHaveBeenCalled();
+    expect(pane.style.transform).toBe('');
+  });
+
   it('follows the pointer once a gesture starts on the handle', () => {
     down(handle, 0);
+    expect(capture.set).not.toHaveBeenCalled();
+
     move(handle, 40);
 
+    // Capture is taken at the first qualifying move, not at the press before it.
     expect(capture.set).toHaveBeenCalledWith(1);
     expect(pane.style.transform).toBe('translateY(40px)');
   });
