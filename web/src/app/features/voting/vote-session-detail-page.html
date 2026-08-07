@@ -102,7 +102,7 @@
          region: it changes on every hover, and each sprite carries its own name in its label. -->
     @if (inspected(); as emote) {
       <div
-        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden"
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden pointer-coarse:hidden"
       >
         <span class="font-medium text-fg">{{ emote.emoteName }}</span>
         @if (emote.isArchived) {
@@ -146,7 +146,7 @@
 
   <!-- Gated like the cell selection that feeds it — without delete power the panel could only
        ever show an empty selection. -->
-  @if (canSelectForDelete() && activeEmoteSetId(); as setId) {
+  @if (canSelectForDelete() && !isCoarse() && activeEmoteSetId(); as setId) {
     <app-mass-delete-panel
       [setId]="setId"
       [channelName]="channelName()"

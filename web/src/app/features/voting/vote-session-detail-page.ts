@@ -24,6 +24,7 @@ import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
 import { LIVE_EVENT_TYPES, LiveEvent, channelLiveUrl } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
+import { PointerModeService } from '../../core/pointer/pointer-mode.service';
 import {
   VoteSessionResult,
   VoteSessionResults,
@@ -128,6 +129,9 @@ export class VoteSessionDetailPage {
   private readonly translocoService = inject(TranslocoService);
   private readonly languageService = inject(LanguageService);
   private readonly dialog = inject(Dialog);
+
+  /** See UsageStatsPage: no 7TV write access without a mouse. */
+  protected readonly isCoarse = inject(PointerModeService).isCoarse;
 
   // Lazy on purpose — reading the required channelName input during construction would throw
   // NG0950; the computed is first evaluated inside liveReload's toObservable effect.
@@ -302,6 +306,14 @@ export class VoteSessionDetailPage {
   constructor() {
     // Deferred, not called directly — see the identical comment in VoteSessionListPage.
     effect(() => this.load());
+
+    // A selection made in a desktop window would otherwise survive invisibly into the touch mode
+    // and reappear on the way back — same reasoning as UsageStatsPage.
+    effect(() => {
+      if (this.isCoarse()) {
+        this.selection.clear();
+      }
+    });
 
     effect((onCleanup) => {
       const element = this.sheetRef().nativeElement;
