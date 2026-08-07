@@ -60,11 +60,13 @@ describe('EmoteSprite', () => {
     expect(image().style.visibility).toBe('hidden');
   });
 
-  // Reassigning [ngSrc] aborts whatever request was still in flight (HTML's "update the image data"
-  // algorithm), so the browser never dispatches load/error for a url this element has moved past —
-  // only the url it is currently on can ever complete. This models that: the pointer moves to B
-  // before A finishes, and only once B's own (legitimate) load fires does the sprite reveal B's art.
-  it('reveals the new emote once its own load fires, not the previous one', () => {
+  // The reveal after a url change, which is the sequence the sidecar actually runs: hidden on the
+  // swap, visible again once a load fires. It does NOT distinguish whose load that was — the
+  // handler is `loadedUrl.set(url())` and a synthetic jsdom `load` carries no identity of its own.
+  // Nothing here needs to: reassigning [ngSrc] aborts whatever request was in flight (HTML's
+  // "update the image data" algorithm), so the browser never dispatches load/error for a url the
+  // element has already moved past.
+  it('reveals the sprite again once a load fires after a url change', () => {
     host.url.set('https://cdn.7tv.app/emote/bbb/2x.webp');
     fixture.detectChanges();
     expect(image().style.visibility).toBe('hidden');

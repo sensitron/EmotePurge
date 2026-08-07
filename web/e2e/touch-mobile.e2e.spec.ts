@@ -11,6 +11,7 @@ import {
   mockUsageChannelSeries,
   mockUsageDaily,
   mockUsageTotals,
+  mockVoteSessionResults,
   mockWorkerHealth,
 } from './support/mocks';
 
@@ -50,6 +51,11 @@ test.describe('touch: reading and voting only', () => {
     await expect(cell).toBeVisible();
     // The tell that the cell is no longer a toggle: on a mouse it carries aria-pressed.
     await expect(cell).not.toHaveAttribute('aria-pressed', /.*/);
+    await expect(cell).toHaveAttribute('aria-haspopup', 'dialog');
+    // The count has to stay in the label: the inspector row that states it for a fine pointer is
+    // `pointer-coarse:hidden`, so this is the only place a screen reader can read it without
+    // opening the dialog.
+    await expect(cell).toHaveAttribute('aria-label', 'Details zu PogU anzeigen (23×)');
 
     await cell.tap();
 
@@ -84,11 +90,12 @@ test.describe('touch: reading and voting only', () => {
     await page.locator('[data-atlas-index="0"]').tap();
     await expect(page.locator('#app-dialog-title')).toBeVisible();
 
-    // Pins the DialogShell/SheetDrag coupling: DialogShell renders the handle only because
-    // isSheet() is true, and SheetDrag's onPointerDown reads the literal attribute name to decide
-    // whether a drag may start. Renaming it on either side leaves this the only assertion in the
-    // suite that would catch it — the geometry checks below come from a `styles.css` media query and
-    // do not depend on the handle existing at all.
+    // Pins one half of the DialogShell/SheetDrag coupling: that a real dialog on a real coarse
+    // pointer renders `data-sheet-handle` at all, under exactly that name. That is `dialog-shell.ts`
+    // alone — a rename of the literal inside `SheetDrag.onPointerDown` (the other half, which reads
+    // it to decide whether a drag may start) would still slip past this, and only the directive's
+    // own spec stands under that. The geometry checks below say nothing about either: they come from
+    // a `styles.css` media query and hold with no handle in the DOM at all.
     await expect(page.locator('.app-dialog-panel [data-sheet-handle]')).toHaveCount(1);
 
     const pane = page.locator('.cdk-overlay-pane.app-dialog-panel');
@@ -109,5 +116,59 @@ test.describe('touch: reading and voting only', () => {
     await page.locator('.app-dialog-backdrop').tap({ position: { x: 10, y: 10 } });
 
     await expect(page.locator('#app-dialog-title')).toHaveCount(0);
+  });
+
+  // The regression net under SheetDrag's press/drag split. The directive is on the sheet's hull, so
+  // every control inside the sheet sits underneath it; taking pointer capture on `pointerdown` — as
+  // it used to — retargets the following `click` to the hull and the control never fires.
+  //
+  // Both halves are here on purpose, because only one of them ever saw the defect: with a
+  // touch-type pointer the click lands anyway, so `tap()` passed throughout. `click()` drives a
+  // MOUSE-type pointer into a context where `(pointer: coarse)` still matches — which is not an
+  // exotic case but the way this branch gets tested by hand (DevTools → Rendering → Emulate CSS
+  // media feature `pointer: coarse`, named in PointerModeService's own doc comment). Before the
+  // split, that second half left every button in every dialog dead.
+  test('a control inside the sheet still works — tapped and clicked', async ({ page }) => {
+    await mockUsageTotals(page, 'sensitron', [TOUCH_EMOTE]);
+    await page.goto('/channels/sensitron/usage-stats');
+
+    await page.locator('[data-atlas-index="0"]').tap();
+    await expect(page.locator('#app-dialog-title')).toBeVisible();
+    await page.getByRole('button', { name: 'Schließen' }).tap();
+    await expect(page.locator('#app-dialog-title')).toHaveCount(0);
+
+    await page.locator('[data-atlas-index="0"]').tap();
+    await expect(page.locator('#app-dialog-title')).toBeVisible();
+    await page.getByRole('button', { name: 'Schließen' }).click();
+    await expect(page.locator('#app-dialog-title')).toHaveCount(0);
+  });
+
+  // The ballot is the other half of the coarse surface and had no permanent coverage at all: two
+  // tasks rebuilt what a tap on its sprite means (cellAction()) and took its delete engine away,
+  // and nothing committed reached the page.
+  test('the ballot sprite opens the drilldown and the ballot has no delete engine', async ({
+    page,
+  }) => {
+    await mockVoteSessionResults(page, 'sensitron', { id: 7, title: 'Aufräumen im August' }, [
+      { emoteId: 'e1', emoteName: 'catJAM' },
+    ]);
+    await page.goto('/channels/sensitron/vote-sessions/7');
+    await expect(page.getByRole('heading', { name: 'Aufräumen im August' })).toBeVisible();
+
+    const sprite = page.getByRole('button', { name: 'Details zu catJAM anzeigen' });
+    // The tell that the sprite is no longer a selection toggle — on a mouse it carries aria-pressed.
+    await expect(sprite).not.toHaveAttribute('aria-pressed', /.*/);
+    await expect(sprite).toHaveAttribute('aria-haspopup', 'dialog');
+
+    // Asserted BEFORE anything is opened, and on the element rather than on its role: the CDK
+    // aria-hides the whole background while a modal is up, so a role query run after the tap would
+    // report zero for every button on the page and prove nothing. The panel's gate is `!isCoarse()`
+    // — everything else about it (a manager, a loaded set id) is true in this fixture, so dropping
+    // that clause really does bring it back and really does fail here.
+    await expect(page.locator('app-mass-delete-panel')).toHaveCount(0);
+
+    await sprite.tap();
+
+    await expect(page.locator('#app-dialog-title')).toHaveText('catJAM');
   });
 });
