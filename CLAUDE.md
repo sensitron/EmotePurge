@@ -52,6 +52,20 @@ npm --prefix web start       # ng serve mit Dev-Proxy (web/proxy.conf.json, /api
 
 Erwartet die Api parallel laufend per `dotnet run --project src/EmotePurge.Api` (Port `5151`) — **nicht** die VS-Code-`Api`-Launch-Config, die hart auf `:8080` bindet und damit den lokal registrierten Twitch-OAuth-Redirect (`http://localhost:5151/api/auth/twitch/callback`) bricht. `ng serve` läuft dann auf `http://localhost:4200`.
 
+#### Auf einem echten Handy testen
+
+**Sobald es um Mobile-Ansichten geht („ich will das auf dem Handy sehen", Touch-/`pointer: coarse`-Verhalten, Sheet-Dialoge), ist das der Startweg — nicht `npm start`:**
+
+```
+docker compose up -d postgres redis
+dotnet run --project src/EmotePurge.Api --launch-profile lan
+npm --prefix web run start:lan
+```
+
+Das Handy ruft im heimischen WLAN `https://dev.home.sensitron.me` auf; Nginx Proxy Manager terminiert TLS und reicht an den Dev-Server auf `:4200` durch. Gleiche Datenbank, gleiche Testdaten, Hot Reload, echter Twitch-Login. Die beiden `lan`-Varianten unterscheiden sich vom Alltagsstart nur darin, dass der Dev-Server auf allen Schnittstellen lauscht und die Twitch-Redirect-URI auf den Hostnamen umgestellt ist — **weder `appsettings.Development.json` noch `npm start` sind davon berührt**. Einrichtung, Topologie und Fehlersuche: [docs/Testumgebung-Mobile-2026-08-07.md](docs/Testumgebung-Mobile-2026-08-07.md).
+
+Es gibt keine Staging-Stage; die Umgebung *ist* die lokale, nur unter anderem Namen erreichbar. Von außen (Mobilfunk) ist sie bewusst nicht erreichbar.
+
 ### Tests
 
 ```
