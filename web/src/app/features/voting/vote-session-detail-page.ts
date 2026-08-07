@@ -1,4 +1,3 @@
-import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
@@ -25,6 +24,7 @@ import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
 import { LIVE_EVENT_TYPES, LiveEvent, channelLiveUrl } from '../../core/live/live-event.model';
 import { liveReload } from '../../core/live/live-reload';
+import { PointerModeService } from '../../core/pointer/pointer-mode.service';
 import {
   VoteSessionResult,
   VoteSessionResults,
@@ -35,6 +35,7 @@ import {
   EmoteDrilldownData,
   openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
+import { EmoteSprite } from '../../shared/emotes/emote-sprite';
 import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
@@ -111,7 +112,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     NoticeBanner,
     VoteAudienceBadge,
     ScrollingModule,
-    NgOptimizedImage,
+    EmoteSprite,
     MassDeletePanel,
     UsageRangeMenu,
     TranslocoPipe,
@@ -128,6 +129,9 @@ export class VoteSessionDetailPage {
   private readonly translocoService = inject(TranslocoService);
   private readonly languageService = inject(LanguageService);
   private readonly dialog = inject(Dialog);
+
+  /** See UsageStatsPage: no 7TV write access without a mouse. */
+  protected readonly isCoarse = inject(PointerModeService).isCoarse;
 
   // Lazy on purpose — reading the required channelName input during construction would throw
   // NG0950; the computed is first evaluated inside liveReload's toObservable effect.
@@ -189,6 +193,20 @@ export class VoteSessionDetailPage {
   // 7TV editor who is not also a channel manager gets no usage data either and loses the delete
   // entry point on this page — the usage-stats grid keeps it for them.
   protected readonly canSelectForDelete = this.hasUsageData;
+
+  /**
+   * What the sprite face does when it is touched or clicked. Two jobs on one surface was fine while
+   * hover revealed a separate 20 px drilldown trigger; on a finger it was a coin toss. With the
+   * delete engine gone on coarse pointers the face is free, so it carries the drilldown — gated on
+   * hasUsageData for the same reason the trigger is: /usage-stats/daily sits behind the usage access
+   * filter and a plain voter's tap could only earn a 403.
+   */
+  protected readonly cellAction = computed<'drilldown' | 'select' | 'none'>(() => {
+    if (this.isCoarse()) {
+      return this.hasUsageData() ? 'drilldown' : 'none';
+    }
+    return this.canSelectForDelete() ? 'select' : 'none';
+  });
 
   // Same data-presence-as-permission reading as hasUsageData: the server nulls the tallies of a
   // running secret-ballot session for everyone it does not consider a manager.
@@ -303,6 +321,14 @@ export class VoteSessionDetailPage {
     // Deferred, not called directly — see the identical comment in VoteSessionListPage.
     effect(() => this.load());
 
+    // A selection made in a desktop window would otherwise survive invisibly into the touch mode
+    // and reappear on the way back — same reasoning as UsageStatsPage.
+    effect(() => {
+      if (this.isCoarse()) {
+        this.selection.clear();
+      }
+    });
+
     effect((onCleanup) => {
       const element = this.sheetRef().nativeElement;
       this.sheetWidth.set(element.clientWidth);
@@ -346,17 +372,26 @@ export class VoteSessionDetailPage {
     });
   }
 
-  // One guarded entry point for click/Enter/Space on the sprite. preventDefault only fires on the
-  // keyboard path and only when the sprite is selectable — an unselectable sprite must keep Space's
-  // default page scroll. Also pins the readout, so a tap on a touch screen (where nothing hovers)
-  // still tells the voter which emote they are looking at.
+  // One guarded entry point for click/Enter/Space on the sprite, branched on cellAction. Both acting
+  // branches swallow the keyboard default: the element carries role="button", and the ARIA button
+  // pattern requires Space not to scroll the page as well as activate. On the drilldown branch that
+  // is currently invisible — the CDK freezes background scrolling the moment the dialog opens — but
+  // an element does not get to rely on what the thing it opens happens to do. The 'none' branch is
+  // neither focusable nor a button and keeps every default.
+  // Also pins the readout, so a tap on a touch screen (where nothing hovers) still tells the voter
+  // which emote they are looking at.
   protected onCardActivate(emote: VoteSessionResult, event: MouseEvent | KeyboardEvent): void {
     this.inspectedId.set(emote.emoteId);
-    if (!this.canSelectForDelete()) {
+    const action = this.cellAction();
+    if (action === 'none') {
       return;
     }
     if (event.type === 'keydown') {
       event.preventDefault();
+    }
+    if (action === 'drilldown') {
+      this.openDrilldown(emote);
+      return;
     }
     this.selection.onRowClick(emote, event as MouseEvent);
   }
@@ -391,6 +426,24 @@ export class VoteSessionDetailPage {
       maximumFractionDigits: 0,
       signDisplay: 'exceptZero',
     }).format(value);
+  }
+
+  // Which of the two drilldown labels the sprite carries. The count belongs in the accessible name
+  // on a coarse pointer, because the readout row that states it is `pointer-coarse:hidden` there —
+  // without it a screen reader on a phone cannot learn an emote's usage without opening the dialog.
+  // The server withholds the count for a plain voter, and then there is nothing to name.
+  protected drilldownLabelKey(emote: VoteSessionResult): string {
+    return emote.totalUseCount === null
+      ? 'usageStats.drilldown.open'
+      : 'usageStats.drilldown.openWithCount';
+  }
+
+  // Unsigned counterpart to formatScore(), same locale reasoning. Returns '' for the withheld case,
+  // where the key picked above has no {{count}} placeholder to fill.
+  protected formatUseCount(count: number | null): string {
+    return count === null
+      ? ''
+      : new Intl.NumberFormat(toLocale(this.languageService.lang())).format(count);
   }
 
   // Full, untruncated stats wording as a tooltip — the visible lines may still ellipsize on narrow

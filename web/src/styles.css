@@ -555,10 +555,54 @@
   background: var(--ep-backdrop);
 }
 
+/* The pane is the scroll container, deliberately — not the shell's body. Between the pane's height
+   and the content sit two component hosts (app-<dialog> and app-dialog-shell), both display:inline
+   by default, and a percentage height chain does not survive them. Scrolling the pane is one rule
+   and touches no component. The cost is that the heading and the action row scroll along; at 28rem
+   that is acceptable, and the sheet's grab handle stays put via position:sticky.
+
+   Without this, CDK blocks the document scroll and caps the pane at 100vh while nothing declares
+   overflow — so a dialog taller than the window ran off it and was unreachable. */
 .cdk-overlay-pane.app-dialog-panel {
   width: 100%;
   max-width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   color: var(--ep-fg);
+}
+
+/* The same dialog, docked to the bottom edge, whenever it is being pointed at with a finger. Not a
+   second overlay system and not a second panel class: two overlay stacks would have to be kept in
+   step forever, and the pane class never needs to change — only its geometry does. Driven by a media
+   query rather than by a class chosen at open time, so it is also live rather than frozen.
+
+   The wrapper override needs !important: CDK's GlobalPositionStrategy writes align-items as an
+   inline style on .cdk-global-overlay-wrapper, and inline styles lose to nothing else. */
+@media (pointer: coarse) {
+  .cdk-global-overlay-wrapper:has(> .app-dialog-panel) {
+    align-items: flex-end !important;
+  }
+
+  .cdk-overlay-pane.app-dialog-panel {
+    max-width: none;
+    max-height: 85dvh;
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+    animation: app-sheet-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes app-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (pointer: coarse) and (prefers-reduced-motion: reduce) {
+  .cdk-overlay-pane.app-dialog-panel {
+    transition: none;
+    animation: none;
+  }
 }
 
 /* Window-scrolled virtual-scroll chrome — UNlayered for the same reason as the dialog rules

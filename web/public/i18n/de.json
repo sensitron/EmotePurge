@@ -469,6 +469,7 @@
     "neverUsed": "nie benutzt",
     "drilldown": {
       "open": "Details zu {{name}} anzeigen",
+      "openWithCount": "Details zu {{name}} anzeigen ({{count}}×)",
       "chartLabel": "Tagesverlauf der Nutzung",
       "range": "{{from}} bis {{to}}",
       "loading": "Tagesverlauf wird geladen",
@@ -570,6 +571,7 @@
       "createTitle": "Neue Abstimmung erstellen",
       "wholeSetHint": "Zur Wahl steht das ganze Emote-Set des Channels — hier wird nichts vorausgewählt.",
       "wholeSetHintLink": "Nur bestimmte Emotes zur Wahl stellen?",
+      "wholeSetHintDesktopOnly": "Eine Vorauswahl einzelner Emotes triffst du am Rechner.",
       "titlePlaceholder": "Titel, z.B. Monats-Aufräumaktion Juli",
       "titleRequired": "Titel darf nicht leer sein.",
       "audienceEveryone": "Alle",

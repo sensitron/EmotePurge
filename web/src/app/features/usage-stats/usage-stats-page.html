@@ -124,19 +124,19 @@
     <!-- The inspector. Every label the old card printed on all 900 tiles — name, last used, age,
          trend — lives here once, for whichever cell the pointer or the keyboard is on. Deliberately
          NOT an aria-live region: it changes on every hover, and announcing that would be a stream
-         of noise. Each cell carries its own name and count in its accessible label instead. -->
+         of noise. Each cell carries its own name and count in its accessible label instead.
+         Hidden on a coarse pointer: the sticky bar is `max-sm:static` there, so it scrolls away, and
+         the only input that could feed it is the tap — which now opens the drilldown instead. It
+         stays for a narrow desktop window, where hover feeds it and the bar really does pin. -->
     @if (inspected(); as emote) {
       <div
-        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden"
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden pointer-coarse:hidden"
       >
         <span class="app-sprite-cell flex h-7 w-7 shrink-0 items-center justify-center">
-          <img
-            [ngSrc]="emote.imageUrl"
-            width="28"
-            height="28"
-            disableOptimizedSrcset
-            alt=""
-            class="h-full w-full object-contain p-0.5"
+          <app-emote-sprite
+            [url]="emote.imageUrl"
+            [size]="28"
+            spriteClass="h-full w-full object-contain p-0.5"
           />
         </span>
         <span class="font-medium text-fg">{{ emote.emoteName }}</span>
@@ -318,7 +318,7 @@
                 <!-- Only on the dead band: it is the one group whose members are candidates by
                    definition, so "all of them" is a sentence a moderator actually means. Offering
                    it on the heavy band would be a loaded gun with no purpose. -->
-                @if (row.band === 'dead') {
+                @if (row.band === 'dead' && !isCoarse()) {
                   <button
                     type="button"
                     class="shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium text-accent-fg transition hover:bg-surface-inset"
@@ -351,6 +351,11 @@
                        as a different KIND of surface rather than as the same surface with a zero on
                        it. The void plate stays where it still separates unlike things inside one
                        grid: an archived emote on a ballot, which has no heading to say it. -->
+                    <!-- The coarse label keeps the usage count: the inspector row that carries the
+                       number for a fine pointer is `pointer-coarse:hidden`, so a bare "Details zu
+                       catJAM anzeigen" would leave a screen-reader user on a phone unable to read
+                       an emote's count at all without opening the dialog. aria-haspopup because on
+                       coarse this cell is the drilldown trigger, not a toggle. -->
                     <button
                       type="button"
                       [class]="
@@ -361,22 +366,21 @@
                       "
                       [attr.data-atlas-index]="row.startIndex + i"
                       [attr.tabindex]="activeIndex() === row.startIndex + i ? 0 : -1"
-                      [attr.aria-pressed]="selection.isSelected(emote)"
+                      [attr.aria-pressed]="isCoarse() ? null : selection.isSelected(emote)"
+                      [attr.aria-haspopup]="isCoarse() ? 'dialog' : null"
                       [attr.aria-label]="
-                        emote.emoteName + ' · ' + formatCount(emote.totalUseCount) + '×'
+                        isCoarse()
+                          ? ('usageStats.drilldown.openWithCount'
+                            | transloco
+                              : { name: emote.emoteName, count: formatCount(emote.totalUseCount) })
+                          : emote.emoteName + ' · ' + formatCount(emote.totalUseCount) + '×'
                       "
                       (click)="onCellClick(emote, row.startIndex + i, $event)"
                       (mousedown)="$event.shiftKey && $event.preventDefault()"
                       (mouseenter)="inspect(emote)"
                       (focus)="onCellFocus(emote, row.startIndex + i)"
                     >
-                      <img
-                        [ngSrc]="emote.imageUrl"
-                        width="64"
-                        height="64"
-                        alt=""
-                        class="h-full w-full object-contain p-1"
-                      />
+                      <app-emote-sprite [url]="emote.imageUrl" [size]="64" />
                       <!-- The figure is printed onto the sprite rather than under it: a caption row
                        would cost a third of the cell, and the scrim is what makes it legible over
                        whatever the artwork puts beneath. -->
@@ -424,33 +428,37 @@
                        900 of these do not clutter the sheet; top-left because the count sits bottom
                        left and the selection mark top right. tabindex -1 keeps it out of the roving
                        tab order — the keyboard reaches the same dialog through the inspector's
-                       button, which for keyboard and touch is perfectly reachable. -->
-                    <button
-                      type="button"
-                      [class]="
-                        'absolute top-0 left-0 flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100 ' +
-                        (activeIndex() === row.startIndex + i ? 'opacity-100' : '')
-                      "
-                      tabindex="-1"
-                      [style.background-color]="'var(--ep-sprite-scrim)'"
-                      [attr.aria-label]="
-                        'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
-                      "
-                      (click)="openDrilldown(emote)"
-                    >
-                      <!-- Drawn geometry, not a glyph: three bars, which is what the dialog behind
-                         this button actually shows. -->
-                      <svg
-                        viewBox="0 0 10 10"
-                        class="h-3 w-3 fill-accent-fg"
-                        aria-hidden="true"
-                        focusable="false"
+                       button, which for keyboard and touch is perfectly reachable.
+                       On a coarse pointer this is gone: with no selection left to compete with, the
+                       whole 64 px cell is the trigger, which beats a 20 px overlay by every measure. -->
+                    @if (!isCoarse()) {
+                      <button
+                        type="button"
+                        [class]="
+                          'absolute top-0 left-0 flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 ' +
+                          (activeIndex() === row.startIndex + i ? 'opacity-100' : '')
+                        "
+                        tabindex="-1"
+                        [style.background-color]="'var(--ep-sprite-scrim)'"
+                        [attr.aria-label]="
+                          'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
+                        "
+                        (click)="openDrilldown(emote)"
                       >
-                        <rect x="0" y="6" width="2" height="4" />
-                        <rect x="4" y="3" width="2" height="7" />
-                        <rect x="8" y="0" width="2" height="10" />
-                      </svg>
-                    </button>
+                        <!-- Drawn geometry, not a glyph: three bars, which is what the dialog behind
+                           this button actually shows. -->
+                        <svg
+                          viewBox="0 0 10 10"
+                          class="h-3 w-3 fill-accent-fg"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <rect x="0" y="6" width="2" height="4" />
+                          <rect x="4" y="3" width="2" height="7" />
+                          <rect x="8" y="0" width="2" height="10" />
+                        </svg>
+                      </button>
+                    }
                   </div>
                 }
               </div>
@@ -471,14 +479,7 @@
         <div class="flex flex-col gap-3 border-l border-border pl-4">
           <div class="flex items-start gap-3">
             <span class="app-sprite-cell flex h-14 w-14 shrink-0 items-center justify-center">
-              <img
-                [ngSrc]="emote.imageUrl"
-                width="56"
-                height="56"
-                disableOptimizedSrcset
-                alt=""
-                class="h-full w-full object-contain p-1"
-              />
+              <app-emote-sprite [url]="emote.imageUrl" [size]="56" />
             </span>
             <div class="min-w-0">
               <p class="text-sm font-semibold break-all text-fg">{{ emote.emoteName }}</p>
@@ -575,11 +576,15 @@
     }
   </div>
 
+  <!-- Gated with the delete engine: re-importing a protocol replays 7TV writes and needs the same
+       token, so on a phone it would be the one write path left standing. -->
   @if (activeEmoteSetId(); as setId) {
     <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
          Usage page only — this is where the purge decision lives. Stays in the flow rather than in
          the dock: it is a recovery affordance, not part of marking. -->
-    <app-restore-panel [setId]="setId" [channelName]="channelName()" />
+    @if (!isCoarse()) {
+      <app-restore-panel [setId]="setId" [channelName]="channelName()" />
+    }
   }
 </div>
 
@@ -587,7 +592,7 @@
      surface above it to be nothing but emotes. Kept mounted through a settled run as well, because
      the run summary carries the protocol download and that file is the only durable record. -->
 @if (activeEmoteSetId(); as setId) {
-  @if (dockVisible()) {
+  @if (dockVisible() && !isCoarse()) {
     <div class="app-dock">
       <div class="mx-auto flex max-w-5xl flex-col gap-2 overflow-y-auto px-4 py-3 max-h-[70vh]">
         <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">

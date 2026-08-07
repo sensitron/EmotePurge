@@ -1,4 +1,3 @@
-import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
@@ -25,6 +24,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
+import { PointerModeService } from '../../core/pointer/pointer-mode.service';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
@@ -52,6 +52,7 @@ import {
   isUnderObservation,
   usageTrend,
 } from '../../shared/emotes/emote-context';
+import { EmoteSprite } from '../../shared/emotes/emote-sprite';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
 import { UsageSparkline } from '../../shared/emotes/usage-sparkline';
@@ -136,7 +137,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     EmptyState,
     NoticeBanner,
     ScrollingModule,
-    NgOptimizedImage,
+    EmoteSprite,
     MassDeletePanel,
     RestorePanel,
     SlotBudgetBar,
@@ -160,6 +161,15 @@ export class UsageStatsPage {
   private readonly dialog = inject(Dialog);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * Capability, not layout: no 7TV write access without a mouse. The write token can only be
+   * obtained from DevTools' local-storage view on 7tv.app, which a phone does not have — so
+   * selection, mass delete and protocol re-import are desktop work, and the tap on a cell is freed
+   * up to mean one thing (see onCellClick). Width stays responsible for what fits; this is
+   * responsible for what can be operated.
+   */
+  protected readonly isCoarse = inject(PointerModeService).isCoarse;
 
   // The sheet element is what the column count is measured against — see atlasColumns() for why the
   // window's width was the wrong ruler. Unconditionally rendered (it wraps the loading, empty and
@@ -482,6 +492,14 @@ export class UsageStatsPage {
       this.load(this.channelName(), this.from(), this.to());
     });
 
+    // A selection made in a desktop window would otherwise survive invisibly into the touch mode and
+    // reappear on the way back.
+    effect(() => {
+      if (this.isCoarse()) {
+        this.selection.clear();
+      }
+    });
+
     // Resolves "all time" against the tracking start as soon as it is known — the initial from()
     // is only a placeholder (see its declaration). Every consumer of from() (grid request,
     // drilldown, export, vote-session prefill) inherits the corrected value, at the cost of one
@@ -586,7 +604,9 @@ export class UsageStatsPage {
   }
 
   /**
-   * A click selects, and it also pins the inspector to the clicked cell.
+   * On a fine pointer a click selects. On a coarse one it opens the drilldown instead — there is no
+   * write path left to select for once the 7TV token can no longer be copied off a phone, so the
+   * whole cell means exactly one thing there. Either way it pins the inspector to the clicked cell.
    *
    * The pinning is what makes the inspector usable without a pointer at all: on a touch screen
    * there is no hover to drive it, so without this the line would keep describing the busiest emote
@@ -596,6 +616,15 @@ export class UsageStatsPage {
   protected onCellClick(emote: EmoteUsageTotal, index: number, event: MouseEvent): void {
     this.inspectedId.set(emote.emoteId);
     this.activeIndex.set(index);
+
+    // On a coarse pointer the cell has only one meaning left. Returning before the selection call
+    // rather than gating the whole method keeps inspectedId/activeIndex in sync, which is what the
+    // sidecar and the roving tab stop read.
+    if (this.isCoarse()) {
+      this.openDrilldown(emote);
+      return;
+    }
+
     this.selection.onRowClick(emote, event);
   }
 

@@ -132,14 +132,23 @@
         <!-- The counterpart of the dialog's "{{count}} emotes selected" line: this entry point has
              no selection at all, and nothing else on the form said which emotes end up on the
              ballot. -->
+        <!-- The link is fine-pointer only: a curated ballot is assembled by selecting cells on the
+             usage-stats page, and that selection does not exist on a coarse pointer — the dock that
+             carries "Zur Abstimmung stellen" is gated on `!isCoarse()` there. The page itself stays
+             reachable and readable, so the link is not broken navigation; it is a question its
+             destination cannot answer. The sentence that takes its place says where the capability
+             lives rather than leaving a hole where a mod would look for it. -->
         <p class="mt-1 text-sm text-fg-muted">
           {{ 'voting.list.wholeSetHint' | transloco }}
           <a
             [routerLink]="['/channels', channelName(), 'usage-stats']"
-            class="text-fg-secondary underline-offset-2 hover:text-accent-fg hover:underline"
+            class="text-fg-secondary underline-offset-2 hover:text-accent-fg hover:underline pointer-coarse:hidden"
           >
             {{ 'voting.list.wholeSetHintLink' | transloco }}
           </a>
+          <span class="hidden pointer-coarse:inline">
+            {{ 'voting.list.wholeSetHintDesktopOnly' | transloco }}
+          </span>
         </p>
       </div>
       <input

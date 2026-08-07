@@ -52,9 +52,15 @@
              stay on the page's own left edge. -->
         <ul class="-mx-3 divide-y divide-border border-y border-border">
           @for (channel of channels; track channel.channelName) {
+            <!-- Below sm every row takes the same deliberate two-line shape: identity on top,
+                 role and action underneath and left-aligned. It used to be one wrapping row, which
+                 held for the short branches ("Hinzufügen", "Bot aktiv", both whitespace-nowrap) and
+                 broke for the one branch with a sentence in it — the whole right-hand group fell to
+                 a second line, right-aligned by ml-auto, and wrapped again inside it. Making the
+                 break intentional also makes long channel names and long role chains harmless. -->
             <li
               [class]="
-                'flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-3' +
+                'flex flex-col items-start gap-x-4 gap-y-2 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center' +
                 (channel.isTracked ? ' relative transition-colors hover:bg-surface-inset' : '')
               "
             >
@@ -92,7 +98,9 @@
                   >
                 }
               </div>
-              <div class="ml-auto flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+              <div
+                class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 sm:ml-auto sm:justify-end"
+              >
                 <!-- Your role is a fact about you, not about this channel, and on most accounts it
                      is the same word on every row. Three coloured pills claimed otherwise. -->
                 @if (roleKeys(channel); as keys) {
