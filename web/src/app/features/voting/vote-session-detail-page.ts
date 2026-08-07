@@ -194,6 +194,20 @@ export class VoteSessionDetailPage {
   // entry point on this page — the usage-stats grid keeps it for them.
   protected readonly canSelectForDelete = this.hasUsageData;
 
+  /**
+   * What the sprite face does when it is touched or clicked. Two jobs on one surface was fine while
+   * hover revealed a separate 20 px drilldown trigger; on a finger it was a coin toss. With the
+   * delete engine gone on coarse pointers the face is free, so it carries the drilldown — gated on
+   * hasUsageData for the same reason the trigger is: /usage-stats/daily sits behind the usage access
+   * filter and a plain voter's tap could only earn a 403.
+   */
+  protected readonly cellAction = computed<'drilldown' | 'select' | 'none'>(() => {
+    if (this.isCoarse()) {
+      return this.hasUsageData() ? 'drilldown' : 'none';
+    }
+    return this.canSelectForDelete() ? 'select' : 'none';
+  });
+
   // Same data-presence-as-permission reading as hasUsageData: the server nulls the tallies of a
   // running secret-ballot session for everyone it does not consider a manager.
   protected readonly talliesWithheld = computed(() =>
@@ -358,13 +372,17 @@ export class VoteSessionDetailPage {
     });
   }
 
-  // One guarded entry point for click/Enter/Space on the sprite. preventDefault only fires on the
-  // keyboard path and only when the sprite is selectable — an unselectable sprite must keep Space's
-  // default page scroll. Also pins the readout, so a tap on a touch screen (where nothing hovers)
-  // still tells the voter which emote they are looking at.
+  // One guarded entry point for click/Enter/Space on the sprite, branched on cellAction. preventDefault
+  // only fires on the keyboard path and only for the 'select' branch — a drilldown or dead sprite must
+  // keep Space's default page scroll. Also pins the readout, so a tap on a touch screen (where nothing
+  // hovers) still tells the voter which emote they are looking at.
   protected onCardActivate(emote: VoteSessionResult, event: MouseEvent | KeyboardEvent): void {
     this.inspectedId.set(emote.emoteId);
-    if (!this.canSelectForDelete()) {
+    if (this.cellAction() === 'drilldown') {
+      this.openDrilldown(emote);
+      return;
+    }
+    if (this.cellAction() !== 'select') {
       return;
     }
     if (event.type === 'keydown') {

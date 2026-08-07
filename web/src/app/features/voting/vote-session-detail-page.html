@@ -211,18 +211,28 @@
                    same way it went on the usage atlas, but the vote buttons are NOT — they are the
                    task here, so they keep a real size and only the chrome around them left. -->
               <div class="group relative flex flex-col" [style.width.px]="cellPx()">
-                <!-- Selection targets only for those who can run the mass delete; everyone else
-                     gets a plain sprite without button semantics, since there is nothing a
-                     selection could feed. Voting does not go through here — that is the strip. -->
+                <!-- What the sprite face does is cellAction(): selects on a fine pointer for those
+                     who can run the mass delete, opens the drilldown on a coarse one (the delete
+                     engine is gone there — see isCoarse()), or is a plain sprite with no button
+                     semantics when neither applies. Voting does not go through here — that is the
+                     strip. -->
                 <div
-                  [attr.role]="canSelectForDelete() ? 'button' : null"
-                  [attr.tabindex]="canSelectForDelete() ? 0 : null"
-                  [attr.aria-pressed]="canSelectForDelete() ? selection.isSelected(emote) : null"
-                  [attr.aria-label]="canSelectForDelete() ? emote.emoteName : null"
+                  [attr.role]="cellAction() === 'none' ? null : 'button'"
+                  [attr.tabindex]="cellAction() === 'none' ? null : 0"
+                  [attr.aria-pressed]="
+                    cellAction() === 'select' ? selection.isSelected(emote) : null
+                  "
+                  [attr.aria-label]="
+                    cellAction() === 'drilldown'
+                      ? ('usageStats.drilldown.open' | transloco: { name: emote.emoteName })
+                      : cellAction() === 'select'
+                        ? emote.emoteName
+                        : null
+                  "
                   [class]="
                     'app-sprite-cell relative block ' +
                     (emote.isArchived ? 'app-sprite-cell-void ' : '') +
-                    (canSelectForDelete() ? 'cursor-pointer ' : '')
+                    (cellAction() === 'none' ? '' : 'cursor-pointer ')
                   "
                   [style.height.px]="cellPx()"
                   (click)="onCardActivate(emote, $event)"
@@ -344,11 +354,13 @@
                 <!-- Drilldown (A5), gated on hasUsageData(): the /daily endpoint sits behind the
                      usage-stats access filter, so a plain voter's click could only earn a 403.
                      On the cell rather than in the readout, for the reason the usage atlas learned
-                     the hard way — a panel that follows the pointer cannot hold a click target. -->
-                @if (hasUsageData()) {
+                     the hard way — a panel that follows the pointer cannot hold a click target.
+                     Not rendered on coarse: the sprite face itself is the drilldown trigger there
+                     (cellAction()), and this 20 px overlay would be a redundant second target. -->
+                @if (hasUsageData() && !isCoarse()) {
                   <button
                     type="button"
-                    class="absolute top-0 left-0 flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-100 focus-visible:opacity-100"
+                    class="absolute top-0 left-0 flex h-5 w-5 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                     [style.background-color]="'var(--ep-sprite-scrim)'"
                     [attr.aria-label]="
                       'usageStats.drilldown.open' | transloco: { name: emote.emoteName }
