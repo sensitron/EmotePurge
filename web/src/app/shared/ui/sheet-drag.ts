@@ -39,10 +39,11 @@ export class SheetDrag implements OnDestroy {
   private startedAt = 0;
   private distance = 0;
 
-  // A destroyed host never gets its pointerup/pointercancel — Angular tears down the listener along
-  // with the element, it does not synthesize the event first. Without this, a dialog closed by other
-  // means mid-drag (e.g. a route change) would leave the pane's transform and the pointer capture
-  // dangling on an element nobody is going to touch again.
+  // The host can be destroyed while its pane survives: the sheet chrome sits behind a
+  // viewport-width @if, so a breakpoint crossing mid-drag (a rotation, a resize) destroys this
+  // directive without the dialog closing — pointerup/pointercancel never fire because the element
+  // they would land on is already gone. Without this, the pane would be left at whatever transform
+  // the drag had reached, and the host would still hold pointer capture nobody will use again.
   ngOnDestroy(): void {
     this.endGesture();
   }
@@ -70,7 +71,14 @@ export class SheetDrag implements OnDestroy {
     this.distance = 0;
     // The spring-back transition would otherwise animate every move event.
     pane.style.transition = 'none';
-    this.host.nativeElement.setPointerCapture(event.pointerId);
+    try {
+      this.host.nativeElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Not fatal, deliberately swallowed: a pointer that refuses capture still delivers move/up
+      // events here via ordinary bubbling, it just stops redirecting them once the finger leaves the
+      // element's bounds. The alternative — bailing out here — would abandon a gesture that has
+      // already recorded its start position for no gain.
+    }
   }
 
   protected onPointerMove(event: PointerEvent): void {
@@ -97,15 +105,19 @@ export class SheetDrag implements OnDestroy {
     this.pointerId = null;
     pane.style.transition = '';
 
-    if (shouldDismiss(distance, distance / elapsedMs)) {
-      this.dialogRef?.close();
+    // Only skip the spring-back when a close was actually issued: a pane inside anything that isn't
+    // a Dialog (no DialogRef to inject) would otherwise be parked at an inline transform with nothing
+    // in flight to ever clear it, and an inline transform on a successful close would still outrank
+    // any class-based exit animation the sheet chrome adds later.
+    if (shouldDismiss(distance, distance / elapsedMs) && this.dialogRef) {
+      this.dialogRef.close();
       return;
     }
 
     pane.style.transform = '';
   }
 
-  /** Shared by the destroy path: releases capture and leaves the pane exactly as it found it. */
+  /** Releases pointer capture and puts the pane back to its undragged state. */
   private endGesture(): void {
     if (this.pointerId === null || !this.pane) {
       return;
