@@ -53,22 +53,95 @@ describe('EmoteSprite', () => {
     expect(image().style.visibility).toBe('hidden');
   });
 
-  it('ignores a load that belongs to a url already superseded', () => {
-    const stale = image();
-    host.url.set('https://cdn.7tv.app/emote/bbb/2x.webp');
-    fixture.detectChanges();
-
-    // The slow first request finishing after the pointer has already moved on.
-    stale.dispatchEvent(new Event('load'));
-    fixture.detectChanges();
-
-    expect(image().style.visibility).toBe('hidden');
-  });
-
   it('leaves a broken image hidden so the plate shows through', () => {
     image().dispatchEvent(new Event('error'));
     fixture.detectChanges();
 
     expect(image().style.visibility).toBe('hidden');
+  });
+
+  // Reassigning [ngSrc] aborts whatever request was still in flight (HTML's "update the image data"
+  // algorithm), so the browser never dispatches load/error for a url this element has moved past —
+  // only the url it is currently on can ever complete. This models that: the pointer moves to B
+  // before A finishes, and only once B's own (legitimate) load fires does the sprite reveal B's art.
+  it('reveals the new emote once its own load fires, not the previous one', () => {
+    host.url.set('https://cdn.7tv.app/emote/bbb/2x.webp');
+    fixture.detectChanges();
+    expect(image().style.visibility).toBe('hidden');
+
+    image().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+
+    expect(image().style.visibility).toBe('');
+  });
+
+  it('stays hidden if the url moves on again before the current one ever loaded', () => {
+    host.url.set('https://cdn.7tv.app/emote/bbb/2x.webp');
+    fixture.detectChanges();
+
+    host.url.set('https://cdn.7tv.app/emote/ccc/2x.webp');
+    fixture.detectChanges();
+
+    expect(image().style.visibility).toBe('hidden');
+  });
+
+  // The component's most subtle invariant: settled is keyed on url identity, not on "has a load ever
+  // fired", so returning to an already-loaded url reveals immediately rather than waiting on another
+  // load event — which a cached image will still deliver asynchronously, but the UI shouldn't
+  // visibly wait on when it already has the pixels.
+  it('reveals immediately when the url returns to one that already loaded', () => {
+    image().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+
+    host.url.set('https://cdn.7tv.app/emote/bbb/2x.webp');
+    fixture.detectChanges();
+    expect(image().style.visibility).toBe('hidden');
+
+    host.url.set('https://cdn.7tv.app/emote/aaa/2x.webp');
+    fixture.detectChanges();
+
+    expect(image().style.visibility).toBe('');
+  });
+});
+
+@Component({
+  imports: [EmoteSprite],
+  template: `
+    <app-emote-sprite
+      [url]="'https://cdn.7tv.app/emote/aaa/2x.webp'"
+      [size]="64"
+      [dimmed]="dimmed()"
+      spriteClass="custom-class"
+    />
+  `,
+})
+class StyledHost {
+  readonly dimmed = signal(false);
+}
+
+describe('EmoteSprite styling inputs', () => {
+  let fixture: ComponentFixture<StyledHost>;
+  let host: StyledHost;
+
+  function image(): HTMLImageElement {
+    return fixture.nativeElement.querySelector('img');
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [StyledHost] }).compileComponents();
+    fixture = TestBed.createComponent(StyledHost);
+    host = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('applies a custom spriteClass instead of the default', () => {
+    expect(image().className).toContain('custom-class');
+  });
+
+  it('applies the dimmed class for an archived ballot member', () => {
+    host.dimmed.set(true);
+    fixture.detectChanges();
+
+    expect(image().classList.contains('opacity-40')).toBe(true);
   });
 });
