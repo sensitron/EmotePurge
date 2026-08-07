@@ -604,7 +604,9 @@ export class UsageStatsPage {
   }
 
   /**
-   * A click selects, and it also pins the inspector to the clicked cell.
+   * On a fine pointer a click selects. On a coarse one it opens the drilldown instead — there is no
+   * write path left to select for once the 7TV token can no longer be copied off a phone, so the
+   * whole cell means exactly one thing there. Either way it pins the inspector to the clicked cell.
    *
    * The pinning is what makes the inspector usable without a pointer at all: on a touch screen
    * there is no hover to drive it, so without this the line would keep describing the busiest emote
@@ -614,6 +616,15 @@ export class UsageStatsPage {
   protected onCellClick(emote: EmoteUsageTotal, index: number, event: MouseEvent): void {
     this.inspectedId.set(emote.emoteId);
     this.activeIndex.set(index);
+
+    // On a coarse pointer the cell has only one meaning left. Returning before the selection call
+    // rather than gating the whole method keeps inspectedId/activeIndex in sync, which is what the
+    // sidecar and the roving tab stop read.
+    if (this.isCoarse()) {
+      this.openDrilldown(emote);
+      return;
+    }
+
     this.selection.onRowClick(emote, event);
   }
 
