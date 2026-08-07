@@ -97,7 +97,27 @@ test.describe('touch: reading and voting only', () => {
     // it to decide whether a drag may start) would still slip past this, and only the directive's
     // own spec stands under that. The geometry checks below say nothing about either: they come from
     // a `styles.css` media query and hold with no handle in the DOM at all.
-    await expect(page.locator('.app-dialog-panel [data-sheet-handle]')).toHaveCount(1);
+    //
+    // Two of them: the grab bar and the heading block. The heading is a handle because a drag that
+    // starts there means the sheet, the way it does in a native one.
+    const handles = page.locator('.app-dialog-panel [data-sheet-handle]');
+    await expect(handles).toHaveCount(2);
+
+    const grab = (await handles.first().boundingBox())!;
+    const heading = (await handles.last().boundingBox())!;
+
+    // The measurement the phone failed on. The bar itself is 4 px; what a thumb has to hit is the
+    // strip around it, and at the bar's own padding that came to 24 px — technically a target
+    // (WCAG 2.5.8), nowhere near the 44-px comfort target the design language sets for a primary
+    // one. Asserted on the rendered box, so a padding change that silently shrinks it fails here.
+    expect(grab.height).toBeGreaterThanOrEqual(44);
+
+    // And they have to touch. Two drag zones with a strip of hull between them is worse than one
+    // small zone, because the dead strip sits exactly where a thumb aims — between the bar it can
+    // see and the heading it can read — and a gesture that starts there does nothing a slow pull can
+    // finish. The hull's own `gap-4` used to be that strip; the heading cancels it and re-adds it as
+    // padding it owns, so the sheet's whole top is continuous.
+    expect(heading.y).toBeLessThanOrEqual(grab.y + grab.height + 1);
 
     const pane = page.locator('.cdk-overlay-pane.app-dialog-panel');
     const paneBox = (await pane.boundingBox())!;

@@ -22,12 +22,26 @@ import { SheetDrag } from './sheet-drag';
  * On a coarse pointer the same dialog is a bottom sheet: the pane's geometry comes from a media
  * query in styles.css, and what is added here is the chrome that only a sheet has — a grab handle
  * and the drag that dismisses it. Sticky, because the pane is the scroll container, and a handle
- * that scrolls out of reach is not a handle.
+ * that scrolls out of reach is not a handle. (`-top-6` is what makes that pin land flush: it
+ * cancels the `-mt-6` that bleeds the handle over the hull's own top padding.)
  *
  * The handle carries the hull's own `rounded-t-2xl`, because its negative margins bleed it into the
  * corner areas the hull's radius leaves unpainted — without it the sheet reads square-topped and the
  * hull's radius is invisible. `overflow-hidden` on the hull would fix it too and must not be used:
  * it would make the hull a scroll container of its own and break the handle's sticky pin.
+ *
+ * The handle is sized as a touch target, not around its 4-px bar: `min-h-11` is the 44-px comfort
+ * target from the design language (§10). SheetDrag also starts a drag anywhere in a sheet that is
+ * scrolled to the top, but that only survives on a pane with nothing to scroll — as soon as the
+ * content is longer than the sheet, the browser claims a downward touch as a scroll and cancels the
+ * pointer. On a real phone the handle is therefore the reliable grab area, and at the bar's own
+ * height it was 24 px of it.
+ *
+ * The heading block is the second grab area, for the same reason and because that is what a native
+ * sheet does. `data-sheet-handle` on the wrapper makes it one — that also lifts the scroll-position
+ * check, deliberately: a drag started on the heading means the sheet, never the content. `contents`
+ * on a fine pointer keeps the wrapper out of the layout entirely, so the desktop dialog is boxed
+ * exactly as before and a dialog that renders neither heading form cannot collect a stray gap.
  */
 @Component({
   selector: 'app-dialog-shell',
@@ -37,19 +51,21 @@ import { SheetDrag } from './sheet-drag';
       @if (isSheet()) {
         <div
           data-sheet-handle
-          class="sticky -top-6 -mx-6 -mt-6 flex touch-none justify-center rounded-t-2xl bg-surface pt-2 pb-3"
+          class="sticky -top-6 -mx-6 -mt-6 flex min-h-11 touch-none items-start justify-center rounded-t-2xl bg-surface py-3"
           aria-hidden="true"
         >
           <span class="h-1 w-9 rounded-full bg-border-strong"></span>
         </div>
       }
 
-      <!-- For a heading that is more than text (the drilldown's emote thumbnail). The projected
-           markup carries id="app-dialog-title" on its own h2 — see DIALOG_TITLE_ID. -->
-      <ng-content select="[dialog-header]" />
-      @if (dialogTitle(); as title) {
-        <h2 [id]="titleId" class="text-lg font-semibold text-balance text-fg">{{ title }}</h2>
-      }
+      <div [class]="headingClasses()" [attr.data-sheet-handle]="isSheet() ? '' : null">
+        <!-- For a heading that is more than text (the drilldown's emote thumbnail). The projected
+             markup carries id="app-dialog-title" on its own h2 — see DIALOG_TITLE_ID. -->
+        <ng-content select="[dialog-header]" />
+        @if (dialogTitle(); as title) {
+          <h2 [id]="titleId" class="text-lg font-semibold text-balance text-fg">{{ title }}</h2>
+        }
+      </div>
 
       <div class="flex flex-col gap-3"><ng-content /></div>
 
@@ -73,6 +89,19 @@ export class DialogShell {
     () =>
       'flex flex-col gap-4 bg-surface p-6 shadow-overlay ' +
       (this.isSheet() ? 'rounded-t-2xl' : 'rounded-lg'),
+  );
+
+  // `gap-4` only in the sheet case, because that is the only case where the wrapper is a box at all
+  // — on a fine pointer `contents` dissolves it and the hull spaces the heading itself, as before.
+  //
+  // `-mt-4 pt-4` swallows the hull's own gap above the heading and gives the same space back as
+  // padding this element owns. Nothing moves; what changes is who answers for those 16 px. Left to
+  // the hull they were neither a handle nor `touch-none`, so a gesture starting there had to win a
+  // race against the browser's own scrolling — and they sit exactly where a thumb aims, between the
+  // bar it can see and the heading it can read. Two drag zones with a dead strip between them are
+  // worse than one small zone, because the strip is invisible and the failure looks like caprice.
+  protected readonly headingClasses = computed(() =>
+    this.isSheet() ? 'flex touch-none flex-col gap-4 -mt-4 pt-4' : 'contents',
   );
 
   protected readonly titleId = DIALOG_TITLE_ID;
