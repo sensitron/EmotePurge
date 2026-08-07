@@ -11,6 +11,7 @@ import {
   mockUsageChannelSeries,
   mockUsageDaily,
   mockUsageTotals,
+  mockVoteSessionList,
   mockVoteSessionResults,
   mockWorkerHealth,
 } from './support/mocks';
@@ -173,5 +174,35 @@ test.describe('touch: reading and voting only', () => {
     await sprite.tap();
 
     await expect(page.locator('#app-dialog-title')).toHaveText('catJAM');
+  });
+
+  // Creating a session survives on a coarse pointer on purpose: it writes to our own database, not
+  // to 7TV, so the contract this file guards does not reach it — and it is the errand a mod runs
+  // from the couch. What cannot survive beside it is the link offering a curated ballot: that
+  // ballot is assembled from a selection on the usage-stats page, and the dock carrying it is
+  // `!isCoarse()`-gated. The page stays reachable, so this is not broken navigation but a question
+  // its destination cannot answer here.
+  test('the create form keeps its whole-set hint and trades the link for where curation lives', async ({
+    page,
+  }) => {
+    await mockVoteSessionList(page, 'sensitron', []);
+    await page.goto('/channels/sensitron/vote-sessions');
+
+    await expect(page.getByRole('heading', { name: 'Neue Abstimmung erstellen' })).toBeVisible();
+    // Counted before it is asserted hidden: toBeHidden() also passes for an element that is not in
+    // the DOM at all, so on its own it would greenlight the link being deleted outright. The pair
+    // says what is meant — still rendered, and `pointer-coarse:hidden` is what takes it out of
+    // sight and out of the accessibility tree.
+    const curationLink = page.locator(
+      'a[href="/channels/sensitron/usage-stats"].pointer-coarse\\:hidden',
+    );
+    await expect(curationLink).toHaveCount(1);
+    await expect(curationLink).toHaveText('Nur bestimmte Emotes zur Wahl stellen?');
+    await expect(curationLink).toBeHidden();
+    // The replacement is the reverse pair (`hidden pointer-coarse:inline`); asserting the literal
+    // German also fails if the key is missing from de.json, since Transloco renders the key path.
+    await expect(
+      page.getByText('Eine Vorauswahl einzelner Emotes triffst du am Rechner.'),
+    ).toBeVisible();
   });
 });

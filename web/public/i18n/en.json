@@ -571,6 +571,7 @@
       "createTitle": "Create a new voting session",
       "wholeSetHint": "The whole emote set of this channel goes on the ballot — nothing is preselected here.",
       "wholeSetHintLink": "Want to put only certain emotes up for a vote?",
+      "wholeSetHintDesktopOnly": "Picking only certain emotes for the ballot is desktop work.",
       "titlePlaceholder": "Title, e.g. July cleanup round",
       "titleRequired": "Title must not be empty.",
       "audienceEveryone": "Everyone",
