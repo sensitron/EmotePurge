@@ -74,6 +74,8 @@ npm --prefix web test -- --watch=false     # Frontend Unit (Vitest)
 npm --prefix web run e2e                   # Frontend E2E (Playwright, /api/** gemockt)
 ```
 
+**Die E2E-Suite läuft nur, wenn auf `:5151` keine Api lauscht.** Gemockt wird pro Test einzeln; was ein Test nicht mockt, fällt durch den Dev-Proxy. Ist dort nichts, scheitert die Anfrage sofort und die Seite rendert trotzdem — antwortet dort eine echte Api mit `401`, schickt der `apiAuthInterceptor` die App auf die Login-Seite, und ab da findet kein Test mehr seine Inhalte. Das Fehlerbild ist irreführend: rund die halbe Suite fällt mit „element not found" durch, quer über Dateien, die mit der Änderung nichts zu tun haben. Gemessen am 2026-08-07: mit laufender Api 38 von 76 rot in 5 min, ohne sie 76 grün in 52 s. Wer gerade [mobil getestet](docs/Testumgebung-Mobile-2026-08-07.md) hat, beendet also erst `dotnet run`.
+
 Drei Backend-Testprojekte (xUnit):
 
 - **`tests/EmotePurge.Infrastructure.Tests`** deckt `EmotePurge.Infrastructure` ab — Integrationstests laufen per Testcontainers gegen echte, ephemere Postgres-/Redis-Container (kein Mocking von `AppDbContext`/`IConnectionMultiplexer`), reine Logik-Tests (z. B. `EmoteMatchCache`, `SevenTvDispatchParser`, `ChannelAccessService`) ohne Container. Ausschlaggebend für `Unit/` vs. `Integration/` ist allein, ob die Klasse unter Test echte Infrastruktur berührt — `VoteEligibilityService` und `MyChannelsService` nehmen `AppDbContext` und liegen deshalb trotz reiner Entscheidungslogik in `Integration/`.

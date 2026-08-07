@@ -116,6 +116,19 @@ Stimmt die ausgegebene `redirect_uri`, liegt es an der Registrierung — in der 
 
 **Der Dev-Server antwortet mit „Blocked request".** `allowedHosts` in `web/angular.json` passt nicht zum aufgerufenen Namen.
 
+**Der Login klappt, danach ist nur der Hintergrund zu sehen — in jedem Browser, auch nach hartem Neuladen.** In der Konsole steht dann `Failed to fetch dynamically imported module: …/chunk-XXXXXXXX.js`, im Netzwerk-Tab ein `504 Gateway Time-out` auf genau diesen Chunk. Nicht der Dev-Server ist schuld: **NPM hat den Fehler zwischengespeichert.** Die Option „Cache Assets" im Proxy-Host legt eine eigene Location für `.js`/`.css`/`.ico` an, und wenn der Dev-Server einmal unten war, landen die 504er dieser Runde mit Ablaufdatum im Cache. Der betroffene Chunk bleibt tot, bis er abläuft — die anderen, die im Fehlerfenster niemand angefragt hat, funktionieren weiter. Das erklärt auch, warum die Landing-Seite noch rendert und erst der Login ins Leere führt: sie ziehen verschiedene Lazy-Chunks.
+
+Nachweis in einem Befehl — derselbe Pfad, einmal mit Query-String:
+
+```
+curl -sk -o /dev/null -w "%{http_code}\n" https://dev.home.sensitron.me/chunk-XXXXXXXX.js
+curl -sk -o /dev/null -w "%{http_code}\n" https://dev.home.sensitron.me/chunk-XXXXXXXX.js?cachebust=1
+```
+
+`504` und `200` heißt Cache. **Abhilfe: „Cache Assets" im Proxy-Host ausschalten** — bei einem Dev-Server ist die Option ohnehin falsch, weil die Chunk-Hashes sich mit jedem Rebuild ändern und ein Cache darüber verlässlich Leichen ausliefert.
+
+**Das Handy zeigt weiter eine alte Version — auch nach hartem Neuladen, und obwohl der Rechner das Neue sieht.** Dieselbe Ursache, eine Ebene weiter: „Cache Assets" hat den `.js`-Dateien ein `Cache-Control: max-age=11808` mitgegeben, gut drei Stunden. Diese Einträge liegen im **Browser**, nicht im Proxy — das Abschalten der Option nimmt sie nicht zurück, und ein Reload holt sie nicht neu, weil der Browser sie für frisch hält. Einmal den Seiten-Cache löschen (Chrome Android: Schloss-Symbol in der Adresszeile → Berechtigungen/Website-Einstellungen → Daten löschen), danach ist Ruhe. Wer das nicht merkt, testet stundenlang gegen ein altes Bundle und schiebt jede Beobachtung auf den Code — es lohnt sich, bei einer Verhaltensänderung, die nicht ankommt, zuerst eine sichtbare Probe einzubauen (eine Farbe, ein Rahmen) statt am Verhalten weiterzumessen.
+
 **Handy lädt nicht neu nach einer Änderung.** Vites HMR-WebSocket kommt nicht durch — „Websockets Support" im Proxy-Host prüfen. Bis dahin: manuell neu laden, die Umgebung ist ansonsten voll benutzbar.
 
 **Testdaten fehlen.** Dann zeigt `dotnet run` auf eine andere Datenbank als der Compose-Stack: `appsettings.json` hält `Password=change-me`, das muss zu `POSTGRES_PASSWORD` in der `.env` passen.
