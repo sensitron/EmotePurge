@@ -44,8 +44,13 @@ export const MAX_RANGE_DAYS = 365;
  * when this channel's tracking began) and otherwise reaches back as far as the endpoint allows —
  * which, for any channel tracked for less than a year, returns exactly the same rows.
  *
- * The floor is deliberately not "waiting until `earliest` is known": that value arrives from a
- * second request, and the first grid render would have to queue behind it.
+ * The floor exists because `earliest` arrives from a second request and is unknown at first paint.
+ * It used to double as licence to fetch against it: the page fired its data requests immediately
+ * and re-fired them once the tracking start landed. That cost a 366-day aggregate per page open
+ * whose answer was always discarded — and, worse, left two answers in flight for the same readout,
+ * where the slower one could overwrite the faster (see UsageStatsPage.rangeResolved). The usage
+ * grid now waits, trading one round trip at first paint for a request that is right the first time.
+ * The floor still stands for anyone who reads from() before that.
  *
  * Once a channel has been tracked for longer than {@link MAX_RANGE_DAYS}, "all time" quietly stops
  * being all time. Nothing is that old yet — the project started in 2026-07 — but the day it is,

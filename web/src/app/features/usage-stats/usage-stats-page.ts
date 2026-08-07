@@ -20,6 +20,7 @@ import { Subscription, catchError, first, of, switchMap, take, timer } from 'rxj
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
+import { latestOnly } from '../../core/http/latest-only';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
@@ -423,6 +424,38 @@ export class UsageStatsPage {
     () => this.channelSeries() === null && !this.seriesFailed(),
   );
 
+  // "Last asked wins" for the two range-dependent readouts. Both are fired from an effect and from
+  // event handlers, so two can be in flight at once — a range change on top of an unfinished load,
+  // a live-event refetch overtaking the initial one. Without this, the slower answer overwrites the
+  // faster one, and the sidecar cannot even notice: it takes its axis from the range echoed by the
+  // response (see inspectedPoints), so a superseded answer draws a silently wrong span.
+  private readonly latestTotals = latestOnly<EmoteUsageTotal[]>();
+  private readonly latestSeries = latestOnly<ChannelUsageSeries>();
+
+  /** The channel whose set status has come back. Held as a channel rather than a flag so that
+   *  navigating to another one makes the range provisional again. */
+  private readonly setStatusChannel = signal<string | null>(null);
+
+  /**
+   * False while "all time" still means the placeholder span rather than this channel's tracking
+   * start — see from()'s declaration. The set-status request is what resolves it.
+   *
+   * Compares the range itself rather than just asking whether the status has landed, because the
+   * correction runs in a second effect: on the flush after the status arrives, this one is already
+   * up to date while from() is still the placeholder, and a "has it landed" test would wave that
+   * intermediate state through. Comparing values does not care which effect runs first.
+   */
+  private readonly rangeResolved = computed(() => {
+    if (this.rangePreset() !== 'all') {
+      return true;
+    }
+    if (this.setStatusChannel() !== this.channelName()) {
+      return false;
+    }
+    // A channel with no tracking start keeps the placeholder, and this holds for it too.
+    return this.from() === allTimeStart(this.trackedSinceDate());
+  });
+
   private readonly seriesByEmote = computed(
     () => new Map(this.channelSeries()?.emotes.map((entry) => [entry.emoteId, entry.days]) ?? []),
   );
@@ -489,7 +522,7 @@ export class UsageStatsPage {
 
   constructor() {
     effect(() => {
-      this.load(this.channelName(), this.from(), this.to());
+      this.load(this.channelName(), this.from(), this.to(), this.rangeResolved());
     });
 
     // A selection made in a desktop window would otherwise survive invisibly into the touch mode and
@@ -502,9 +535,8 @@ export class UsageStatsPage {
 
     // Resolves "all time" against the tracking start as soon as it is known — the initial from()
     // is only a placeholder (see its declaration). Every consumer of from() (grid request,
-    // drilldown, export, vote-session prefill) inherits the corrected value, at the cost of one
-    // repeated totals request per page open. Re-selecting "all" in the menu writes the same date
-    // again, which a signal treats as no change — so this cannot loop.
+    // drilldown, export, vote-session prefill) inherits the corrected value. Re-selecting "all" in
+    // the menu writes the same date again, which a signal treats as no change — so this cannot loop.
     effect(() => {
       const trackedSinceDate = this.trackedSinceDate();
       if (this.rangePreset() === 'all' && trackedSinceDate) {
@@ -566,7 +598,7 @@ export class UsageStatsPage {
   }
 
   protected refresh(): void {
-    this.load(this.channelName(), this.from(), this.to());
+    this.load(this.channelName(), this.from(), this.to(), this.rangeResolved());
   }
 
   /** Signature takes `string` because SegmentedControl is untyped by design — one control for every
@@ -862,7 +894,7 @@ export class UsageStatsPage {
     });
   }
 
-  private load(channelName: string, from: string, to: string): void {
+  private load(channelName: string, from: string, to: string, rangeResolved: boolean): void {
     // A poll from a previous channel or date range must not survive into this one — and neither
     // must a drilldown series cached against the previous channel or range.
     this.usageStatService.clearSeriesCache();
@@ -874,6 +906,7 @@ export class UsageStatsPage {
     this.emoteAdminService.getSetStatus(channelName).subscribe({
       next: (status) => {
         this.setStatus.set(status);
+        this.setStatusChannel.set(channelName);
         // An empty id means SevenTvSyncService has not completed a run for this channel yet. It is
         // the only thing that tells "sync still pending" apart from "channel genuinely has no
         // emotes" — an empty totals response looks identical in both cases.
@@ -881,8 +914,21 @@ export class UsageStatsPage {
           this.awaitSync(channelName, from, to);
         }
       },
-      error: () => this.setStatus.set(null),
+      // Marked resolved on failure too: without a tracking start "all time" keeps the placeholder
+      // span, which is the honest fallback — but waiting here forever would leave the page loading.
+      error: () => {
+        this.setStatus.set(null);
+        this.setStatusChannel.set(channelName);
+      },
     });
+
+    // Under "all time" the range is still the placeholder span until the status above names the
+    // tracking start. Asking now would aggregate a year of rows for a channel counted for days and
+    // then discard the answer the moment the corrected range re-runs this effect. The subscription
+    // above is what flips rangeResolved, so this always resumes.
+    if (!rangeResolved) {
+      return;
+    }
 
     this.loadTotals(channelName, from, to);
     this.loadChannelSeries(channelName, from, to);
@@ -894,10 +940,13 @@ export class UsageStatsPage {
   private loadChannelSeries(channelName: string, from: string, to: string): void {
     this.channelSeries.set(null);
     this.seriesFailed.set(false);
-    this.usageStatService.getChannelSeries(channelName, from, to).subscribe({
-      next: (series) => this.channelSeries.set(series),
-      error: () => this.seriesFailed.set(true),
-    });
+    this.usageStatService
+      .getChannelSeries(channelName, from, to)
+      .pipe(this.latestSeries)
+      .subscribe({
+        next: (series) => this.channelSeries.set(series),
+        error: () => this.seriesFailed.set(true),
+      });
   }
 
   // Waits for the worker's 7TV sync to fill in the set id, then loads the totals once more.
@@ -939,37 +988,40 @@ export class UsageStatsPage {
     to: string,
     options: { preserveSelection?: boolean; silent?: boolean } = {},
   ): void {
-    this.usageStatService.getTotals(channelName, from, to).subscribe({
-      next: (emotes) => {
-        this.emotes.set(emotes);
-        // Kept even though a keyed selection survives a plain refetch: load() also runs on a
-        // channel or date-range change, where the existing selection was made against different
-        // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
-        // over would be its own deliberate feature, not a by-product of the keying.
-        if (!options.preserveSelection) {
-          this.selection.clear();
-        }
-        if (!options.silent) {
-          this.isLoading.set(false);
-        }
-      },
-      // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
-      // /api/ call in the app.
-      //
-      // The endpoint's own error codes beat the blanket "could not load" this used to show: a
-      // hand-typed custom range wider than the API's 366-day guard came back as range_too_large and
-      // was rendered as a generic failure, which reads as "the server is broken" rather than "your
-      // range is too wide". The generic key stays as the fallback for a body-less failure.
-      error: (error: unknown) => {
-        this.errorMessage.set(
-          error instanceof HttpErrorResponse
-            ? apiErrorTranslationKey(error)
-            : 'usageStats.errors.loadFailed',
-        );
-        if (!options.silent) {
-          this.isLoading.set(false);
-        }
-      },
-    });
+    this.usageStatService
+      .getTotals(channelName, from, to)
+      .pipe(this.latestTotals)
+      .subscribe({
+        next: (emotes) => {
+          this.emotes.set(emotes);
+          // Kept even though a keyed selection survives a plain refetch: load() also runs on a
+          // channel or date-range change, where the existing selection was made against different
+          // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
+          // over would be its own deliberate feature, not a by-product of the keying.
+          if (!options.preserveSelection) {
+            this.selection.clear();
+          }
+          if (!options.silent) {
+            this.isLoading.set(false);
+          }
+        },
+        // 401 is not handled here — apiAuthInterceptor resets the session and redirects for every
+        // /api/ call in the app.
+        //
+        // The endpoint's own error codes beat the blanket "could not load" this used to show: a
+        // hand-typed custom range wider than the API's 366-day guard came back as range_too_large and
+        // was rendered as a generic failure, which reads as "the server is broken" rather than "your
+        // range is too wide". The generic key stays as the fallback for a body-less failure.
+        error: (error: unknown) => {
+          this.errorMessage.set(
+            error instanceof HttpErrorResponse
+              ? apiErrorTranslationKey(error)
+              : 'usageStats.errors.loadFailed',
+          );
+          if (!options.silent) {
+            this.isLoading.set(false);
+          }
+        },
+      });
   }
 }
