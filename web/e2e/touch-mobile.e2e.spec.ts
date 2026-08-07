@@ -56,15 +56,26 @@ test.describe('touch: reading and voting only', () => {
     await expect(page.locator('#app-dialog-title')).toBeVisible();
   });
 
-  test('the dock and the delete engine never appear', async ({ page }) => {
+  test('the restore panel never appears, and marking cannot happen to raise the dock either', async ({
+    page,
+  }) => {
     await mockUsageTotals(page, 'sensitron', [TOUCH_EMOTE]);
     await page.goto('/channels/sensitron/usage-stats');
     await page.locator('[data-atlas-index="0"]').tap();
+    await expect(page.locator('#app-dialog-title')).toBeVisible();
     await page.keyboard.press('Escape');
+    await expect(page.locator('#app-dialog-title')).toHaveCount(0);
 
-    // Marking is what used to raise the dock; with selection gone there is nothing to raise it.
-    await expect(page.getByRole('button', { name: /Löschen/ })).toHaveCount(0);
+    // The restore panel's only gate is `!isCoarse()` (usage-stats-page.html) — nothing else stands
+    // between it and rendering, so this assertion is load-bearing: drop that guard and "Protokoll
+    // importieren" appears on a plain page load, no tap required.
     await expect(page.getByRole('button', { name: /Protokoll/ })).toHaveCount(0);
+    // The dock's guard is `dockVisible() && !isCoarse()`, and dockVisible() needs a selection that a
+    // coarse tap can never produce (onCellClick's early return, covered by the first test above) —
+    // so on its own this assertion cannot fail from that guard being dropped, only from the two-fault
+    // case the first test already rules out. Kept as belt-and-braces documentation of the contract,
+    // not as this case's proof.
+    await expect(page.getByRole('button', { name: /Löschen/ })).toHaveCount(0);
   });
 
   test('the drilldown arrives as a sheet docked to the bottom edge', async ({ page }) => {
@@ -72,6 +83,13 @@ test.describe('touch: reading and voting only', () => {
     await page.goto('/channels/sensitron/usage-stats');
     await page.locator('[data-atlas-index="0"]').tap();
     await expect(page.locator('#app-dialog-title')).toBeVisible();
+
+    // Pins the DialogShell/SheetDrag coupling: DialogShell renders the handle only because
+    // isSheet() is true, and SheetDrag's onPointerDown reads the literal attribute name to decide
+    // whether a drag may start. Renaming it on either side leaves this the only assertion in the
+    // suite that would catch it — the geometry checks below come from a `styles.css` media query and
+    // do not depend on the handle existing at all.
+    await expect(page.locator('.app-dialog-panel [data-sheet-handle]')).toHaveCount(1);
 
     const pane = page.locator('.cdk-overlay-pane.app-dialog-panel');
     const paneBox = (await pane.boundingBox())!;
