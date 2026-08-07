@@ -5,6 +5,10 @@ You are an expert in TypeScript, Angular, and scalable web application developme
 
 **Every UI change under `web/` MUST follow [`docs/UI-Designsprache.md`](../../docs/UI-Designsprache.md)** — colour tokens and theming, surfaces and rows (stretched-link contract), the sprite sheet (bands, sidecar, dock), typography scale, button/badge/banner primitives, destructive-action tiers, form and field-error ARIA patterns, loading/empty states, dialogs, navigation, i18n duties, and the accessibility checklist. Use its "Neue UI bauen" checklist before finishing any UI work, and verify layout-affecting changes with the UI audit harness described there. Do not rebuild what `shared/ui/` already provides.
 
+**Read [`DESIGN.md`](../../DESIGN.md) at the repo root alongside it, before every UI change.** It carries the same visual system in the portable DESIGN.md format — machine-readable tokens in its frontmatter, then the palette, the type scale, the depth model, the form language, and thirteen named rules (the Guide rule, the Darker-on-hover rule, the No-card rule, the Notable-how-often rule, the Trigger-then-execute rule, …). Those named rules are the fastest way to check a new screen against the house doctrine, and they are what an AI agent generating UI will actually read.
+
+**Precedence when the two disagree: `docs/UI-Designsprache.md` wins.** It is written by hand and binding; `DESIGN.md` is *derived* from the token block and can lag behind it. The normative colour values live in `web/src/styles.css` and nowhere else — `DESIGN.md` holds a snapshot so that tooling can parse them. Anyone who changes the token block regenerates it (`$impeccable document`). Contracts that the DESIGN.md schema has no section for — sticky layers and the z-ladder, the `h-14` height contract, the stretched-link contract, ARIA patterns, i18n duties, the audit gates — live only in `docs/UI-Designsprache.md`.
+
 ## TypeScript Best Practices
 
 - Use strict type checking
