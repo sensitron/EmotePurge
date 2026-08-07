@@ -1,5 +1,4 @@
 import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
-import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -16,6 +15,7 @@ import { openAppDialog } from '../ui/dialog';
 import { DialogShell } from '../ui/dialog-shell';
 import { NoticeBanner } from '../ui/notice-banner';
 import { UsageTrend, daysInSet, usageTrend } from './emote-context';
+import { EmoteSprite } from './emote-sprite';
 import { UsageSparkline } from './usage-sparkline';
 import { SparklinePoint, fillDailySeries, seriesPeak } from './usage-series';
 
@@ -54,19 +54,17 @@ export interface EmoteDrilldownData {
  */
 @Component({
   selector: 'app-emote-drilldown-dialog',
-  imports: [Button, DialogShell, NgOptimizedImage, NoticeBanner, TranslocoPipe, UsageSparkline],
+  imports: [Button, DialogShell, EmoteSprite, NoticeBanner, TranslocoPipe, UsageSparkline],
   template: `
     <app-dialog-shell>
       <!-- Heading with a thumbnail, hence the projection slot rather than [dialogTitle]. The id is
            the shell's DIALOG_TITLE_ID — that is what names the dialog for assistive tech. -->
       <div dialog-header class="flex items-center gap-3">
         <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-emote-canvas">
-          <img
-            [ngSrc]="data.imageUrl"
-            width="40"
-            height="40"
-            alt=""
-            class="max-h-10 max-w-10 object-contain"
+          <app-emote-sprite
+            [url]="data.imageUrl"
+            [size]="40"
+            spriteClass="max-h-10 max-w-10 object-contain"
           />
         </div>
         <div class="min-w-0">

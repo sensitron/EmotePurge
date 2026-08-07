@@ -231,13 +231,10 @@
                   (keydown.space)="onCardActivate(emote, $any($event))"
                   (mouseenter)="inspect(emote)"
                 >
-                  <img
-                    [ngSrc]="emote.imageUrl"
-                    width="96"
-                    height="96"
-                    alt=""
-                    class="h-full w-full object-contain p-1"
-                    [class.opacity-40]="emote.isArchived"
+                  <app-emote-sprite
+                    [url]="emote.imageUrl"
+                    [size]="96"
+                    [dimmed]="emote.isArchived"
                   />
                   <!-- The usage figure printed onto the sprite, as on the usage atlas. `null` is
                        the server's withholding verdict, not a zero, so it prints nothing. -->
@@ -384,14 +381,7 @@
         <div class="flex flex-col gap-3 border-l border-border pl-4">
           <div class="flex items-start gap-3">
             <span class="app-sprite-cell flex h-14 w-14 shrink-0 items-center justify-center">
-              <img
-                [ngSrc]="emote.imageUrl"
-                width="56"
-                height="56"
-                alt=""
-                class="h-full w-full object-contain p-1"
-                [class.opacity-40]="emote.isArchived"
-              />
+              <app-emote-sprite [url]="emote.imageUrl" [size]="56" [dimmed]="emote.isArchived" />
             </span>
             <div class="min-w-0">
               <p class="text-sm font-semibold break-all text-fg">{{ emote.emoteName }}</p>

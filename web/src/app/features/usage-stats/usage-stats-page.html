@@ -130,13 +130,10 @@
         class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden"
       >
         <span class="app-sprite-cell flex h-7 w-7 shrink-0 items-center justify-center">
-          <img
-            [ngSrc]="emote.imageUrl"
-            width="28"
-            height="28"
-            disableOptimizedSrcset
-            alt=""
-            class="h-full w-full object-contain p-0.5"
+          <app-emote-sprite
+            [url]="emote.imageUrl"
+            [size]="28"
+            spriteClass="h-full w-full object-contain p-0.5"
           />
         </span>
         <span class="font-medium text-fg">{{ emote.emoteName }}</span>
@@ -370,13 +367,7 @@
                       (mouseenter)="inspect(emote)"
                       (focus)="onCellFocus(emote, row.startIndex + i)"
                     >
-                      <img
-                        [ngSrc]="emote.imageUrl"
-                        width="64"
-                        height="64"
-                        alt=""
-                        class="h-full w-full object-contain p-1"
-                      />
+                      <app-emote-sprite [url]="emote.imageUrl" [size]="64" />
                       <!-- The figure is printed onto the sprite rather than under it: a caption row
                        would cost a third of the cell, and the scrim is what makes it legible over
                        whatever the artwork puts beneath. -->
@@ -471,14 +462,7 @@
         <div class="flex flex-col gap-3 border-l border-border pl-4">
           <div class="flex items-start gap-3">
             <span class="app-sprite-cell flex h-14 w-14 shrink-0 items-center justify-center">
-              <img
-                [ngSrc]="emote.imageUrl"
-                width="56"
-                height="56"
-                disableOptimizedSrcset
-                alt=""
-                class="h-full w-full object-contain p-1"
-              />
+              <app-emote-sprite [url]="emote.imageUrl" [size]="56" />
             </span>
             <div class="min-w-0">
               <p class="text-sm font-semibold break-all text-fg">{{ emote.emoteName }}</p>

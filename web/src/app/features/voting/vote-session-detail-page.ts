@@ -1,4 +1,3 @@
-import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { ScrollingModule } from '@angular/cdk/scrolling';
@@ -35,6 +34,7 @@ import {
   EmoteDrilldownData,
   openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
+import { EmoteSprite } from '../../shared/emotes/emote-sprite';
 import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
@@ -111,7 +111,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     NoticeBanner,
     VoteAudienceBadge,
     ScrollingModule,
-    NgOptimizedImage,
+    EmoteSprite,
     MassDeletePanel,
     UsageRangeMenu,
     TranslocoPipe,

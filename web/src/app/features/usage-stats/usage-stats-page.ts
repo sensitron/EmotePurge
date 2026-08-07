@@ -1,4 +1,3 @@
-import { NgOptimizedImage } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
@@ -52,6 +51,7 @@ import {
   isUnderObservation,
   usageTrend,
 } from '../../shared/emotes/emote-context';
+import { EmoteSprite } from '../../shared/emotes/emote-sprite';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
 import { UsageSparkline } from '../../shared/emotes/usage-sparkline';
@@ -136,7 +136,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     EmptyState,
     NoticeBanner,
     ScrollingModule,
-    NgOptimizedImage,
+    EmoteSprite,
     MassDeletePanel,
     RestorePanel,
     SlotBudgetBar,
