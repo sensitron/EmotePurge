@@ -23,6 +23,11 @@ import { SheetDrag } from './sheet-drag';
  * query in styles.css, and what is added here is the chrome that only a sheet has — a grab handle
  * and the drag that dismisses it. Sticky, because the pane is the scroll container, and a handle
  * that scrolls out of reach is not a handle.
+ *
+ * The handle carries the hull's own `rounded-t-2xl`, because its negative margins bleed it into the
+ * corner areas the hull's radius leaves unpainted — without it the sheet reads square-topped and the
+ * hull's radius is invisible. `overflow-hidden` on the hull would fix it too and must not be used:
+ * it would make the hull a scroll container of its own and break the handle's sticky pin.
  */
 @Component({
   selector: 'app-dialog-shell',
@@ -32,7 +37,7 @@ import { SheetDrag } from './sheet-drag';
       @if (isSheet()) {
         <div
           data-sheet-handle
-          class="sticky -top-6 -mx-6 -mt-6 flex touch-none justify-center bg-surface pt-2 pb-3"
+          class="sticky -top-6 -mx-6 -mt-6 flex touch-none justify-center rounded-t-2xl bg-surface pt-2 pb-3"
           aria-hidden="true"
         >
           <span class="h-1 w-9 rounded-full bg-border-strong"></span>
