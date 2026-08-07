@@ -1589,7 +1589,7 @@ In `web/e2e/audit/ui-audit.audit.ts` neben dem Fall `usage-stats-drilldown` eine
   },
 ```
 
-Der Sheet-Zustand bleibt dem Playwright-Touch-Projekt vorbehalten — der Audit-Harness setzt keine Zeigerart, dort erschiene der Dialog weiterhin zentriert.
+**Abweichung von der Spec:** §9 verlangte einen Audit-Fall für das Sheet. Der entfällt — der Audit-Harness setzt keine Zeigerart, dort erschiene der Dialog weiterhin zentriert, und ein Screenshot, der die zentrierte Form zeigt und „Sheet" heißt, ist schlimmer als keiner. Der Sheet-Zustand bleibt dem Playwright-Touch-Projekt vorbehalten. Gehört in den DECISIONS-Eintrag (Task 12) — dort steht die Begründung bereits.
 
 Run: `npx --prefix web playwright test --config=playwright.audit.config.ts`
 Expected: Screenshots in `web/.audit-out/`, Fall `overview-narrow-rows` in allen drei Viewports vorhanden.
