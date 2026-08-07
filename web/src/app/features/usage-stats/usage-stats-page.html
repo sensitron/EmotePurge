@@ -124,10 +124,13 @@
     <!-- The inspector. Every label the old card printed on all 900 tiles — name, last used, age,
          trend — lives here once, for whichever cell the pointer or the keyboard is on. Deliberately
          NOT an aria-live region: it changes on every hover, and announcing that would be a stream
-         of noise. Each cell carries its own name and count in its accessible label instead. -->
+         of noise. Each cell carries its own name and count in its accessible label instead.
+         Hidden on a coarse pointer: the sticky bar is `max-sm:static` there, so it scrolls away, and
+         the only input that could feed it is the tap — which now opens the drilldown instead. It
+         stays for a narrow desktop window, where hover feeds it and the bar really does pin. -->
     @if (inspected(); as emote) {
       <div
-        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden"
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border py-2 text-xs text-fg-muted lg:hidden pointer-coarse:hidden"
       >
         <span class="app-sprite-cell flex h-7 w-7 shrink-0 items-center justify-center">
           <app-emote-sprite
@@ -315,7 +318,7 @@
                 <!-- Only on the dead band: it is the one group whose members are candidates by
                    definition, so "all of them" is a sentence a moderator actually means. Offering
                    it on the heavy band would be a loaded gun with no purpose. -->
-                @if (row.band === 'dead') {
+                @if (row.band === 'dead' && !isCoarse()) {
                   <button
                     type="button"
                     class="shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium text-accent-fg transition hover:bg-surface-inset"
@@ -559,11 +562,15 @@
     }
   </div>
 
+  <!-- Gated with the delete engine: re-importing a protocol replays 7TV writes and needs the same
+       token, so on a phone it would be the one write path left standing. -->
   @if (activeEmoteSetId(); as setId) {
     <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
          Usage page only — this is where the purge decision lives. Stays in the flow rather than in
          the dock: it is a recovery affordance, not part of marking. -->
-    <app-restore-panel [setId]="setId" [channelName]="channelName()" />
+    @if (!isCoarse()) {
+      <app-restore-panel [setId]="setId" [channelName]="channelName()" />
+    }
   }
 </div>
 
@@ -571,7 +578,7 @@
      surface above it to be nothing but emotes. Kept mounted through a settled run as well, because
      the run summary carries the protocol download and that file is the only durable record. -->
 @if (activeEmoteSetId(); as setId) {
-  @if (dockVisible()) {
+  @if (dockVisible() && !isCoarse()) {
     <div class="app-dock">
       <div class="mx-auto flex max-w-5xl flex-col gap-2 overflow-y-auto px-4 py-3 max-h-[70vh]">
         <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">

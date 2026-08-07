@@ -24,6 +24,7 @@ import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
+import { PointerModeService } from '../../core/pointer/pointer-mode.service';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
@@ -160,6 +161,15 @@ export class UsageStatsPage {
   private readonly dialog = inject(Dialog);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * Capability, not layout: no 7TV write access without a mouse. The write token can only be
+   * obtained from DevTools' local-storage view on 7tv.app, which a phone does not have — so
+   * selection, mass delete and protocol re-import are desktop work, and the tap on a cell is freed
+   * up to mean one thing (see onCellClick). Width stays responsible for what fits; this is
+   * responsible for what can be operated.
+   */
+  protected readonly isCoarse = inject(PointerModeService).isCoarse;
 
   // The sheet element is what the column count is measured against — see atlasColumns() for why the
   // window's width was the wrong ruler. Unconditionally rendered (it wraps the loading, empty and
@@ -480,6 +490,14 @@ export class UsageStatsPage {
   constructor() {
     effect(() => {
       this.load(this.channelName(), this.from(), this.to());
+    });
+
+    // A selection made in a desktop window would otherwise survive invisibly into the touch mode and
+    // reappear on the way back.
+    effect(() => {
+      if (this.isCoarse()) {
+        this.selection.clear();
+      }
     });
 
     // Resolves "all time" against the tracking start as soon as it is known — the initial from()
