@@ -50,9 +50,16 @@ const PRESSED_CLASSES = 'bg-accent-selected font-medium text-on-accent hover:bg-
 const DISABLED_CLASSES =
   'disabled:border-transparent disabled:bg-surface-inset disabled:text-fg-disabled';
 
+/**
+ * `lg` carries a 44 px floor rather than growing its padding: that is the WCAG 2.5.8 target size the
+ * design language already demands for popover rows (§7.1), and `lg` is exactly the tier the
+ * flow-carrying buttons use — dialog confirms, the mass-delete trigger, the dialog close button that
+ * on a phone is the only way out of the sheet other than the backdrop. `md` is unchanged: it sits in
+ * dense toolbars where a mouse is the only realistic pointer.
+ */
 const SIZE_CLASSES: Record<ButtonSize, string> = {
   md: 'px-3 py-1.5',
-  lg: 'px-4 py-2',
+  lg: 'min-h-11 px-4 py-2',
 };
 
 /**

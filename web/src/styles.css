@@ -555,9 +555,20 @@
   background: var(--ep-backdrop);
 }
 
+/* The pane is the scroll container, deliberately — not the shell's body. Between the pane's height
+   and the content sit two component hosts (app-<dialog> and app-dialog-shell), both display:inline
+   by default, and a percentage height chain does not survive them. Scrolling the pane is one rule
+   and touches no component. The cost is that the heading and the action row scroll along; at 28rem
+   that is acceptable, and the sheet's grab handle stays put via position:sticky.
+
+   Without this, CDK blocks the document scroll and caps the pane at 100vh while nothing declares
+   overflow — so a dialog taller than the window ran off it and was unreachable. */
 .cdk-overlay-pane.app-dialog-panel {
   width: 100%;
   max-width: min(28rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   color: var(--ep-fg);
 }
 
