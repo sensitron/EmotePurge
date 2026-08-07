@@ -15,6 +15,22 @@ import { shouldDismiss } from './sheet-drag-policy';
 const DRAG_START_THRESHOLD_PX = 4;
 
 /**
+ * How much of the gesture's tail the release speed is read from.
+ *
+ * Speed has to describe how the finger was moving when it left the glass, not how the gesture went
+ * on average. Measured over the whole gesture, every millisecond the finger spent resting before it
+ * set off divides the result — a flick that covers 40 px in 70 ms reads as 0.57 px/ms on its own and
+ * as 0.08 px/ms once half a second of hesitation is counted into it. The second number misses
+ * SHEET_DISMISS_VELOCITY_PX_PER_MS, the sheet springs back, and the harder someone flicks the worse
+ * it gets: a hasty gesture is a short one, so it has nothing but speed to be judged on.
+ *
+ * A window rather than the last pair of move events, because a single frame can hold no movement at
+ * all and would read as a dead stop. And it keeps the other end honest: a finger that comes to rest
+ * before letting go leaves the window empty of travel, which is exactly the spring-back case.
+ */
+const VELOCITY_WINDOW_MS = 100;
+
+/**
  * Drag-to-dismiss for the bottom-sheet form of a dialog.
  *
  * Applied to the shell's hull but transforming the overlay pane, because the pane is what the
@@ -51,10 +67,12 @@ export class SheetDrag implements OnDestroy {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly dialogRef = inject(DialogRef, { optional: true });
 
+  // The tail of the gesture, oldest first, trimmed to VELOCITY_WINDOW_MS on every move.
+  private readonly samples: { y: number; at: number }[] = [];
+
   private pane: HTMLElement | null = null;
   private pointerId: number | null = null;
   private startY = 0;
-  private startedAt = 0;
   private distance = 0;
   private dragging = false;
 
@@ -100,9 +118,10 @@ export class SheetDrag implements OnDestroy {
     this.pane = pane;
     this.pointerId = event.pointerId;
     this.startY = event.clientY;
-    this.startedAt = event.timeStamp;
     this.distance = 0;
     this.dragging = false;
+    this.samples.length = 0;
+    this.samples.push({ y: event.clientY, at: event.timeStamp });
     window.addEventListener('pointermove', this.onMove);
     window.addEventListener('pointerup', this.onEnd);
     window.addEventListener('pointercancel', this.onEnd);
@@ -113,6 +132,8 @@ export class SheetDrag implements OnDestroy {
     if (this.pointerId !== event.pointerId || !pane) {
       return;
     }
+
+    this.track(event.clientY, event.timeStamp);
 
     const travelled = event.clientY - this.startY;
     if (!this.dragging) {
@@ -135,10 +156,14 @@ export class SheetDrag implements OnDestroy {
       return;
     }
 
-    const distance = this.distance;
     const wasDragging = this.dragging;
-    // Guarded against 0 so a same-timestamp release cannot produce Infinity.
-    const elapsedMs = Math.max(1, event.timeStamp - this.startedAt);
+    // Measured to the release, not to the last move that arrived. A browser coalesces pointermove
+    // and drops what it cannot deliver in time, so the faster the gesture the further the tracked
+    // position lags behind the finger — and a fast gesture is a short one, judged against the very
+    // threshold those missing pixels would have carried it over. The release is the last and truest
+    // sample of the gesture; there is no reason to decide on an older one.
+    const distance = wasDragging ? Math.max(0, event.clientY - this.startY) : this.distance;
+    const velocity = this.releaseVelocity(event);
 
     this.forgetGesture();
 
@@ -156,7 +181,7 @@ export class SheetDrag implements OnDestroy {
     // a Dialog (no DialogRef to inject) would otherwise be parked at an inline transform with nothing
     // in flight to ever clear it, and an inline transform on a successful close would still outrank
     // any class-based exit animation the sheet chrome adds later.
-    if (shouldDismiss(distance, distance / elapsedMs) && this.dialogRef) {
+    if (shouldDismiss(distance, velocity) && this.dialogRef) {
       this.dialogRef.close();
       return;
     }
@@ -179,6 +204,30 @@ export class SheetDrag implements OnDestroy {
     }
   }
 
+  /** Records a position and drops whatever has aged out of the window behind it. */
+  private track(y: number, at: number): void {
+    this.samples.push({ y, at });
+    while (this.samples.length > 1 && at - this.samples[0].at > VELOCITY_WINDOW_MS) {
+      this.samples.shift();
+    }
+  }
+
+  /**
+   * Downward speed in px/ms at the moment of release, from the oldest sample still in the window to
+   * the release itself. Elapsed time is measured to the release rather than to the last move, so a
+   * finger that stopped and then let go reads as stopped instead of keeping the speed it once had.
+   */
+  private releaseVelocity(event: PointerEvent): number {
+    const oldest = this.samples[0];
+    if (!oldest) {
+      return 0;
+    }
+    // Guarded so a same-timestamp release cannot produce Infinity, and a clock that jumped backwards
+    // cannot turn a downward flick into an upward one.
+    const elapsedMs = event.timeStamp - oldest.at;
+    return elapsedMs > 0 ? (event.clientY - oldest.y) / elapsedMs : 0;
+  }
+
   /** Detaches the gesture's listeners and forgets its state. Touches no DOM of the sheet itself. */
   private forgetGesture(): void {
     if (this.pointerId === null) {
@@ -191,6 +240,7 @@ export class SheetDrag implements OnDestroy {
     this.pointerId = null;
     this.distance = 0;
     this.dragging = false;
+    this.samples.length = 0;
   }
 
   private releaseCapture(pointerId: number): void {

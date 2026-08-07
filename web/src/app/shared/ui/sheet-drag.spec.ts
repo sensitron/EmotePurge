@@ -108,12 +108,15 @@ describe('SheetDrag', () => {
     target.dispatchEvent(timeStamp === undefined ? event : withTimeStamp(event, timeStamp));
   }
 
-  function move(target: HTMLElement, clientY: number, pointerId = 1): void {
-    target.dispatchEvent(new PointerEvent('pointermove', { pointerId, clientY, bubbles: true }));
+  function move(target: HTMLElement, clientY: number, pointerId = 1, timeStamp?: number): void {
+    const event = new PointerEvent('pointermove', { pointerId, clientY, bubbles: true });
+    target.dispatchEvent(timeStamp === undefined ? event : withTimeStamp(event, timeStamp));
   }
 
-  function up(target: HTMLElement, pointerId = 1, timeStamp?: number): void {
-    const event = new PointerEvent('pointerup', { pointerId, bubbles: true });
+  // The release carries a position of its own, because that is where the speed is measured to — a
+  // real pointerup does, and a helper that dropped it would report every gesture as ending at 0.
+  function up(target: HTMLElement, clientY = 0, pointerId = 1, timeStamp?: number): void {
+    const event = new PointerEvent('pointerup', { pointerId, clientY, bubbles: true });
     target.dispatchEvent(timeStamp === undefined ? event : withTimeStamp(event, timeStamp));
   }
 
@@ -176,7 +179,7 @@ describe('SheetDrag', () => {
   it('springs back and does not close when released below the thresholds', () => {
     down(handle, 0);
     move(handle, SHEET_MIN_TRAVEL_PX - 1);
-    up(handle);
+    up(handle, SHEET_MIN_TRAVEL_PX - 1);
 
     expect(pane.style.transform).toBe('');
     expect(closeSpy).not.toHaveBeenCalled();
@@ -185,7 +188,7 @@ describe('SheetDrag', () => {
   it('closes the dialog when the drag clears the distance threshold', () => {
     down(handle, 0);
     move(handle, SHEET_DISMISS_DISTANCE_PX);
-    up(handle);
+    up(handle, SHEET_DISMISS_DISTANCE_PX);
 
     expect(closeSpy).toHaveBeenCalledTimes(1);
   });
@@ -195,17 +198,46 @@ describe('SheetDrag', () => {
     // (SHEET_MIN_TRAVEL_PX) stays well under SHEET_DISMISS_DISTANCE_PX (96), so only the velocity
     // branch can be responsible for the close.
     down(handle, 0, 1, 0);
-    move(handle, SHEET_MIN_TRAVEL_PX);
-    up(handle, 1, 40);
+    move(handle, SHEET_MIN_TRAVEL_PX, 1, 0);
+    up(handle, SHEET_MIN_TRAVEL_PX, 1, 40);
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // The defect the velocity window exists for, and the one a real thumb produced: a hasty gesture is
+  // a short one, so it stands or falls on speed alone — and speed used to be averaged over the whole
+  // press. Here the finger rests for half a second, then covers 40 px in 70 ms. Its tail is
+  // 0.57 px/ms; spread over the press it is 0.08, under the threshold, and the sheet snaps back
+  // under the hand that just flicked it away.
+  it('dismisses a fast flick that follows a pause, instead of averaging the pause into it', () => {
+    down(handle, 0, 1, 0);
+    move(handle, 5, 1, 500);
+    move(handle, 45, 1, 560);
+    up(handle, 45, 1, 570);
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // The other half of a hasty gesture, and the reason the release position is read at all: a browser
+  // coalesces pointermove and drops what it cannot deliver, so the last move that arrives can be far
+  // short of where the finger actually ended. Only one move lands here, at 20 px, while the release
+  // is past the distance threshold. The velocity branch cannot rescue this case — 116 px over 300 ms
+  // is 0.39 px/ms, under SHEET_DISMISS_VELOCITY_PX_PER_MS — so only the distance can close it.
+  it('measures the distance to the release, not to the last move the browser bothered to send', () => {
+    down(handle, 0, 1, 0);
+    move(handle, 20, 1, 20);
+    up(handle, SHEET_DISMISS_DISTANCE_PX + 20, 1, 300);
 
     expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 
   it('springs back on the same short distance released too slowly to clear the velocity threshold', () => {
-    // Same 24 px, but over 1000 ms — 0.024 px/ms, under both thresholds.
+    // Same 24 px, but held for a second before letting go — 0.024 px/ms, under both thresholds. This
+    // is the half the window must not break: measuring the tail must not turn a finger that came to
+    // rest into a flick, which is why the elapsed time runs to the release and not to the last move.
     down(handle, 0, 1, 0);
-    move(handle, SHEET_MIN_TRAVEL_PX);
-    up(handle, 1, 1000);
+    move(handle, SHEET_MIN_TRAVEL_PX, 1, 0);
+    up(handle, SHEET_MIN_TRAVEL_PX, 1, 1000);
 
     expect(pane.style.transform).toBe('');
     expect(closeSpy).not.toHaveBeenCalled();
@@ -291,7 +323,7 @@ describe('SheetDrag', () => {
 
     down(bareHandle, 0);
     move(bareHandle, SHEET_DISMISS_DISTANCE_PX);
-    up(bareHandle);
+    up(bareHandle, SHEET_DISMISS_DISTANCE_PX);
 
     expect(barePane.style.transform).toBe('');
   });
