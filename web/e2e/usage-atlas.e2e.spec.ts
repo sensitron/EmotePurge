@@ -2,6 +2,7 @@ import { Page, expect, test } from '@playwright/test';
 
 import {
   AUTH_USER,
+  MockEmoteUsage,
   installLiveStub,
   mockActiveEmoteSet,
   mockAuthMe,
@@ -44,7 +45,7 @@ const EMOTES = [
   lastUsedDate: emote.uses > 0 ? '2026-07-14' : null,
 }));
 
-async function openAtlas(page: Page): Promise<void> {
+async function openAtlas(page: Page, emotes: MockEmoteUsage[] = EMOTES): Promise<void> {
   await mockAuthMe(page, AUTH_USER);
   await mockWorkerHealth(page);
   await installLiveStub(page);
@@ -55,7 +56,7 @@ async function openAtlas(page: Page): Promise<void> {
   await mockChannelStatus(page, 'sensitron');
   await mockDuplicateEmoteNames(page, 'sensitron');
   await mockActiveEmoteSet(page, 'sensitron', 'set-1', { capacity: 1000, occupiedSlots: 10 });
-  await mockUsageTotals(page, 'sensitron', EMOTES);
+  await mockUsageTotals(page, 'sensitron', emotes);
 
   await page.goto('/channels/sensitron/usage-stats');
   await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
@@ -167,9 +168,13 @@ test.describe('emote atlas', () => {
     await expect(sidecar).toContainText('Selten');
   });
 
-  test('the curve states its scale, and the green bands say what they are', async ({ page }) => {
+  test('the curve states its scale, and the green bands say what the emote did on them', async ({
+    page,
+  }) => {
     // catJAM's 900 uses, as a curve peaking at 700. Distinct from every other number the sidecar
     // prints, so an exact-text match can tell the axis apart from the totals below it.
+    // Live offsets counted from the mocked tracking start 2026-06-12: the 15., 16., 17. and 21.
+    // The curve puts 700 on the 15. and nothing on the other three.
     await mockUsageChannelSeries(
       page,
       'sensitron',
@@ -189,14 +194,25 @@ test.describe('emote atlas', () => {
     // same, because a scale nobody can read is the thing this exists to prevent.
     await expect(sidecar.getByText('700', { exact: true })).toBeVisible();
     await expect(sidecar.getByText('0', { exact: true })).toBeVisible();
-    // Day count left open: it follows the tracking start against today, and pinning it would make
-    // this fail on a calendar rather than on a regression.
-    await expect(sidecar).toContainText(/Live an 4 von \d+ Tagen/);
+    // The emote-specific statement, not the channel-wide one that used to stand here and read the
+    // same for every emote. Both numbers are pinned: they follow the offsets above, not the calendar.
+    await expect(sidecar).toContainText('An 3 von 4 Live-Tagen nicht benutzt');
+    await expect(sidecar).not.toContainText('Live an');
+  });
+
+  test('the channel-wide live count is stated once, above the sheet', async ({ page }) => {
+    // It answers a question about the stream, not about any one emote, so it belongs to the page.
+    await mockUsageChannelSeries(page, 'sensitron', { e1: [[3, 700]] }, [3, 4, 5, 9]);
+    await openAtlas(page);
+
+    await expect(
+      page.getByText(/Im gewählten Zeitraum war der Stream an 4 Tagen live\./),
+    ).toBeVisible();
   });
 
   test('says nothing about live days for a range with no coverage', async ({ page }) => {
-    // "0 von 57 Tagen" would report an absence we never measured: a range older than the live poll
-    // has no coverage data at all, which is not the same as a channel that never went live.
+    // "0 of 57 days" would report an absence we never measured: a range older than the live poll has
+    // no coverage data at all, which is not the same as a channel that never went live.
     await mockUsageChannelSeries(page, 'sensitron', {
       e1: [
         [1, 200],
@@ -207,7 +223,32 @@ test.describe('emote atlas', () => {
     const sidecar = page.getByRole('complementary');
 
     await expect(sidecar.getByText('700', { exact: true })).toBeVisible();
-    await expect(sidecar).not.toContainText('Live an');
+    await expect(sidecar).not.toContainText('Live-Tag');
+    await expect(page.getByText(/war der Stream an/)).toHaveCount(0);
+  });
+
+  test('draws no line for the days before the emote entered the set', async ({ page }) => {
+    // The emote joined the set on the 20., eight days into the range. A baseline over the days
+    // before that reads as "unused" where it should read as "did not exist" — the whole point.
+    // The usage sits on day 10, inside that lifetime: a count *before* the 20. would be drawn on
+    // purpose (a re-added emote keeps its history, see firstDrawableIndex) and would say nothing
+    // about the leading silence this test is here for.
+    await mockUsageChannelSeries(page, 'sensitron', { e1: [[10, 700]] }, [3, 4, 5, 9]);
+    await openAtlas(
+      page,
+      EMOTES.map((emote) =>
+        emote.emoteId === 'e1' ? { ...emote, firstSeenAt: '2026-06-20T00:00:00Z' } : emote,
+      ),
+    );
+    const sidecar = page.getByRole('complementary');
+
+    const points = await sidecar.locator('polyline').getAttribute('points');
+    const firstX = Number(points!.split(' ')[0].split(',')[0]);
+    expect(firstX).toBeGreaterThan(0);
+
+    // Only the 21. falls inside the emote's lifetime, and the curve has nothing on it. Singular,
+    // because "An 1 von 1 Live-Tagen" is not a sentence.
+    await expect(sidecar).toContainText('Am einzigen Live-Tag nicht benutzt');
   });
 
   test('below the sidecar breakpoint the same readout is a line, and only one of them shows', async ({
@@ -289,5 +330,42 @@ test.describe('emote atlas', () => {
       'true',
     );
     await expect(page.getByLabel('Höchstens')).toHaveValue('100');
+  });
+
+  test('the drilldown curve keeps quiet about the days before the emote existed', async ({
+    page,
+  }) => {
+    // Same statement as in the sidecar, from the other data path: the dialog loads its own per-emote
+    // series with ISO live days, while the sidecar reads the batch response's offsets.
+    await mockUsageDaily(
+      page,
+      'sensitron',
+      [{ date: '2026-06-21', useCount: 40 }],
+      ['2026-06-15', '2026-06-16', '2026-06-21'],
+    );
+    await openAtlas(
+      page,
+      EMOTES.map((emote) =>
+        emote.emoteName === 'Sadge' ? { ...emote, firstSeenAt: '2026-06-20T00:00:00Z' } : emote,
+      ),
+    );
+
+    await cell(page, 'Sadge').hover();
+    await page.getByRole('button', { name: 'Details zu Sadge anzeigen' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Sadge');
+
+    const points = await dialog.locator('polyline').getAttribute('points');
+    const firstX = Number(points!.split(' ')[0].split(',')[0]);
+    expect(firstX).toBeGreaterThan(0);
+
+    // Only the 21. falls inside the emote's lifetime, and it was used that day — so the positive
+    // form, not "0 unused".
+    await expect(dialog).toContainText('Am einzigen Live-Tag benutzt');
+    await expect(dialog).not.toContainText('Live an');
+
+    // Closed first: the CDK dialog hides everything behind it from the accessibility tree.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });

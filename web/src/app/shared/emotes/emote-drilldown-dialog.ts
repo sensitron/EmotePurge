@@ -17,7 +17,13 @@ import { NoticeBanner } from '../ui/notice-banner';
 import { UsageTrend, daysInSet, usageTrend } from './emote-context';
 import { EmoteSprite } from './emote-sprite';
 import { UsageSparkline } from './usage-sparkline';
-import { SparklinePoint, fillDailySeries, seriesPeak } from './usage-series';
+import {
+  SparklinePoint,
+  fillDailySeries,
+  liveDayCaptionKey,
+  liveDayCoverage,
+  seriesPeak,
+} from './usage-series';
 
 /**
  * What the host page hands over. The optional blocks follow what the page actually knows: only the
@@ -107,7 +113,8 @@ export interface EmoteDrilldownData {
               class="block h-full min-w-0 flex-1"
               [points]="points()"
               [liveDays]="series()!.liveDays"
-              [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
+              [drawFrom]="drawFrom()"
+              [ariaLabel]="'usageStats.chart.label' | transloco"
             />
           </div>
 
@@ -123,18 +130,16 @@ export interface EmoteDrilldownData {
             } @else {
               <p class="text-sm text-fg-muted">{{ 'usageStats.drilldown.noUsage' | transloco }}</p>
             }
-            <!-- Legend + count for the live bands. Rendered only when coverage exists: an older
-                 range predates the poll's data, and "0 Stream-Tage" would be a false statement. -->
-            @if (series()!.liveDays.length > 0) {
+            <!-- What this emote did on the days we know the stream was live. Silent without any
+                 coverage — an older range predates the poll's data, and a count over days we never
+                 measured would be a false statement. -->
+            @if (liveKey(); as key) {
               <p class="flex items-center gap-1.5 text-xs text-fg-muted">
                 <span
                   class="inline-block h-2 w-2 rounded-sm bg-success-dot"
                   aria-hidden="true"
                 ></span>
-                {{
-                  'usageStats.drilldown.liveDays'
-                    | transloco: { live: series()!.liveDays.length, total: points().length }
-                }}
+                {{ key | transloco: coverage() }}
               </p>
             }
           </div>
@@ -253,11 +258,19 @@ export class EmoteDrilldownDialog {
     return series ? fillDailySeries(series.days, series.from, series.to) : [];
   });
 
-  protected readonly peak = computed(() => seriesPeak(this.points()));
+  /** The day this emote entered the set; `null` when 7TV reported none, and then nothing is trimmed. */
+  protected readonly drawFrom = computed(() => this.data.firstSeenAt?.slice(0, 10) ?? null);
 
-  // The value the chart's top edge represents: toPolylinePoints scales the line to the series
-  // maximum. 0 (all-zero series) hides the axis — a flat baseline has no magnitude to label.
+  protected readonly peak = computed(() => seriesPeak(this.points(), this.drawFrom() ?? undefined));
   protected readonly yMax = computed(() => this.peak()?.useCount ?? 0);
+
+  protected readonly coverage = computed(() =>
+    liveDayCoverage(this.points(), this.series()?.liveDays ?? [], this.drawFrom() ?? undefined),
+  );
+
+  protected readonly liveKey = computed(() =>
+    liveDayCaptionKey(this.coverage(), (this.series()?.liveDays.length ?? 0) > 0),
+  );
 
   /** Suppressed ('unknown') without the usage page's inputs — never guessed. */
   protected readonly trend = computed<UsageTrend>(() => {

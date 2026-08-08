@@ -10,6 +10,28 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-08 — Die Kurve schweigt, wo sie nichts weiß, und Live-Zahlen tragen keinen Nenner
+
+**Betrifft:** `web/src/app/shared/emotes/usage-series.ts`, `usage-sparkline.ts`, `emote-drilldown-dialog.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/public/i18n/*.json`
+
+Drei zusammenhängende Änderungen an der Nutzungskurve, alle aus derselben Regel:
+
+**1. Die Linie beginnt bei `firstSeenAt`, nicht am Zeitraumanfang.** Vorher lief sie über den ganzen Channel-Zeitraum, also auch über Tage, an denen es das Emote noch nicht gab — eine Nulllinie, die Nichtnutzung behauptet, wo nichts existierte. Am Drilldown von `GAMBA` beobachtet: zwölf flache Tage für ein Emote, das an Tag dreizehn dazukam. Das ist dieselbe Fehlerklasse, die `rangeStartsBeforeTracking` auf Seitenebene längst abfängt („we weren't counting yet" ≠ „this emote is dead"), nur eine Ebene tiefer. Die x-Achse bleibt der Channel-Zeitraum, damit die Kurven im Sidecar-Atlas untereinander vergleichbar bleiben; die Live-Bänder laufen weiter über die volle Breite. Bei `firstSeenAt = null` wird nichts verkürzt — der Wert heißt „unbekannt", nie „neu" (`Emote.cs:23-25`).
+
+Voraussetzung dafür war, dass `firstSeenAt` das echte 7TV-Beitrittsdatum trägt und nicht unseren Sync-Zeitpunkt. Das ist seit dem v4-GraphQL-Umbau vom 2026-08-03 der Fall und wurde vor dem Entwurf über alle Schreibpfade geprüft.
+
+Eine Ausnahme lässt die erste Regel nicht ganz greifen: ein Tag mit gemessener Nutzung wird nie verschwiegen, auch wenn er vor `firstSeenAt` liegt — ein Tag, an dem das Emote benutzt wurde, ist ein Tag, an dem es existiert hat. Nötig wird das, weil 7TV `firstSeenAt` eines wiederhinzugefügten Emotes auf dessen neuesten Set-Eintritt vorzieht, während unsere Zeile und ihre `UsageStat`-Historie unverändert erhalten bleiben (`SevenTvSyncService.cs:289` und `:310-318`) — ein Pfad, den die App selbst über Massenlöschung und das Wiederherstellen-Panel anbietet. Gefunden hat das nicht der Entwurf, sondern die abschließende Review dieses Branches: die Schreibpfad-Prüfung hatte jeden Pfad gefragt, ob er den Sync-Zeitpunkt einstempelt, nie aber, ob der Wert an der eigenen Historie des Emotes vorbei nach vorn wandern kann.
+
+**2. Die Zeile unter der Kurve sagt etwas über das Emote.** „Live an 12 von 13 Tagen" war für jedes Emote identisch — eine Aussage über den Stream, angebracht an einem Emote. Sie wird zur Kehrseite: „An 9 von 12 Live-Tagen nicht benutzt", gezählt nur über Live-Tage innerhalb der Lebenszeit des Emotes. Das ist zugleich das bessere Signal für die einzige Entscheidung, für die es die Seite gibt. Drei Formen, weil der ehrliche Satz sich unterscheidet (ungenutzt / alle genutzt / keine zählbaren Live-Tage, aber sichtbare Bänder); die Auswahl liegt in `liveDayCaptionKey`, damit Sidecar und Dialog nicht auseinanderlaufen können. Die channelweite Zahl steht jetzt einmalig an der Tracking-Zeile.
+
+**3. Live-Zahlen tragen keinen Nenner mehr.** „von 13 Tagen" behauptete für jeden Tag ohne `ChannelLiveDay`-Zeile, der Stream sei offline gewesen. `ChannelLiveDay.cs:8-9` verbietet genau diese Lesart: eine fehlende Zeile heißt „keine Daten". Zeilen entstehen erst seit dem Poll-Worker, ein Backfill existiert nicht. Der Nenner der neuen Zeile sind ausschließlich Tage, für die eine Live-Zeile vorliegt; die Zeile im Seitenkopf nennt gar keinen. Bei null Live-Tagen schweigen beide, statt „0" zu sagen.
+
+Kein Backend-Eingriff, keine Migration. Der Drilldown vom Stimmzettel bleibt unverändert, weil `VoteSessionResult` kein `firstSeenAt` trägt — dort verhält sich der Dialog wie vorher, was zu seinem Bestand passt (er zeigt dort aus demselben Grund schon keine „Im Set"-Zeile).
+
+Spec: `docs/superpowers/specs/2026-08-08-usage-curve-lifetime-design.md`.
+
+---
+
 ### 2026-08-08 — Der Header trägt ein Element statt sechs, und das Profilbild reist im Cookie
 
 **Betrifft:** `web/src/app/shared/ui/account-menu.ts`, `avatar.ts`, `display-preferences.ts`, `segmented-control.ts`, `web/src/app/features/shell/app-shell.ts`, `landing-page.html`, `login-page.ts`, `web/src/app/core/auth/auth.service.ts`, `auth.model.ts`, `src/EmotePurge.Api/Endpoints/AuthEndpoints.cs`, `Auth/TwitchClaimTypes.cs`, `Program.cs`, `src/EmotePurge.Core/Twitch/TwitchProfileImage.cs`, `TwitchModels.cs`, `src/EmotePurge.Infrastructure/Twitch/TwitchApiDtos.cs`, `TwitchHelixClient.cs`, `docs/UI-Designsprache.md`

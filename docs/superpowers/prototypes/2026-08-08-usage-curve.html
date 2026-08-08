@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototyp — Nutzungskurve sagt nur, was sie weiß</title>
+    <style>
+      :root {
+        --page: #0d0f12;
+        --surface: #15181c;
+        --inset: #1f232a;
+        --border: #262b32;
+        --fg-body: #d4d9dd;
+        --fg-secondary: #b2b9c0;
+        --fg-muted: #8b939b;
+        --accent-fg: #2fded0;
+        --success-dot: #10b981;
+      }
+      html[data-theme='light'] {
+        --page: #eef0f2;
+        --surface: #fafbfc;
+        --inset: #e5e8eb;
+        --border: #d7dade;
+        --fg-body: #23282e;
+        --fg-secondary: #3f464e;
+        --fg-muted: #5d656e;
+        --accent-fg: #076156;
+        --success-dot: #059669;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 2rem 1.5rem 6rem;
+        background: var(--page);
+        color: var(--fg-body);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      main {
+        max-width: 68rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+      }
+      h2 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0 0 0.25rem;
+      }
+      h3 {
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--fg-muted);
+        margin: 0 0 0.5rem;
+      }
+      p {
+        margin: 0 0 0.75rem;
+        color: var(--fg-secondary);
+        max-width: 62ch;
+      }
+      .muted {
+        color: var(--fg-muted);
+      }
+      a {
+        color: var(--accent-fg);
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.875em;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+      button.toggle {
+        flex: none;
+        background: var(--inset);
+        color: var(--fg-body);
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        padding: 0.5rem 0.75rem;
+        font: inherit;
+        font-size: 0.8125rem;
+        cursor: pointer;
+      }
+      button.toggle:hover {
+        border-color: var(--fg-muted);
+      }
+
+      section {
+        border-top: 1px solid var(--border);
+        padding-top: 1.25rem;
+        margin-top: 1.75rem;
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 1.25rem 2rem;
+        margin-top: 0.75rem;
+      }
+      .verdict {
+        font-size: 0.8125rem;
+        color: var(--fg-muted);
+        margin-top: 0.5rem;
+      }
+      .verdict strong {
+        color: var(--fg-secondary);
+        font-weight: 500;
+      }
+
+      /* ---- the chart box, mirroring the app's markup ---- */
+      .chart-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .chart-box {
+        display: flex;
+        gap: 0.375rem;
+        border-radius: 0.375rem;
+        background: var(--inset);
+        padding: 0.375rem;
+        height: 3rem;
+      }
+      .chart-box.lg {
+        gap: 0.5rem;
+        padding: 0.5rem;
+        height: 5rem;
+      }
+      .yaxis {
+        display: flex;
+        flex: none;
+        flex-direction: column;
+        justify-content: space-between;
+        text-align: right;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        line-height: 1;
+        color: var(--fg-muted);
+      }
+      .chart-box.lg .yaxis {
+        font-size: 12px;
+      }
+      svg.spark {
+        display: block;
+        height: 100%;
+        min-width: 0;
+        flex: 1;
+        color: var(--accent-fg);
+      }
+      .caption {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        color: var(--fg-muted);
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+      }
+      .chart-wrap.lg .caption {
+        font-family: inherit;
+        font-size: 0.75rem;
+      }
+      .chart-wrap.lg .caption.peak {
+        font-size: 0.875rem;
+        color: var(--fg-secondary);
+      }
+      .swatch {
+        display: inline-block;
+        flex: none;
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 0.125rem;
+        background: var(--success-dot);
+      }
+      .sidecar-frame {
+        width: 16rem;
+        max-width: 100%;
+      }
+      .drilldown-frame {
+        width: 27rem;
+        max-width: 100%;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.8125rem;
+        margin-top: 0.75rem;
+      }
+      th,
+      td {
+        border-bottom: 1px solid var(--border);
+        padding: 0.4rem 0.6rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        color: var(--fg-muted);
+        font-weight: 500;
+      }
+      td.key {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: nowrap;
+        color: var(--fg-secondary);
+      }
+      .trackline {
+        font-size: 0.75rem;
+        color: var(--fg-muted);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.5rem;
+      }
+      .del {
+        text-decoration: line-through;
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="topbar">
+        <div>
+          <h1>Nutzungskurve sagt nur, was sie weiß</h1>
+          <p>
+            Prototyp zur Spec vom 2026-08-08. Die Kurven sind nicht gezeichnet, sondern von der
+            vorgeschlagenen Logik gerechnet — Dummy-Daten, aber echte Rechenwege (<code
+              >toPolylinePoints</code
+            >
+            mit <code>drawFrom</code>, <code>liveBands</code> unverändert,
+            <code>liveDayCoverage</code>). Zeitraum überall 26.07.–07.08.2026, 13 Tage.
+          </p>
+        </div>
+        <button class="toggle" type="button" id="theme">Heller Modus</button>
+      </div>
+
+      <section id="scenarios"></section>
+
+      <section>
+        <h2>Die Zeile im Seitenkopf</h2>
+        <p>
+          Die channelweite Live-Zahl steht einmal hier statt an jedem Emote — und ohne Nenner, weil
+          ein fehlender <code>ChannelLiveDay</code>-Eintrag „keine Daten“ heißt und nicht „offline“.
+        </p>
+        <h3>heute</h3>
+        <p class="trackline">Wir zählen für diesen Channel seit dem 26.07.2026.</p>
+        <h3>neu</h3>
+        <p class="trackline">
+          Wir zählen für diesen Channel seit dem 26.07.2026. Im gewählten Zeitraum war der Stream an
+          12&nbsp;Tagen live.
+        </p>
+        <h3>neu, Zeitraum ohne Live-Abdeckung</h3>
+        <p class="trackline">Wir zählen für diesen Channel seit dem 26.07.2026.</p>
+      </section>
+
+      <section>
+        <h2>Die Größe im Drilldown-Dialog</h2>
+        <p>
+          Derselbe Fall wie oben in <code>GAMBA</code>, nur im größeren Kasten des Dialogs — dort
+          steht die Zeile in der normalen Schrift, nicht monospace.
+        </p>
+        <div class="pair" id="drilldown"></div>
+      </section>
+
+      <section>
+        <h2>Vorgeschlagene Texte</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Deutsch</th>
+              <th>Englisch</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="key">usageStats.chart.unusedOnLiveDays.other</td>
+              <td>An {{ unused }} von {{ live }} Live-Tagen nicht benutzt</td>
+              <td>Unused on {{ unused }} of {{ live }} live days</td>
+            </tr>
+            <tr>
+              <td class="key">usageStats.chart.unusedOnLiveDays.one</td>
+              <td>Am einzigen Live-Tag nicht benutzt</td>
+              <td>Unused on the only live day</td>
+            </tr>
+            <tr>
+              <td class="key">usageStats.chart.usedOnAllLiveDays.other</td>
+              <td>An allen {{ live }} Live-Tagen benutzt</td>
+              <td>Used on all {{ live }} live days</td>
+            </tr>
+            <tr>
+              <td class="key">usageStats.chart.usedOnAllLiveDays.one</td>
+              <td>Am einzigen Live-Tag benutzt</td>
+              <td>Used on the only live day</td>
+            </tr>
+            <tr>
+              <td class="key">usageStats.chart.liveLegend</td>
+              <td>Grün: Stream war live</td>
+              <td>Green: the stream was live</td>
+            </tr>
+            <tr>
+              <td class="key">usageStats.liveDaysInRange.other</td>
+              <td>Im gewählten Zeitraum war der Stream an {{ live }} Tagen live.</td>
+              <td>In the selected range the stream was live on {{ live }} days.</td>
+            </tr>
+            <tr>
+              <td class="key">usageStats.liveDaysInRange.one</td>
+              <td>Im gewählten Zeitraum war der Stream an einem Tag live.</td>
+              <td>In the selected range the stream was live on one day.</td>
+            </tr>
+            <tr>
+              <td class="key del">usageStats.drilldown.liveDays</td>
+              <td class="del">Live an {{ live }} von {{ total }} Tagen</td>
+              <td class="del">Live on {{ live }} of {{ total }} days</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const W = 100;
+      const H = 40;
+      const DAY = 86_400_000;
+      const FROM = '2026-07-26';
+      const TO = '2026-08-07';
+
+      /* ---------- the pure helpers, as the spec proposes them ---------- */
+
+      function rangeDates(from, to) {
+        const start = Date.parse(from + 'T00:00:00Z');
+        const end = Date.parse(to + 'T00:00:00Z');
+        const out = [];
+        for (let t = start; t <= end; t += DAY) out.push(new Date(t).toISOString().slice(0, 10));
+        return out;
+      }
+
+      function fillDaily(days, from, to) {
+        const byDate = new Map(Object.entries(days));
+        return rangeDates(from, to).map((date) => ({ date, useCount: byDate.get(date) ?? 0 }));
+      }
+
+      const round = (v) => Math.round(v * 100) / 100;
+
+      /** Unchanged from today apart from `drawFrom`: indices keep their x, only drawing starts later. */
+      function toPolylinePoints(points, width, height, drawFrom) {
+        if (points.length === 0) return '';
+
+        const firstVisible = drawFrom ? points.findIndex((p) => p.date >= drawFrom) : 0;
+        if (firstVisible === -1) return '';
+        const visible = points.slice(firstVisible);
+        const max = Math.max(1, ...visible.map((p) => p.useCount));
+
+        if (points.length === 1) {
+          const y = round(height - (points[0].useCount / max) * height);
+          return `0,${y} ${round(width)},${y}`;
+        }
+
+        const stepX = width / (points.length - 1);
+
+        // A single visible day would draw nothing, so it gets one day-step centred on its position.
+        if (visible.length === 1) {
+          const x = firstVisible * stepX;
+          const y = round(height - (visible[0].useCount / max) * height);
+          const a = round(Math.max(0, x - stepX / 2));
+          const b = round(Math.min(width, x + stepX / 2));
+          return `${a},${y} ${b},${y}`;
+        }
+
+        return visible
+          .map((p, i) => {
+            const y = height - (p.useCount / max) * height;
+            return `${round((firstVisible + i) * stepX)},${round(y)}`;
+          })
+          .join(' ');
+      }
+
+      /** Untouched — the bands keep spanning the whole width. */
+      function liveBands(points, liveDays, width) {
+        if (points.length === 0 || liveDays.length === 0) return [];
+        const live = new Set(liveDays);
+        if (points.length === 1) return live.has(points[0].date) ? [{ x: 0, width }] : [];
+
+        const stepX = width / (points.length - 1);
+        const bands = [];
+        let runStart = null;
+        for (let i = 0; i <= points.length; i++) {
+          const isLive = i < points.length && live.has(points[i].date);
+          if (isLive && runStart === null) runStart = i;
+          else if (!isLive && runStart !== null) {
+            const a = Math.max(0, (runStart - 0.5) * stepX);
+            const b = Math.min(width, (i - 0.5) * stepX);
+            bands.push({ x: round(a), width: round(b - a) });
+            runStart = null;
+          }
+        }
+        return bands;
+      }
+
+      function seriesPeak(points, drawFrom) {
+        let peak = null;
+        for (const p of points) {
+          if (drawFrom && p.date < drawFrom) continue;
+          if (p.useCount > (peak?.useCount ?? 0)) peak = p;
+        }
+        return peak ? { useCount: peak.useCount, date: peak.date } : null;
+      }
+
+      /** New. Only days the emote could have been used on, and only days we have live data for. */
+      function liveDayCoverage(points, liveDays, drawFrom) {
+        const live = new Set(liveDays);
+        let liveCount = 0;
+        let unused = 0;
+        for (const p of points) {
+          if (drawFrom && p.date < drawFrom) continue;
+          if (!live.has(p.date)) continue;
+          liveCount++;
+          if (p.useCount === 0) unused++;
+        }
+        return { live: liveCount, unused };
+      }
+
+      /* ---------- formatting ---------- */
+
+      const fmtCount = (n) => n.toLocaleString('de-DE');
+      const fmtDate = (iso) => {
+        const [y, m, d] = iso.split('-');
+        return `${d}.${m}.${y}`;
+      };
+
+      function newCaption(points, liveDays, drawFrom) {
+        const { live, unused } = liveDayCoverage(points, liveDays, drawFrom);
+        if (live === 0) {
+          return liveDays.length > 0
+            ? { text: 'Grün: Stream war live', key: 'chart.liveLegend' }
+            : null;
+        }
+        if (unused === 0) {
+          return live === 1
+            ? { text: 'Am einzigen Live-Tag benutzt', key: 'chart.usedOnAllLiveDays.one' }
+            : { text: `An allen ${live} Live-Tagen benutzt`, key: 'chart.usedOnAllLiveDays.other' };
+        }
+        return live === 1
+          ? { text: 'Am einzigen Live-Tag nicht benutzt', key: 'chart.unusedOnLiveDays.one' }
+          : {
+              text: `An ${unused} von ${live} Live-Tagen nicht benutzt`,
+              key: 'chart.unusedOnLiveDays.other',
+            };
+      }
+
+      /* ---------- rendering ---------- */
+
+      function svg(points, liveDays, drawFrom) {
+        const bands = liveBands(points, liveDays, W)
+          .map(
+            (b) =>
+              `<rect x="${b.x}" y="0" width="${b.width}" height="${H}" fill="currentColor" fill-opacity="0.18" style="color: var(--success-dot)" />`,
+          )
+          .join('');
+        const line = toPolylinePoints(points, W, H, drawFrom);
+        const poly = line
+          ? `<polyline points="${line}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />`
+          : '';
+        return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Tagesverlauf der Nutzung">${bands}${poly}</svg>`;
+      }
+
+      /** mode: 'old' | 'new'; size: 'sm' (sidecar) | 'lg' (dialog) */
+      function chart(scenario, mode, size) {
+        const points = fillDaily(scenario.usage, FROM, TO);
+        const drawFrom = mode === 'new' ? scenario.firstSeenAt?.slice(0, 10) : undefined;
+        const peak = seriesPeak(points, drawFrom);
+
+        const captions = [];
+        if (peak) {
+          captions.push(
+            `<p class="caption peak">Spitze ${fmtCount(peak.useCount)} am ${fmtDate(peak.date)}</p>`,
+          );
+        } else {
+          captions.push(`<p class="caption">In diesem Zeitraum nie benutzt.</p>`);
+        }
+
+        if (mode === 'old') {
+          if (scenario.liveDays.length > 0) {
+            captions.push(
+              `<p class="caption"><span class="swatch"></span>Live an ${scenario.liveDays.length} von ${points.length} Tagen</p>`,
+            );
+          }
+        } else {
+          const cap = newCaption(points, scenario.liveDays, drawFrom);
+          if (cap) {
+            captions.push(`<p class="caption"><span class="swatch"></span>${cap.text}</p>`);
+          }
+        }
+
+        const yaxis = peak
+          ? `<div class="yaxis" aria-hidden="true"><span>${fmtCount(peak.useCount)}</span><span>0</span></div>`
+          : '';
+
+        return `<div class="chart-wrap ${size === 'lg' ? 'lg' : ''}">
+            <div class="chart-box ${size === 'lg' ? 'lg' : ''}">${yaxis}${svg(points, scenario.liveDays, drawFrom)}</div>
+            ${captions.join('')}
+          </div>`;
+      }
+
+      /* ---------- dummy data ---------- */
+
+      const ALL_DAYS = rangeDates(FROM, TO);
+      // Channel-wide: live on every day but 02.08.
+      const LIVE_12 = ALL_DAYS.filter((d) => d !== '2026-08-02');
+      // A channel whose live rows stop on 05.08. — after that we simply have no data.
+      const LIVE_UNTIL_05 = LIVE_12.filter((d) => d <= '2026-08-05');
+
+      function spread(pairs) {
+        return Object.fromEntries(pairs);
+      }
+
+      const SCENARIOS = [
+        {
+          name: 'GAMBA',
+          note: 'Heute ins Set gekommen, heute einmal benutzt. Der Fall aus dem Screenshot vom 07.08.',
+          firstSeenAt: '2026-08-07T14:12:00Z',
+          liveDays: LIVE_12,
+          usage: spread([['2026-08-07', 1]]),
+          verdict:
+            'Heute liest sich das als „zwölf Tage lang tot“. Neu bleibt genau die eine Aussage übrig, die belegt ist.',
+        },
+        {
+          name: 'NEWMOTE',
+          note: 'Heute ins Set gekommen, noch nie benutzt.',
+          firstSeenAt: '2026-08-07T09:00:00Z',
+          liveDays: LIVE_12,
+          usage: {},
+          verdict:
+            'Der gefährlichste Fall: heute behauptet die flache Linie dreizehn ungenutzte Tage, neu steht da ein einziger — und das „Neu“-Badge im Raster sagt zusätzlich, dass man ihn noch nicht bewerten sollte.',
+        },
+        {
+          name: 'POGGERS',
+          note: 'Seit März im Set, regelmäßig benutzt.',
+          firstSeenAt: '2026-03-04T00:00:00Z',
+          liveDays: LIVE_12,
+          usage: spread([
+            ['2026-07-26', 31],
+            ['2026-07-27', 18],
+            ['2026-07-29', 44],
+            ['2026-07-30', 12],
+            ['2026-07-31', 27],
+            ['2026-08-01', 63],
+            ['2026-08-03', 22],
+            ['2026-08-05', 39],
+            ['2026-08-07', 16],
+          ]),
+          verdict:
+            'Die Kurve ändert sich nicht — das Emote war die ganze Zeit im Set. Nur der Satz darunter wird schärfer: er sagt jetzt etwas über dieses Emote statt über den Channel.',
+        },
+        {
+          name: 'KEKW',
+          note: 'firstSeenAt = null (archiviert oder v4-Lookup gescheitert).',
+          firstSeenAt: null,
+          liveDays: LIVE_12,
+          usage: spread([
+            ['2026-07-28', 2],
+            ['2026-08-04', 1],
+          ]),
+          verdict:
+            'Ohne Datum wird nichts verkürzt und nichts behauptet — die Kurve bleibt vollständig. Der Satz funktioniert trotzdem, weil er nur über Live-Tage spricht, die wir gemessen haben.',
+        },
+        {
+          name: 'LATECOMER',
+          note: 'Am 06.08. hinzugekommen — die Live-Zeilen des Channels enden am 05.08.',
+          firstSeenAt: '2026-08-06T20:30:00Z',
+          liveDays: LIVE_UNTIL_05,
+          usage: spread([['2026-08-07', 3]]),
+          verdict:
+            'Null zählbare Live-Tage, aber sichtbare Bänder. Ohne die dritte Textform stünde das Grün hier unerklärt da — genau in dem Fall, in dem am wenigsten klar ist, was man sieht.',
+        },
+        {
+          name: 'WIDEPEEPO',
+          note: 'Seit Januar im Set, an jedem Live-Tag benutzt.',
+          firstSeenAt: '2026-01-11T00:00:00Z',
+          liveDays: LIVE_12,
+          usage: spread(LIVE_12.map((d, i) => [d, 8 + ((i * 7) % 23)])),
+          verdict: 'Die positive Form. Kein „0 von 12“, das man erst umrechnen muss.',
+        },
+        {
+          name: 'OLDRANGE',
+          note: 'Zeitraum, für den es überhaupt keine Live-Zeilen gibt.',
+          firstSeenAt: '2026-02-02T00:00:00Z',
+          liveDays: [],
+          usage: spread([
+            ['2026-07-27', 5],
+            ['2026-08-02', 9],
+            ['2026-08-06', 4],
+          ]),
+          verdict:
+            'Keine Bänder, keine Zeile — in beiden Varianten. Schweigen ist hier die richtige Aussage, und das bleibt so.',
+        },
+      ];
+
+      /* ---------- mount ---------- */
+
+      document.getElementById('scenarios').innerHTML = SCENARIOS.map(
+        (s) => `
+          <div style="margin-bottom: 2.25rem">
+            <h2><code>${s.name}</code> <span class="muted" style="font-weight: 400">— ${s.note}</span></h2>
+            <div class="pair">
+              <div class="sidecar-frame"><h3>Sidecar heute</h3>${chart(s, 'old', 'sm')}</div>
+              <div class="sidecar-frame"><h3>Sidecar neu</h3>${chart(s, 'new', 'sm')}</div>
+            </div>
+            <p class="verdict">${s.verdict}</p>
+          </div>`,
+      ).join('');
+
+      document.getElementById('drilldown').innerHTML = `
+        <div class="drilldown-frame"><h3>Drilldown heute</h3>${chart(SCENARIOS[0], 'old', 'lg')}</div>
+        <div class="drilldown-frame"><h3>Drilldown neu</h3>${chart(SCENARIOS[0], 'new', 'lg')}</div>`;
+
+      const root = document.documentElement;
+      const button = document.getElementById('theme');
+      button.addEventListener('click', () => {
+        const dark = root.dataset.theme === 'dark';
+        root.dataset.theme = dark ? 'light' : 'dark';
+        button.textContent = dark ? 'Dunkler Modus' : 'Heller Modus';
+      });
+    </script>
+  </body>
+</html>
