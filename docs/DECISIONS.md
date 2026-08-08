@@ -10,6 +10,22 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-08 — Der Header trägt ein Element statt sechs, und das Profilbild reist im Cookie
+
+**Betrifft:** `web/src/app/shared/ui/account-menu.ts`, `avatar.ts`, `display-preferences.ts`, `segmented-control.ts`, `web/src/app/features/shell/app-shell.ts`, `landing-page.html`, `login-page.ts`, `web/src/app/core/auth/auth.service.ts`, `auth.model.ts`, `src/EmotePurge.Api/Endpoints/AuthEndpoints.cs`, `Auth/TwitchClaimTypes.cs`, `Program.cs`, `src/EmotePurge.Core/Twitch/TwitchProfileImage.cs`, `TwitchModels.cs`, `src/EmotePurge.Infrastructure/Twitch/TwitchApiDtos.cs`, `TwitchHelixClient.cs`, `docs/UI-Designsprache.md`
+
+Drei Entscheidungen in einem Umbau.
+
+**Ein Menü statt sechs Dauer-Controls.** Der Header rechts trug Theme-Icon, `DE EN`, Admin-Link, „Meine Abstimmungen", Username und Logout-Button — auf jedem Bildschirm, in jeder Sitzung. Gemessen an der Regel, dass die App-Kopfzeile nur trägt, was wirklich überall gebraucht wird, sind das fünf zu viel. Das Argument trägt am Desktop genauso wie auf dem Handy, während „der Header wird schlanker" dort schwächer wiegt, wo Platz ohnehin da ist. Mit dem Umbau entfallen der Burger, die Mobile-Disclosure und rund 100 Zeilen handgebautes Dismiss-Verhalten — das dritte der drei Duplikate, die der Doc-Kommentar von `popover.ts` selbst benennt. Der Header hat danach keinen `md:`-Zweig mehr. Der Login-Button bleibt bewusst **außerhalb** des Menüs: ein Aufruf zur Anmeldung gehört nicht hinter eine Klappe.
+
+**Disclosure statt `role="menu"`.** Das Panel hält gemischte Kinder — zwei Router-Links, zwei Radiogroups, einen Button. `role="menu"` verlangt `menuitem`-Kinder; eine Radiogroup darin ist nicht valide. Trigger trägt `aria-expanded` + `aria-haspopup="dialog"` + `aria-label`, das Panel ist ein schlichter Container mit zwei `role="radiogroup"`-Inseln. Das ist ein **Rückbau** gegenüber `theme-menu.ts`, das `menuitemradio` benutzte — die Shell hatte dieselbe Entscheidung für ihre Disclosure aber bereits getroffen, und zwei Umgangsweisen für dieselbe Sache sind schlechter als eine korrekte. `aria-controls` steht bewusst **nicht** am Trigger: das Panel existiert im geschlossenen Zustand nicht im DOM, und eine nicht auflösbare IDREF ist ungültiges ARIA.
+
+**Claim statt DB-Spalte.** Twitch liefert `profile_image_url` in derselben Helix-Antwort, die beim Login ohnehin geholt und bisher weggeworfen wurde. Sie wandert als Claim ins Session-Cookie, nicht als Spalte in `User`: keine Migration, kein Refresh-Konzept für ein Bild, das niemand aktuell haben muss, und `/api/auth/me` bleibt DB- und HTTP-frei. Der Preis ist bekannt und akzeptiert — wer beim Deploy angemeldet ist, hat den Claim nicht, sieht bis zum nächsten Login das Monogramm, und das ist kein Fehler. Ein Avatar in der Admin-Nutzerliste wäre der Moment für die Spalte; dieser Umbau ist es nicht.
+
+Zwei Nebenentscheidungen: Die URL wird beim Setzen des Claims von `-300x300` auf `-70x70` umgeschrieben (32 CSS px bei DPR 2), **bewacht** — greift das Muster nicht, geht die URL unverändert durch, und das ist die einzige Stelle im Code, die etwas über Twitchs URL-Form annimmt. Und `https://static-cdn.jtvnw.net` kommt in die `img-src`-Allowlist der CSP; ohne diesen Zusatz lädt kein Bild, unabhängig vom Claim. Die Listen sind bewusst schmal — das ist ein begründeter Zusatz, kein Aufweichen.
+
+---
+
 ### 2026-08-08 — Die Farbwelt bekommt eine maschinenlesbare Zweitfassung, und die handgeschriebene bleibt die Instanz
 
 **Betrifft:** `DESIGN.md` (neu, Repo-Root) · `.impeccable/design.json` (neu, gitignored) · `web/.claude/CLAUDE.md` · `CLAUDE.md`
