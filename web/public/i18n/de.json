@@ -12,6 +12,10 @@
     "light": "Hell",
     "dark": "Dunkel"
   },
+  "account": {
+    "trigger": "Konto-Menü von {{ name }}",
+    "preferencesTrigger": "Einstellungen"
+  },
   "shell": {
     "workerStatus": {
       "stale": "Chat wird nicht gezählt"

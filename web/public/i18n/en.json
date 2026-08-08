@@ -12,6 +12,10 @@
     "light": "Light",
     "dark": "Dark"
   },
+  "account": {
+    "trigger": "Account menu for {{ name }}",
+    "preferencesTrigger": "Settings"
+  },
   "shell": {
     "workerStatus": {
       "stale": "Chat is not being counted"
