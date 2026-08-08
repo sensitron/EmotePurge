@@ -230,7 +230,10 @@ test.describe('emote atlas', () => {
   test('draws no line for the days before the emote entered the set', async ({ page }) => {
     // The emote joined the set on the 20., eight days into the range. A baseline over the days
     // before that reads as "unused" where it should read as "did not exist" — the whole point.
-    await mockUsageChannelSeries(page, 'sensitron', { e1: [[3, 700]] }, [3, 4, 5, 9]);
+    // The usage sits on day 10, inside that lifetime: a count *before* the 20. would be drawn on
+    // purpose (a re-added emote keeps its history, see firstDrawableIndex) and would say nothing
+    // about the leading silence this test is here for.
+    await mockUsageChannelSeries(page, 'sensitron', { e1: [[10, 700]] }, [3, 4, 5, 9]);
     await openAtlas(
       page,
       EMOTES.map((emote) =>

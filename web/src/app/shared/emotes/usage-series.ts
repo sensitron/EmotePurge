@@ -70,8 +70,9 @@ export function offsetsToDates(offsets: readonly number[], from: string): string
  *
  * `drawFrom` (ISO day) is the first day the line may speak for: everything before it is left
  * undrawn rather than drawn as zero, because a baseline over days the emote did not exist on reads
- * as "unused" and is the opposite verdict. The x mapping keeps counting from the start of the array
- * regardless, so the curve stays aligned with the live bands, which span the whole range.
+ * as "unused" and is the opposite verdict. A day carrying usage is never left out, see
+ * `firstDrawableIndex`. The x mapping keeps counting from the start of the array regardless, so the
+ * curve stays aligned with the live bands, which span the whole range.
  */
 export function toPolylinePoints(
   points: readonly SparklinePoint[],
@@ -83,10 +84,8 @@ export function toPolylinePoints(
     return '';
   }
 
-  // Plain string comparison: for `yyyy-MM-dd` the lexicographic order is the chronological one, and
-  // the rest of this file counts UTC days the same way.
-  const firstVisible = drawFrom ? points.findIndex((point) => point.date >= drawFrom) : 0;
-  if (firstVisible === -1) {
+  const firstVisible = firstDrawableIndex(points, drawFrom);
+  if (firstVisible >= points.length) {
     return '';
   }
 
@@ -101,9 +100,12 @@ export function toPolylinePoints(
 
   const stepX = width / (points.length - 1);
 
-  // A polyline with one coordinate draws nothing at all, so a single visible day gets one day-step
-  // centred on its own position — never the full width, which is what the branch above does for a
-  // one-day range and what would re-state the whole span here.
+  // A polyline with one coordinate draws nothing at all, so a single visible day gets a stub. It is
+  // always the trailing half-step `[width - stepX/2, width]`: `visible` runs to the end of the
+  // array, so `visible.length === 1` means the last day and `x === width`. That is exactly the span
+  // `liveBands` gives that same day — never the full width, which is what the branch above does for
+  // a one-day range and what would re-state the whole span here. The clamps stay as insurance
+  // against a caller passing an array this reasoning does not hold for.
   if (visible.length === 1) {
     const x = firstVisible * stepX;
     const y = yOf(visible[0].useCount);
@@ -162,17 +164,17 @@ export function liveBands(
 
 /**
  * The busiest day; on a tie the earliest wins. `null` for an empty or all-zero series. `drawFrom`
- * excludes the days the curve does not draw, so the axis label and the line describe the same days.
+ * excludes the days the curve does not draw, so the axis label and the line describe the same days —
+ * it cannot change the answer on its own, because every day it skips is by definition unused and an
+ * unused day never wins a peak. It stays here so the label provably reads the drawn days.
  */
 export function seriesPeak(
   points: readonly SparklinePoint[],
   drawFrom?: string,
 ): { useCount: number; date: string } | null {
   let peak: SparklinePoint | null = null;
-  for (const point of points) {
-    if (drawFrom && point.date < drawFrom) {
-      continue;
-    }
+  for (let index = firstDrawableIndex(points, drawFrom); index < points.length; index++) {
+    const point = points[index];
     if (point.useCount > (peak?.useCount ?? 0)) {
       peak = point;
     }
@@ -182,9 +184,10 @@ export function seriesPeak(
 
 /**
  * How many of the days the emote could have been used on the stream was live, and on how many of
- * those it went unused. Only days at or after `drawFrom` count: a live day before the emote entered
- * the set is not a day it could have been used. Without `drawFrom` the whole range counts, which is
- * the honest reading when 7TV reported no date for the emote.
+ * those it went unused. Counting starts at `firstDrawableIndex`: a live day before the emote entered
+ * the set is not a day it could have been used — unless it was used, which settles the question
+ * against `drawFrom`. Without `drawFrom` the whole range counts, which is the honest reading when
+ * 7TV reported no date for the emote.
  *
  * The denominator is live days and never the length of the range — a missing ChannelLiveDay row
  * means "no data", never "offline", so "of 13 days" would state an absence nobody measured.
@@ -197,10 +200,8 @@ export function liveDayCoverage(
   const live = new Set(liveDays);
   let liveCount = 0;
   let unused = 0;
-  for (const point of points) {
-    if (drawFrom && point.date < drawFrom) {
-      continue;
-    }
+  for (let index = firstDrawableIndex(points, drawFrom); index < points.length; index++) {
+    const point = points[index];
     if (!live.has(point.date)) {
       continue;
     }
@@ -230,6 +231,31 @@ export function liveDayCaptionKey(
   }
   const base = coverage.unused === 0 ? 'usedOnAllLiveDays' : 'unusedOnLiveDays';
   return pluralKey(coverage.live, `usageStats.chart.${base}`);
+}
+
+/**
+ * First index the curve may speak for. Days before `drawFrom` stay silent — but never a day that
+ * carries usage: a day the emote was used on is by definition a day it existed, and 7TV moves a
+ * re-added emote's `addedAt` forward past its own surviving history (see
+ * SevenTvSyncService.UpsertEmote, which un-archives the same row and keeps its UsageStats). Hiding
+ * measured counts is the worse false statement.
+ *
+ * Shared by all three readers of `drawFrom` so they cannot disagree about which days the curve, its
+ * axis label and its live-day line are talking about.
+ *
+ * Returns `points.length` when no day qualifies, so a slice from it yields nothing.
+ */
+function firstDrawableIndex(points: readonly SparklinePoint[], drawFrom?: string): number {
+  if (!drawFrom) {
+    return 0;
+  }
+  // Tolerate a full ISO timestamp: `'2026-07-03' >= '2026-07-03T10:00:00Z'` is false, which would
+  // silently drop the emote's own first day. Beyond that, plain string comparison: for `yyyy-MM-dd`
+  // the lexicographic order is the chronological one, and the rest of this file counts UTC days the
+  // same way.
+  const day = drawFrom.slice(0, 10);
+  const index = points.findIndex((point) => point.date >= day || point.useCount > 0);
+  return index === -1 ? points.length : index;
 }
 
 /** Every ISO date in [from, to], inclusive. Empty for an invalid or inverted range. */

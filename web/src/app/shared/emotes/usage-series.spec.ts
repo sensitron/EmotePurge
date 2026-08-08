@@ -169,18 +169,57 @@ describe('toPolylinePoints', () => {
     expect(toPolylinePoints(points, 100, 40, '2026-06-01')).toBe(toPolylinePoints(points, 100, 40));
   });
 
-  it('draws nothing when drawFrom lies after the range', () => {
-    const points = fillDailySeries(
-      [{ date: '2026-07-02', useCount: 8 }],
-      '2026-07-01',
-      '2026-07-03',
-    );
+  it('draws nothing when no day before the range end qualifies', () => {
+    // Nothing drawn only because no day is left: every day is before drawFrom *and* unused. A day
+    // with a count would survive — see the re-add test below.
+    const points = fillDailySeries([], '2026-07-01', '2026-07-03');
     expect(toPolylinePoints(points, 100, 40, '2026-08-01')).toBe('');
   });
 
-  it('gives a single visible day one day-step instead of the full width', () => {
-    // The emote added today: one drawable day. The old single-point branch paints the full width,
-    // which would claim the whole range again — the exact statement this change removes.
+  it('draws a day the emote was used on even when drawFrom claims it did not exist yet', () => {
+    // The re-added emote: 7TV moves `addedAt` forward to the latest set entry, while the very same
+    // Emote row keeps its usage history (SevenTvSyncService.UpsertEmote un-archives in place). If
+    // drawFrom won here, a curve of measured 90 uses would collapse into a flat stub — a false
+    // "unused" on the page whose only job is deciding whether an emote may be deleted.
+    const points = fillDailySeries(
+      [{ date: '2026-07-01', useCount: 90 }],
+      '2026-07-01',
+      '2026-07-05',
+    );
+    expect(toPolylinePoints(points, 100, 40, '2026-07-05')).toBe('0,0 25,40 50,40 75,40 100,40');
+  });
+
+  it('treats a full ISO timestamp for drawFrom like the bare day', () => {
+    // Callers pass `firstSeenAt?.slice(0, 10)` today, but a timestamp slipping through must not
+    // silently drop the emote's own first day: '2026-07-05' >= '2026-07-05T10:00:00Z' is false.
+    const points = fillDailySeries([], '2026-07-01', '2026-07-05');
+    expect(toPolylinePoints(points, 100, 40, '2026-07-05T10:00:00Z')).toBe(
+      toPolylinePoints(points, 100, 40, '2026-07-05'),
+    );
+    expect(toPolylinePoints(points, 100, 40, '2026-07-05T10:00:00Z')).toBe('87.5,40 100,40');
+  });
+
+  it('scales y over the drawn days, and the drawn peak reaches the top edge', () => {
+    // The scale rule the spec fixes: `max` comes from the drawn points, not the whole array, so the
+    // y-axis label (seriesPeak, same days) and the curve height cannot disagree. Since no day with a
+    // count is ever trimmed, the busiest day is always drawn and always lands on y = 0.
+    const points = fillDailySeries(
+      [
+        { date: '2026-07-01', useCount: 90 },
+        { date: '2026-07-04', useCount: 45 },
+      ],
+      '2026-07-01',
+      '2026-07-05',
+    );
+    expect(toPolylinePoints(points, 100, 40, '2026-07-04')).toBe('0,0 25,40 50,40 75,20 100,40');
+    expect(seriesPeak(points, '2026-07-04')).toEqual({ useCount: 90, date: '2026-07-01' });
+  });
+
+  it('draws a single visible day as the trailing half-step, not the full width', () => {
+    // The emote added today: one drawable day. `visible` runs to the end of the array, so a single
+    // visible day is always the last one — the stub is the half-step [width - stepX/2, width], the
+    // same span liveBands gives that day. The old single-point branch paints the full width, which
+    // would claim the whole range again — the exact statement this change removes.
     const points = fillDailySeries(
       [{ date: '2026-07-05', useCount: 3 }],
       '2026-07-01',
@@ -189,7 +228,7 @@ describe('toPolylinePoints', () => {
     expect(toPolylinePoints(points, 100, 40, '2026-07-05')).toBe('87.5,0 100,0');
   });
 
-  it('keeps a single unused visible day on the baseline', () => {
+  it('keeps that trailing half-step on the baseline when the day is unused', () => {
     const points = fillDailySeries([], '2026-07-01', '2026-07-05');
     expect(toPolylinePoints(points, 100, 40, '2026-07-05')).toBe('87.5,40 100,40');
   });
@@ -251,12 +290,20 @@ describe('seriesPeak', () => {
     expect(seriesPeak([{ date: '2026-07-01', useCount: 0 }])).toBeNull();
   });
 
-  it('ignores the days before drawFrom, so the axis matches the curve', () => {
-    // In practice the leading stretch is all zeroes, so this changes no pixel today. It is here to
-    // keep the y-axis label and the drawn line reading the same set of days on purpose rather than
-    // by accident.
+  it('still names a day the emote was used on, even before drawFrom', () => {
+    // The axis label reads exactly the days the curve draws, and the curve never drops a day with a
+    // count (re-added emote: 7TV's addedAt moves forward past the surviving usage history). Naming
+    // the 02. here would put "4x" on an axis whose line peaks at 90.
     const points = [
       { date: '2026-07-01', useCount: 90 },
+      { date: '2026-07-02', useCount: 4 },
+    ];
+    expect(seriesPeak(points, '2026-07-02')).toEqual({ useCount: 90, date: '2026-07-01' });
+  });
+
+  it('skips the silent leading days, which are all unused anyway', () => {
+    const points = [
+      { date: '2026-07-01', useCount: 0 },
       { date: '2026-07-02', useCount: 4 },
     ];
     expect(seriesPeak(points, '2026-07-02')).toEqual({ useCount: 4, date: '2026-07-02' });
@@ -272,6 +319,13 @@ describe('liveDayCoverage', () => {
     '2026-07-01',
     '2026-07-07',
   );
+  // The same week without any usage before the 05., so drawFrom alone decides where counting starts.
+  const quietWeek = fillDailySeries(
+    [{ date: '2026-07-05', useCount: 1 }],
+    '2026-07-01',
+    '2026-07-07',
+  );
+  const emptyWeek = fillDailySeries([], '2026-07-01', '2026-07-07');
   const live = ['2026-07-01', '2026-07-02', '2026-07-05', '2026-07-06'];
 
   it('counts the live days the emote went unused on', () => {
@@ -281,11 +335,27 @@ describe('liveDayCoverage', () => {
   it('leaves out live days before the emote entered the set', () => {
     // The 01. and the 02. drop out of both numbers, not just the numerator: they are not days the
     // emote could have been used on, so they belong in neither.
-    expect(liveDayCoverage(week, live, '2026-07-05')).toEqual({ live: 2, unused: 1 });
+    expect(liveDayCoverage(quietWeek, live, '2026-07-05')).toEqual({ live: 2, unused: 1 });
+  });
+
+  it('counts a live day the emote was used on, whatever drawFrom claims', () => {
+    // The 02. carries 4 uses and is therefore a day the emote demonstrably existed on — a re-added
+    // emote's addedAt sits after its own history. Dropping it would shrink a denominator that the
+    // measurement itself proves belongs there, and turn "used" into "could not have been used".
+    expect(liveDayCoverage(week, live, '2026-07-05')).toEqual({ live: 3, unused: 1 });
   });
 
   it('reports no live days when the emote arrived after the last of them', () => {
-    expect(liveDayCoverage(week, live, '2026-07-07')).toEqual({ live: 0, unused: 0 });
+    expect(liveDayCoverage(emptyWeek, live, '2026-07-07')).toEqual({ live: 0, unused: 0 });
+  });
+
+  it('treats a full ISO timestamp for drawFrom like the bare day', () => {
+    // Without the day slice, the emote's own first live day would fall out of the denominator:
+    // '2026-07-05' >= '2026-07-05T10:00:00Z' is false.
+    expect(liveDayCoverage(emptyWeek, live, '2026-07-05T10:00:00Z')).toEqual({
+      live: 2,
+      unused: 2,
+    });
   });
 
   it('ignores live days outside the rendered range', () => {
