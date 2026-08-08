@@ -1,6 +1,9 @@
 {
   "languageSwitcher": {
-    "ariaLabel": "Switch language to {{ lang }}"
+    "label": "Language",
+    "ariaLabel": "Choose language",
+    "de": "Deutsch",
+    "en": "English"
   },
   "theme": {
     "label": "Appearance",
