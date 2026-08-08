@@ -14,7 +14,8 @@
   },
   "account": {
     "trigger": "Konto-Menü von {{ name }}",
-    "preferencesTrigger": "Einstellungen"
+    "preferencesTrigger": "Einstellungen",
+    "back": "Zurück"
   },
   "shell": {
     "workerStatus": {
@@ -22,6 +23,7 @@
     },
     "admin": "Admin",
     "myVotings": "Meine Abstimmungen",
+    "votings": "Abstimmungen",
     "logout": "Logout",
     "login": "Login"
   },

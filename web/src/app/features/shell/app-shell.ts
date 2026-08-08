@@ -40,19 +40,20 @@ import { HealthMarker } from '../../shared/ui/health-marker';
                Logo and the worker warning form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
           <div class="flex min-w-0 items-center gap-3">
-            <a
-              routerLink="/"
-              class="flex items-center gap-2 text-lg font-semibold whitespace-nowrap"
-            >
+            <!-- min-w-0 + truncate on the wordmark rather than nowrap: this group is the shrinking
+                 side of the row, and a child that refuses to shrink runs out of its own box and
+                 lands on top of whatever sits on the right. The logo keeps its size; only the
+                 words give way, and only when there is genuinely no room. -->
+            <a routerLink="/" class="flex min-w-0 items-center gap-2 text-lg font-semibold">
               <img
                 [ngSrc]="logoSrc"
                 width="24"
                 height="24"
                 disableOptimizedSrcset
                 alt=""
-                class="h-6 w-6"
+                class="h-6 w-6 shrink-0"
               />
-              Emote Purge
+              <span class="truncate">Emote Purge</span>
             </a>
             <!-- Nothing at all while the pipeline is healthy. This spot carried a dot plus "Worker
                  verbunden" on every page of the app until 2026-08-06, which is the one thing the
@@ -71,7 +72,16 @@ import { HealthMarker } from '../../shared/ui/health-marker';
           <div class="flex items-center gap-3">
             <!-- Gated on authResolved so the button does not flash and get replaced: the header
                  must not visibly change its mind about who you are. -->
-            @if (authResolved() && !currentUser()) {
+            @if (authResolved() && currentUser()) {
+              <!-- Deliberately the short label: at 360px the wordmark, this link and the 44px
+                   trigger share one row, and "Meine Abstimmungen" does not fit next to them. The
+                   page it leads to keeps the long form as its heading. -->
+              <a
+                routerLink="/my-votings"
+                class="px-1 py-2 text-sm whitespace-nowrap text-fg-muted transition hover:text-fg"
+                >{{ 'shell.votings' | transloco }}</a
+              >
+            } @else if (authResolved()) {
               <a routerLink="/login" appButton="primary">
                 {{ 'shell.login' | transloco }}
               </a>
