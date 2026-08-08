@@ -1,6 +1,6 @@
 # Account-Menü im Header — Design
 
-**Stand:** 2026-08-08 · **Status:** entworfen, nicht umgesetzt
+**Stand:** 2026-08-08 · **Status:** umgesetzt
 
 ## Ziel
 

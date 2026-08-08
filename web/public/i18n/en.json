@@ -1,6 +1,9 @@
 {
   "languageSwitcher": {
-    "ariaLabel": "Switch language to {{ lang }}"
+    "label": "Language",
+    "ariaLabel": "Choose language",
+    "de": "Deutsch",
+    "en": "English"
   },
   "theme": {
     "label": "Appearance",
@@ -9,15 +12,20 @@
     "light": "Light",
     "dark": "Dark"
   },
+  "account": {
+    "trigger": "Account menu for {{ name }}",
+    "preferencesTrigger": "Settings",
+    "back": "Back"
+  },
   "shell": {
     "workerStatus": {
       "stale": "Chat is not being counted"
     },
     "admin": "Admin",
     "myVotings": "My votes",
+    "votings": "Votes",
     "logout": "Logout",
-    "login": "Login",
-    "menu": "Menu"
+    "login": "Login"
   },
   "login": {
     "title": "Sign in",

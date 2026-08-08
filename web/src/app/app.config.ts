@@ -50,7 +50,7 @@ export const appConfig: ApplicationConfig = {
       loader: TranslocoHttpLoader,
     }),
     // Eagerly instantiate LanguageService so `<html lang>` is corrected before first paint even on
-    // routes whose first-rendered component doesn't itself inject it (e.g. no LanguageSwitcher
+    // routes whose first-rendered component doesn't itself inject it (e.g. no AccountMenu
     // mounted yet in that subtree).
     provideAppInitializer(() => {
       inject(LanguageService);

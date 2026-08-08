@@ -20,6 +20,8 @@ internal sealed class TwitchUserDto
     public string Id { get; set; } = string.Empty;
     public string Login { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    // Twitch sends "profile_image_url"; the SnakeCase naming policy in TwitchJsonOptions maps it.
+    public string ProfileImageUrl { get; set; } = string.Empty;
 }
 
 // GET api.twitch.tv/helix/moderation/channels

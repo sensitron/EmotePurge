@@ -25,6 +25,14 @@ export class AuthService {
   readonly currentUser = signal<AuthUser | null>(null);
   private readonly isLoaded = signal(false);
 
+  /**
+   * False until /api/auth/me has answered once, whichever way it answered. `currentUser()` alone
+   * cannot express this: it is null both before the request and for a logged-out visitor, and the
+   * account menu has to draw a different trigger for each — a gear appearing and then flipping to
+   * an avatar is a visible swap in the middle of the header.
+   */
+  readonly isResolved = this.isLoaded.asReadonly();
+
   /** Fetches /api/auth/me once and caches the result in `currentUser` until logout/401. */
   ensureLoaded(): Observable<AuthUser | null> {
     if (this.isLoaded()) {

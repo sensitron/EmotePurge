@@ -34,9 +34,12 @@ test.describe('authenticated broadcaster', () => {
     await page.goto('/');
 
     await expect(page).toHaveURL('/');
+    await expect(page.getByRole('link', { name: 'Login' })).toHaveCount(0);
+
+    // Name and logout now live behind the account menu — the header itself carries one control.
+    await page.getByRole('button', { name: 'Konto-Menü von Sensitron' }).click();
     await expect(page.getByText('Sensitron', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Logout' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Login' })).toHaveCount(0);
   });
 
   test('opens a tracked channel from the overview and sees its usage stats', async ({ page }) => {

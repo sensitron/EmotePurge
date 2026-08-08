@@ -25,7 +25,10 @@ public static class TwitchOAuthDefaults
     public const string RequestedScopes = "user:read:email user:read:moderated_channels user:read:subscriptions";
 }
 
-public record TwitchUserInfo(string Id, string Login, string DisplayName);
+// ProfileImageUrl is nullable because it is optional to us, not to Twitch: an account without a
+// custom picture still gets a default URL, but a session created before this field existed carries
+// no claim for it. The avatar falls back to a monogram in that case.
+public record TwitchUserInfo(string Id, string Login, string DisplayName, string? ProfileImageUrl = null);
 
 public record TwitchModeratedChannelInfo(string Login, string BroadcasterId);
 

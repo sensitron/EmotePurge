@@ -13,6 +13,7 @@ const USER: AuthUser = {
   displayName: 'Sensitron',
   tokenExpiresAtUtc: '2026-07-28T00:00:00Z',
   isGlobalAdmin: false,
+  profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/abc-profile_image-70x70.png',
 };
 
 describe('AuthService', () => {
@@ -69,6 +70,20 @@ describe('AuthService', () => {
 
       service.ensureLoaded().subscribe();
       httpMock.expectNone('/api/auth/me');
+    });
+
+    it('reports isResolved only once /api/auth/me has answered', () => {
+      expect(service.isResolved()).toBe(false);
+
+      service.ensureLoaded().subscribe();
+      expect(service.isResolved()).toBe(false);
+
+      httpMock.expectOne('/api/auth/me').flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      // A logged-out visitor is a resolved state, not a pending one — the account menu draws a
+      // different trigger for each and must not be able to confuse them.
+      expect(service.isResolved()).toBe(true);
+      expect(service.currentUser()).toBeNull();
     });
   });
 
