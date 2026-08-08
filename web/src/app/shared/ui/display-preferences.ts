@@ -36,7 +36,6 @@ const LANGUAGE_OPTIONS: SegmentedControlOption[] = SUPPORTED_LANGS.map((value) =
         <span class="text-xs font-medium text-fg-muted">{{ 'theme.label' | transloco }}</span>
         <app-segmented-control
           size="lg"
-          tone="quiet"
           [options]="themeOptions"
           [ariaLabel]="'theme.ariaLabel' | transloco"
           [value]="themeService.preference()"
@@ -50,7 +49,6 @@ const LANGUAGE_OPTIONS: SegmentedControlOption[] = SUPPORTED_LANGS.map((value) =
         }}</span>
         <app-segmented-control
           size="lg"
-          tone="quiet"
           [options]="languageOptions"
           [ariaLabel]="'languageSwitcher.ariaLabel' | transloco"
           [value]="languageService.lang()"

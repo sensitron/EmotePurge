@@ -37,7 +37,7 @@ export interface SegmentedControlOption {
           [class]="
             segmentClass() +
             (value() === option.value
-              ? selectedClass()
+              ? 'bg-accent-selected font-medium text-on-accent'
               : 'bg-surface-inset text-fg-secondary hover:bg-surface-inset-hover')
           "
           (click)="value.set(option.value)"
@@ -58,19 +58,6 @@ export class SegmentedControl {
    * group fill its container; 'sm' is every other call site and is unchanged by this input existing.
    */
   readonly size = input<'sm' | 'lg'>('sm');
-  /**
-   * How loudly the selected segment announces itself. `'accent'` is a filled teal slab and belongs
-   * to a choice that keeps mattering while the page is read — an active time range decides what
-   * every number below it means. `'quiet'` is the same teal as a tinted wash, for a preference that
-   * is set once and then only confirmed: it stays unmistakable (hue plus font weight) without
-   * spending the loudest colour in the palette on a decision nobody revisits.
-   *
-   * The wash pair is used rather than a plain surface because `surface` swaps sides between modes —
-   * it is *darker* than `surface-inset` in dark and lighter in light, so a hovered unselected
-   * segment would end up brighter than the selected one. `accent-wash`/`accent-wash-fg` carries its
-   * contrast in both modes by construction (§2.0 tone table).
-   */
-  readonly tone = input<'accent' | 'quiet'>('accent');
   readonly value = model.required<string>();
 
   protected readonly groupClass = computed(
@@ -83,14 +70,6 @@ export class SegmentedControl {
     () =>
       'grow px-3 py-1.5 text-sm whitespace-nowrap transition ' +
       (this.size() === 'lg' ? 'min-h-11 ' : ''),
-  );
-
-  // font-medium in both tones on purpose: it is the one part of the selected state that survives
-  // being read without colour, and 'quiet' leans on hue more than on lightness.
-  protected readonly selectedClass = computed(() =>
-    this.tone() === 'quiet'
-      ? 'bg-accent-wash font-medium text-accent-wash-fg'
-      : 'bg-accent-selected font-medium text-on-accent',
   );
 
   protected tabIndexFor(option: SegmentedControlOption): number {
