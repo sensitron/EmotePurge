@@ -57,7 +57,13 @@ import { EmoteSprite } from '../../shared/emotes/emote-sprite';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
 import { UsageSparkline } from '../../shared/emotes/usage-sparkline';
-import { fillOffsetSeries, offsetsToDates, seriesPeak } from '../../shared/emotes/usage-series';
+import {
+  fillOffsetSeries,
+  liveDayCaptionKey,
+  liveDayCoverage,
+  offsetsToDates,
+  seriesPeak,
+} from '../../shared/emotes/usage-series';
 import {
   UsageBandKey,
   groupIntoUsageBands,
@@ -477,7 +483,40 @@ export class UsageStatsPage {
     return fillOffsetSeries(this.seriesByEmote().get(emote.emoteId) ?? [], series.from, series.to);
   });
 
-  protected readonly inspectedPeak = computed(() => seriesPeak(this.inspectedPoints()));
+  /**
+   * The day the inspected emote entered the set — the first day its curve may speak for. `null` when
+   * 7TV reported no date: then nothing is trimmed and nothing is claimed.
+   */
+  protected readonly inspectedDrawFrom = computed(
+    () => this.inspected()?.firstSeenAt?.slice(0, 10) ?? null,
+  );
+
+  protected readonly inspectedPeak = computed(() =>
+    seriesPeak(this.inspectedPoints(), this.inspectedDrawFrom() ?? undefined),
+  );
+
+  /**
+   * How many live days this emote could have been used on, and how many of those it went unused —
+   * the emote-specific counterpart of the channel-wide count that used to stand under the curve and
+   * read identically for every row.
+   */
+  protected readonly inspectedCoverage = computed(() =>
+    liveDayCoverage(
+      this.inspectedPoints(),
+      this.liveDayDates(),
+      this.inspectedDrawFrom() ?? undefined,
+    ),
+  );
+
+  protected readonly inspectedLiveKey = computed(() =>
+    liveDayCaptionKey(this.inspectedCoverage(), this.liveDayDates().length > 0),
+  );
+
+  /** Channel-wide and range-dependent, so it is stated once at the top rather than on every emote. */
+  protected readonly liveDaysInRangeKey = computed(() => {
+    const count = this.liveDayDates().length;
+    return count > 0 ? pluralKey(count, 'usageStats.liveDaysInRange') : null;
+  });
 
   /** The single tab stop in the grid (WAI-ARIA grid pattern) — arrow keys move it. */
   protected readonly activeIndex = signal(0);

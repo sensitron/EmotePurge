@@ -194,6 +194,11 @@
   @if (trackedSince(); as since) {
     <p class="text-xs text-fg-muted">
       {{ 'usageStats.trackedSince' | transloco: { date: formatDate(since) } }}
+      <!-- The channel-wide live count, stated once here instead of on every emote. Without a
+           denominator on purpose: a missing ChannelLiveDay row means "no data", never "offline". -->
+      @if (liveDaysInRangeKey(); as liveKey) {
+        {{ liveKey | transloco: { live: liveDayDates().length } }}
+      }
     </p>
     @if (rangeStartsBeforeTracking()) {
       <!-- Named openly rather than hidden: on incomplete data nobody deletes anything, and a
@@ -517,6 +522,7 @@
                   class="block h-full min-w-0 flex-1"
                   [points]="inspectedPoints()"
                   [liveDays]="liveDayDates()"
+                  [drawFrom]="inspectedDrawFrom()"
                   [ariaLabel]="'usageStats.chart.label' | transloco"
                 />
               </div>
@@ -529,18 +535,16 @@
                   }}
                 </p>
               }
-              <!-- Only with coverage: an older range predates the live poll, and "0 of 13 days"
-                   would state an absence we did not measure. -->
-              @if (liveDayDates().length > 0) {
+              <!-- What this emote did on the days we know the stream was live. Silent without any
+                   coverage, and reduced to naming the bands when none of them fall inside the
+                   emote's lifetime — the bands span the whole range either way. -->
+              @if (inspectedLiveKey(); as liveKey) {
                 <p class="flex items-center gap-1.5 font-mono text-[11px] text-fg-muted">
                   <span
                     class="inline-block h-2 w-2 shrink-0 rounded-sm bg-success-dot"
                     aria-hidden="true"
                   ></span>
-                  {{
-                    'usageStats.drilldown.liveDays'
-                      | transloco: { live: liveDayDates().length, total: inspectedPoints().length }
-                  }}
+                  {{ liveKey | transloco: inspectedCoverage() }}
                 </p>
               }
             </div>
