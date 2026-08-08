@@ -6,9 +6,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { AuthService } from '../../core/auth/auth.service';
 import { SOURCE_URL } from '../../shared/branding/links';
 import { LOGO_SRC } from '../../shared/branding/logo';
-import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
+import { AccountMenu } from '../../shared/ui/account-menu';
 import { Button } from '../../shared/ui/button';
-import { ThemeMenu } from '../../shared/ui/theme-menu';
 import { SetShape } from './set-shape';
 
 /**
@@ -52,15 +51,7 @@ const TRUST = ['twitch', 'token', 'source'] as const;
 
 @Component({
   selector: 'app-landing-page',
-  imports: [
-    Button,
-    NgOptimizedImage,
-    RouterLink,
-    TranslocoPipe,
-    LanguageSwitcher,
-    SetShape,
-    ThemeMenu,
-  ],
+  imports: [AccountMenu, Button, NgOptimizedImage, RouterLink, TranslocoPipe, SetShape],
   templateUrl: './landing-page.html',
 })
 export class LandingPage {

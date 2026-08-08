@@ -23,8 +23,7 @@
     "admin": "Admin",
     "myVotings": "My votes",
     "logout": "Logout",
-    "login": "Login",
-    "menu": "Menu"
+    "login": "Login"
   },
   "login": {
     "title": "Sign in",

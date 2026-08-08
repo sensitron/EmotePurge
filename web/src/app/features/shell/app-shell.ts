@@ -1,32 +1,26 @@
 import { NgOptimizedImage } from '@angular/common';
-import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, effect, inject } from '@angular/core';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { WorkerHealthService } from '../../core/health/worker-health.service';
 import { LOGO_SRC } from '../../shared/branding/logo';
-import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
+import { AccountMenu } from '../../shared/ui/account-menu';
 import { Button } from '../../shared/ui/button';
 import { HealthMarker } from '../../shared/ui/health-marker';
-import { ThemeMenu } from '../../shared/ui/theme-menu';
 
 @Component({
   selector: 'app-shell',
   imports: [
+    AccountMenu,
     Button,
     HealthMarker,
     NgOptimizedImage,
     RouterLink,
     RouterOutlet,
     TranslocoPipe,
-    LanguageSwitcher,
-    ThemeMenu,
   ],
-  host: {
-    '(keydown.escape)': 'onEscape()',
-    '(document:click)': 'onDocumentClick($event)',
-  },
   template: `
     <div class="isolate min-h-screen bg-page text-fg">
       <!-- h-14 is a contract, not styling: the sticky tab bars pin at top-14 and the sticky
@@ -36,7 +30,7 @@ import { ThemeMenu } from '../../shared/ui/theme-menu';
            Reusing that class rather than repeating the blur: the translucency has to be denser in
            light than in dark, and --ep-sticky-alpha is where that lives. -->
       <header class="app-sticky-bar top-0 z-30 h-14 border-b border-border px-4">
-        <div class="relative mx-auto flex h-full max-w-5xl items-center justify-between gap-3">
+        <div class="mx-auto flex h-full max-w-5xl items-center justify-between gap-3">
           <!-- max-w-5xl here and on <main> is ONE width for the whole app, deliberately. A
                per-route second width for the two sprite sheets was built and taken out again the
                same day: the extra pixels really are emote columns there, but they cost a frame that
@@ -74,127 +68,16 @@ import { ThemeMenu } from '../../shared/ui/theme-menu';
             }
           </div>
 
-          <!-- Desktop: everything inline, as before. -->
-          <div class="hidden items-center gap-4 md:flex">
-            <!-- Theme and language sit together: both are personal display preferences rather than
-                 domain actions, so they belong in the same corner of the header. -->
-            <app-theme-menu />
-            <app-language-switcher />
-
-            @if (currentUser(); as user) {
-              <!-- Visibility only — /admin is behind adminGuard and every admin endpoint behind
-                   GlobalAdminAuthorizationFilter. The flag rides along on the cached /me. -->
-              @if (user.isGlobalAdmin) {
-                <a routerLink="/admin" class="px-1 py-2 text-sm text-fg-muted hover:underline">{{
-                  'shell.admin' | transloco
-                }}</a>
-              }
-              <a routerLink="/my-votings" class="px-1 py-2 text-sm text-fg-muted hover:underline">{{
-                'shell.myVotings' | transloco
-              }}</a>
-              <span class="text-sm text-fg-muted">{{ user.displayName }}</span>
-              <button type="button" appButton="outline" (click)="logout()">
-                {{ 'shell.logout' | transloco }}
-              </button>
-            } @else {
+          <div class="flex items-center gap-3">
+            <!-- Gated on authResolved so the button does not flash and get replaced: the header
+                 must not visibly change its mind about who you are. -->
+            @if (authResolved() && !currentUser()) {
               <a routerLink="/login" appButton="primary">
                 {{ 'shell.login' | transloco }}
               </a>
             }
+            <app-account-menu />
           </div>
-
-          <!-- Mobile: disclosure menu button (W3C disclosure pattern, not role="menu"). -->
-          <button
-            #menuButton
-            type="button"
-            data-shell-menu
-            class="inline-flex h-11 w-11 items-center justify-center rounded-md border border-border-strong text-fg-secondary transition hover:bg-surface-inset md:hidden"
-            [attr.aria-expanded]="menuOpen()"
-            aria-controls="app-shell-menu"
-            [attr.aria-label]="'shell.menu' | transloco"
-            (click)="toggleMenu()"
-          >
-            @if (menuOpen()) {
-              <svg
-                class="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                aria-hidden="true"
-              >
-                <path d="M5 5l10 10M15 5L5 15" stroke-linecap="round" />
-              </svg>
-            } @else {
-              <svg
-                class="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                aria-hidden="true"
-              >
-                <path d="M3 6h14M3 10h14M3 14h14" stroke-linecap="round" />
-              </svg>
-            }
-          </button>
-
-          @if (menuOpen()) {
-            <nav
-              id="app-shell-menu"
-              data-shell-menu
-              class="absolute inset-x-0 top-full z-20 mt-3 flex flex-col gap-1 rounded-md border border-border bg-surface p-2 shadow-overlay md:hidden"
-            >
-              @if (currentUser(); as user) {
-                @if (user.isGlobalAdmin) {
-                  <a
-                    routerLink="/admin"
-                    class="rounded-md px-3 py-3 text-sm text-fg-body transition hover:bg-surface-inset"
-                    (click)="closeMenu()"
-                  >
-                    {{ 'shell.admin' | transloco }}
-                  </a>
-                }
-                <a
-                  routerLink="/my-votings"
-                  class="rounded-md px-3 py-3 text-sm text-fg-body transition hover:bg-surface-inset"
-                  (click)="closeMenu()"
-                >
-                  {{ 'shell.myVotings' | transloco }}
-                </a>
-                <!-- The h-14 header has no room for another control on narrow viewports (§8.5
-                     height contract), so the theme menu joins the language switcher down here. -->
-                <div class="flex items-center justify-between gap-3 rounded-md px-3 py-3">
-                  <span class="text-sm text-fg-muted">{{ user.displayName }}</span>
-                  <div class="flex items-center gap-2">
-                    <app-theme-menu />
-                    <app-language-switcher />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  appButton="outline"
-                  class="py-3 text-left"
-                  (click)="closeMenu(); logout()"
-                >
-                  {{ 'shell.logout' | transloco }}
-                </button>
-              } @else {
-                <div class="flex items-center justify-end gap-2 rounded-md px-3 py-2">
-                  <app-theme-menu />
-                  <app-language-switcher />
-                </div>
-                <a
-                  routerLink="/login"
-                  appButton="primary"
-                  class="py-3 text-center"
-                  (click)="closeMenu()"
-                >
-                  {{ 'shell.login' | transloco }}
-                </a>
-              }
-            </nav>
-          }
         </div>
       </header>
 
@@ -208,11 +91,10 @@ export class AppShell {
   private readonly authService = inject(AuthService);
   private readonly healthService = inject(WorkerHealthService);
   private readonly router = inject(Router);
-  private readonly menuButton = viewChild.required<ElementRef<HTMLButtonElement>>('menuButton');
 
   protected readonly currentUser = this.authService.currentUser;
+  protected readonly authResolved = this.authService.isResolved;
   protected readonly workerStale = computed(() => this.healthService.status() === 'stale');
-  protected readonly menuOpen = signal(false);
   protected readonly logoSrc = LOGO_SRC;
 
   constructor() {
@@ -236,32 +118,5 @@ export class AppShell {
         }
       }
     });
-  }
-
-  protected logout(): void {
-    this.authService.logout();
-  }
-
-  protected toggleMenu(): void {
-    this.menuOpen.update((open) => !open);
-  }
-
-  protected closeMenu(): void {
-    this.menuOpen.set(false);
-  }
-
-  protected onEscape(): void {
-    if (this.menuOpen()) {
-      this.closeMenu();
-      this.menuButton().nativeElement.focus();
-    }
-  }
-
-  protected onDocumentClick(event: Event): void {
-    // The disclosure closes on any click outside itself; clicks on the toggle button or inside
-    // the panel are handled by their own handlers (both carry data-shell-menu).
-    if (this.menuOpen() && !(event.target as HTMLElement).closest('[data-shell-menu]')) {
-      this.closeMenu();
-    }
   }
 }
