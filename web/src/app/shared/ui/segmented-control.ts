@@ -53,9 +53,11 @@ export class SegmentedControl {
   readonly options = input.required<SegmentedControlOption[]>();
   readonly ariaLabel = input('');
   /**
-   * 'lg' is for touch surfaces where the control is the row rather than a chip in one — currently
-   * only the account menu's panel. It raises the segments to a 44 px thumb target and lets the
-   * group fill its container; 'sm' is every other call site and is unchanged by this input existing.
+   * 'lg' is for a control that is the row rather than a chip in one — currently only the account
+   * menu's panel. It lets the group fill its container and follows the house rule for menu rows
+   * (§7.1): a 44 px thumb target on narrow viewports, 36 px from `sm` up, where a mouse does not
+   * need the comfort margin and the extra height only makes a set-once control the loudest thing
+   * in the panel. 'sm' is every other call site and is unchanged by this input existing.
    */
   readonly size = input<'sm' | 'lg'>('sm');
   readonly value = model.required<string>();
@@ -69,7 +71,7 @@ export class SegmentedControl {
   protected readonly segmentClass = computed(
     () =>
       'grow px-3 py-1.5 text-sm whitespace-nowrap transition ' +
-      (this.size() === 'lg' ? 'min-h-11 ' : ''),
+      (this.size() === 'lg' ? 'min-h-11 sm:min-h-9 ' : ''),
   );
 
   protected tabIndexFor(option: SegmentedControlOption): number {

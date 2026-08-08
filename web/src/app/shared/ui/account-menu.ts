@@ -89,7 +89,7 @@ import { Popover } from './popover';
                 <button
                   #back
                   type="button"
-                  class="flex min-h-11 items-center gap-2 px-3 text-left text-sm font-medium text-fg transition hover:bg-surface-inset"
+                  class="flex min-h-11 items-center sm:min-h-9 gap-2 px-3 text-left text-sm font-medium text-fg transition hover:bg-surface-inset"
                   (click)="showRoot()"
                 >
                   <svg
@@ -132,7 +132,7 @@ import { Popover } from './popover';
                        GlobalAdminAuthorizationFilter. The flag rides along on the cached /me. -->
                   <a
                     routerLink="/admin"
-                    class="flex min-h-11 items-center border-t border-border px-3 text-sm text-fg-body transition hover:bg-surface-inset"
+                    class="flex min-h-11 items-center sm:min-h-9 border-t border-border px-3 text-sm text-fg-body transition hover:bg-surface-inset"
                     (click)="close()"
                   >
                     {{ 'shell.admin' | transloco }}
@@ -142,7 +142,7 @@ import { Popover } from './popover';
                 <button
                   #preferencesRow
                   type="button"
-                  class="flex min-h-11 items-center border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
+                  class="flex min-h-11 items-center sm:min-h-9 border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
                   (click)="showPreferences()"
                 >
                   {{ 'account.preferencesTrigger' | transloco }}
@@ -162,7 +162,7 @@ import { Popover } from './popover';
 
                 <button
                   type="button"
-                  class="flex min-h-11 items-center border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
+                  class="flex min-h-11 items-center sm:min-h-9 border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
                   (click)="logout()"
                 >
                   {{ 'shell.logout' | transloco }}
