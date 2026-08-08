@@ -101,6 +101,12 @@ public static class AuthEndpoints
                 new(TwitchClaimTypes.SessionIssuedAtUtc,
                     DateTime.UtcNow.AddSeconds(1).ToString("O", CultureInfo.InvariantCulture))
             };
+            // Conditionally, because Claim's constructor rejects a null value — and an account
+            // Twitch answered for without a picture URL is a legitimate outcome, not an error.
+            if (!string.IsNullOrEmpty(userInfo.ProfileImageUrl))
+            {
+                claims.Add(new Claim(TwitchClaimTypes.ProfileImageUrl, TwitchProfileImage.ToAvatarSize(userInfo.ProfileImageUrl)));
+            }
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             // Without IsPersistent the cookie carries no Max-Age and dies with the browser session,
             // silently capping every login at "until the browser closes" instead of the configured
@@ -126,6 +132,7 @@ public static class AuthEndpoints
                 twitchUserId = user.FindFirstValue(ClaimTypes.NameIdentifier),
                 login = user.FindFirstValue(TwitchClaimTypes.Login),
                 displayName = user.FindFirstValue(TwitchClaimTypes.DisplayName),
+                profileImageUrl = user.FindFirstValue(TwitchClaimTypes.ProfileImageUrl),
                 tokenExpiresAtUtc = user.FindFirstValue(TwitchClaimTypes.TokenExpiresAtUtc),
                 isGlobalAdmin = principal is not null && channelAccessService.IsGlobalAdmin(principal)
             });

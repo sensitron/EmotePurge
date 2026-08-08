@@ -13,6 +13,7 @@ const USER: AuthUser = {
   displayName: 'Sensitron',
   tokenExpiresAtUtc: '2026-07-28T00:00:00Z',
   isGlobalAdmin: false,
+  profileImageUrl: 'https://static-cdn.jtvnw.net/jtv_user_pictures/abc-profile_image-70x70.png',
 };
 
 describe('AuthService', () => {
