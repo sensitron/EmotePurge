@@ -1,4 +1,4 @@
-import { Component, input, model } from '@angular/core';
+import { Component, computed, input, model } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 export interface SegmentedControlOption {
@@ -14,12 +14,12 @@ export interface SegmentedControlOption {
 @Component({
   selector: 'app-segmented-control',
   imports: [TranslocoPipe],
+  // 'lg' stretches to its container, which needs a block-level host to stretch inside. Bound
+  // conditionally rather than set unconditionally so that every existing 'sm' call site — all of
+  // them inline in a flex row — keeps the inline host it was laid out against.
+  host: { '[class.block]': "size() === 'lg'" },
   template: `
-    <div
-      role="radiogroup"
-      [attr.aria-label]="ariaLabel()"
-      class="inline-flex flex-wrap gap-px overflow-hidden rounded-md border border-surface-inset-hover bg-surface-inset-hover"
-    >
+    <div role="radiogroup" [attr.aria-label]="ariaLabel()" [class]="groupClass()">
       <!-- Separators come from the container background showing through the 1px gaps, not from
            per-button borders: with flex-wrap (long option sets on narrow screens) that draws the
            dividers between rows too, which a border-l on each button cannot.
@@ -35,7 +35,7 @@ export interface SegmentedControlOption {
           [attr.aria-checked]="value() === option.value"
           [tabindex]="tabIndexFor(option)"
           [class]="
-            'grow px-3 py-1.5 text-sm whitespace-nowrap transition ' +
+            segmentClass() +
             (value() === option.value
               ? 'bg-accent-selected font-medium text-on-accent'
               : 'bg-surface-inset text-fg-secondary hover:bg-surface-inset-hover')
@@ -52,7 +52,27 @@ export interface SegmentedControlOption {
 export class SegmentedControl {
   readonly options = input.required<SegmentedControlOption[]>();
   readonly ariaLabel = input('');
+  /**
+   * 'lg' is for a control that is the row rather than a chip in one — currently only the account
+   * menu's panel. It lets the group fill its container and follows the house rule for menu rows
+   * (§7.1): a 44 px thumb target on narrow viewports, 36 px from `sm` up, where a mouse does not
+   * need the comfort margin and the extra height only makes a set-once control the loudest thing
+   * in the panel. 'sm' is every other call site and is unchanged by this input existing.
+   */
+  readonly size = input<'sm' | 'lg'>('sm');
   readonly value = model.required<string>();
+
+  protected readonly groupClass = computed(
+    () =>
+      (this.size() === 'lg' ? 'flex w-full ' : 'inline-flex ') +
+      'flex-wrap gap-px overflow-hidden rounded-md border border-surface-inset-hover bg-surface-inset-hover',
+  );
+
+  protected readonly segmentClass = computed(
+    () =>
+      'grow px-3 py-1.5 text-sm whitespace-nowrap transition ' +
+      (this.size() === 'lg' ? 'min-h-11 sm:min-h-9 ' : ''),
+  );
 
   protected tabIndexFor(option: SegmentedControlOption): number {
     const options = this.options();

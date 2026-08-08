@@ -123,8 +123,11 @@ test.describe('theme', () => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
-    await page.getByRole('button', { name: 'Darstellung wählen' }).click();
-    await page.getByRole('menuitemradio', { name: 'Hell' }).click();
+    await page.getByRole('button', { name: 'Konto-Menü von Sensitron' }).click();
+    // Logged in, the preferences sit one level down — set once, so they do not hold a permanent
+    // place in the panel. Logged out (below) there is nothing else in it and they show directly.
+    await page.getByRole('button', { name: 'Einstellungen' }).click();
+    await page.getByRole('radio', { name: 'Hell' }).click();
 
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     const stored = await page.evaluate(() => localStorage.getItem('emotepurge.theme'));
@@ -142,8 +145,9 @@ test.describe('theme', () => {
       await page.emulateMedia({ colorScheme: 'dark' });
       await page.goto(path);
 
-      await page.getByRole('button', { name: 'Darstellung wählen' }).click();
-      await page.getByRole('menuitemradio', { name: 'Hell' }).click();
+      // Logged out, so the trigger is the gear rather than an avatar.
+      await page.getByRole('button', { name: 'Einstellungen' }).click();
+      await page.getByRole('radio', { name: 'Hell' }).click();
 
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     });

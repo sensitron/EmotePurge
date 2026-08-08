@@ -27,7 +27,7 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
 
             var dto = await response.Content.ReadFromJsonAsync<TwitchGetUsersResponseDto>(TwitchJsonOptions.Value, cancellationToken);
             var user = dto?.Data.FirstOrDefault();
-            return user is null ? null : new TwitchUserInfo(user.Id, user.Login, user.DisplayName);
+            return user is null ? null : new TwitchUserInfo(user.Id, user.Login, user.DisplayName, user.ProfileImageUrl);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {

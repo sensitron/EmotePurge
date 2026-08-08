@@ -54,8 +54,13 @@ export class Popover {
       // shadow-overlay rather than Tailwind's shadow-xl: a black-based drop shadow is close to
       // invisible on a dark page and is the only thing lifting the panel off a light one, so the
       // two modes need different shadows, not a different opacity of the same one.
+      // text-start is not decoration, it is a repair: `align` is a legacy HTML attribute, so
+      // `<app-popover align="end">` leaves align="end" on the element and the UA stylesheet turns
+      // that into text-align: end for the whole subtree. Every panel content inherited it; the
+      // existing ones only escaped because their rows carry an explicit text-left. Cured here so
+      // no future panel has to know, and so nobody has to guess why a caption drifted right.
       'absolute top-full z-30 mt-1 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border ' +
-      'border-border-strong bg-surface shadow-overlay ' +
+      'border-border-strong bg-surface text-start shadow-overlay ' +
       (this.align() === 'end' ? 'right-0 ' : 'left-0 ') +
       this.width(),
   );

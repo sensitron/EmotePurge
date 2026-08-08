@@ -176,7 +176,8 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 // Security headers on every response. CSP allow-lists are deliberately narrow: connect-src covers
 // the frontend's direct browser calls to 7TV (mass-delete GraphQL mutations bypass the API on
 // purpose, s. CLAUDE.md "Zero-Knowledge für Schreib-Tokens"), img-src covers the 7TV CDN that
-// serves emote preview images embedded via Emote.ImageUrl.
+// serves emote preview images embedded via Emote.ImageUrl, plus Twitch's own CDN for the account
+// menu's avatar. Without that second host no picture loads at all, whatever the claim says.
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
@@ -203,7 +204,7 @@ app.Use(async (context, next) =>
         "default-src 'self'; " +
         "script-src 'self'; " +
         "style-src 'self' 'unsafe-inline'; " +
-        "img-src 'self' data: https://*.7tv.app https://7tv.io; " +
+        "img-src 'self' data: https://*.7tv.app https://7tv.io https://static-cdn.jtvnw.net; " +
         "connect-src 'self' https://7tv.io; " +
         "font-src 'self'; " +
         "object-src 'none'; " +

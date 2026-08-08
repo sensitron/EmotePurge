@@ -7,6 +7,9 @@ export const AUTH_USER = {
   tokenExpiresAtUtc: '2099-01-01T00:00:00Z',
   // Non-admin by default — admin flows pass { ...AUTH_USER, isGlobalAdmin: true }.
   isGlobalAdmin: false,
+  // Null on purpose: the e2e run has no route to Twitch's CDN, so the monogram fallback is both
+  // the honest and the only stable thing to assert against.
+  profileImageUrl: null as string | null,
 };
 
 async function fulfillJson(

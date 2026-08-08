@@ -5,9 +5,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { LOGO_SRC } from '../../shared/branding/logo';
-import { LanguageSwitcher } from '../../shared/i18n/language-switcher';
+import { AccountMenu } from '../../shared/ui/account-menu';
 import { Button } from '../../shared/ui/button';
-import { ThemeMenu } from '../../shared/ui/theme-menu';
 
 /**
  * Exactly what `TwitchOAuthDefaults.RequestedScopes` sends to id.twitch.tv/oauth2/authorize
@@ -43,10 +42,7 @@ const SCOPES = [
           />
           Emote Purge
         </a>
-        <div class="flex items-center gap-2">
-          <app-theme-menu />
-          <app-language-switcher />
-        </div>
+        <app-account-menu />
       </header>
 
       <!-- No card. A card is a boundary against its neighbours, and on this page there are none —
@@ -92,7 +88,7 @@ const SCOPES = [
       </main>
     </div>
   `,
-  imports: [Button, NgOptimizedImage, RouterLink, TranslocoPipe, LanguageSwitcher, ThemeMenu],
+  imports: [AccountMenu, Button, NgOptimizedImage, RouterLink, TranslocoPipe],
 })
 export class LoginPage {
   private readonly authService = inject(AuthService);
