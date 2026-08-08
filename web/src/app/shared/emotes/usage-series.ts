@@ -1,3 +1,4 @@
+import { pluralKey } from '../../core/i18n/plural';
 import { EmoteDailyUsage } from '../../core/usage-stats/usage-stat.model';
 
 /**
@@ -174,6 +175,58 @@ export function seriesPeak(
     }
   }
   return peak ? { useCount: peak.useCount, date: peak.date } : null;
+}
+
+/**
+ * How many of the days the emote could have been used on the stream was live, and on how many of
+ * those it went unused. Only days at or after `drawFrom` count: a live day before the emote entered
+ * the set is not a day it could have been used. Without `drawFrom` the whole range counts, which is
+ * the honest reading when 7TV reported no date for the emote.
+ *
+ * The denominator is live days and never the length of the range — a missing ChannelLiveDay row
+ * means "no data", never "offline", so "of 13 days" would state an absence nobody measured.
+ */
+export function liveDayCoverage(
+  points: readonly SparklinePoint[],
+  liveDays: readonly string[],
+  drawFrom?: string,
+): { live: number; unused: number } {
+  const live = new Set(liveDays);
+  let liveCount = 0;
+  let unused = 0;
+  for (const point of points) {
+    if (drawFrom && point.date < drawFrom) {
+      continue;
+    }
+    if (!live.has(point.date)) {
+      continue;
+    }
+    liveCount++;
+    if (point.useCount === 0) {
+      unused++;
+    }
+  }
+  return { live: liveCount, unused };
+}
+
+/**
+ * The transloco key for the line under the curve, or `null` when it must stay silent. Three forms,
+ * because the honest sentence differs: some live days went unused, all of them were used, or none of
+ * the live days fall inside the emote's lifetime — and in that last case the green bands are still
+ * on screen and still need naming.
+ *
+ * It lives here rather than in either component because the sidecar and the drilldown dialog have to
+ * say the same thing; two copies of this decision would drift the moment somebody touched one.
+ */
+export function liveDayCaptionKey(
+  coverage: { live: number; unused: number },
+  hasLiveDays: boolean,
+): string | null {
+  if (coverage.live === 0) {
+    return hasLiveDays ? 'usageStats.chart.liveLegend' : null;
+  }
+  const base = coverage.unused === 0 ? 'usedOnAllLiveDays' : 'unusedOnLiveDays';
+  return pluralKey(coverage.live, `usageStats.chart.${base}`);
 }
 
 /** Every ISO date in [from, to], inclusive. Empty for an invalid or inverted range. */
