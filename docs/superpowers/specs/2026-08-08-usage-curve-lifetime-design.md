@@ -236,6 +236,15 @@ sondern der Schutz dagegen, dass es später eine wird.
 | 900er-Set im Atlas | 900 Kurven mit je eigenem `drawFrom`; gezeichnet wird nur die inspizierte, `liveDayCoverage` läuft nur für sie |
 | Stimmzettel-Drilldown | unverändert, weil kein `firstSeenAt` vorliegt |
 
+**Zur Wiederhinzufügen-Zeile, bewusst hingenommen:** Weil ein einzelner Startindex keine gelückte
+Lebenszeit ausdrücken kann, werden die Nulltage zwischen einem frühen genutzten Tag und
+`firstSeenAt` — das Fenster, in dem das Emote tatsächlich gelöscht war — wieder als Baseline
+gezeichnet und von `liveDayCoverage` als ungenutzte Live-Tage mitgezählt, sodass die Zeile z. B.
+„An 5 von 8 Live-Tagen nicht benutzt" lesen kann, obwohl das Emote an dreien dieser Tage nicht
+existierte. Das ist bewusst hingenommen: strikt besser, als gemessene Nutzung zu verstecken, tritt
+nur im Wiederhinzufügen-Fall auf, und eine gelückte Lebenszeit auszudrücken bräuchte Intervalldaten
+pro Zeitfenster, die das Backend nicht liefert.
+
 ## Absicherung
 
 **Unit (Regel 12 — reine Utilities in `shared/`):** `usage-series.spec.ts` wächst um
