@@ -339,7 +339,7 @@ const SCENARIOS: Scenario[] = [
   {
     // The one state in which the header says anything about the worker at all. Worth a shot of its
     // own precisely because it is rare: at 360px the warning shares the bar with the wordmark and
-    // the menu button, and nothing else in the app ever puts a third thing in that row.
+    // the account-menu trigger, and nothing else in the app ever puts a third thing in that row.
     slug: 'overview-worker-stale',
     path: '/',
     setup: async (page) => {
@@ -568,9 +568,13 @@ const SCENARIOS: Scenario[] = [
       await mockUsageTotals(page, 'sensitron', usageEmotes(24));
     },
     afterLoad: async (page) => {
-      // Locale-independent handles: the label is translated, these are not.
-      await page.locator('[aria-haspopup="dialog"]').first().click();
-      await page.getByRole('radio').last().click();
+      // Locale-independent handles: the label is translated, these are not. Both are scoped to the
+      // menu component, because neither handle is unique on this page: the account-menu trigger in
+      // the header carries the same aria-haspopup and comes first in the DOM, and the last radio
+      // belongs to the sort control — which sits *behind* the open panel and cannot be clicked.
+      const rangeMenu = page.locator('app-date-range-menu');
+      await rangeMenu.locator('[aria-haspopup="dialog"]').click();
+      await rangeMenu.getByRole('radio').last().click();
     },
   },
   {
