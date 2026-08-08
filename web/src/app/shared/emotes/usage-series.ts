@@ -2,8 +2,11 @@ import { pluralKey } from '../../core/i18n/plural';
 import { EmoteDailyUsage } from '../../core/usage-stats/usage-stat.model';
 
 /**
- * Pure helpers between the sparse `/usage-stats/daily` response and the sparkline. The server only
- * transports days with actual usage; the fixed-width array the polyline needs is built here.
+ * Everything the usage sparkline needs between the API response and the rendered chart: filling the
+ * sparse `/usage-stats/daily` response into the dense day array the chart draws from, the polyline
+ * and live-band geometry, and the caption key that names what the bands mean. The caption lives here
+ * rather than in the sidecar or the drilldown dialog because both render the same bands and must say
+ * the same thing about them — a copy in each would drift the moment one of them changed.
  */
 
 export interface SparklinePoint {
