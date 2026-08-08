@@ -467,10 +467,21 @@
     "sortAscending": "Ascending",
     "lastUsed": "last {{ date }}",
     "neverUsed": "never used",
+    "chart": {
+      "label": "Daily usage history",
+      "unusedOnLiveDays": {
+        "one": "Unused on the only live day",
+        "other": "Unused on {{unused}} of {{live}} live days"
+      },
+      "usedOnAllLiveDays": {
+        "one": "Used on the only live day",
+        "other": "Used on all {{live}} live days"
+      },
+      "liveLegend": "Green: the stream was live"
+    },
     "drilldown": {
       "open": "Show details for {{name}}",
       "openWithCount": "Show details for {{name}} ({{count}}×)",
-      "chartLabel": "Daily usage history",
       "range": "{{from}} to {{to}}",
       "loading": "Loading daily history",
       "peak": "Peak of {{count}} on {{date}}",
@@ -528,6 +539,10 @@
     "dock": {
       "marked": "marked",
       "projected": "→ {{projected}} of {{capacity}} slots after deleting"
+    },
+    "liveDaysInRange": {
+      "one": "In the selected range the stream was live on one day.",
+      "other": "In the selected range the stream was live on {{ live }} days."
     },
     "trackedSince": "We have been counting for this channel since {{ date }}.",
     "rangeBeforeTracking": "The selected range starts before {{ date }} — we counted nothing for this channel before then. For the earlier part the numbers aren't incomplete, they don't exist.",

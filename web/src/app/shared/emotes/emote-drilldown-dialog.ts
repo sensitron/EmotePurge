@@ -107,7 +107,7 @@ export interface EmoteDrilldownData {
               class="block h-full min-w-0 flex-1"
               [points]="points()"
               [liveDays]="series()!.liveDays"
-              [ariaLabel]="'usageStats.drilldown.chartLabel' | transloco"
+              [ariaLabel]="'usageStats.chart.label' | transloco"
             />
           </div>
 

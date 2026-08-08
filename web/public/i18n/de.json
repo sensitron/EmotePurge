@@ -467,10 +467,21 @@
     "sortAscending": "Aufsteigend",
     "lastUsed": "zuletzt {{ date }}",
     "neverUsed": "nie benutzt",
+    "chart": {
+      "label": "Tagesverlauf der Nutzung",
+      "unusedOnLiveDays": {
+        "one": "Am einzigen Live-Tag nicht benutzt",
+        "other": "An {{unused}} von {{live}} Live-Tagen nicht benutzt"
+      },
+      "usedOnAllLiveDays": {
+        "one": "Am einzigen Live-Tag benutzt",
+        "other": "An allen {{live}} Live-Tagen benutzt"
+      },
+      "liveLegend": "Grün: Stream war live"
+    },
     "drilldown": {
       "open": "Details zu {{name}} anzeigen",
       "openWithCount": "Details zu {{name}} anzeigen ({{count}}×)",
-      "chartLabel": "Tagesverlauf der Nutzung",
       "range": "{{from}} bis {{to}}",
       "loading": "Tagesverlauf wird geladen",
       "peak": "Maximum {{count}} am {{date}}",
@@ -528,6 +539,10 @@
     "dock": {
       "marked": "markiert",
       "projected": "→ {{projected}} von {{capacity}} Slots nach dem Löschen"
+    },
+    "liveDaysInRange": {
+      "one": "Im gewählten Zeitraum war der Stream an einem Tag live.",
+      "other": "Im gewählten Zeitraum war der Stream an {{ live }} Tagen live."
     },
     "trackedSince": "Wir zählen für diesen Channel seit dem {{ date }}.",
     "rangeBeforeTracking": "Der gewählte Zeitraum beginnt vor dem {{ date }} — davor haben wir für diesen Channel nichts gezählt. Die Zahlen sind für den früheren Teil nicht unvollständig, sondern gar nicht vorhanden.",

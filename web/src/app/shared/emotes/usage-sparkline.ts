@@ -59,12 +59,17 @@ export class UsageSparkline {
   readonly ariaLabel = input.required<string>();
   /** ISO dates with live coverage; empty (the default) renders no bands — see the class comment. */
   readonly liveDays = input<readonly string[]>([]);
+  /**
+   * ISO day the line may start speaking for; everything before it stays undrawn. `null` means
+   * unknown (7TV reported no date), and then nothing is trimmed — see toPolylinePoints.
+   */
+  readonly drawFrom = input<string | null>(null);
 
   protected readonly viewWidth = VIEW_WIDTH;
   protected readonly viewHeight = VIEW_HEIGHT;
 
   protected readonly polylinePoints = computed(() =>
-    toPolylinePoints(this.points(), VIEW_WIDTH, VIEW_HEIGHT),
+    toPolylinePoints(this.points(), VIEW_WIDTH, VIEW_HEIGHT, this.drawFrom() ?? undefined),
   );
 
   protected readonly bands = computed(() => liveBands(this.points(), this.liveDays(), VIEW_WIDTH));
