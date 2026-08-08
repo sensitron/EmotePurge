@@ -443,7 +443,7 @@ export function liveDayCaptionKey(
 npm --prefix web test -- --watch=false --include="src/app/shared/emotes/usage-series.spec.ts"
 ```
 
-Erwartet: PASS, 38 Tests.
+Erwartet: PASS, 37 Tests (27 aus Task 1 plus 10 neue).
 
 - [ ] **Step 5: Commit (erst nach Rückfrage beim Nutzer)**
 
@@ -1136,8 +1136,8 @@ Erwartet: alles grün. `format` schreibt, `lint` und `prettier --check` prüfen.
 npm --prefix web test -- --watch=false
 ```
 
-Erwartet: PASS. Basis vor dieser Arbeit waren 498 Tests in 56 Dateien; erwartet sind jetzt 509
-(11 neue in `usage-series.spec.ts`).
+Erwartet: PASS. Basis vor dieser Arbeit waren 498 Tests in 56 Dateien; erwartet sind jetzt 514
+(16 neue in `usage-series.spec.ts` — 6 aus Task 1, 10 aus Task 2).
 
 Dann prüfen, dass auf `:5151` nichts lauscht, und:
 
@@ -1145,7 +1145,9 @@ Dann prüfen, dass auf `:5151` nichts lauscht, und:
 npm --prefix web run e2e
 ```
 
-Erwartet: PASS. Basis waren 80 Tests, erwartet sind 83 (drei neue). **Fällt hier rund die halbe Suite
+Erwartet: PASS. Basis waren 80 Tests, erwartet sind 83 — 82 nach Task 4 (drei neue, einer davon
+ersetzt den gleichnamigen Bestandstest, den der Plan versehentlich noch einmal aufführt) plus einer
+aus Task 5. **Fällt hier rund die halbe Suite
 über mehrere Dateien hinweg mit „element not found" durch, ist eine Api auf `:5151` die Ursache und
 nicht diese Änderung** — beenden und neu laufen lassen, bevor irgendetwas debuggt wird.
 

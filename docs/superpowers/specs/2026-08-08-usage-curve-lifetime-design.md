@@ -1,7 +1,6 @@
 # Nutzungskurve sagt nur, was sie weiß — Design
 
-**Stand:** 2026-08-08 · **Status:** bestätigt am Prototyp (`web/public/prototype-usage-curve.html`),
-Umsetzung geplant
+**Stand:** 2026-08-08 · **Status:** umgesetzt
 
 Der Prototyp führt die hier vorgeschlagene Logik aus — die dortigen Kurven sind gerechnet, nicht
 gezeichnet. Beim Bauen kam heraus, dass „An 1 von 1 Live-Tagen" grammatisch schief ist; die

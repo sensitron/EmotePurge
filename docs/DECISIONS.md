@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-08 — Die Kurve schweigt, wo sie nichts weiß, und Live-Zahlen tragen keinen Nenner
+
+**Betrifft:** `web/src/app/shared/emotes/usage-series.ts`, `usage-sparkline.ts`, `emote-drilldown-dialog.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/public/i18n/*.json`
+
+Drei zusammenhängende Änderungen an der Nutzungskurve, alle aus derselben Regel:
+
+**1. Die Linie beginnt bei `firstSeenAt`, nicht am Zeitraumanfang.** Vorher lief sie über den ganzen Channel-Zeitraum, also auch über Tage, an denen es das Emote noch nicht gab — eine Nulllinie, die Nichtnutzung behauptet, wo nichts existierte. Am Drilldown von `GAMBA` beobachtet: zwölf flache Tage für ein Emote, das an Tag dreizehn dazukam. Das ist dieselbe Fehlerklasse, die `rangeStartsBeforeTracking` auf Seitenebene längst abfängt („we weren't counting yet" ≠ „this emote is dead"), nur eine Ebene tiefer. Die x-Achse bleibt der Channel-Zeitraum, damit die Kurven im Sidecar-Atlas untereinander vergleichbar bleiben; die Live-Bänder laufen weiter über die volle Breite. Bei `firstSeenAt = null` wird nichts verkürzt — der Wert heißt „unbekannt", nie „neu" (`Emote.cs:23-25`).
+
+Voraussetzung dafür war, dass `firstSeenAt` das echte 7TV-Beitrittsdatum trägt und nicht unseren Sync-Zeitpunkt. Das ist seit dem v4-GraphQL-Umbau vom 2026-08-03 der Fall und wurde vor dem Entwurf über alle Schreibpfade geprüft.
+
+**2. Die Zeile unter der Kurve sagt etwas über das Emote.** „Live an 12 von 13 Tagen" war für jedes Emote identisch — eine Aussage über den Stream, angebracht an einem Emote. Sie wird zur Kehrseite: „An 9 von 12 Live-Tagen nicht benutzt", gezählt nur über Live-Tage innerhalb der Lebenszeit des Emotes. Das ist zugleich das bessere Signal für die einzige Entscheidung, für die es die Seite gibt. Drei Formen, weil der ehrliche Satz sich unterscheidet (ungenutzt / alle genutzt / keine zählbaren Live-Tage, aber sichtbare Bänder); die Auswahl liegt in `liveDayCaptionKey`, damit Sidecar und Dialog nicht auseinanderlaufen können. Die channelweite Zahl steht jetzt einmalig an der Tracking-Zeile.
+
+**3. Live-Zahlen tragen keinen Nenner mehr.** „von 13 Tagen" behauptete für jeden Tag ohne `ChannelLiveDay`-Zeile, der Stream sei offline gewesen. `ChannelLiveDay.cs:8-9` verbietet genau diese Lesart: eine fehlende Zeile heißt „keine Daten". Zeilen entstehen erst seit dem Poll-Worker, ein Backfill existiert nicht. Der Nenner der neuen Zeile sind ausschließlich Tage, für die eine Live-Zeile vorliegt; die Zeile im Seitenkopf nennt gar keinen. Bei null Live-Tagen schweigen beide, statt „0" zu sagen.
+
+Kein Backend-Eingriff, keine Migration. Der Drilldown vom Stimmzettel bleibt unverändert, weil `VoteSessionResult` kein `firstSeenAt` trägt — dort verhält sich der Dialog wie vorher, was zu seinem Bestand passt (er zeigt dort aus demselben Grund schon keine „Im Set"-Zeile).
+
+Spec: `docs/superpowers/specs/2026-08-08-usage-curve-lifetime-design.md`.
+
 ### 2026-08-08 — Die Farbwelt bekommt eine maschinenlesbare Zweitfassung, und die handgeschriebene bleibt die Instanz
 
 **Betrifft:** `DESIGN.md` (neu, Repo-Root) · `.impeccable/design.json` (neu, gitignored) · `web/.claude/CLAUDE.md` · `CLAUDE.md`
