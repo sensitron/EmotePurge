@@ -1,5 +1,14 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -73,51 +82,95 @@ import { Popover } from './popover';
         <app-popover align="end" width="w-64" [ariaLabel]="triggerLabel()" (closed)="close()">
           <div class="flex flex-col">
             @if (currentUser(); as user) {
-              <!-- No hover on this row. It carries the same rhythm as the entries below it but is
-                   not clickable, and a hover must never promise a click that is not there. -->
-              <div class="flex items-center gap-3 border-b border-border px-3 py-3">
-                <app-avatar
-                  [displayName]="user.displayName"
-                  [imageUrl]="user.profileImageUrl"
-                  [size]="36"
-                />
-                <!-- font-medium, not semibold: semibold is reserved for headings, and a fifth
-                     weight would be a fifth level in a four-level scale. -->
-                <span class="truncate text-sm font-medium text-fg">{{ user.displayName }}</span>
-              </div>
-
-              <a
-                routerLink="/my-votings"
-                class="flex min-h-11 items-center px-3 text-sm text-fg-body transition hover:bg-surface-inset"
-                (click)="close()"
-              >
-                {{ 'shell.myVotings' | transloco }}
-              </a>
-
-              @if (user.isGlobalAdmin) {
-                <!-- Visibility only — /admin is behind adminGuard and every admin endpoint behind
-                     GlobalAdminAuthorizationFilter. The flag rides along on the cached /me. -->
-                <a
-                  routerLink="/admin"
-                  class="flex min-h-11 items-center px-3 text-sm text-fg-body transition hover:bg-surface-inset"
-                  (click)="close()"
+              @if (view() === 'preferences') {
+                <!-- One level down. Theme and language are set once and then only confirmed, so
+                     they do not earn a permanent share of the panel — the same "how often is this
+                     notable?" rule the design language applies to colour, applied to space. -->
+                <button
+                  #back
+                  type="button"
+                  class="flex min-h-11 items-center gap-2 px-3 text-left text-sm font-medium text-fg transition hover:bg-surface-inset"
+                  (click)="showRoot()"
                 >
-                  {{ 'shell.admin' | transloco }}
-                </a>
+                  <svg
+                    class="h-4 w-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M15 6l-6 6 6 6" />
+                  </svg>
+                  {{ 'account.preferencesTrigger' | transloco }}
+                </button>
+
+                <div class="border-t border-border">
+                  <app-display-preferences />
+                </div>
+              } @else {
+                <!-- No hover on this row. It carries the same rhythm as the entries below it but is
+                     not clickable, and a hover must never promise a click that is not there.
+                     Separators sit on the *following* blocks, never here: the admin entry is
+                     conditional, so a border-b would double up with the next block's border-t
+                     whenever it is absent. -->
+                <div class="flex items-center gap-3 px-3 py-3">
+                  <app-avatar
+                    [displayName]="user.displayName"
+                    [imageUrl]="user.profileImageUrl"
+                    [size]="36"
+                  />
+                  <!-- font-medium, not semibold: semibold is reserved for headings, and a fifth
+                       weight would be a fifth level in a four-level scale. -->
+                  <span class="truncate text-sm font-medium text-fg">{{ user.displayName }}</span>
+                </div>
+
+                @if (user.isGlobalAdmin) {
+                  <!-- Visibility only — /admin is behind adminGuard and every admin endpoint behind
+                       GlobalAdminAuthorizationFilter. The flag rides along on the cached /me. -->
+                  <a
+                    routerLink="/admin"
+                    class="flex min-h-11 items-center border-t border-border px-3 text-sm text-fg-body transition hover:bg-surface-inset"
+                    (click)="close()"
+                  >
+                    {{ 'shell.admin' | transloco }}
+                  </a>
+                }
+
+                <button
+                  #preferencesRow
+                  type="button"
+                  class="flex min-h-11 items-center border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
+                  (click)="showPreferences()"
+                >
+                  {{ 'account.preferencesTrigger' | transloco }}
+                  <svg
+                    class="ml-auto h-4 w-4 shrink-0 text-fg-muted"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </button>
+
+                <button
+                  type="button"
+                  class="flex min-h-11 items-center border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
+                  (click)="logout()"
+                >
+                  {{ 'shell.logout' | transloco }}
+                </button>
               }
-
-              <div class="border-t border-border">
-                <app-display-preferences />
-              </div>
-
-              <button
-                type="button"
-                class="flex min-h-11 items-center border-t border-border px-3 text-left text-sm text-fg-body transition hover:bg-surface-inset"
-                (click)="logout()"
-              >
-                {{ 'shell.logout' | transloco }}
-              </button>
             } @else {
+              <!-- Logged out the panel holds nothing but these two, so a row that opens a subview
+                   with a single occupant would be a door in front of a door. -->
               <app-display-preferences />
             }
           </div>
@@ -131,11 +184,19 @@ export class AccountMenu {
   private readonly transloco = inject(TranslocoService);
   private readonly document = inject(DOCUMENT);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
+  private readonly injector = inject(Injector);
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly back = viewChild<ElementRef<HTMLButtonElement>>('back');
+  private readonly preferencesRow = viewChild<ElementRef<HTMLButtonElement>>('preferencesRow');
 
   protected readonly currentUser = this.authService.currentUser;
   protected readonly authResolved = this.authService.isResolved;
   protected readonly isOpen = signal(false);
+  /**
+   * Which level of the panel is showing. Reset on close, so the menu always opens where it was
+   * left in the visitor's mind — at the top — rather than in a subview they last saw minutes ago.
+   */
+  protected readonly view = signal<'root' | 'preferences'>('root');
 
   /**
    * Translated imperatively rather than through the pipe, because it carries an interpolated name
@@ -175,13 +236,34 @@ export class AccountMenu {
     // Focus would otherwise fall to <body> together with the panel that held it.
     const hadFocus = this.elementRef.nativeElement.contains(this.document.activeElement);
     this.isOpen.set(false);
+    this.view.set('root');
     if (hadFocus) {
       this.trigger()?.nativeElement.focus();
     }
   }
 
+  protected showPreferences(): void {
+    this.view.set('preferences');
+    this.focusAfterRender(() => this.back());
+  }
+
+  protected showRoot(): void {
+    this.view.set('root');
+    this.focusAfterRender(() => this.preferencesRow());
+  }
+
   protected logout(): void {
     this.close();
     this.authService.logout();
+  }
+
+  /**
+   * Changing the level swaps the whole panel content, so the element that had focus stops existing.
+   * Without this the caret lands on <body> and the next Tab starts at the top of the document —
+   * the panel would be keyboard-reachable but not keyboard-usable. Deferred to after the next
+   * render because the target is only queried into existence by that render.
+   */
+  private focusAfterRender(target: () => ElementRef<HTMLElement> | undefined): void {
+    afterNextRender(() => target()?.nativeElement.focus(), { injector: this.injector });
   }
 }

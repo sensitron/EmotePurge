@@ -337,6 +337,37 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    // The account menu open — the only place theme and language can be changed, and the one panel
+    // that hangs out of the header instead of out of a filter toolbar. The admin session because
+    // that is the tallest the panel ever gets, which is what the clipping question is about.
+    slug: 'account-menu-open',
+    path: '/',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+    },
+    afterLoad: async (page) => {
+      await page.locator('header [aria-haspopup="dialog"]').click();
+    },
+  },
+  {
+    // The same panel one level down. Its own shot because this is where theme and language live
+    // now, and a scenario that only ever sees the root would leave both controls unmeasured.
+    slug: 'account-menu-preferences',
+    path: '/',
+    setup: async (page) => {
+      await adminShell(page);
+      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+    },
+    afterLoad: async (page) => {
+      await page.locator('header [aria-haspopup="dialog"]').click();
+      // By shape, not by label — this harness runs de and en, and "Einstellungen"/"Settings" would
+      // pass in one and fail in the other. The preferences row is the only button in the panel
+      // carrying an icon; Logout has none and the admin entry is a link.
+      await page.locator('app-popover button:has(svg)').click();
+    },
+  },
+  {
     // The one state in which the header says anything about the worker at all. Worth a shot of its
     // own precisely because it is rare: at 360px the warning shares the bar with the wordmark and
     // the account-menu trigger, and nothing else in the app ever puts a third thing in that row.

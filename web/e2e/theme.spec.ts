@@ -124,6 +124,9 @@ test.describe('theme', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
     await page.getByRole('button', { name: 'Konto-Menü von Sensitron' }).click();
+    // Logged in, the preferences sit one level down — set once, so they do not hold a permanent
+    // place in the panel. Logged out (below) there is nothing else in it and they show directly.
+    await page.getByRole('button', { name: 'Einstellungen' }).click();
     await page.getByRole('radio', { name: 'Hell' }).click();
 
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
