@@ -16,7 +16,7 @@ keine Migration** — alle Daten liegen in beiden Oberflächen bereits vor.
 `@angular/build:unit-test`, Playwright.
 
 **Spec:** [`docs/superpowers/specs/2026-08-08-usage-curve-lifetime-design.md`](../specs/2026-08-08-usage-curve-lifetime-design.md)
-· **Prototyp:** `web/public/prototype-usage-curve.html` (führt genau diese Logik aus)
+· **Prototyp:** `docs/superpowers/prototypes/2026-08-08-usage-curve.html` (führt genau diese Logik aus)
 
 ## Global Constraints
 
@@ -1177,6 +1177,6 @@ beenden**, sonst fällt der nächste E2E-Lauf durch.
 - [ ] **Step 8: Commit (erst nach Rückfrage beim Nutzer)**
 
 ```bash
-git add docs/UI-Designsprache.md docs/DECISIONS.md docs/superpowers/specs/2026-08-08-usage-curve-lifetime-design.md docs/superpowers/plans/2026-08-08-usage-curve-lifetime.md web/public/prototype-usage-curve.html
+git add docs/UI-Designsprache.md docs/DECISIONS.md docs/superpowers/specs/2026-08-08-usage-curve-lifetime-design.md docs/superpowers/plans/2026-08-08-usage-curve-lifetime.md docs/superpowers/prototypes/2026-08-08-usage-curve.html
 git commit -m "docs: record why the usage curve stays silent about days it cannot speak for"
 ```

@@ -2,9 +2,10 @@
 
 **Stand:** 2026-08-08 · **Status:** umgesetzt
 
-Der Prototyp führt die hier vorgeschlagene Logik aus — die dortigen Kurven sind gerechnet, nicht
-gezeichnet. Beim Bauen kam heraus, dass „An 1 von 1 Live-Tagen" grammatisch schief ist; die
-`.one`-Formen unten sind daraus entstanden.
+Der Prototyp (`docs/superpowers/prototypes/2026-08-08-usage-curve.html`) führt die hier
+vorgeschlagene Logik aus — die dortigen Kurven sind gerechnet, nicht gezeichnet. Beim Bauen kam
+heraus, dass „An 1 von 1 Live-Tagen" grammatisch schief ist; die `.one`-Formen unten sind daraus
+entstanden.
 
 ## Ziel
 
@@ -43,6 +44,19 @@ Fehler eine Ebene tiefer machen. **Tut es nicht:**
 Der Rest-Fall ist `null` = „7TV hat nichts geliefert" (darunter alle archivierten Zeilen nach der
 Reset-Migration). `Emote.cs:23-25` schreibt fest: *„consumers must read that as ‚unknown', never as
 ‚new'."* Dieser Entwurf hält sich daran — bei `null` wird nichts verkürzt und nichts behauptet.
+
+**Eine Frage hat diese Prüfung nicht gestellt**, und sie ist die entscheidende: Sie hat jeden
+Schreibpfad danach befragt, ob er den *Sync-Zeitpunkt* einstempelt — nie danach, ob der Wert nach
+**vorn** wandern kann, an der eigenen Historie des Emotes vorbei. Genau das tut ein
+Wiederhinzufügen. `SevenTvSyncService.cs:289` sagt es im eigenen Kommentar (*„It also moves a
+re-added emote's date forward to its latest set entry."*), und `:310-318` entarchiviert **dieselbe**
+`Emote`-Zeile, sodass ihre `UsageStat`-Historie hinter einem jüngeren `firstSeenAt` weiterlebt —
+ein Weg, den die App selbst anbietet (Massenlöschung, dann Wiederherstellen-Panel). Deshalb gilt
+seit dem Review zu diesem Branch die Ausnahme, die alles zusammenhält: **Ein Tag mit gemessener
+Nutzung wird nie verschwiegen**, egal was `firstSeenAt` behauptet. Ein Tag, an dem das Emote benutzt
+wurde, ist ein Tag, an dem es existiert hat; gemessene Zahlen zu verstecken wäre die schlimmere
+Falschaussage. Die Regel liegt einmal in `firstDrawableIndex` und gilt für Linie, y-Achse und
+Live-Tage-Zeile gleichermaßen.
 
 ## Entschiedene Punkte
 
@@ -186,7 +200,7 @@ die Tagesreihe pro Emote und der Zeitraum.
 
 | Datei | Änderung |
 |---|---|
-| `web/src/app/shared/emotes/usage-series.ts` | `toPolylinePoints` bekommt `drawFrom` samt Stummel-Regel, `seriesPeak` denselben Parameter; neuer Helfer `liveDayCoverage`. **`liveBands` bleibt unangetastet** — die Bänder laufen weiter durch (im Brief stand das noch falsch) |
+| `web/src/app/shared/emotes/usage-series.ts` | `toPolylinePoints` bekommt `drawFrom` samt Stummel-Regel, `seriesPeak` denselben Parameter; neue Helfer `liveDayCoverage` und `liveDayCaptionKey` (Letzterer wählt die Form der Zeile, s. Abschnitt 2). **`liveBands` bleibt unangetastet** — die Bänder laufen weiter durch (im Brief stand das noch falsch) |
 | `web/src/app/shared/emotes/usage-sparkline.ts` | optionales Input `drawFrom`, an `toPolylinePoints` durchgereicht |
 | `web/src/app/features/usage-stats/usage-stats-page.html` | Tracking-Zeile (`:194-197`), Sidecar-Zeile (`:534-545`), `drawFrom` am Sparkline-Aufruf (`:516-521`) |
 | `web/src/app/features/usage-stats/usage-stats-page.ts` | `drawFrom`-Computed aus `inspected()`, `liveDayCoverage`-Computed, Key-Auswahl |
@@ -214,6 +228,7 @@ sondern der Schutz dagegen, dass es später eine wird.
 | Emote heute hinzugefügt | kurzer Strich am rechten Rand, kein Vorlauf; Zeile nennt nur Live-Tage ab heute |
 | Emote lange vor Trackingbeginn im Set | `drawFrom` liegt vor `from`, also kein sichtbarer Unterschied zu heute |
 | `firstSeenAt = null` (archiviert, v4-Lookup gescheitert) | volle Kurve, voller Nenner — wie heute, keine Behauptung |
+| Emote gelöscht und wieder hinzugefügt (`firstSeenAt` springt hinter die eigene Historie) | Tage mit gemessener Nutzung bleiben gezeichnet, im y-Maßstab, in der Peak-Zeile und im Live-Tage-Nenner; verschwiegen wird nur der nutzungsfreie Vorlauf |
 | Zeitraum ohne jede Live-Abdeckung | keine Bänder, keine Zeile |
 | Emote nach dem letzten Live-Tag hinzugekommen | Bänder sichtbar, Zeile in der Form `liveLegend` |
 | Zeitraum ohne jede Nutzung | `noUsage`-Satz wie heute (unverändert), Live-Zeile trägt die Aussage |
