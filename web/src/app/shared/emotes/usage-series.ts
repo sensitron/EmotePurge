@@ -63,28 +63,51 @@ export function offsetsToDates(offsets: readonly number[], from: string): string
  * SVG polyline points in a 0..width / 0..height viewBox, y inverted (0 at the bottom edge). The
  * maximum is clamped to >= 1 so an all-zero series draws a flat baseline instead of dividing by
  * zero. A single point renders as a full-width flat line — one dot would be invisible.
+ *
+ * `drawFrom` (ISO day) is the first day the line may speak for: everything before it is left
+ * undrawn rather than drawn as zero, because a baseline over days the emote did not exist on reads
+ * as "unused" and is the opposite verdict. The x mapping keeps counting from the start of the array
+ * regardless, so the curve stays aligned with the live bands, which span the whole range.
  */
 export function toPolylinePoints(
   points: readonly SparklinePoint[],
   width: number,
   height: number,
+  drawFrom?: string,
 ): string {
   if (points.length === 0) {
     return '';
   }
 
-  const max = Math.max(1, ...points.map((point) => point.useCount));
+  // Plain string comparison: for `yyyy-MM-dd` the lexicographic order is the chronological one, and
+  // the rest of this file counts UTC days the same way.
+  const firstVisible = drawFrom ? points.findIndex((point) => point.date >= drawFrom) : 0;
+  if (firstVisible === -1) {
+    return '';
+  }
+
+  const visible = points.slice(firstVisible);
+  const max = Math.max(1, ...visible.map((point) => point.useCount));
+  const yOf = (useCount: number) => round(height - (useCount / max) * height);
+
   if (points.length === 1) {
-    const y = round(height - (points[0].useCount / max) * height);
+    const y = yOf(points[0].useCount);
     return `0,${y} ${round(width)},${y}`;
   }
 
   const stepX = width / (points.length - 1);
-  return points
-    .map((point, index) => {
-      const y = height - (point.useCount / max) * height;
-      return `${round(index * stepX)},${round(y)}`;
-    })
+
+  // A polyline with one coordinate draws nothing at all, so a single visible day gets one day-step
+  // centred on its own position — never the full width, which is what the branch above does for a
+  // one-day range and what would re-state the whole span here.
+  if (visible.length === 1) {
+    const x = firstVisible * stepX;
+    const y = yOf(visible[0].useCount);
+    return `${round(Math.max(0, x - stepX / 2))},${y} ${round(Math.min(width, x + stepX / 2))},${y}`;
+  }
+
+  return visible
+    .map((point, index) => `${round((firstVisible + index) * stepX)},${yOf(point.useCount)}`)
     .join(' ');
 }
 
@@ -133,12 +156,19 @@ export function liveBands(
   return bands;
 }
 
-/** The busiest day; on a tie the earliest wins. `null` for an empty or all-zero series. */
+/**
+ * The busiest day; on a tie the earliest wins. `null` for an empty or all-zero series. `drawFrom`
+ * excludes the days the curve does not draw, so the axis label and the line describe the same days.
+ */
 export function seriesPeak(
   points: readonly SparklinePoint[],
+  drawFrom?: string,
 ): { useCount: number; date: string } | null {
   let peak: SparklinePoint | null = null;
   for (const point of points) {
+    if (drawFrom && point.date < drawFrom) {
+      continue;
+    }
     if (point.useCount > (peak?.useCount ?? 0)) {
       peak = point;
     }
