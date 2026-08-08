@@ -486,7 +486,6 @@
       "loading": "Tagesverlauf wird geladen",
       "peak": "Maximum {{count}} am {{date}}",
       "noUsage": "In diesem Zeitraum nie benutzt.",
-      "liveDays": "Live an {{live}} von {{total}} Tagen",
       "totalInRange": "Summe im Zeitraum",
       "inSet": "Im Set",
       "inSetDays": {

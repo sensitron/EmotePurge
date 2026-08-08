@@ -328,4 +328,41 @@ test.describe('emote atlas', () => {
     );
     await expect(page.getByLabel('Höchstens')).toHaveValue('100');
   });
+
+  test('the drilldown curve keeps quiet about the days before the emote existed', async ({
+    page,
+  }) => {
+    // Same statement as in the sidecar, from the other data path: the dialog loads its own per-emote
+    // series with ISO live days, while the sidecar reads the batch response's offsets.
+    await mockUsageDaily(
+      page,
+      'sensitron',
+      [{ date: '2026-06-21', useCount: 40 }],
+      ['2026-06-15', '2026-06-16', '2026-06-21'],
+    );
+    await openAtlas(
+      page,
+      EMOTES.map((emote) =>
+        emote.emoteName === 'Sadge' ? { ...emote, firstSeenAt: '2026-06-20T00:00:00Z' } : emote,
+      ),
+    );
+
+    await cell(page, 'Sadge').hover();
+    await page.getByRole('button', { name: 'Details zu Sadge anzeigen' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Sadge');
+
+    const points = await dialog.locator('polyline').getAttribute('points');
+    const firstX = Number(points!.split(' ')[0].split(',')[0]);
+    expect(firstX).toBeGreaterThan(0);
+
+    // Only the 21. falls inside the emote's lifetime, and it was used that day — so the positive
+    // form, not "0 unused".
+    await expect(dialog).toContainText('Am einzigen Live-Tag benutzt');
+    await expect(dialog).not.toContainText('Live an');
+
+    // Closed first: the CDK dialog hides everything behind it from the accessibility tree.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
 });
