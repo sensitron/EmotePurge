@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verteilung: Bänder sichtbar machen — drei Varianten</title>
+    <style>
+      /* Tokenwerte wörtlich aus web/src/styles.css übernommen. Wenn der Prototyp anders aussieht
+         als die App, liegt es an dieser Datei, nicht an den Farben.
+         Abweichung vom Prototyp-Muster im Repo: hier gibt es einen Theme-Umschalter statt eines
+         festen data-theme, weil die gestrichelten Linien in Variante B in beiden Modi geprüft
+         werden müssen. */
+      :root,
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --page: #0d0f12;
+        --surface: #15181c;
+        --surface-inset: #1f232a;
+        --border: #262b32;
+        --border-strong: #353b43;
+        --fg: #e9ecee;
+        --fg-body: #d4d9dd;
+        --fg-secondary: #b2b9c0;
+        --fg-muted: #8b939b;
+        --fg-disabled: #565d65;
+        --accent-fg: #2fded0;
+        --accent-solid: #0a6f64;
+        --accent-wash: #06231f;
+        --on-accent: #fff;
+      }
+      :root[data-theme='light'] {
+        color-scheme: light;
+        --page: #eef0f2;
+        --surface: #fafbfc;
+        --surface-inset: #e5e8eb;
+        --border: #d7dade;
+        --border-strong: #bec3ca;
+        --fg: #14171b;
+        --fg-body: #23282e;
+        --fg-secondary: #3f464e;
+        --fg-muted: #5d656e;
+        --fg-disabled: #a2a9b1;
+        --accent-fg: #076156;
+        --accent-solid: #0a6f64;
+        --accent-wash: #e6f5f2;
+        --on-accent: #fff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 32px 24px 96px;
+        background: var(--page);
+        color: var(--fg-body);
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+      }
+      .wrap {
+        max-width: 1024px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+        color: var(--fg);
+        font-weight: 600;
+      }
+      .lede {
+        margin: 0 0 24px;
+        color: var(--fg-muted);
+        font-size: 13px;
+        max-width: 72ch;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        margin-bottom: 28px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        position: sticky;
+        top: 8px;
+        z-index: 5;
+        backdrop-filter: blur(8px);
+      }
+      .toolbar .lbl {
+        font-size: 10px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+        font-weight: 600;
+        margin-right: 2px;
+      }
+      button.chip {
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--fg-secondary);
+        cursor: pointer;
+      }
+      button.chip:hover {
+        background: var(--surface-inset);
+      }
+      button.chip[aria-pressed='true'] {
+        background: var(--accent-solid);
+        border-color: var(--accent-solid);
+        color: var(--on-accent);
+      }
+      .spacer {
+        flex: 1;
+      }
+
+      section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 20px 18px;
+        margin-bottom: 20px;
+      }
+      section > h2 {
+        margin: 0 0 2px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--fg);
+      }
+      section > h2 .tag {
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 10px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+        font-weight: 600;
+        margin-right: 8px;
+      }
+      section > p.desc {
+        margin: 0 0 18px;
+        font-size: 12px;
+        color: var(--fg-muted);
+        max-width: 78ch;
+      }
+      .verdict {
+        margin: 16px 0 0;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--fg-muted);
+      }
+      .verdict b {
+        color: var(--fg-secondary);
+        font-weight: 600;
+      }
+
+      /* --- Nachbau des Verteilungs-Abschnitts aus usage-stats-page.html --- */
+      .dist {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        column-gap: 20px;
+        row-gap: 8px;
+      }
+      .dist .head {
+        width: 112px;
+        flex-shrink: 0;
+      }
+      .dist .head .kicker {
+        font-size: 10px;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+        font-weight: 600;
+      }
+      .dist .head p {
+        margin: 2px 0 0;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--fg-muted);
+      }
+      .dist .body {
+        flex: 1;
+        min-width: 160px;
+      }
+      .dist .tail {
+        flex-shrink: 0;
+        text-align: right;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--fg-muted);
+        max-width: 200px;
+      }
+      .dist .tail .big {
+        display: block;
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--fg-body);
+      }
+
+      .curve {
+        display: flex;
+        align-items: flex-end;
+        gap: 1px;
+        height: 44px;
+      }
+      .curve i {
+        flex: 1;
+        min-height: 1px;
+        background: var(--fg-disabled);
+      }
+      .curve i.hot {
+        background: var(--accent-fg);
+      }
+      /* Ohne Sockel ist ein Balken des toten Schwanzes einen Pixel hoch — eine Farbe, die dort
+         sitzt, sieht niemand. Der Sockel ist die kleinste Höhe, bei der die Zone trägt. */
+      .curve.socket i {
+        min-height: 3px;
+      }
+
+      /* --- Variante A: Segmentbalken --- */
+      .seg {
+        display: flex;
+        width: 100%;
+        height: 22px;
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--surface-inset);
+      }
+      .seg + .seg {
+        margin-top: 4px;
+      }
+      .seg i {
+        display: block;
+        height: 100%;
+      }
+      /* Eine Helligkeitsrampe der Akzentfarbe, kein zweiter Farbton — die Bänder sind eine
+         Rangfolge, keine Kategorien. */
+      /* Doppelter Klassenname nur der Spezifität wegen: `.curve i` setzt sonst als Element-plus-
+         Klasse-Selektor die Grundfarbe durch und die Bandfarbe käme nie an. */
+      .b-heavy.b-heavy {
+        background: var(--accent-fg);
+      }
+      .b-regular.b-regular {
+        background: color-mix(in oklab, var(--accent-fg) 55%, transparent);
+      }
+      .b-rare.b-rare {
+        background: color-mix(in oklab, var(--accent-fg) 26%, transparent);
+      }
+      .b-dead.b-dead {
+        background: color-mix(in oklab, var(--fg-disabled) 40%, transparent);
+      }
+      .seglabels {
+        display: flex;
+        width: 100%;
+        margin-top: 5px;
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 10px;
+        color: var(--fg-muted);
+      }
+      .seglabels span {
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .seglabels span b {
+        color: var(--fg-body);
+        font-weight: 600;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 14px;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--fg-muted);
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .legend i {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        display: block;
+      }
+      .legend b {
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        color: var(--fg-body);
+        font-weight: 600;
+      }
+      .rowlabel {
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+        width: 62px;
+        flex-shrink: 0;
+        padding-bottom: 5px;
+      }
+      .segrow {
+        display: flex;
+        align-items: flex-end;
+      }
+      .segrow > div {
+        flex: 1;
+        min-width: 0;
+      }
+
+      /* --- Variante B: Linien in der Kurve --- */
+      .curvewrap {
+        position: relative;
+        padding-top: 16px;
+      }
+      .cut {
+        position: absolute;
+        top: 14px;
+        bottom: 0;
+        width: 0;
+        border-left: 1px dashed var(--fg-secondary);
+      }
+      .cut span {
+        position: absolute;
+        top: -15px;
+        left: 0;
+        transform: translateX(-50%);
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 10px;
+        color: var(--fg-secondary);
+        background: var(--surface);
+        padding: 0 3px;
+        white-space: nowrap;
+      }
+      .axisnote {
+        margin: 6px 0 0;
+        font-size: 10px;
+        color: var(--fg-muted);
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+      }
+
+      /* --- Variante C: Lorenz --- */
+      svg.lorenz {
+        width: 100%;
+        height: 108px;
+        display: block;
+        overflow: visible;
+      }
+      svg.lorenz .area {
+        fill: color-mix(in oklab, var(--accent-fg) 18%, transparent);
+      }
+      svg.lorenz .line {
+        fill: none;
+        stroke: var(--accent-fg);
+        stroke-width: 1.5;
+      }
+      svg.lorenz .grid {
+        stroke: var(--border-strong);
+        stroke-width: 0.75;
+        stroke-dasharray: 3 3;
+      }
+      svg.lorenz .drop {
+        stroke: var(--fg-secondary);
+        stroke-width: 0.75;
+        stroke-dasharray: 3 3;
+      }
+      svg.lorenz text {
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 8px;
+        fill: var(--fg-muted);
+      }
+
+      /* --- Band-Kopfzeilen (das beschlossene Wording) --- */
+      .bandhead {
+        display: flex;
+        align-items: flex-end;
+        gap: 12px;
+        padding: 14px 0 6px;
+      }
+      .bandhead h3 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--fg-secondary);
+      }
+      .bandhead .hint {
+        font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+        font-size: 11px;
+        white-space: nowrap;
+        color: var(--fg-muted);
+      }
+      .bandhead .rule {
+        height: 1px;
+        min-width: 16px;
+        flex: 1;
+        background: var(--border);
+      }
+      .bandhead .swatch {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        margin-bottom: 3px;
+        flex-shrink: 0;
+      }
+      .cells {
+        display: flex;
+        gap: 4px;
+      }
+      .cells i {
+        width: 30px;
+        height: 30px;
+        border-radius: 5px;
+        background: var(--surface-inset);
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Verteilung: die Bänder sichtbar machen</h1>
+      <p class="lede">
+        Drei Wege, die Pareto-Bänder im Verteilungs-Abschnitt zu zeigen — mit den echten Zahlen aus
+        der Dev-Datenbank. Channel wechseln lohnt sich: die Varianten verhalten sich bei einem stark
+        konzentrierten Set (knirpz) völlig anders als bei einem flachen (lililinanana).
+      </p>
+
+      <div class="toolbar">
+        <span class="lbl">Channel</span>
+        <span id="channels"></span>
+        <span class="spacer"></span>
+        <button class="chip" id="theme" type="button">Heller Modus</button>
+      </div>
+
+      <section>
+        <h2><span class="tag">Ist</span>So sieht es heute aus</h2>
+        <p class="desc">
+          96 Balken über <em>alle</em> Emotes des Sets, logarithmisch skaliert. Die Akzentfarbe
+          markiert bereits das tragende Band — nur fällt das kaum auf, weil es
+          <b id="ist-buckets"></b> ist.
+        </p>
+        <div class="dist">
+          <div class="head">
+            <span class="kicker">Verteilung</span>
+            <p>Das ganze Set, nach Nutzung gereiht.</p>
+          </div>
+          <div class="body"><div class="curve" id="curve-ist"></div></div>
+          <p class="tail">
+            <span class="big" id="ist-dead"></span>
+            <span id="ist-conc"></span>
+          </p>
+        </div>
+        <p class="verdict" id="ist-verdict"></p>
+      </section>
+
+      <section style="border-color: var(--accent-solid)">
+        <h2><span class="tag">Entwurf</span>A2 mit durchgefärbter Kurve und den Kopfzeilen</h2>
+        <p class="desc">
+          Der gewählte Weg, im Zusammenhang: die gewohnte Kurve, aber jeder Balken in der Farbe
+          seines Bandes; darunter der Nutzungsbalken; darunter das Sheet, dessen Kopfzeilen dieselben
+          vier Farben wieder aufnehmen. Die Farbe ist die einzige Verbindung zwischen Streifen und
+          Sheet — sie muss nirgends erklärt werden.
+        </p>
+        <div class="dist">
+          <div class="head">
+            <span class="kicker">Verteilung</span>
+            <p>Das ganze Set, nach Nutzung gereiht.</p>
+          </div>
+          <div class="body">
+            <p class="axisnote" style="margin: 0 0 3px">ohne Sockel</p>
+            <div class="curve" id="curve-entwurf" style="margin-bottom: 12px"></div>
+            <p class="axisnote" style="margin: 0 0 3px">mit 3-px-Sockel</p>
+            <div class="curve socket" id="curve-entwurf-socket" style="margin-bottom: 8px"></div>
+            <div class="seg" id="segE"></div>
+            <div class="seglabels" id="segE-lbl"></div>
+          </div>
+          <p class="tail">
+            <span class="big" id="e-dead"></span>
+            <span id="e-conc"></span>
+          </p>
+        </div>
+        <div id="bandheads-entwurf" style="margin-top: 18px"></div>
+        <p class="verdict" id="e-verdict"></p>
+      </section>
+
+      <section>
+        <h2><span class="tag">A</span>Bandbalken — x-Achse ist die Nutzung</h2>
+        <p class="desc">
+          Zwei gestapelte Balken statt gestrichelter Linien. Oben, wie sich die
+          <em>Nutzung</em> auf die Bänder verteilt; darunter, wie viele <em>Emotes</em> dahinter
+          stehen. Die Schere zwischen den beiden Zeilen ist die Pareto-Aussage — man muss sie nicht
+          mehr erklären, man sieht sie.
+        </p>
+        <div class="dist">
+          <div class="head">
+            <span class="kicker">Verteilung</span>
+            <p>Wovon der Chat lebt.</p>
+          </div>
+          <div class="body">
+            <div class="segrow">
+              <span class="rowlabel">Nutzung</span>
+              <div>
+                <div class="seg" id="segA-usage"></div>
+                <div class="seglabels" id="segA-usage-lbl"></div>
+              </div>
+            </div>
+            <div class="segrow" style="margin-top: 10px">
+              <span class="rowlabel">Emotes</span>
+              <div>
+                <div class="seg" id="segA-count"></div>
+                <div class="seglabels" id="segA-count-lbl"></div>
+                <div class="legend" id="segA-legend"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="verdict" id="a-verdict"></p>
+      </section>
+
+      <section>
+        <h2><span class="tag">B</span>Gestrichelte Linien in der Kurve</h2>
+        <p class="desc">
+          Dein ursprünglicher Vorschlag. Damit die Linien nicht am linken Rand kleben, zeigt die
+          Kurve hier nur noch die <em>genutzten</em> Emotes — der tote Schwanz fällt aus dem Bild und
+          wird nur noch als Zahl rechts genannt. Beide Fassungen stehen untereinander, damit der
+          Unterschied sichtbar ist.
+        </p>
+        <div class="dist" style="margin-bottom: 22px">
+          <div class="head">
+            <span class="kicker">B1 · alle</span>
+            <p>x-Achse wie heute: das ganze Set.</p>
+          </div>
+          <div class="body">
+            <div class="curvewrap">
+              <div class="curve" id="curve-b1"></div>
+              <div id="cuts-b1"></div>
+            </div>
+            <p class="axisnote" id="note-b1"></p>
+          </div>
+        </div>
+        <div class="dist">
+          <div class="head">
+            <span class="kicker">B2 · genutzt</span>
+            <p>x-Achse nur über die genutzten Emotes.</p>
+          </div>
+          <div class="body">
+            <div class="curvewrap">
+              <div class="curve" id="curve-b2"></div>
+              <div id="cuts-b2"></div>
+            </div>
+            <p class="axisnote" id="note-b2"></p>
+          </div>
+          <p class="tail">
+            <span class="big" id="b-dead"></span>
+            nie benutzt, hier nicht im Bild
+          </p>
+        </div>
+        <p class="verdict" id="b-verdict"></p>
+      </section>
+
+      <section>
+        <h2><span class="tag">C</span>Konzentrationskurve</h2>
+        <p class="desc">
+          Andere Frage, andere Kurve: x ist der Anteil der Emotes, y die bis dahin
+          <em>aufsummierte</em> Nutzung. Die 50-%- und 80-%-Marken sind hier waagerechte Linien und
+          sitzen immer auf halber bzw. auf 80 % Höhe — sie können nie zusammenrutschen. Was die
+          Kurve verliert: die Kopf-Knie-Schwanz-Form der heutigen Darstellung.
+        </p>
+        <div class="dist">
+          <div class="head">
+            <span class="kicker">Konzentration</span>
+            <p>Wie viel die stärksten Emotes zusammen tragen.</p>
+          </div>
+          <div class="body"><svg class="lorenz" id="lorenz" viewBox="0 0 400 108"></svg></div>
+        </div>
+        <p class="verdict" id="c-verdict"></p>
+      </section>
+
+    </div>
+
+    <script>
+      // Nutzungszahlen wörtlich aus der Dev-Datenbank (Stand 2026-08-09), Emotes mit IsArchived =
+      // false, Nutzung = SUM(UseCount) über alle UsageStats-Tageszeilen.
+      const DATA = {
+        knirpz: {
+          zero: 572,
+          counts: [
+            421, 135, 97, 73, 63, 35, 25, 23, 21, 20, 14, 14, 14, 12, 11, 10, 10, 10, 10, 9, 9, 8, 8,
+            8, 8, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 3,
+            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1,
+          ],
+        },
+        vassilly: {
+          zero: 726,
+          counts: [
+            59, 32, 29, 18, 17, 17, 15, 15, 15, 13, 12, 12, 9, 8, 8, 8, 8, 7, 7, 7, 6, 6, 6, 5, 5, 5,
+            5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2,
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+          ],
+        },
+        avokati: {
+          zero: 893,
+          counts: [
+            46, 23, 20, 13, 12, 12, 7, 7, 6, 5, 5, 5, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2,
+            2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+          ],
+        },
+        lililinanana: {
+          zero: 169,
+          counts: [
+            7, 6, 6, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+          ],
+        },
+      };
+
+      const BUCKETS = 96;
+      const ORDER = ['heavy', 'regular', 'rare', 'dead'];
+      const TITLE = {
+        heavy: 'Tragend',
+        regular: 'Regelmäßig',
+        rare: 'Selten',
+        dead: 'Nie benutzt',
+      };
+
+      // --- 1:1 portiert aus web/src/app/shared/emotes/usage-bands.ts ---
+      function usageBandThresholds(counts) {
+        const used = counts.filter((c) => c > 0).sort((a, b) => b - a);
+        const total = used.reduce((s, c) => s + c, 0);
+        if (total === 0) return { heavyMin: Infinity, regularMin: Infinity };
+        let cum = 0;
+        let heavyMin = used[used.length - 1];
+        let regularMin = used[used.length - 1];
+        let heavyFound = false;
+        for (const c of used) {
+          cum += c;
+          if (!heavyFound && cum >= total * 0.5) {
+            heavyMin = c;
+            heavyFound = true;
+          }
+          if (cum >= total * 0.8) {
+            regularMin = c;
+            break;
+          }
+        }
+        return {
+          heavyMin: Math.max(heavyMin, 1),
+          regularMin: Math.max(Math.min(regularMin, heavyMin), 1),
+        };
+      }
+
+      function usageBandOf(count, t) {
+        if (count <= 0) return 'dead';
+        if (count >= t.heavyMin) return 'heavy';
+        return count >= t.regularMin ? 'regular' : 'rare';
+      }
+
+      function usageDistribution(counts, buckets) {
+        const ranked = [...counts].sort((a, b) => b - a);
+        if (ranked.length === 0 || buckets <= 0) return [];
+        const width = Math.min(buckets, ranked.length);
+        const size = ranked.length / width;
+        const means = [];
+        for (let i = 0; i < width; i++) {
+          const start = Math.floor(i * size);
+          const slice = ranked.slice(start, Math.max(Math.floor((i + 1) * size), start + 1));
+          means.push(slice.reduce((s, c) => s + c, 0) / slice.length);
+        }
+        const peak = Math.max(...means);
+        if (peak <= 0) return means.map(() => 0);
+        const ceiling = Math.log1p(peak);
+        return means.map((m) => (m <= 0 ? 0 : Math.log1p(m) / ceiling));
+      }
+
+      function topFifthShare(counts) {
+        const ranked = [...counts].sort((a, b) => b - a);
+        const total = ranked.reduce((s, c) => s + c, 0);
+        if (total === 0) return null;
+        const head = ranked.slice(0, Math.max(1, Math.round(ranked.length * 0.2)));
+        return head.reduce((s, c) => s + c, 0) / total;
+      }
+
+      // --- Ableitungen für die Varianten ---
+      function model(name) {
+        const d = DATA[name];
+        const all = [...d.counts, ...Array(d.zero).fill(0)];
+        const t = usageBandThresholds(all);
+        const totalUsage = d.counts.reduce((s, c) => s + c, 0);
+        const groups = { heavy: [], regular: [], rare: [], dead: [] };
+        for (const c of all) groups[usageBandOf(c, t)].push(c);
+        const bands = ORDER.map((key) => {
+          const usage = groups[key].reduce((s, c) => s + c, 0);
+          return {
+            key,
+            emotes: groups[key].length,
+            usage,
+            usageShare: totalUsage ? usage / totalUsage : 0,
+            emoteShare: all.length ? groups[key].length / all.length : 0,
+          };
+        }).filter((b) => b.emotes > 0);
+
+        // Rangposition der Bandgrenzen, einmal bezogen auf alle Emotes, einmal auf die genutzten.
+        const heavyRank = groups.heavy.length;
+        const regularRank = groups.heavy.length + groups.regular.length;
+        return {
+          name,
+          all,
+          used: d.counts,
+          zero: d.zero,
+          totalUsage,
+          bands,
+          heavyRank,
+          regularRank,
+          cutsAll: [heavyRank / all.length, regularRank / all.length],
+          cutsUsed: [heavyRank / d.counts.length, regularRank / d.counts.length],
+          concentration: topFifthShare(all),
+        };
+      }
+
+      const pct = (v) => (v >= 0.995 ? Math.round(v * 100) : Math.max(1, Math.round(v * 100))) + ' %';
+      const pctExact = (v) => (v * 100).toFixed(1).replace('.', ',') + ' %';
+      const num = (n) => n.toLocaleString('de-DE');
+
+      /**
+       * Wie renderCurve, aber jeder Balken trägt die Farbe seines Bandes.
+       *
+       * Die Grenzen werden als Balkenindizes aus den Emote-Anteilen abgeleitet — nicht pro Bucket
+       * neu bestimmt, weil die Buckets gleich grosse Scheiben der Rangliste sind und beides bis auf
+       * einen Balken übereinstimmt. Jedes nicht leere Band bekommt mindestens einen Balken: das
+       * tragende Band rundet bei einem konzentrierten Set sonst auf null, und ausgerechnet das
+       * wichtigste Band wäre unsichtbar.
+       */
+      function renderCurveBanded(el, m) {
+        const bars = usageDistribution(m.all, BUCKETS);
+        const n = m.all.length;
+        let edge = 0;
+        const edges = [];
+        for (const b of m.bands) {
+          edge += Math.max(1, Math.round((b.emotes / n) * bars.length));
+          edges.push({ key: b.key, upTo: Math.min(edge, bars.length) });
+        }
+        const bandAt = (i) => (edges.find((e) => i < e.upTo) || edges[edges.length - 1]).key;
+        el.innerHTML = bars
+          .map(
+            (b, i) =>
+              `<i class="b-${bandAt(i)}" style="height:${(b * 100).toFixed(2)}%"></i>`,
+          )
+          .join('');
+        return edges;
+      }
+
+      function renderCurve(el, counts, hotCount) {
+        const bars = usageDistribution(counts, BUCKETS);
+        const hot = Math.round((hotCount / counts.length) * bars.length);
+        el.innerHTML = bars
+          .map(
+            (b, i) =>
+              `<i class="${i < hot ? 'hot' : ''}" style="height:${(b * 100).toFixed(2)}%"></i>`,
+          )
+          .join('');
+        return { bars: bars.length, hot };
+      }
+
+      // Ein Label wird nur gesetzt, wenn sein Segment breit genug ist, um es zu tragen — sonst
+      // schieben sich die Beschriftungen schmaler Segmente übereinander. Was wegfällt, steht in
+      // der Legende darunter.
+      const LABEL_MIN = 0.09;
+      function renderSegments(el, lblEl, bands, valueKey, labelFn) {
+        el.innerHTML = bands
+          .map((b) => `<i class="b-${b.key}" style="width:${(b[valueKey] * 100).toFixed(2)}%"></i>`)
+          .join('');
+        lblEl.innerHTML = bands
+          .map(
+            (b) =>
+              `<span style="width:${(b[valueKey] * 100).toFixed(2)}%">${
+                b[valueKey] >= LABEL_MIN ? labelFn(b) : ''
+              }</span>`,
+          )
+          .join('');
+      }
+
+      function renderLegend(el, bands) {
+        el.innerHTML = bands
+          .map(
+            (b) =>
+              `<span><i class="b-${b.key}"></i>${TITLE[b.key]} <b>${num(b.emotes)}</b></span>`,
+          )
+          .join('');
+      }
+
+      function renderCuts(el, cuts, shares) {
+        el.innerHTML = cuts
+          .map(
+            (c, i) =>
+              `<div class="cut" style="left:${(c * 100).toFixed(2)}%"><span>${shares[i]}</span></div>`,
+          )
+          .join('');
+      }
+
+      function renderLorenz(el, m) {
+        const W = 400;
+        const H = 108;
+        const PAD_L = 26;
+        const PAD_B = 14;
+        const PAD_T = 6;
+        const iw = W - PAD_L;
+        const ih = H - PAD_B - PAD_T;
+        const ranked = [...m.all].sort((a, b) => b - a);
+        const pts = [];
+        let cum = 0;
+        for (let i = 0; i < ranked.length; i++) {
+          cum += ranked[i];
+          pts.push([PAD_L + ((i + 1) / ranked.length) * iw, PAD_T + ih - (cum / m.totalUsage) * ih]);
+        }
+        const path = `M ${PAD_L} ${PAD_T + ih} ` + pts.map((p) => `L ${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(' ');
+        const area = path + ` L ${PAD_L + iw} ${PAD_T + ih} Z`;
+        const yAt = (share) => PAD_T + ih - share * ih;
+        const xAtShare = (share) => {
+          let c = 0;
+          for (let i = 0; i < ranked.length; i++) {
+            c += ranked[i];
+            if (c / m.totalUsage >= share) return PAD_L + ((i + 1) / ranked.length) * iw;
+          }
+          return PAD_L + iw;
+        };
+        const marks = [0.5, 0.8]
+          .map((s) => {
+            const y = yAt(s);
+            const x = xAtShare(s);
+            return `<line class="grid" x1="${PAD_L}" y1="${y.toFixed(2)}" x2="${(PAD_L + iw).toFixed(2)}" y2="${y.toFixed(2)}"/>
+                    <line class="drop" x1="${x.toFixed(2)}" y1="${y.toFixed(2)}" x2="${x.toFixed(2)}" y2="${(PAD_T + ih).toFixed(2)}"/>
+                    <text x="0" y="${(y + 3).toFixed(2)}">${s * 100} %</text>`;
+          })
+          .join('');
+        el.innerHTML = `
+          <path class="area" d="${area}"/>
+          <path class="line" d="${path}"/>
+          ${marks}
+          <line x1="${PAD_L}" y1="${PAD_T + ih}" x2="${PAD_L + iw}" y2="${PAD_T + ih}" stroke="var(--border-strong)" stroke-width="0.75"/>
+          <text x="${PAD_L}" y="${H - 3}">Emotes, nach Nutzung gereiht →</text>
+          <text x="${W}" y="${H - 3}" text-anchor="end">${num(m.all.length)}</text>`;
+      }
+
+      function renderBandHeads(el, m) {
+        el.innerHTML = m.bands
+          .map((b) => {
+            const hint =
+              b.key === 'dead' ? 'im Zeitraum' : `${pct(b.usageShare)} der Nutzung`;
+            const count = b.emotes === 1 ? '1 Emote' : `${num(b.emotes)} Emotes`;
+            const cells = Array.from({ length: Math.min(b.emotes, 12) }, () => '<i></i>').join('');
+            return `<div class="bandhead">
+                <span class="swatch b-${b.key}"></span>
+                <h3>${TITLE[b.key]}</h3>
+                <span class="hint">${hint} · ${count}</span>
+                <span class="rule"></span>
+              </div>
+              <div class="cells">${cells}</div>`;
+          })
+          .join('');
+      }
+
+      let current = 'knirpz';
+
+      function render() {
+        const m = model(current);
+        const heavy = m.bands.find((b) => b.key === 'heavy');
+        const dead = m.bands.find((b) => b.key === 'dead');
+
+        // Ist-Zustand
+        const ist = renderCurve(document.getElementById('curve-ist'), m.all, m.heavyRank);
+        document.getElementById('ist-buckets').textContent =
+          ist.hot === 0
+            ? 'kein einziger Balken breit'
+            : ist.hot === 1
+              ? 'genau 1 von ' + ist.bars + ' Balken breit'
+              : ist.hot + ' von ' + ist.bars + ' Balken breit';
+        document.getElementById('ist-dead').textContent = num(m.zero) + ' nie benutzt';
+        document.getElementById('ist-conc').textContent = m.concentration
+          ? `Das obere Fünftel trägt ${pct(m.concentration)} der gesamten Nutzung.`
+          : '';
+        document.getElementById('ist-verdict').innerHTML =
+          `<b>Befund:</b> das tragende Band sind ${num(heavy.emotes)} von ${num(m.all.length)} Emotes — ` +
+          `${pctExact(heavy.emoteShare)} der Breite. Die 80-%-Grenze liegt bei ${pctExact(m.cutsAll[1])}. ` +
+          `Zwei beschriftete Linien haben dort keinen Platz.`;
+
+        // Variante A
+        renderSegments(
+          document.getElementById('segA-usage'),
+          document.getElementById('segA-usage-lbl'),
+          m.bands.filter((b) => b.usage > 0),
+          'usageShare',
+          (b) => `<b>${pct(b.usageShare)}</b>`,
+        );
+        renderSegments(
+          document.getElementById('segA-count'),
+          document.getElementById('segA-count-lbl'),
+          m.bands,
+          'emoteShare',
+          // Die Zahlen trägt die Legende darunter — inline wiederholt stünden sie zweimal da.
+          () => '',
+        );
+        renderLegend(document.getElementById('segA-legend'), m.bands);
+        document.getElementById('a-verdict').innerHTML =
+          `<b>Befund:</b> ${num(heavy.emotes)} Emotes (${pctExact(heavy.emoteShare)} des Sets) tragen ` +
+          `${pct(heavy.usageShare)} der Nutzung — die beiden Balken zeigen genau diese Schere. ` +
+          `Kein Segment der oberen Zeile wird je schmaler als ${pct(Math.min(...m.bands.filter((b) => b.usage > 0).map((b) => b.usageShare)))}.`;
+
+        // Variante B
+        renderCurve(document.getElementById('curve-b1'), m.all, m.heavyRank);
+        renderCuts(document.getElementById('cuts-b1'), m.cutsAll, [
+          pct(heavy.usageShare),
+          '80 %',
+        ]);
+        document.getElementById('note-b1').textContent =
+          `Linien bei ${pctExact(m.cutsAll[0])} und ${pctExact(m.cutsAll[1])} der Breite`;
+
+        renderCurve(document.getElementById('curve-b2'), m.used, m.heavyRank);
+        renderCuts(document.getElementById('cuts-b2'), m.cutsUsed, [
+          pct(heavy.usageShare),
+          '80 %',
+        ]);
+        document.getElementById('note-b2').textContent =
+          `Linien bei ${pctExact(m.cutsUsed[0])} und ${pctExact(m.cutsUsed[1])} der Breite`;
+        document.getElementById('b-dead').textContent = num(m.zero);
+        document.getElementById('b-verdict').innerHTML =
+          `<b>Befund:</b> in B1 stehen die Linien ${pctExact(m.cutsAll[1] - m.cutsAll[0])} der Breite auseinander, ` +
+          `in B2 ${pctExact(m.cutsUsed[1] - m.cutsUsed[0])}. B2 ist lesbar — kostet aber den toten Schwanz, ` +
+          `also genau das, was die Seite eigentlich zeigen will.`;
+
+        // Variante C
+        renderLorenz(document.getElementById('lorenz'), m);
+        document.getElementById('c-verdict').innerHTML =
+          `<b>Befund:</b> die Marken sitzen unabhängig vom Channel immer auf halber und auf 80 % Höhe. ` +
+          `Dafür ist die Kurve keine Nutzungskurve mehr, und die Frage „wie lang ist der tote Schwanz" ` +
+          `beantwortet sie nur noch indirekt über den flachen Ausläufer rechts.`;
+
+        // Entwurf: A2 mit gebandeter Kurve plus die Kopfzeilen darunter
+        const edges = renderCurveBanded(document.getElementById('curve-entwurf'), m);
+        renderCurveBanded(document.getElementById('curve-entwurf-socket'), m);
+        renderSegments(
+          document.getElementById('segE'),
+          document.getElementById('segE-lbl'),
+          m.bands.filter((b) => b.usage > 0),
+          'usageShare',
+          (b) => `<b>${pct(b.usageShare)}</b> ${TITLE[b.key].toLowerCase()}`,
+        );
+        document.getElementById('e-dead').textContent = num(m.zero) + ' nie benutzt';
+        document.getElementById('e-conc').textContent = m.concentration
+          ? `Das obere Fünftel trägt ${pct(m.concentration)} der gesamten Nutzung.`
+          : '';
+        const widths = edges.map((e, i) => e.upTo - (i ? edges[i - 1].upTo : 0));
+        document.getElementById('e-verdict').innerHTML =
+          `<b>Befund:</b> die Kurve verteilt sich auf ` +
+          edges.map((e, i) => `${widths[i]} × ${TITLE[e.key].toLowerCase()}`).join(', ') +
+          ` von ${edges[edges.length - 1].upTo} Balken. ` +
+          `Der auffälligste Farbwechsel ist der auf „nie benutzt" — genau die Kante, an der die ` +
+          `Kurve ohnehin auf null fällt.`;
+        renderBandHeads(document.getElementById('bandheads-entwurf'), m);
+      }
+
+      document.getElementById('channels').innerHTML = Object.keys(DATA)
+        .map((k) => `<button class="chip" type="button" data-ch="${k}">${k}</button>`)
+        .join(' ');
+      document.getElementById('channels').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-ch]');
+        if (!btn) return;
+        current = btn.dataset.ch;
+        syncChips();
+        render();
+      });
+      function syncChips() {
+        document
+          .querySelectorAll('[data-ch]')
+          .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.ch === current)));
+      }
+      document.getElementById('theme').addEventListener('click', () => {
+        const root = document.documentElement;
+        const light = root.getAttribute('data-theme') === 'light';
+        root.setAttribute('data-theme', light ? 'dark' : 'light');
+        document.getElementById('theme').textContent = light ? 'Heller Modus' : 'Dunkler Modus';
+      });
+
+      syncChips();
+      render();
+    </script>
+  </body>
+</html>
