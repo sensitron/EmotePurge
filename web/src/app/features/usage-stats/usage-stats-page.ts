@@ -65,9 +65,11 @@ import {
   seriesPeak,
 } from '../../shared/emotes/usage-series';
 import {
+  USAGE_BAND_FILL,
   UsageBandKey,
   groupIntoUsageBands,
   topFifthShare,
+  usageBandBars,
   usageBandOf,
   usageBandThresholds,
   usageDistribution,
@@ -303,8 +305,34 @@ export class UsageStatsPage {
     usageBandThresholds(this.emotes().map((emote) => emote.totalUseCount)),
   );
 
+  /** Usage of the whole set — the denominator every band share is measured against. */
+  private readonly totalUsage = computed(() =>
+    this.emotes().reduce((sum, emote) => sum + emote.totalUseCount, 0),
+  );
+
   protected readonly bands = computed(() =>
-    groupIntoUsageBands(this.sortedEmotes(), (emote) => emote.totalUseCount, this.bandThresholds()),
+    groupIntoUsageBands(
+      this.sortedEmotes(),
+      (emote) => emote.totalUseCount,
+      this.bandThresholds(),
+      this.totalUsage(),
+    ),
+  );
+
+  /**
+   * The bands of the WHOLE set, for the distribution strip's segment bar.
+   *
+   * A second grouping rather than a reuse of bands(): the strip describes the set ("Das ganze Set,
+   * nach Nutzung gereiht"), while a band header describes what sits under it. With a name filter
+   * active the two say different things on purpose.
+   */
+  protected readonly usageSegments = computed(() =>
+    groupIntoUsageBands(
+      this.emotes(),
+      (emote) => emote.totalUseCount,
+      this.bandThresholds(),
+      this.totalUsage(),
+    ).filter((band) => band.usage > 0),
   );
 
   /**
@@ -336,24 +364,17 @@ export class UsageStatsPage {
   );
 
   /**
-   * How many leading buckets of the strip belong to the heavy band, so the curve's head is drawn in
-   * the guide colour and the band headers below are recognisable in it. Derived from the share of
-   * heavy emotes rather than counted per bucket — the buckets are equal slices of the ranking, so
-   * the two agree to within one bar and the cheap form is the one worth having.
+   * The band each bar of the strip belongs to, so the curve carries the same four colours as the
+   * headers below it. Against the strip's actual bar count, not the requested one — a set smaller
+   * than the bucket budget gets one bar per emote, and the colouring has to follow that.
    */
-  protected readonly heavyBuckets = computed(() => {
-    const all = this.emotes();
-    if (all.length === 0) {
-      return 0;
-    }
-    const thresholds = this.bandThresholds();
-    const heavy = all.filter(
-      (emote) => usageBandOf(emote.totalUseCount, thresholds) === 'heavy',
-    ).length;
-    // Against the strip's actual bar count, not the requested one — a set smaller than the bucket
-    // budget gets one bar per emote, and the accent prefix has to follow that.
-    return Math.round((heavy / all.length) * this.distribution().length);
-  });
+  protected readonly bandBars = computed(() =>
+    usageBandBars(
+      this.emotes().map((emote) => emote.totalUseCount),
+      this.bandThresholds(),
+      this.distribution().length,
+    ),
+  );
 
   protected readonly concentration = computed(() =>
     topFifthShare(this.emotes().map((emote) => emote.totalUseCount)),
@@ -752,6 +773,26 @@ export class UsageStatsPage {
       style: 'percent',
       maximumFractionDigits: share < 0.1 ? 1 : 0,
     });
+  }
+
+  /**
+   * Whole percent for a band's share, its own function rather than a mode of formatPercent(): that
+   * one also renders the concentration sentence, which is deliberately allowed a decimal.
+   *
+   * A live band that rounds to nothing reads as "<1 %" instead of "0 %" — with a name filter active
+   * a band can legitimately be down to a fraction of a percent, and zero is what the dead band
+   * means.
+   */
+  protected formatBandShare(share: number): string {
+    const locale = toLocale(this.languageService.lang());
+    if (share > 0 && share < 0.005) {
+      return `<${(0.01).toLocaleString(locale, { style: 'percent' })}`;
+    }
+    return share.toLocaleString(locale, { style: 'percent', maximumFractionDigits: 0 });
+  }
+
+  protected bandFill(band: UsageBandKey): string {
+    return USAGE_BAND_FILL[band];
   }
 
   protected trendFor(emote: EmoteUsageTotal): UsageTrend {

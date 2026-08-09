@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-09 — Die Bänder nennen ihren gemessenen Anteil und tragen eine Farbe
+
+**Betrifft:** `web/src/app/shared/emotes/usage-bands.ts`, `web/src/app/shared/grid/atlas-grid.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/src/app/features/landing/set-shape.ts`, `web/public/i18n/*.json`, `web/e2e/{usage-atlas,landing}.e2e.spec.ts`, `docs/UI-Designsprache.md`
+
+Die Kopfzeilen der Pareto-Bänder sagten „die erste Hälfte der Nutzung", „bis 80 % der Nutzung", „das letzte Fünftel der Nutzung". Drei Dinge stimmten daran nicht, und alle drei sind jetzt anders.
+
+**Der Prozentwert ist gemessen, nicht definiert.** Die 50/80-Marken sind Schwellen der Berechnung, nicht der Anteil, den ein Band trägt: Der Schnitt liegt beim ersten Emote, das die kumulierte Summe über die Marke hebt, und nimmt dieses Emote ganz mit — plus alle mit demselben Zählerstand. Über die sechs Dev-Channels mit nennenswerter Nutzung gemessen sind das 50,0–53,0 % statt 50 % und 80,1–80,9 % statt 80 %; in der E2E-Fixture, wo zwei Emotes 1600 von 2102 Treffern halten, sind es 76 %. „Die erste Hälfte" behauptete also eine Genauigkeit, die die Zahl nie hatte. Der Nenner ist die Nutzung des **ganzen** Sets, der Zähler sind die **sichtbaren** Emotes des Bandes — bei aktivem Namensfilter schrumpfen Anteil und Anzahl gemeinsam, statt 52 % für drei übrig gebliebene Emotes zu behaupten. `groupIntoUsageBands` bekommt den Nenner deshalb hereingereicht statt ihn aus seinen `items` zu bilden.
+
+**Beide Zahlen tragen ihre Einheit, und die Namen sind Klassennamen im Singular.** `TRAGEND · 53 % der Nutzung · 4 Emotes` statt `TRAGENDE EMOTES · die erste Hälfte der Nutzung · 4`. Die alte Zeile stellte einen Prozentanteil und eine Emote-Anzahl unbeschriftet nebeneinander. Und die Titel stehen nicht nur über einer Gruppe, sondern im Sidecar hinter dem Rang eines einzelnen Emotes, wo `#3 · Tragende Emotes` bricht; jetzt liest es sich als `#3 · Tragend`. Das Landing-Diagramm erbt die Namen über dieselben Übersetzungsschlüssel — dieselbe Einteilung, dieselbe Vokabel. Die drei lebenden Bänder teilen sich einen Schlüssel `bands.share`, weil ihr Hinweistext identisch ist; `countOne` ist ein eigener Schlüssel, weil Transloco hier ohne MessageFormat-Plugin läuft.
+
+**Die Bänder haben jetzt eine Farbe, und der Verteilungsstreifen trägt sie mit.** Eine Helligkeitsrampe der Leitfarbe (`USAGE_BAND_FILL`), kein zweiter Farbton: Die Bänder sind eine Rangfolge, kein Nebeneinander von Kategorien. Kein neues Farbtoken — es sind Deckkraftstufen bestehender Farben. Der Streifen färbt jeden seiner 96 Balken nach Band statt wie bisher nur den heavy-Kopf; dazu kam ein **3-px-Sockel**, ohne den die Einfärbung nichts nützt: Ein Balken des toten Schwanzes ist einen Pixel hoch, und eine Farbe auf einem Pixel sieht niemand. Der Sockel stellt „nie benutzt" nebenbei richtig dar — das ist keine kleine Zahl, sondern eine eigene Kategorie. Darunter ein flacher Segmentbalken mit den Nutzungsanteilen, also derselbe Sachverhalt auf der anderen Achse.
+
+**Was dabei verworfen wurde, und warum es nicht wiederkommt:** Der naheliegende Vorschlag waren gestrichelte Linien an den Bandgrenzen. Die x-Achse des Streifens ist aber der Rang, nicht die kumulierte Nutzung — die Marken sitzen dort, wo das Band endet. Gemessen: bei `knirpz` bei 0,5 % und 4,3 % der Breite, mit x-Achse nur über die genutzten Emotes bei 2,3 % und 18,4 %, bei `lililinanana` dagegen bei 24,4 % und 100 %. Es gibt keine Achsenwahl, bei der beide Linien über alle Channels hinweg lesbar sitzen, und die Fassung, die sie auseinanderzieht, kostet den toten Schwanz — also das, was die Seite zeigen soll. Ebenfalls geprüft und verworfen: zwei gestapelte Balken (zeigt die Pareto-Schere am deutlichsten, kostet die doppelte Höhe und wiederholt die Kopfzeilen) und eine Lorenz-Kurve (Marken sitzen stabil, aber die Kurve ist nach 5 % der Breite am Anschlag und danach flach — die Kopf-Knie-Schwanz-Form ginge verloren). Alle drei stehen als Prototyp mit echten Zahlen in `docs/superpowers/prototypes/2026-08-09-verteilung-baender.html`.
+
+Spec: `docs/superpowers/specs/2026-08-09-usage-stats-baender-design.md`.
+
+---
+
 ### 2026-08-08 — Die Kurve schweigt, wo sie nichts weiß, und Live-Zahlen tragen keinen Nenner
 
 **Betrifft:** `web/src/app/shared/emotes/usage-series.ts`, `usage-sparkline.ts`, `emote-drilldown-dialog.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/public/i18n/*.json`

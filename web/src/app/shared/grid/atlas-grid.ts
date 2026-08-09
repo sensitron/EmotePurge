@@ -9,7 +9,7 @@ import { UsageBandKey } from '../emotes/usage-bands';
  * what a section heading wants anyway.
  */
 export type AtlasRow<T> =
-  | { kind: 'band'; band: UsageBandKey; count: number }
+  | { kind: 'band'; band: UsageBandKey; count: number; share: number }
   | { kind: 'cells'; items: T[]; startIndex: number };
 
 /** Cell edge and gutter in px. The row height derived from them is the viewport's `itemSize`. */
@@ -55,7 +55,7 @@ export function atlasColumns(width: number, cell = ATLAS_CELL_PX): number {
  * previous one, because the header would then sit next to emotes it does not describe.
  */
 export function packAtlasRows<T>(
-  bands: readonly { key: UsageBandKey; items: readonly T[] }[],
+  bands: readonly { key: UsageBandKey; items: readonly T[]; share: number }[],
   columns: number,
 ): { rows: AtlasRow<T>[]; flat: T[] } {
   const safeColumns = Math.max(1, columns);
@@ -66,7 +66,7 @@ export function packAtlasRows<T>(
     if (band.items.length === 0) {
       continue;
     }
-    rows.push({ kind: 'band', band: band.key, count: band.items.length });
+    rows.push({ kind: 'band', band: band.key, count: band.items.length, share: band.share });
     for (let i = 0; i < band.items.length; i += safeColumns) {
       rows.push({
         kind: 'cells',

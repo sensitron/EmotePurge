@@ -515,21 +515,21 @@
     },
     "bands": {
       "heavy": {
-        "title": "Tragende Emotes",
-        "hint": "die erste Hälfte der Nutzung"
+        "title": "Tragend"
       },
       "regular": {
-        "title": "Regelmäßig",
-        "hint": "bis 80 % der Nutzung"
+        "title": "Regelmäßig"
       },
       "rare": {
-        "title": "Selten",
-        "hint": "das letzte Fünftel der Nutzung"
+        "title": "Selten"
       },
       "dead": {
         "title": "Nie benutzt",
         "hint": "im Zeitraum"
       },
+      "share": "{{share}} der Nutzung",
+      "count": "{{count}} Emotes",
+      "countOne": "1 Emote",
       "selectAll": "alle markieren"
     },
     "sidecar": {
