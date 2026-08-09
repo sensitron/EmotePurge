@@ -27,7 +27,7 @@ test.describe('landing', () => {
 
     // The same four band names the real atlas uses, from the same translation keys — a visitor
     // meets this vocabulary again the moment they are logged in.
-    for (const band of ['Tragende Emotes', 'Regelmäßig', 'Selten', 'Nie benutzt']) {
+    for (const band of ['Tragend', 'Regelmäßig', 'Selten', 'Nie benutzt']) {
       await expect(figure.getByRole('heading', { name: band })).toBeVisible();
     }
   });

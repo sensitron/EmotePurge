@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   groupIntoUsageBands,
   topFifthShare,
+  usageBandBars,
   usageBandOf,
   usageBandThresholds,
   usageDistribution,
@@ -64,7 +65,7 @@ describe('groupIntoUsageBands', () => {
 
   it('emits the bands heaviest first and drops the empty ones', () => {
     const items = [item('a', 100), item('b', 60), item('c', 0)];
-    const bands = groupIntoUsageBands(items, count, usageBandThresholds(items.map(count)));
+    const bands = groupIntoUsageBands(items, count, usageBandThresholds(items.map(count)), 160);
 
     expect(bands.map((band) => band.key)).toEqual(['heavy', 'regular', 'dead']);
   });
@@ -73,21 +74,89 @@ describe('groupIntoUsageBands', () => {
     // The band is the emote's weight class; the order within it is whatever the user sorted by —
     // here "last used" would hand over a heavy band that is NOT usage-ordered.
     const items = [item('b', 40), item('a', 60), item('c', 0)];
-    const bands = groupIntoUsageBands(items, count, { heavyMin: 30, regularMin: 10 });
+    const bands = groupIntoUsageBands(items, count, { heavyMin: 30, regularMin: 10 }, 100);
 
     expect(bands[0].items.map((entry) => entry.name)).toEqual(['b', 'a']);
   });
 
   it('reports each band its own peak', () => {
     const items = [item('a', 100), item('b', 80), item('c', 5), item('d', 3)];
-    const bands = groupIntoUsageBands(items, count, { heavyMin: 50, regularMin: 50 });
+    const bands = groupIntoUsageBands(items, count, { heavyMin: 50, regularMin: 50 }, 188);
 
     expect(bands[0].peak).toBe(100);
     expect(bands[1].peak).toBe(5);
   });
 
   it('returns nothing for an empty list', () => {
-    expect(groupIntoUsageBands([], count, { heavyMin: 1, regularMin: 1 })).toEqual([]);
+    expect(groupIntoUsageBands([], count, { heavyMin: 1, regularMin: 1 }, 0)).toEqual([]);
+  });
+
+  it('reports the share each band carries of the whole set', () => {
+    const items = [item('a', 100), item('b', 60), item('c', 40), item('d', 0)];
+    const bands = groupIntoUsageBands(items, count, { heavyMin: 100, regularMin: 40 }, 200);
+
+    expect(bands.map((band) => band.usage)).toEqual([100, 100, 0]);
+    expect(bands.map((band) => band.share)).toEqual([0.5, 0.5, 0]);
+  });
+
+  it('measures a filtered view against the whole set, not against itself', () => {
+    // Same total as above, but only two of the four emotes survived a name filter. The heavy band
+    // must not claim the full 50 % it carries in the unfiltered set.
+    const visible = [item('b', 60), item('d', 0)];
+    const bands = groupIntoUsageBands(visible, count, { heavyMin: 100, regularMin: 40 }, 200);
+
+    expect(bands.map((band) => band.key)).toEqual(['regular', 'dead']);
+    expect(bands[0].share).toBe(0.3);
+  });
+
+  it('reports a zero share instead of NaN when nothing was used', () => {
+    const items = [item('a', 0), item('b', 0)];
+    const bands = groupIntoUsageBands(items, count, { heavyMin: 1, regularMin: 1 }, 0);
+
+    expect(bands[0].share).toBe(0);
+  });
+});
+
+describe('usageBandBars', () => {
+  const thresholds = { heavyMin: 100, regularMin: 10 };
+
+  it('gives every non-empty band at least one bar', () => {
+    // The shape of a real set: one heavy emote in fifty. Proportionally it rounds to zero bars,
+    // and the band the strip most needs to show would vanish.
+    const counts = [500, ...Array.from({ length: 20 }, () => 20), ...Array(29).fill(0)];
+    const bars = usageBandBars(counts, thresholds, 20);
+
+    expect(bars.filter((key) => key === 'heavy')).toHaveLength(1);
+    expect(new Set(bars)).toEqual(new Set(['heavy', 'regular', 'dead']));
+  });
+
+  it('draws exactly the requested number of bars', () => {
+    const counts = [500, 300, 40, 20, 5, 0, 0, 0];
+
+    expect(usageBandBars(counts, thresholds, 96)).toHaveLength(96);
+    expect(usageBandBars(counts, thresholds, 7)).toHaveLength(7);
+  });
+
+  it('keeps the bands in render order', () => {
+    const counts = [500, 300, 40, 20, 5, 0, 0, 0];
+    const bars = usageBandBars(counts, thresholds, 40);
+    const firstOf = (key: string) => bars.indexOf(key as (typeof bars)[number]);
+
+    expect(firstOf('heavy')).toBeLessThan(firstOf('regular'));
+    expect(firstOf('regular')).toBeLessThan(firstOf('rare'));
+    expect(firstOf('rare')).toBeLessThan(firstOf('dead'));
+  });
+
+  it('cuts the tail rather than overrunning when there are more bands than bars', () => {
+    const counts = [500, 300, 40, 20, 5, 0, 0, 0];
+    const bars = usageBandBars(counts, thresholds, 3);
+
+    expect(bars).toEqual(['heavy', 'regular', 'rare']);
+  });
+
+  it('returns nothing for an empty set or a strip with no bars', () => {
+    expect(usageBandBars([], thresholds, 96)).toEqual([]);
+    expect(usageBandBars([1, 2, 3], thresholds, 0)).toEqual([]);
   });
 });
 

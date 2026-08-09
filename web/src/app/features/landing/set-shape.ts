@@ -84,9 +84,10 @@ function buildBands(): ShapeBand[] {
   const counts = schematicCounts();
   const thresholds = usageBandThresholds(counts);
   const peak = Math.max(...counts);
+  const total = counts.reduce((sum, count) => sum + count, 0);
   let rank = 0;
 
-  return groupIntoUsageBands(counts, (count) => count, thresholds).map((band) => ({
+  return groupIntoUsageBands(counts, (count) => count, thresholds, total).map((band) => ({
     key: band.key,
     count: band.items.length,
     cells: band.items.map((count) => ({

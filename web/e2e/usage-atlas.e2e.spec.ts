@@ -74,12 +74,28 @@ test.describe('emote atlas', () => {
   test('groups the set into weight bands derived from its own usage', async ({ page }) => {
     await openAtlas(page);
 
-    // Pareto, not fixed thresholds: catJAM alone is more than half of the 2102 total, and catJAM
-    // plus peepoSad is more than 80 % — so exactly one emote is heavy and exactly one is regular.
-    await expect(page.getByRole('heading', { name: 'Tragende Emotes' })).toBeVisible();
+    // Pareto, not fixed thresholds: catJAM and peepoSad together are the first 1600 of the 2102
+    // total, so both are heavy; monkaW alone then carries the set past 80 % and is the whole
+    // regular band.
+    await expect(page.getByRole('heading', { name: 'Tragend', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Regelmäßig' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Selten' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Nie benutzt' })).toBeVisible();
+  });
+
+  test('states each band as a share of usage and a count of emotes', async ({ page }) => {
+    await openAtlas(page);
+
+    // Both numbers carry their unit, and the percentage is measured rather than the 50 % cut that
+    // produced the band: the cut lands mid-emote and takes the whole of peepoSad with it, so the
+    // band really carries 1600 of 2102. "The first half of usage" would have claimed 50 % here.
+    const heavy = page.getByRole('heading', { name: 'Tragend', exact: true }).locator('..');
+    await expect(heavy).toContainText('76 % der Nutzung');
+    await expect(heavy).toContainText('2 Emotes');
+
+    // The singular is its own key — Transloco runs without a plural plugin here.
+    const regular = page.getByRole('heading', { name: 'Regelmäßig' }).locator('..');
+    await expect(regular).toContainText('1 Emote');
   });
 
   test('holds exactly one tab stop and moves it with the arrow keys', async ({ page }) => {
@@ -91,7 +107,8 @@ test.describe('emote atlas', () => {
 
     await cell(page, 'catJAM').focus();
     await page.keyboard.press('ArrowRight');
-    // catJAM is alone in the heavy band, so "right" has to leave the band rather than stop.
+    // peepoSad is the next cell in the display order — same band here, but the move is computed on
+    // the row structure either way, which is what makes a band boundary in between harmless.
     await expect(cell(page, 'peepoSad')).toBeFocused();
 
     // The last cell of the last band. Never-used emotes all sort equal, so the name tiebreaker

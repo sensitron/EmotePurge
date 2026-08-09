@@ -515,21 +515,21 @@
     },
     "bands": {
       "heavy": {
-        "title": "Carrying the set",
-        "hint": "the first half of all usage"
+        "title": "Backbone"
       },
       "regular": {
-        "title": "Regulars",
-        "hint": "up to 80 % of all usage"
+        "title": "Regular"
       },
       "rare": {
-        "title": "Rare",
-        "hint": "the last fifth of all usage"
+        "title": "Rare"
       },
       "dead": {
         "title": "Never used",
         "hint": "in this range"
       },
+      "share": "{{share}} of usage",
+      "count": "{{count}} emotes",
+      "countOne": "1 emote",
       "selectAll": "mark all"
     },
     "sidecar": {

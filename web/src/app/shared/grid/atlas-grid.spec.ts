@@ -5,9 +5,9 @@ import { AtlasRow, atlasColumns, atlasRowOfIndex, moveInAtlas, packAtlasRows } f
 
 /** Two bands, five then three cells — enough to exercise a short row and a band boundary. */
 function twoBands(columns = 3) {
-  const bands: { key: UsageBandKey; items: string[] }[] = [
-    { key: 'heavy', items: ['a', 'b', 'c', 'd', 'e'] },
-    { key: 'dead', items: ['f', 'g', 'h'] },
+  const bands: { key: UsageBandKey; items: string[]; share: number }[] = [
+    { key: 'heavy', items: ['a', 'b', 'c', 'd', 'e'], share: 0.8 },
+    { key: 'dead', items: ['f', 'g', 'h'], share: 0 },
   ];
   return packAtlasRows(bands, columns);
 }
@@ -71,9 +71,9 @@ describe('packAtlasRows', () => {
   it('drops an empty band instead of leaving a header with nothing under it', () => {
     const { rows } = packAtlasRows(
       [
-        { key: 'heavy', items: ['a'] },
-        { key: 'regular', items: [] },
-        { key: 'dead', items: ['b'] },
+        { key: 'heavy', items: ['a'], share: 0.9 },
+        { key: 'regular', items: [], share: 0 },
+        { key: 'dead', items: ['b'], share: 0 },
       ],
       4,
     );
@@ -82,9 +82,19 @@ describe('packAtlasRows', () => {
   });
 
   it('falls back to a single column rather than dividing by zero', () => {
-    const { rows } = packAtlasRows([{ key: 'heavy', items: ['a', 'b'] }], 0);
+    const { rows } = packAtlasRows([{ key: 'heavy', items: ['a', 'b'], share: 1 }], 0);
 
     expect(rows).toHaveLength(3);
+  });
+
+  it('carries each band its share into the header row', () => {
+    const { rows } = twoBands();
+    const headers = rows.filter(
+      (row): row is Extract<AtlasRow<string>, { kind: 'band' }> => row.kind === 'band',
+    );
+
+    expect(headers.map((row) => row.share)).toEqual([0.8, 0]);
+    expect(headers.map((row) => row.count)).toEqual([5, 3]);
   });
 });
 

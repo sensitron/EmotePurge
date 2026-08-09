@@ -18,6 +18,23 @@ export type UsageBandKey = 'heavy' | 'regular' | 'rare' | 'dead';
 export const USAGE_BAND_ORDER: readonly UsageBandKey[] = ['heavy', 'regular', 'rare', 'dead'];
 
 /**
+ * Fill class per band, for the distribution strip, its segment bar and the sheet's band headers.
+ *
+ * A brightness ramp of the one accent colour rather than four hues: the bands are a ranking, not
+ * categories, and a second hue would claim a difference in kind that is not there. No new colour
+ * token is involved — these are opacity steps of colours that already exist.
+ *
+ * Written out as whole literals because Tailwind scans source text: a class assembled at runtime
+ * from a prefix and a variable never reaches the generated stylesheet.
+ */
+export const USAGE_BAND_FILL: Record<UsageBandKey, string> = {
+  heavy: 'bg-accent-fg',
+  regular: 'bg-accent-fg/55',
+  rare: 'bg-accent-fg/25',
+  dead: 'bg-fg-disabled/40',
+};
+
+/**
  * The two counts that separate the three non-empty bands, expressed as usage values rather than as
  * positions: a value cut keeps emotes with identical counts together, which a rank cut would split
  * arbitrarily in the middle of a tie.
@@ -86,12 +103,19 @@ export function usageBandOf(count: number, thresholds: UsageBandThresholds): Usa
  * the toolbar — sorting by "last used" therefore still lists the heavy emotes first, just ordered
  * by date among themselves. Empty bands are dropped rather than rendered as a header with nothing
  * under it.
+ *
+ * `totalUsage` is handed in rather than summed from `items` because the two are not the same
+ * question: `items` is the filtered view, while the share a band carries is only meaningful against
+ * the usage of the whole set. Passing the set's total keeps "52 % of usage · 4 emotes" true when
+ * nothing is filtered and honest when something is — a name filter then shows a smaller share next
+ * to a smaller count instead of claiming 52 % for the three emotes still on screen.
  */
 export function groupIntoUsageBands<T>(
   items: readonly T[],
   count: (item: T) => number,
   thresholds: UsageBandThresholds,
-): { key: UsageBandKey; items: T[]; peak: number }[] {
+  totalUsage: number,
+): { key: UsageBandKey; items: T[]; peak: number; usage: number; share: number }[] {
   const buckets = new Map<UsageBandKey, T[]>();
   for (const item of items) {
     const key = usageBandOf(count(item), thresholds);
@@ -105,8 +129,61 @@ export function groupIntoUsageBands<T>(
 
   return USAGE_BAND_ORDER.filter((key) => buckets.has(key)).map((key) => {
     const bandItems = buckets.get(key) ?? [];
-    return { key, items: bandItems, peak: Math.max(1, ...bandItems.map(count)) };
+    const usage = bandItems.reduce((sum, item) => sum + Math.max(0, count(item)), 0);
+    return {
+      key,
+      items: bandItems,
+      peak: Math.max(1, ...bandItems.map(count)),
+      usage,
+      share: totalUsage > 0 ? usage / totalUsage : 0,
+    };
   });
+}
+
+/**
+ * Which band each bar of the distribution strip belongs to.
+ *
+ * Derived from the band sizes rather than resolved per bar: the bars are equal slices of the
+ * ranking, so the two agree to within one bar and the cheap form is the one worth having. Feed it
+ * the counts of the WHOLE set — the strip draws the set, not the filtered view.
+ *
+ * Every non-empty band gets at least one bar. On a concentrated set the heavy band is four emotes
+ * in seven hundred and rounds to zero, and the one band the strip most needs to show would be the
+ * one it drops. Where that padding pushes the total past `bars`, the tail is cut instead.
+ */
+export function usageBandBars(
+  counts: readonly number[],
+  thresholds: UsageBandThresholds,
+  bars: number,
+): UsageBandKey[] {
+  if (bars <= 0 || counts.length === 0) {
+    return [];
+  }
+
+  const sizes = new Map<UsageBandKey, number>();
+  for (const count of counts) {
+    const key = usageBandOf(count, thresholds);
+    sizes.set(key, (sizes.get(key) ?? 0) + 1);
+  }
+
+  const out: UsageBandKey[] = [];
+  for (const key of USAGE_BAND_ORDER) {
+    const size = sizes.get(key) ?? 0;
+    if (size === 0) {
+      continue;
+    }
+    const width = Math.max(1, Math.round((size / counts.length) * bars));
+    for (let i = 0; i < width && out.length < bars; i++) {
+      out.push(key);
+    }
+  }
+
+  // Rounding down across several bands can leave the strip short of a full row; the last band
+  // absorbs the remainder, which is the dead tail on any real set.
+  while (out.length < bars) {
+    out.push(out[out.length - 1]);
+  }
+  return out;
 }
 
 /**
