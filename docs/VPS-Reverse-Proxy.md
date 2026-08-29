@@ -1,13 +1,18 @@
 # VPS-Reverse-Proxy (nginx) für emotepurge.app
 
-Stand: 2026-08-05 (nachgezogen nach der VPS-Härtung vom 2026-08-04, s. u.). Der host-native nginx (1.24, Ubuntu) vor dem Loopback-Port ist **nicht** Teil dieses Repos — seine Config liegt auf dem VPS (`/etc/nginx/`, Certbot-verwaltet) und bedient neben emotepurge.app weitere, projektfremde vHosts. Diese Datei dokumentiert den emotepurge-relevanten Ausschnitt und die Verträge, die Api-Code und Proxy miteinander eingehen, damit „was macht der Proxy?" ohne SSH beantwortbar ist. Der vollständige Host-Stand (alle vHosts, Firewall, Catchall) steht im privaten Repo `sensitron/infra-docs`, `VPS-und-Homelab-2026-08-04.md`.
+Stand: 2026-08-29 (nachgezogen nach dem Cloudflare-Umzug, s. Abschnitt „Cloudflare davor" — davor 2026-08-05, VPS-Härtung vom 2026-08-04). Der host-native nginx (1.24, Ubuntu) ist **nicht** Teil dieses Repos — seine Config liegt auf dem VPS (`/etc/nginx/`, Certbot-verwaltet) und bedient neben emotepurge.app weitere, projektfremde vHosts. Diese Datei dokumentiert den emotepurge-relevanten Ausschnitt und die Verträge, die Api-Code und Proxy miteinander eingehen, damit „was macht der Proxy?" ohne SSH beantwortbar ist. Der vollständige Host-Stand (alle vHosts, Firewall, Catchall) steht im privaten Repo `sensitron/infra-docs`, `VPS-und-Homelab-2026-08-04.md`.
 
 ## Der emotepurge-Block (sinngemäß, sanitisiert)
 
 ```nginx
 # global (mit anderen vHosts geteilt):
+# seit 2026-08-29, MUSS vor den Zonen stehen: sonst schlüsseln die auf CF-Edge-IPs
+set_real_ip_from <15 IPv4- + 7 IPv6-Bereiche von cloudflare.com/ips-v4 bzw. /ips-v6>;
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+
 limit_req_zone $binary_remote_addr zone=general:10m rate=10r/s;
-limit_req_zone $binary_remote_addr zone=api:…;         # eigene /api/-Zone, seit 2026-08-04
+limit_req_zone $binary_remote_addr zone=api:10m rate=5r/s;   # eigene /api/-Zone, seit 2026-08-04
 
 server {
     server_name emotepurge.app www.emotepurge.app;
@@ -52,3 +57,40 @@ Exakte Werte (Rate der `api`-Zone, die Anti-Bot-Regexe) stehen im infra-docs-Ber
 - **HTTP/2 steht seit 2026-08-01 explizit in den `listen`-Zeilen** (vorher nur implizit vom Listen-Socket der anderen vHosts geerbt — nginx aktiviert HTTP/2 pro Socket, nicht pro Server-Block). Wichtig, weil ohne HTTP/2 das 6-Verbindungen-pro-Origin-Limit von HTTP/1.1 gilt und mehrere Tabs mit offenen SSE-Streams sich gegenseitig aushungern könnten. Prüfbar ohne Login: HTTP-Version eines `https://emotepurge.app`-Requests muss 2.0 sein.
 - **WebSockets sind nicht konfiguriert** (kein `Upgrade`/`Connection`-Header-Paar im emotepurge-Block). Für SSE irrelevant; falls je SignalR/rohe WS dazukommen, braucht der entsprechende Pfad eine eigene `location` mit `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";` und erhöhtem `proxy_read_timeout`.
 - Der Config-Kommentar „Angenommener Port fuer die Angular-SPA" ist historisch — auf 4300 lauscht der Api-Container aus `docker-compose.prod.yml`, der die SPA aus `wwwroot/` mit ausliefert; es gibt keinen separaten Frontend-Prozess.
+
+## Cloudflare davor (seit 2026-08-27 in den Logs sichtbar)
+
+`emotepurge.app` steht seit kurzem hinter dem Cloudflare-Proxy — die Kette ist damit
+**Client → Cloudflare → nginx → Kestrel**, nicht mehr Client → nginx → Kestrel. Die
+Origin-IP steht in keinem DNS-Eintrag. Drei Dinge, die daraus folgen und die man bei jeder
+Fehlersuche zuerst wissen muss:
+
+- **Ein 429 im Browser kommt nie von nginx.** `limit_req` antwortet mit **503**. Ein 429
+  stammt entweder vom Rate-Limiter der Api (nackt, ohne Body — `Program.cs`) oder von
+  Cloudflare selbst. Das Frontend kann die beiden nicht unterscheiden:
+  `apiErrorTranslationKey` mappt auf den Statuscode, beide landen auf
+  `errors.status.rateLimited`. Unterscheidungsmerkmal ist der Response-Header `cf-ray`
+  (Cloudflare) bzw. dessen Fehlen.
+- **Was Cloudflare abweist, erreicht den Origin nie** und steht in keinem nginx-Log. Fehlt
+  eine erwartete Zeile im access.log, ist das der erste Verdacht — dann in die Security
+  Events im CF-Dashboard schauen, nicht weiter auf dem VPS suchen.
+- **`real_ip` ist Voraussetzung dafür, dass die Zonen überhaupt sinnvoll metern.** Ohne
+  `set_real_ip_from` + `real_ip_header CF-Connecting-IP` sieht nginx nur CF-Edge-IPs und
+  wirft die halbe Besucherschaft in einen Eimer. Messbar: am 2026-08-27 sprangen die
+  `limiting requests`-Einträge im error.log auf 2.001 (activitytracker.icu) + 1.003
+  (emotepurge.app) an einem Tag, gegenüber 3–191 pro Tag davor — beide Sites gleichzeitig,
+  weil sie sich die Zone `general` teilen. Behoben am 2026-08-29. Nebeneffekt derselben
+  Zeilen: `X-Forwarded-For` trägt seither wieder die Client-IP, womit auch
+  `Connection.RemoteIpAddress` in der Api stimmt (relevant nur für den IP-Fallback des
+  Rate-Limiters bei anonymen Requests, also praktisch `/api/health`).
+
+**SSH geht nicht über die Domain** — Cloudflare proxyt nur HTTP/HTTPS. Deploys der
+nginx-Config laufen über die Origin-IP; Prozedur in `sensitron/infra-docs`,
+`configs/nginx/README.md`.
+
+**Noch offen:** Ob SSE (`/api/channels/live-events`, `/api/channels/{c}/live`) durch
+Cloudflare unverändert durchkommt, ist nicht systematisch geprüft. `/api/` kommt als
+`cf-cache-status: DYNAMIC` durch, das Snippet setzt `proxy_buffering off` und die Api
+sendet `X-Accel-Buffering: no` — aber ein LIVE-Badge, das ohne Reload umspringt, hat seit
+dem Umzug niemand bewusst beobachtet. Ebenfalls zu prüfen: ob Cloudflares Auto Minify und
+Rocket Loader aus sind.

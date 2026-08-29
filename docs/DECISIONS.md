@@ -37,6 +37,28 @@ Mobil bleibt alles still, ohne Sonderfall: die Readout-Zeile ist `pointer-coarse
 
 ---
 
+### 2026-08-29 — emotepurge.app steht hinter Cloudflare, und nginx musste die echte Besucher-IP zurückbekommen
+
+**Betrifft:** `docs/VPS-Reverse-Proxy.md`, nginx auf dem VPS (`sites-enabled/activitytracker-complete.conf`, Referenzkopie in `sensitron/infra-docs` unter `configs/nginx/`), mittelbar `src/EmotePurge.Api/Program.cs` (Rate-Limiter-Partition)
+
+Die Kette ist seit kurzem **Client → Cloudflare → nginx → Kestrel**, nicht mehr Client → nginx → Kestrel. Die Origin-IP steht in keinem DNS-Eintrag. Der Umzug hat einen latenten Fehler in der nginx-Config scharf gestellt, der vorher folgenlos war.
+
+**Der Fehler.** Die beiden `limit_req_zone`-Direktiven schlüsseln auf `$binary_remote_addr`. Ohne `set_real_ip_from`/`real_ip_header` ist das hinter Cloudflare eine Edge-IP, nicht der Besucher — gemetert wurde also nicht pro Nutzer, sondern die halbe Besucherschaft in einen gemeinsamen Eimer. Verschärfend: die Zone `general` teilt sich diese nginx-Instanz mit projektfremden vHosts.
+
+**Die Messung.** Am 2026-08-27 sprangen die `limiting requests`-Einträge im error.log auf 2.001 (activitytracker.icu) plus 1.003 (emotepurge.app) an einem einzigen Tag, gegenüber 3–191 pro Tag davor. Dass beide Sites gleichzeitig ausschlagen, ist die Signatur des geteilten Eimers: eine Lastquelle genügt, um alle mitzureißen. Vereinzelte Treffer gab es schon vorher — 10r/s für eine SPA-Auslieferung ist knapp bemessen —, aber erst der geteilte Schlüssel machte daraus einen Ausfall.
+
+**Der Fix**, am 2026-08-29 eingespielt und im access.log gegengeprüft: 15 IPv4- und 7 IPv6-Bereiche als `set_real_ip_from` plus `real_ip_header CF-Connecting-IP` im `http`-Kontext, also **vor** den Zonen. Nicht spoofbar, weil nginx den Header nur auswertet, wenn die Verbindung selbst aus einem der Bereiche kommt. Die Ranges ändern sich gelegentlich und sind gegen `cloudflare.com/ips-v4` bzw. `/ips-v6` abzugleichen.
+
+**Drei Dinge, die ab jetzt bei jeder Fehlersuche gelten** — sie haben bei der Ursachenanalyse zu den Rate-Limit-Meldungen (Issues #33/#35) am meisten Zeit gekostet:
+
+- **Ein 429 im Browser kommt nie von nginx.** `limit_req` antwortet mit **503**, ein Überlauf sieht also aus wie ein Ausfall, nicht wie ein Limit. Ein 429 stammt entweder vom Rate-Limiter der Api oder von Cloudflare selbst — und das Frontend kann die beiden nicht unterscheiden, weil `apiErrorTranslationKey` auf den Statuscode mappt und beide auf `errors.status.rateLimited` landen. Unterscheidungsmerkmal ist der Response-Header `cf-ray`.
+- **Was Cloudflare abweist, erreicht den Origin nie** und steht folglich in keinem Log auf dem VPS. Fehlt eine erwartete Zeile im access.log, ist das der erste Verdacht — dann gehört der nächste Blick in die Security Events im CF-Dashboard, nicht weiter auf den Server.
+- **SSH geht nicht über die Domain.** Cloudflare proxyt nur HTTP/HTTPS; Config-Deploys laufen über die Origin-IP.
+
+**Für die Api ändert sich nichts, aber aus einem anderen Grund als vermutet.** Der Rate-Limiter partitioniert nach Twitch-User-Id und fällt nur bei anonymen Requests auf die IP zurück (`Program.cs`), praktisch also nur bei `/api/health`. Diese IP war seit dem Umzug allerdings falsch: `$proxy_add_x_forwarded_for` hängte die Edge-IP hinten an, und `UseForwardedHeaders` nimmt mit dem Default `ForwardLimit = 1` genau den letzten Eintrag. Der nginx-Fix repariert das mit, weil `$remote_addr` danach wieder die Client-IP ist — App-seitig war also nichts zu ändern, aber nicht, weil es egal gewesen wäre.
+
+**Noch offen:** Ob SSE (`/api/channels/live-events`, `/api/channels/{c}/live`) durch Cloudflare unverändert durchkommt, ist nicht systematisch geprüft. `/api/` kommt als `cf-cache-status: DYNAMIC` durch, das Hardening-Snippet setzt `proxy_buffering off` und die Api sendet `X-Accel-Buffering: no` — aber ein LIVE-Badge, das ohne Reload umspringt, hat seit dem Umzug niemand bewusst beobachtet. Ebenfalls zu prüfen: ob Cloudflares Auto Minify und Rocket Loader aus sind.
+
 ### 2026-08-09 — Die Bänder nennen ihren gemessenen Anteil und tragen eine Farbe
 
 **Betrifft:** `web/src/app/shared/emotes/usage-bands.ts`, `web/src/app/shared/grid/atlas-grid.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/src/app/features/landing/set-shape.ts`, `web/public/i18n/*.json`, `web/e2e/{usage-atlas,landing}.e2e.spec.ts`, `docs/UI-Designsprache.md`
