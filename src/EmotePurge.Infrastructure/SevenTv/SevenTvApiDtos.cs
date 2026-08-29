@@ -143,6 +143,13 @@ internal sealed class SevenTvHostJsonDto
 internal sealed class SevenTvFileJsonDto
 {
     public string Name { get; set; } = string.Empty;
+
+    // 7TV's own name for the unanimated still of this same file: "4x_static.webp" on an animated
+    // emote, and simply a repeat of Name on a still one. Reading it means we never have to decide
+    // whether an emote is animated — the payload has already decided. Present on every file of
+    // every emote in both wire formats (verified 2026-08-28: 931/931 emotes of the REST set for
+    // HandOfBlood, and all 12 files of each captured EventAPI frame under Unit/TestData).
+    public string StaticName { get; set; } = string.Empty;
 }
 
 // GQL v4 (host-absolute /v4/gql — the shared BaseAddress points at v3):

@@ -10,6 +10,33 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-29 — Emote-Bilder werden als 4x-Standbild gespeichert, die Animation zieht in den Sidecar
+
+**Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/SevenTvEmoteJsonMapper.cs`, `SevenTvApiDtos.cs`, `web/src/app/shared/emotes/emote-url.ts`, `emote-sprite-animated.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `tests/EmotePurge.Infrastructure.Tests/Unit/SevenTvDispatchParserTests.cs`
+
+Die gespeicherte `ImageUrl` war seit jeher `2x.webp`. Bei einem animierten Emote ist das die vollständige Animation mit allen Frames — für eine Zelle von 64 px.
+
+**Die Messung.** Am 2026-08-28 über HandOfBloods Satz von 931 Emotes, Dateigrößen aus 7TVs eigener API: 630 davon animiert, im Mittel 133 KB als `2x.webp`, Spitzenwerte 1.189 KB (`MALTE`), 1.070 KB (`HenningDance`), 1.044 KB (`teamVibe`). Die statischen 301 liegen bei 7 KB. Der ganze Satz kostete damit 73–84 MB, und der Atlas fordert virtualisiert 150–400 Zellen auf einmal an — 13–18 MB pro Bildschirmfüllung. Als `4x_static.webp` sind es 14,8 MB für denselben Satz, gemessen an denselben 250 Emotes über zwei Durchgänge.
+
+**4x, nicht 2x.** Die Atlas-Zelle ist 64 CSS-px; erst eine 128-px-Quelle bleibt bei Device-Pixel-Ratio 2 scharf. Das kostet hier nichts, weil ohnehin das Standbild angefordert wird. Angulars Oversized-Warnung (NG0913) schlägt erst bei mehr als 1200 px Differenz an, wir liegen 64 px darüber — die Konsole bleibt still.
+
+**Die Fallunterscheidung macht 7TV selbst.** Jeder Eintrag in `host.files` trägt neben `name` ein `static_name`: `4x_static.webp` bei einem animierten Emote, eine Wiederholung von `name` bei einem stillen. Wir lesen es und müssen nie entscheiden, ob ein Emote animiert ist — kein `animated`-Flag durch Entity, DTO und Migration, keine Prod-Migration. Geprüft am 2026-08-28: in 931 von 931 Emoten des REST-Satzes gesetzt, ebenso in allen zwölf Dateien jedes aufgezeichneten EventAPI-Frames unter `Unit/TestData`. Separat verifiziert, dass die Variante genau dann existiert, wenn `animated` wahr ist — 233 Stichproben, 152 animiert mit 200, 81 still mit 404, keine Ausnahme.
+
+**Das `_static` im String ist damit tragend, nicht nebensächlich.** Das Frontend leitet daraus die animierte URL ab (`animatedEmoteUrl`): endet die gespeicherte URL auf `4x_static.webp`, gibt es eine Animation und sie liegt unter `2x.webp`; endet sie nicht darauf, ist das Emote still und es gibt nichts zu holen. Mapper und Ableitung verweisen deshalb wechselseitig aufeinander.
+
+**Die Animation ist nicht weg, sie ist umgezogen** — auf die Flächen, die ein einzelnes Emote zeigen: Sidecar und Readout-Zeile, beide von `(mouseenter)="inspect(emote)"` gespeist. Zwei Details, beide aus dem Verhalten der bestehenden Komponente:
+
+- **Ueberlagert, nicht getauscht.** `EmoteSprite` hält ein noch nicht geladenes Bild bewusst unsichtbar. Ein bloßes Umbinden von `[ngSrc]` hätte das Emote unter dem Zeiger für die Dauer eines 1,2-MB-Downloads ausgeblendet. Stattdessen hält das Standbild die Box — es ist bereits gezeichnet, weil der Atlas genau diese URL geladen hat — und die Animation legt sich darüber, sobald sie dekodiert ist.
+- **200 ms Verweildauer.** Ein Zug quer über das Raster lässt diese Komponente Dutzende Emotes sehen. Ohne die Verzögerung feuerte jede überstrichene Zelle ihre Anfrage. `upgraded` ist auf URL-Identität geschlüsselt statt auf ein bloßes Boolean, aus demselben Grund wie `settled`, nur schärfer: ein von der Vorgängerzelle stehengebliebenes `true` hätte die nächste Animation sofort einhängen lassen und ihr genau die Verweildauer erspart, die sie verdienen sollte.
+
+Mobil bleibt alles still, ohne Sonderfall: die Readout-Zeile ist `pointer-coarse:hidden`, der Sidecar `hidden lg:block`. Auf einem Touchgerät gibt es kein Hover, das eine Animation anfordern könnte.
+
+**Bewusst nicht gebaut: ein eigener Bild-Cache.** Naheliegend, weil die URLs über die 7TV-ObjectID inhaltsadressiert und `immutable` sind und die Domain seit kurzem hinter Cloudflare hängt. Dagegen sprach die Messung: in 916 Anfragen an `cdn.7tv.app` kein einziges 429 — es gibt keine Drosselung, die uns ausbremst. Was es gibt, ist Streuung im Durchsatz (derselbe 13-MB-Burst einmal in 0,9 s, einmal in 14,1 s, beide Male `cache=hit`), und die trifft proportional zur Nutzlast. Ein Cache hätte also Infrastruktur gebaut, um 73 MB schnell auszuliefern, statt die 73 MB nicht zu schicken. Für Wiederkehrer hätte er ohnehin nichts gebracht: 7TV liefert `max-age=31536000, immutable`, der zweite Besuch kommt aus dem Browser-Cache. Die Frage wird nach dieser Änderung neu gestellt, an gemessenen Zahlen statt an einer Vermutung. Zur Größenordnung, falls doch: sechs große Channels ergeben 3.786 eindeutige Emotes, also 21 MB als Standbilder — die Sätze überlappen dabei kaum (3.227 der IDs kommen in genau einem Channel vor, Dedupe-Ersparnis 17,9 %).
+
+**Bestehende Zeilen behalten ihre alte URL, bis ein Resync läuft.** Additive Änderung ohne Migration; der periodische Vollsync schreibt sie ohnehin nach.
+
+---
+
 ### 2026-08-09 — Die Bänder nennen ihren gemessenen Anteil und tragen eine Farbe
 
 **Betrifft:** `web/src/app/shared/emotes/usage-bands.ts`, `web/src/app/shared/grid/atlas-grid.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/src/app/features/landing/set-shape.ts`, `web/public/i18n/*.json`, `web/e2e/{usage-atlas,landing}.e2e.spec.ts`, `docs/UI-Designsprache.md`
