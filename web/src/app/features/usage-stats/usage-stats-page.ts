@@ -122,6 +122,18 @@ const NEVER_USED_SORT_VALUE = Number.NEGATIVE_INFINITY;
 const SYNC_POLL_INTERVAL_MS = 2000;
 const SYNC_POLL_MAX_ATTEMPTS = 15;
 
+// A shown sync-failure reason is already a true statement, not a blind wait — this is NOT the
+// abolished sync burst coming back (see awaitSync below): the page has something to say the whole
+// time, it just has to keep saying the right thing. Nothing tells an open page when that changes:
+// SyncChannelAsync returns null both when a sync fails again (case 1: the reason itself can flip,
+// e.g. no_seventv_account -> no_active_emote_set once someone registers) and when it succeeds but
+// changes nothing (case 2: emoteSetSwitched and inventoryChanged both false), so `channel.synced`
+// never fires for either case and the live subscription above cannot help. Polling is the fallback.
+// 30 s because the backend's own resync runs every 60 s (SevenTv:ResyncIntervalSeconds,
+// SevenTvPeriodicResyncWorker) — asking faster could not possibly see a fresher answer, and this
+// halves the worst-case staleness against that floor.
+const SYNC_FAILURE_RECHECK_INTERVAL_MS = 30000;
+
 // Buckets in the distribution strip. Around a hundred is what fits across the content width at one
 // readable bar plus gutter — enough to show where the curve's knee sits, few enough that each bar
 // stays a bar rather than a hairline.
@@ -658,6 +670,45 @@ export class UsageStatsPage {
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
         this.refreshSetStatus();
       }
+    });
+
+    // Keeps a shown sync-failure reason current — see the constant's comment for why polling is the
+    // only option here. A signal effect already gives "start when true, stop when false, restart on
+    // change" for free: syncFailureReason() and channelName() are the only two reads before the
+    // timer is built, so a resolved reason, a cleared reason or a channel switch all clean up the
+    // same way, through onCleanup — which also cancels an in-flight request, not just future ticks,
+    // so a channel switch mid-poll cannot land a foreign channel's status on this page (getSetStatus
+    // is a plain HttpClient call with no shareReplay, so unsubscribing does cancel it).
+    effect((onCleanup) => {
+      const reason = this.syncFailureReason();
+      if (!reason) {
+        return;
+      }
+      const channelName = this.channelName();
+
+      const recheck = timer(SYNC_FAILURE_RECHECK_INTERVAL_MS, SYNC_FAILURE_RECHECK_INTERVAL_MS)
+        .pipe(
+          switchMap(() =>
+            this.emoteAdminService.getSetStatus(channelName).pipe(catchError(() => of(null))),
+          ),
+        )
+        .subscribe((status) => {
+          if (!status) {
+            return;
+          }
+          this.setStatus.set(status);
+          // Mirrors awaitSync's own resolution: a resolved set id needs the grid filled in, which a
+          // status refresh alone does not do. Read now rather than closed over at effect start,
+          // because the range can change while this keeps polling (see the comment above — range
+          // changes do not re-run this effect) and a stale from/to would fetch the wrong window.
+          if (status.activeEmoteSetId) {
+            this.loadTotals(channelName, this.from(), this.to(), {
+              preserveSelection: true,
+              silent: true,
+            });
+          }
+        });
+      onCleanup(() => recheck.unsubscribe());
     });
   }
 
