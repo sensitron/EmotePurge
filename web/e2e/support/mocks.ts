@@ -214,6 +214,8 @@ export interface MockAdminChannel {
   lastInventoryChangeUtc?: string | null;
   activeEmoteSetId?: string | null;
   activeEmoteSetCapacity?: number | null;
+  lastSyncFailureReason?: string | null;
+  lastSyncAttemptAtUtc?: string | null;
   liveState?: 'live' | 'offline' | 'unknown';
 }
 
@@ -240,6 +242,8 @@ export async function mockAdminChannelList(
         lastInventoryChangeUtc: c.lastInventoryChangeUtc ?? null,
         activeEmoteSetId: c.activeEmoteSetId ?? null,
         activeEmoteSetCapacity: c.activeEmoteSetCapacity ?? null,
+        lastSyncFailureReason: c.lastSyncFailureReason ?? null,
+        lastSyncAttemptAtUtc: c.lastSyncAttemptAtUtc ?? null,
         trackingResumedAt: null,
         liveState: c.liveState ?? 'unknown',
       })),
@@ -287,6 +291,8 @@ export async function mockAdminChannelDetail(
         lastInventoryChangeUtc: channel.lastInventoryChangeUtc ?? null,
         activeEmoteSetId: channel.activeEmoteSetId ?? null,
         activeEmoteSetCapacity: channel.activeEmoteSetCapacity ?? null,
+        lastSyncFailureReason: channel.lastSyncFailureReason ?? null,
+        lastSyncAttemptAtUtc: channel.lastSyncAttemptAtUtc ?? null,
         trackingResumedAt: null,
         liveState: channel.liveState ?? 'unknown',
       },
