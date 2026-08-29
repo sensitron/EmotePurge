@@ -129,6 +129,44 @@ test.describe('authenticated broadcaster', () => {
     await expect(page.getByText('mehrfach vergeben')).toHaveCount(0);
   });
 
+  test('a burst of sync events costs one duplicate-names refetch, not one per event', async ({
+    page,
+  }) => {
+    // The measured cause of issue #35: a 7TV mass delete pushes one channel.synced per removed
+    // emote (~275 ms apart) and the workspace layout refetched the collision set on every one of
+    // them — 22 of the 38 requests the API rejected with 429 on 2026-08-28.
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+
+    // Counted instead of mocked through mockDuplicateEmoteNames: the number of calls *is* the
+    // assertion here.
+    let duplicateNameRequests = 0;
+    await page.route('**/api/channels/sensitron/emotes/duplicate-names', (route) => {
+      duplicateNameRequests++;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+    expect(duplicateNameRequests).toBe(1);
+
+    // Emitted inside one evaluate so the five frames really are one burst — five separate
+    // round-trips from the test runner could straddle the debounce window.
+    await page.evaluate(() => {
+      const emit = (window as unknown as { __emitLive: (event: unknown) => void }).__emitLive;
+      for (let index = 0; index < 5; index++) {
+        emit({ type: 'channel.synced', channel: 'sensitron' });
+      }
+    });
+
+    // One debounce window plus slack. waitForTimeout is the honest tool here: the thing under test
+    // is that nothing happens for a second.
+    await page.waitForTimeout(1500);
+
+    expect(duplicateNameRequests).toBe(2);
+  });
+
   test('resync reports queued and upgrades to finished when the sync event arrives', async ({
     page,
   }) => {
@@ -147,6 +185,64 @@ test.describe('authenticated broadcaster', () => {
     await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
 
     await expect(page.getByText('Resync abgeschlossen.')).toBeVisible();
+  });
+
+  // Regression pair for the race the shared liveReload subscription produced once it started
+  // debouncing the resync confirmation alongside the duplicate-names refetch (see
+  // channel-workspace-layout.ts): a stray event straddling the click either faked a finish that
+  // never happened, or a real finish went missing behind the debounce window. The fix splits the
+  // confirmation onto its own undebounced subscription; these two cases pin the reason it needed to
+  // be undebounced, not just that it still eventually turns green.
+  test('a channel.synced shortly before the resync click does not report a premature finish', async ({
+    page,
+  }) => {
+    // Stands in for the periodic sync from #35's t=0: it used to sit in the shared debounce window
+    // and fire only after the click's 202 had set resyncFeedbackKey, reporting "abgeschlossen" for a
+    // resync that had barely started. The confirmation handler now only acts while
+    // resyncFeedbackKey is already set, so an event that arrived before the click must never flip it
+    // — however long afterwards we wait.
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockChannelScopedResync(page, 'sensitron');
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+
+    // A sync from before the user touched anything on this page.
+    await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
+
+    await page.getByRole('button', { name: 'Neu synchronisieren' }).click();
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+
+    // Longer than CHANNEL_RELOAD_DEBOUNCE_MS (1000 ms): the old bug needed exactly this wait for the
+    // stale event to fall out of the debounce window and fire.
+    await page.waitForTimeout(1500);
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+    await expect(page.getByText('Resync abgeschlossen.')).toHaveCount(0);
+  });
+
+  test('a channel.synced after the resync click upgrades to finished without waiting out a debounce window', async ({
+    page,
+  }) => {
+    // The other half of the same bug: during a dense burst (7TV mass delete, ~275 ms apart) the
+    // shared debounce window never elapsed, so a resync started mid-burst could lose its
+    // confirmation entirely once RESYNC_FEEDBACK_MS cleared "angestoßen" back off screen. The
+    // confirmation subscription only sets a signal — it makes no HTTP request — so it no longer
+    // needs debouncing at all; the tight timeout below is what tells this apart from the old,
+    // merely-eventually-correct behaviour.
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockChannelScopedResync(page, 'sensitron');
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await page.getByRole('button', { name: 'Neu synchronisieren' }).click();
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+
+    await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
+
+    await expect(page.getByText('Resync abgeschlossen.')).toBeVisible({ timeout: 500 });
   });
 
   // The endpoint sits behind the wider permission check on purpose: the person who just added an

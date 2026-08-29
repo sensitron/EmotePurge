@@ -30,6 +30,7 @@ export const KNOWN_API_ERROR_CODES = new Set([
   'vote_session_ended',
   'emote_not_eligible',
   'resync_cooldown_active',
+  'rate_limit_exceeded',
   'unexpected_error',
   'no_health_data',
   'health_data_unreadable',
@@ -48,10 +49,16 @@ export const GENERIC_ERROR_TRANSLATION_KEY = 'errors.generic';
  * recognized `errorCode` body, otherwise a message derived from the status code.
  *
  * The status fallback exists because a large share of real failures carry no body at all — the four
- * authorization endpoint filters answer with a bare `Forbid()`, the rate limiter with a bare 429,
- * a dropped connection with status 0. All of those used to collapse into "Etwas ist schiefgelaufen.
- * Bitte versuch es erneut.", which told a freshly promoted moderator to retry an action that could
- * not succeed until the mod-role cache expired.
+ * authorization endpoint filters answer with a bare `Forbid()`, a dropped connection has status 0.
+ * All of those used to collapse into "Etwas ist schiefgelaufen. Bitte versuch es erneut.", which
+ * told a freshly promoted moderator to retry an action that could not succeed until the mod-role
+ * cache expired.
+ *
+ * Our own rate limiter left the same gap until 2026-08-29 and now sends `rate_limit_exceeded` with a
+ * `Retry-After`. `errors.status.rateLimited` therefore stays, but from here on it covers the 429s
+ * that did *not* come from this API — nginx, Cloudflare, a proxy in between. Both keys carry the
+ * same sentence on purpose: which service throttled is a diagnostic fact, not a different
+ * instruction to the user.
  */
 export function apiErrorTranslationKey(error: HttpErrorResponse): string {
   const code = (error.error as { errorCode?: string } | null)?.errorCode;

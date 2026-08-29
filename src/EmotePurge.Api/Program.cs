@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.RegularExpressions;
 using EmotePurge.Api.Auth;
 using EmotePurge.Api.Endpoints;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure;
@@ -12,7 +13,6 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
-using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -96,6 +96,16 @@ builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+    // Until 2026-08-29 there was none, and a rejected request left no trace anywhere on this side —
+    // see RateLimitRejection for what that cost.
+    options.OnRejected = RateLimitRejection.OnRejectedAsync;
+
+    // Names the policy exactly once. The partitioner needs the name for the rejection log, and
+    // AddPolicy does not hand it over.
+    void AddPerUserPolicy(string policyName, int permitLimit) =>
+        options.AddPolicy(policyName, httpContext =>
+            RateLimitRejection.PartitionPerUser(httpContext, policyName, permitLimit));
+
     // Strict: every endpoint under this policy makes uncached calls to Twitch Helix or 7TV, and
     // those quotas are per application, not per user. A single looping account could therefore
     // exhaust the app-wide bucket, at which point Helix returns nothing for *everyone* and
@@ -105,40 +115,29 @@ builder.Services.AddRateLimiter(options =>
     // every overview visit, /permissions plus usage-stats on every workspace entry), so 20/min
     // ran out after ~7 page switches of plain clicking. The worst case per account stays below
     // the app-wide Helix bucket (~800/min) even at /mine's up-to-10 Helix calls per request.
-    options.AddPolicy("ExternalApi", httpContext => PartitionPerUser(httpContext, permitLimit: 40));
+    // Deliberately not raised again on 2026-08-29: the second round of 429s (issues #33/#35) was
+    // request volume, not ceiling — the fix is in the frontend's reload cycle.
+    AddPerUserPolicy("ExternalApi", permitLimit: 40);
 
     // Generous: bookkeeping against our own database with no downstream cost. Deliberately split
     // out of the strict policy — sync-deleted is the one call that must never be dropped (a 429
     // there leaves the database diverging from 7TV with no signal), and it used to share the
     // 20/min budget with join and the vote endpoints.
-    options.AddPolicy("Bookkeeping", httpContext => PartitionPerUser(httpContext, permitLimit: 120));
+    AddPerUserPolicy("Bookkeeping", permitLimit: 120);
 
     // Stricter than ExternalApi by a factor of eight, for the one endpoint a user can trigger that
     // costs an unconditional 7TV call *and* fans a live event out to every open page of the channel.
     // It is only half the guard: this partitions per user, so fifteen moderators of one channel
     // would still get fifteen budgets — the per-channel half is IChannelResyncCooldown. Neither
     // mechanism covers the other's case.
-    options.AddPolicy("ChannelResync", httpContext => PartitionPerUser(httpContext, permitLimit: 5));
+    AddPerUserPolicy("ChannelResync", permitLimit: 5);
 
     // For the payload-free GET /api/health: public and anonymous, so this always partitions by IP
     // (PartitionPerUser falls back to it). One Redis read per hit — cheap, but unauthenticated,
     // and its legitimate callers are machines on fixed cadences: the container HEALTHCHECK
     // (every 30 s, from localhost) and the external uptime monitor (every 60 s).
-    options.AddPolicy("PublicHealth", httpContext => PartitionPerUser(httpContext, permitLimit: 30));
+    AddPerUserPolicy("PublicHealth", permitLimit: 30);
 });
-
-static RateLimitPartition<string> PartitionPerUser(HttpContext httpContext, int permitLimit)
-{
-    var partitionKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
-        ?? httpContext.Connection.RemoteIpAddress?.ToString()
-        ?? "unknown";
-    return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
-    {
-        PermitLimit = permitLimit,
-        Window = TimeSpan.FromMinutes(1),
-        QueueLimit = 0
-    });
-}
 
 var app = builder.Build();
 

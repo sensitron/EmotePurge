@@ -10,6 +10,46 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-29 — Ein Reload-Zyklus pro Channel, eine SSE-Verbindung pro URL
+
+**Betrifft:** `web/src/app/core/live/live-update.service.ts`, `web/src/app/core/live/live-reload.ts`, `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/usage-stats/usage-stats-page.ts`, `web/e2e/channel-workspace.e2e.spec.ts`
+
+Die 429er aus #33 und #35 kamen nicht von einer zu niedrigen Decke, sondern von der Zahl der Anfragen. Zwei Ursachen, beide im Frontend.
+
+**`LiveUpdateService.stream()` war kalt.** Jeder Abonnent bekam seine eigene `EventSource`, und die Abonnenten sitzen übereinander: Workspace-Layout und die darin geroutete Seite hören auf dieselbe Channel-URL, die Admin-Monitoring-Seite auf bis zu drei. Das waren pro Nutzer mehrere Verbindungen, mehrere Auth-Handshakes und mehrere Slots im `ILiveEventStream`-Budget für denselben Datenstrom. `stream()` ist jetzt Multicast und ref-gezählt pro URL: der erste Abonnent öffnet, der letzte schließt. Kalt bleibt es trotzdem — nichts wird geöffnet, bis jemand abonniert, und eine URL, deren Abonnenten alle weg sind, wird beim nächsten neu aufgebaut. Ohne diesen Neuaufbau hätte der `switchMap` in `liveEvents` nach dem Zurücknavigieren ein totes Observable geliefert, also einen Nutzer ohne Live-Updates, der nichts davon merkt.
+
+**Der Workspace-Reload lief ungedrosselt.** `channel-workspace-layout.ts` hing an `liveEvents` und holte `emotes/duplicate-names` bei *jedem* `channel.synced`. Ein 7TV-Massen-Löschen schiebt eines davon pro entferntem Emote, etwa alle 275 ms — das waren 22 der 38 gemessenen Ablehnungen vom 2026-08-28. Die Seite hängt jetzt an `liveReload` mit demselben Fenster wie die Usage-Seite.
+
+**Die Debounce-Konstante ist geteilt, nicht zweimal dieselbe Zahl.** `CHANNEL_RELOAD_DEBOUNCE_MS = 1000` liegt in `live-reload.ts`, weil die beiden Seiten gleichzeitig montiert sind und auf derselben Verbindung hören: ein Wert heißt eine Burst-Grenze für beide. Die Vote-Session-Detailseite behält bewusst ihr kürzeres 500-ms-Fenster — dort ist die Auszählung genau das, worauf der Nutzer schaut, und sie ist nie gleichzeitig mit dem Massen-Löschen offen.
+
+**`debounceTime`, nicht `throttle` — und das ist Absicht.** Bei einem Event alle 275 ms verstreicht das Fenster während des Laufs gar nicht; der ganze Massen-Löschvorgang kollabiert auf einen Refetch am Ende statt auf einen pro Sekunde. Für den Fall, auf den es ankommt, ist das die stärkere Drosselung. Die Resync-Bestätigung ist ein einzelnes Event und wird dadurch um genau eine Sekunde verzögert, weit innerhalb von `RESYNC_FEEDBACK_MS` (4000).
+
+**Warum das Limit nicht angehoben wurde**, steht im Eintrag zur Beobachtbarkeit des Limiters vom selben Tag.
+
+---
+
+### 2026-08-29 — Der Rate-Limiter sagt, dass er abgelehnt hat: Log, Retry-After und ein Fehlercode
+
+**Betrifft:** `src/EmotePurge.Api/RateLimiting/RateLimitRejection.cs`, `src/EmotePurge.Api/Program.cs`, `src/EmotePurge.Api/Validation/ApiErrorCodes.cs`, `tests/EmotePurge.Api.Tests/RateLimitRejectionTests.cs`, `web/src/app/core/i18n/api-error.ts`, `web/public/i18n/*.json`
+
+Der Rate-Limiter hatte kein `OnRejected`. Eine Ablehnung war damit ein nackter 429: kein Body, kein `Retry-After`, keine Logzeile. Serverseitig war nicht erkennbar, dass überhaupt jemand abgelehnt worden war.
+
+**Was das gekostet hat.** Die Issues #33 („A User with many Channels gets a rate limit error on first login") und #35 („User got a rate limit error when deleting emotes") brauchten zwei Untersuchungsrunden und einen Zugriff auf das Produktions-nginx-Log, nur um die Frage zu beantworten, *wer* die 429er schickt. Sie kamen aus unserer eigenen Policy `ExternalApi`; Cloudflare und nginx waren als Verdächtige nur deshalb im Rennen, weil unsere Antwort nichts über sich selbst aussagte. Die Auswertung des Logs vom 2026-08-28 ergab 38 Ablehnungen, 22 davon auf `emotes/duplicate-names`.
+
+**Der neue Vertrag.** Jede vom Limiter abgelehnte Anfrage antwortet ab sofort mit `429`, einem `Retry-After`-Header in ganzen Sekunden und dem Body `{"errorCode":"rate_limit_exceeded","retryAfterSeconds":<int>}`. Das ist dieselbe Form, die `resync_cooldown_active` seit jeher hat, weshalb das Frontend keinen Sonderfall braucht: `apiErrorTranslationKey` erkennt den Code und rendert `errors.api.rate_limit_exceeded`.
+
+**Der Status-Fallback bleibt und ändert seine Bedeutung.** `errors.status.rateLimited` deckt ab jetzt genau die 429er ab, die *nicht* von uns kommen — nginx, Cloudflare, ein zwischengeschalteter Proxy. Der Text der beiden Schlüssel ist bewusst wortgleich: welcher Dienst gedrosselt hat, ist eine Diagnose-Eigenschaft und keine, die dem Nutzer eine andere Handlungsanweisung gibt. `retryAfterSeconds` steht im Body und wird heute nicht angezeigt — dafür müsste `apiErrorTranslationKey` Parameter durchreichen, was jede Aufrufstelle anfasst.
+
+**Die Logzeile nennt drei Dinge**, weil genau diese drei aus dem nginx-Log rekonstruiert werden mussten: welche Policy, welcher Pfad, welcher Partition-Key. Der Key ist für jeden angemeldeten Aufrufer die Twitch-User-Id und nur beim anonymen `/api/health` die Remote-IP — beides hält der Host ohnehin schon, in der Datenbank respektive im Access-Log des Reverse Proxy. Die Log-Kategorie ist der feste String `EmotePurge.Api.RateLimiting` statt `ILogger<Program>`: die Aggregation (S3-36) alarmiert darauf, und eine aus einem Typ abgeleitete Kategorie wandert mit dem Typ.
+
+**Partitionierung und Ablehnung liegen in einer Klasse**, weil sie sich ein Geheimnis teilen: nur die Partitionsfabrik weiß, wie der Key zustande kam (Claim → IP → `unknown`), und nur die Ablehnung braucht ihn. Sie reicht ihn über `HttpContext.Items` weiter, statt die Kette ein zweites Mal nachzubauen — zwei Kopien einer Fallback-Kette, die auseinanderlaufen können, ausgerechnet an der Stelle, deren ganze Aufgabe es ist, genau zu sagen, was passiert ist.
+
+**`Retry-After` auf .NET 10 ist eine Überschätzung, und das ist die richtige Richtung.** `FixedWindowRateLimiter` meldet als `MetadataName.RetryAfter` das ganze Fenster statt der Restzeit; wer es abwartet, ist immer über der Grenze. .NET 11 macht den Wert exakt, ohne dass hier etwas zu ändern wäre.
+
+**Das Limit wurde nicht angehoben.** Naheliegend, und schon einmal getan — von 20 auf 40, was das Problem verschob statt es zu lösen. `ExternalApi` schützt nicht unsere Datenbank, sondern die app-weiten Helix- und 7TV-Kontingente: ein einzelner schleifender Account leert sie, und danach verliert jeder Moderator jedes Channels stillschweigend seine Rechte. Die Ursache lag in der Requestzahl, nicht in der Decke — s. den Eintrag zum Reload-Zyklus im selben Datum.
+
+---
+
 ### 2026-08-29 — Emote-Bilder werden als 4x-Standbild gespeichert, die Animation zieht in den Sidecar
 
 **Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/SevenTvEmoteJsonMapper.cs`, `SevenTvApiDtos.cs`, `web/src/app/shared/emotes/emote-url.ts`, `emote-sprite-animated.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `tests/EmotePurge.Infrastructure.Tests/Unit/SevenTvDispatchParserTests.cs`

@@ -32,6 +32,12 @@ internal static class ApiErrorCodes
     public const string VoteSessionNotFound = "vote_session_not_found";
     public const string VoteSessionEnded = "vote_session_ended";
     public const string EmoteNotEligible = "emote_not_eligible";
+    // The generic rate limiter's 429, distinct from ResyncCooldownActive above: that one names a
+    // per-channel cooldown any moderator can trip, this one means the caller's own per-minute budget
+    // is spent. Both carry retryAfterSeconds and a Retry-After header, so the frontend can say which
+    // of the two happened instead of falling back to one message for every 429 in existence.
+    public const string RateLimitExceeded = "rate_limit_exceeded";
+
     // Returned by the global exception handler — deliberately opaque, no exception detail.
     public const string UnexpectedError = "unexpected_error";
     public const string NoHealthData = "no_health_data";
