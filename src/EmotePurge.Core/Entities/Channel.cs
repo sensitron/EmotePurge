@@ -30,5 +30,19 @@ public class Channel
     // doing double duty. Null means no full sync has ever completed since this column existed.
     public DateTime? LastSyncedAtUtc { get; set; }
 
+    // When the last full 7TV sync attempt finished, successful or not. Deliberately a second column
+    // next to LastSyncedAtUtc rather than a reinterpretation of it: the pair is the diagnosis. Equal
+    // values mean the last attempt succeeded; a fresh attempt next to an old success means the
+    // channel has been failing since then. Without it, a reason written three days ago would read as
+    // a statement about right now.
+    public DateTime? LastSyncAttemptAtUtc { get; set; }
+
+    // Why that last attempt produced nothing, as one of SevenTvSyncFailureReasons — null when it
+    // succeeded. Null plus an empty ActiveEmoteSetId is therefore the honest "no sync has been
+    // attempted yet", which is precisely the state the usage page polls on. Cleared by
+    // SevenTvSyncService on every successful sync, in the same block that stamps LastSyncedAtUtc, so
+    // a channel that fixed its 7TV side stops being told it is broken.
+    public string? LastSyncFailureReason { get; set; }
+
     public ICollection<Emote> Emotes { get; set; } = new List<Emote>();
 }

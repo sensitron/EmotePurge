@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
@@ -88,6 +89,40 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         Assert.NotNull(status);
         Assert.Equal(string.Empty, status.ActiveEmoteSetId);
         Assert.Equal(0, status.OccupiedSlots);
+    }
+
+    [Fact]
+    public async Task GetAsync_ReportsThePersistedSyncFailureReason()
+    {
+        // The whole point of issue #32: "empty set id" alone cannot tell a channel whose first sync
+        // is still running apart from one that has no active emote set on 7TV at all. The reason
+        // column is what separates them, so it has to survive the round trip through Postgres.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest7", capacity: null, activeEmoteSetId: "");
+        channel.LastSyncFailureReason = SevenTvSyncFailureReasons.NoActiveEmoteSet;
+        channel.LastSyncAttemptAtUtc = new DateTime(2026, 8, 29, 10, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Equal("no_active_emote_set", status.SyncFailureReason);
+        Assert.Equal(new DateTime(2026, 8, 29, 10, 0, 0, DateTimeKind.Utc), status.LastSyncAttemptAtUtc);
+    }
+
+    [Fact]
+    public async Task GetAsync_NeverAttempted_ReportsNeitherReasonNorAttempt()
+    {
+        // The fourth state from the analysis: a freshly joined channel. Both fields null is what
+        // lets the usage page keep polling instead of claiming a cause it does not have.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest8", capacity: null, activeEmoteSetId: "");
+
+        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Null(status.SyncFailureReason);
+        Assert.Null(status.LastSyncAttemptAtUtc);
     }
 
     [Fact]

@@ -26,6 +26,8 @@ public class EmoteSetStatusService(AppDbContext db) : IEmoteSetStatusService
             channel.ActiveEmoteSetId,
             channel.ActiveEmoteSetCapacity,
             occupiedSlots,
-            channel.TrackingResumedAt ?? channel.CreatedAt);
+            channel.TrackingResumedAt ?? channel.CreatedAt,
+            channel.LastSyncFailureReason,
+            channel.LastSyncAttemptAtUtc);
     }
 }

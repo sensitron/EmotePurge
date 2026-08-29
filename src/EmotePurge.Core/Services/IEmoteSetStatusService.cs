@@ -19,7 +19,23 @@ namespace EmotePurge.Core.Services;
 /// Since when this channel's usage data can be trusted: the last join that reactivated the channel,
 /// or its creation if it was never left and rejoined. Older than this, we simply were not counting.
 /// </param>
-public record EmoteSetStatusDto(string ActiveEmoteSetId, int? Capacity, int OccupiedSlots, DateTime TrackedSince);
+/// <param name="SyncFailureReason">
+/// One of <see cref="SevenTvSyncFailureReasons"/>, or <c>null</c> when the last sync attempt
+/// succeeded — or when none has been made yet. Together with an empty
+/// <paramref name="ActiveEmoteSetId"/> that absence is what tells "the first sync is still running"
+/// apart from "this channel has no active emote set on 7TV", which used to look identical.
+/// </param>
+/// <param name="LastSyncAttemptAtUtc">
+/// When the last attempt finished, successful or not. <c>null</c> means none has been made. Read
+/// with <paramref name="SyncFailureReason"/>: it says how current the reason is.
+/// </param>
+public record EmoteSetStatusDto(
+    string ActiveEmoteSetId,
+    int? Capacity,
+    int OccupiedSlots,
+    DateTime TrackedSince,
+    string? SyncFailureReason,
+    DateTime? LastSyncAttemptAtUtc);
 
 public interface IEmoteSetStatusService
 {

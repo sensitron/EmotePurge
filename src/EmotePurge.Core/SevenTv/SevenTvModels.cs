@@ -61,3 +61,39 @@ public record SevenTvIdentity(string SevenTvUserId, string? ActiveEmoteSetId);
 // One entry in a 7TV user's editor_of list, reduced to the Twitch identity of the channel they can
 // edit — the 7TV-internal user id of the owner isn't needed by any current consumer.
 public record SevenTvEditorGrant(string TwitchChannelLogin, string TwitchChannelId);
+
+// Why a 7TV lookup produced no usable answer. Four outcomes used to collapse onto one `null`
+// (issue #32): "no 7TV account", "account but no active emote set", "7TV unreachable" and "never
+// synced" were indistinguishable, and the second one did not even log. Ok is not a failure and
+// never reaches the wire — SevenTvSyncFailureReasons maps the other three onto the API contract.
+public enum SevenTvLookupStatus
+{
+    Ok,
+    NoSevenTvAccount,
+    NoActiveEmoteSet,
+    Unavailable
+}
+
+// The channel state plus why it is absent. State is non-null if and only if Status is Ok; the two
+// factories are the only supported way to build one, so that invariant cannot be broken at a call
+// site.
+public record SevenTvChannelStateResult(SevenTvLookupStatus Status, SevenTvChannelState? State)
+{
+    public static SevenTvChannelStateResult Ok(SevenTvChannelState state) =>
+        new(SevenTvLookupStatus.Ok, state);
+
+    public static SevenTvChannelStateResult Failed(SevenTvLookupStatus status) =>
+        new(status, null);
+}
+
+// Same shape for the Twitch-id resolution, which can only ever end in Ok, NoSevenTvAccount (no 7TV
+// user carries that Twitch connection) or Unavailable. A separate record rather than a generic
+// envelope: the property name says what it holds, which a `Value` never would.
+public record SevenTvTwitchUserIdResult(SevenTvLookupStatus Status, string? TwitchUserId)
+{
+    public static SevenTvTwitchUserIdResult Ok(string twitchUserId) =>
+        new(SevenTvLookupStatus.Ok, twitchUserId);
+
+    public static SevenTvTwitchUserIdResult Failed(SevenTvLookupStatus status) =>
+        new(status, null);
+}
