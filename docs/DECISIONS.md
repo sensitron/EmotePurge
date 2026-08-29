@@ -10,6 +10,24 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-29 — Ein Reload-Zyklus pro Channel, eine SSE-Verbindung pro URL
+
+**Betrifft:** `web/src/app/core/live/live-update.service.ts`, `web/src/app/core/live/live-reload.ts`, `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/usage-stats/usage-stats-page.ts`, `web/e2e/channel-workspace.e2e.spec.ts`
+
+Die 429er aus #33 und #35 kamen nicht von einer zu niedrigen Decke, sondern von der Zahl der Anfragen. Zwei Ursachen, beide im Frontend.
+
+**`LiveUpdateService.stream()` war kalt.** Jeder Abonnent bekam seine eigene `EventSource`, und die Abonnenten sitzen übereinander: Workspace-Layout und die darin geroutete Seite hören auf dieselbe Channel-URL, die Admin-Monitoring-Seite auf bis zu drei. Das waren pro Nutzer mehrere Verbindungen, mehrere Auth-Handshakes und mehrere Slots im `ILiveEventStream`-Budget für denselben Datenstrom. `stream()` ist jetzt Multicast und ref-gezählt pro URL: der erste Abonnent öffnet, der letzte schließt. Kalt bleibt es trotzdem — nichts wird geöffnet, bis jemand abonniert, und eine URL, deren Abonnenten alle weg sind, wird beim nächsten neu aufgebaut. Ohne diesen Neuaufbau hätte der `switchMap` in `liveEvents` nach dem Zurücknavigieren ein totes Observable geliefert, also einen Nutzer ohne Live-Updates, der nichts davon merkt.
+
+**Der Workspace-Reload lief ungedrosselt.** `channel-workspace-layout.ts` hing an `liveEvents` und holte `emotes/duplicate-names` bei *jedem* `channel.synced`. Ein 7TV-Massen-Löschen schiebt eines davon pro entferntem Emote, etwa alle 275 ms — das waren 22 der 38 gemessenen Ablehnungen vom 2026-08-28. Die Seite hängt jetzt an `liveReload` mit demselben Fenster wie die Usage-Seite.
+
+**Die Debounce-Konstante ist geteilt, nicht zweimal dieselbe Zahl.** `CHANNEL_RELOAD_DEBOUNCE_MS = 1000` liegt in `live-reload.ts`, weil die beiden Seiten gleichzeitig montiert sind und auf derselben Verbindung hören: ein Wert heißt eine Burst-Grenze für beide. Die Vote-Session-Detailseite behält bewusst ihr kürzeres 500-ms-Fenster — dort ist die Auszählung genau das, worauf der Nutzer schaut, und sie ist nie gleichzeitig mit dem Massen-Löschen offen.
+
+**`debounceTime`, nicht `throttle` — und das ist Absicht.** Bei einem Event alle 275 ms verstreicht das Fenster während des Laufs gar nicht; der ganze Massen-Löschvorgang kollabiert auf einen Refetch am Ende statt auf einen pro Sekunde. Für den Fall, auf den es ankommt, ist das die stärkere Drosselung. Die Resync-Bestätigung ist ein einzelnes Event und wird dadurch um genau eine Sekunde verzögert, weit innerhalb von `RESYNC_FEEDBACK_MS` (4000).
+
+**Warum das Limit nicht angehoben wurde**, steht im Eintrag zur Beobachtbarkeit des Limiters vom selben Tag.
+
+---
+
 ### 2026-08-29 — Emote-Bilder werden als 4x-Standbild gespeichert, die Animation zieht in den Sidecar
 
 **Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/SevenTvEmoteJsonMapper.cs`, `SevenTvApiDtos.cs`, `web/src/app/shared/emotes/emote-url.ts`, `emote-sprite-animated.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `tests/EmotePurge.Infrastructure.Tests/Unit/SevenTvDispatchParserTests.cs`

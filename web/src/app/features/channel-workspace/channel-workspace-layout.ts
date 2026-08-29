@@ -11,7 +11,7 @@ import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { pluralKey } from '../../core/i18n/plural';
 import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
-import { liveEvents } from '../../core/live/live-reload';
+import { CHANNEL_RELOAD_DEBOUNCE_MS, liveReload } from '../../core/live/live-reload';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { BackLink } from '../../shared/ui/back-link';
@@ -221,9 +221,18 @@ export class ChannelWorkspaceLayout {
     // periodic one, precisely so this confirmation can exist. The stream is already scoped to this
     // channel, so no event needs inspecting — but the upgrade only fires while a resync of ours is
     // still on screen, otherwise the periodic sync of any channel would announce itself.
-    liveEvents(
+    //
+    // liveReload rather than liveEvents, since 2026-08-29: a 7TV mass delete pushes one
+    // channel.synced per removed emote, roughly every 275 ms, and this handler refetches
+    // duplicate-names on every one of them. Undebounced that was the single largest source of the
+    // 429s in issue #35 — 22 of 38 rejected requests. The window delays the resync confirmation by
+    // at most one second, which is well inside RESYNC_FEEDBACK_MS.
+    liveReload(
       computed(() => channelLiveUrl(this.channelName())),
-      [LIVE_EVENT_TYPES.channelSynced],
+      {
+        accept: [LIVE_EVENT_TYPES.channelSynced],
+        debounceMs: CHANNEL_RELOAD_DEBOUNCE_MS,
+      },
     ).subscribe(() => {
       if (this.resyncFeedbackKey() !== null) {
         this.showResyncFeedback('channelWorkspace.resync.completed');

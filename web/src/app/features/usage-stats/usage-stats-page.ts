@@ -34,7 +34,7 @@ import {
   openCreateVoteSessionDialog,
 } from './create-vote-session-dialog';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
-import { liveReload } from '../../core/live/live-reload';
+import { CHANNEL_RELOAD_DEBOUNCE_MS, liveReload } from '../../core/live/live-reload';
 import { ChannelUsageSeries, EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatService } from '../../core/usage-stats/usage-stat.service';
 import {
@@ -120,11 +120,6 @@ const NEVER_USED_SORT_VALUE = Number.NEGATIVE_INFINITY;
 // takes one or two, with headroom for a slow 7TV.
 const SYNC_POLL_INTERVAL_MS = 2000;
 const SYNC_POLL_MAX_ATTEMPTS = 15;
-
-// The worker flushes chat usage in 30-second batches, so pushes arrive in bursts rather than
-// continuously. One second of debounce merges a burst (several channels' flushes land in the same
-// tick) into a single refetch without making the update feel delayed.
-const USAGE_RELOAD_DEBOUNCE_MS = 1000;
 
 // Buckets in the distribution strip. Around a hundred is what fits across the content width at one
 // readable bar plus gutter — enough to show where the curve's knee sits, few enough that each bar
@@ -646,7 +641,7 @@ export class UsageStatsPage {
     // user who did not ask for anything — this update arrives unrequested.
     liveReload(this.liveUrl, {
       accept: [LIVE_EVENT_TYPES.usageFlushed, LIVE_EVENT_TYPES.channelSynced],
-      debounceMs: USAGE_RELOAD_DEBOUNCE_MS,
+      debounceMs: CHANNEL_RELOAD_DEBOUNCE_MS,
     }).subscribe((seen) => {
       this.loadTotals(this.channelName(), this.from(), this.to(), {
         preserveSelection: true,

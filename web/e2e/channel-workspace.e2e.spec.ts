@@ -129,6 +129,44 @@ test.describe('authenticated broadcaster', () => {
     await expect(page.getByText('mehrfach vergeben')).toHaveCount(0);
   });
 
+  test('a burst of sync events costs one duplicate-names refetch, not one per event', async ({
+    page,
+  }) => {
+    // The measured cause of issue #35: a 7TV mass delete pushes one channel.synced per removed
+    // emote (~275 ms apart) and the workspace layout refetched the collision set on every one of
+    // them — 22 of the 38 requests the API rejected with 429 on 2026-08-28.
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+
+    // Counted instead of mocked through mockDuplicateEmoteNames: the number of calls *is* the
+    // assertion here.
+    let duplicateNameRequests = 0;
+    await page.route('**/api/channels/sensitron/emotes/duplicate-names', (route) => {
+      duplicateNameRequests++;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+    expect(duplicateNameRequests).toBe(1);
+
+    // Emitted inside one evaluate so the five frames really are one burst — five separate
+    // round-trips from the test runner could straddle the debounce window.
+    await page.evaluate(() => {
+      const emit = (window as unknown as { __emitLive: (event: unknown) => void }).__emitLive;
+      for (let index = 0; index < 5; index++) {
+        emit({ type: 'channel.synced', channel: 'sensitron' });
+      }
+    });
+
+    // One debounce window plus slack. waitForTimeout is the honest tool here: the thing under test
+    // is that nothing happens for a second.
+    await page.waitForTimeout(1500);
+
+    expect(duplicateNameRequests).toBe(2);
+  });
+
   test('resync reports queued and upgrades to finished when the sync event arrives', async ({
     page,
   }) => {

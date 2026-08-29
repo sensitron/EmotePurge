@@ -10,6 +10,23 @@ import { LiveUpdateService } from './live-update.service';
 export type LiveEventFilter = readonly string[] | ((event: LiveEvent) => boolean);
 
 /**
+ * The debounce every channel-scoped reload uses, so that the refetches one `channel.synced` triggers
+ * land in one wave instead of several staggered ones.
+ *
+ * Shared rather than declared per page because the pages sit on top of each other: the workspace
+ * layout and the usage page are mounted together and listen to the same (shared) connection, so one
+ * value here means one burst boundary for both. One second was the usage page's own figure and the
+ * reasoning carries over unchanged — the worker flushes chat usage in 30-second batches, so pushes
+ * arrive in bursts rather than continuously, and a second merges a burst without making the update
+ * feel delayed. Against a 7TV mass delete (one event every ~275 ms) it collapses the whole run into
+ * one or two refetches, because the window only elapses in a gap.
+ *
+ * The vote-session detail page keeps its own, shorter 500 ms window on purpose: a live tally is the
+ * thing its user is watching, and it is never mounted while the mass-delete panel runs.
+ */
+export const CHANNEL_RELOAD_DEBOUNCE_MS = 1000;
+
+/**
  * A live-event stream, filtered, scoped to the injecting component's lifetime.
  *
  * Pass a `Signal<string>` for a URL that follows a route parameter: the previous channel's
@@ -44,15 +61,15 @@ export function liveEvents(
  * The "listen, then refetch" pipeline the live-updating pages were each building by hand.
  *
  * Emits **once per debounced burst**, carrying the set of event types merged into that burst. That
- * set is what replaces the `syncSeenSinceReload` field two pages used to keep: the reason it existed
- * is that `LiveUpdateService.stream()` is cold — subscribing a second time to inspect the events
- * would open a second `EventSource` — so both pages smuggled the information across the debounce in
- * a mutable field, with the same explanation copy-pasted into both.
+ * set is what replaces the `syncSeenSinceReload` field two pages used to keep. Since 2026-08-29
+ * `LiveUpdateService.stream()` is shared per URL, so a second subscription no longer costs a second
+ * connection — but it would still cost a second debounce pipeline with its own, independently timed
+ * burst boundary, which is exactly the thing this function exists to have only one of.
  *
  * @example
  * liveReload(this.liveUrl, {
  *   accept: [LIVE_EVENT_TYPES.usageFlushed, LIVE_EVENT_TYPES.channelSynced],
- *   debounceMs: LIVE_RELOAD_DEBOUNCE_MS,
+ *   debounceMs: CHANNEL_RELOAD_DEBOUNCE_MS,
  * }).subscribe((seen) => {
  *   this.reloadQuietly();
  *   if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
