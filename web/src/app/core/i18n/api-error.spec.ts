@@ -20,6 +20,24 @@ describe('apiErrorTranslationKey', () => {
     );
   });
 
+  it('renders the rate limiter’s own 429 through its error code', () => {
+    // Since 2026-08-29 the limiter sends a body. The status fallback below still exists, and now
+    // means specifically "a 429 that did not come from us" — nginx, Cloudflare, a proxy in between.
+    expect(
+      apiErrorTranslationKey(
+        errorWith(429, { errorCode: 'rate_limit_exceeded', retryAfterSeconds: 42 }),
+      ),
+    ).toBe('errors.api.rate_limit_exceeded');
+  });
+
+  it('keeps the resync cooldown apart from the generic budget', () => {
+    // Two different 429s with two different answers: "someone else's resync is running" versus
+    // "your own minute is spent".
+    expect(apiErrorTranslationKey(errorWith(429, { errorCode: 'resync_cooldown_active' }))).toBe(
+      'errors.api.resync_cooldown_active',
+    );
+  });
+
   // The bodyless responses: all four authorization endpoint filters answer with a bare Forbid(),
   // Results.NotFound() without a body is used in three places, and the rate limiter sends nothing.
   it.each([
