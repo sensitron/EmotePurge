@@ -38,7 +38,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
 
-    public async Task<string?> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default)
+    public async Task<SevenTvTwitchUserIdResult> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -59,18 +59,19 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             if (match is null)
             {
                 logger.LogInformation("Kein 7TV-Twitch-Match für {Channel}.", normalized);
+                return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
             }
 
-            return match?.Id;
+            return SevenTvTwitchUserIdResult.Ok(match.Id);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "7TV-Nutzersuche für {Channel} fehlgeschlagen, wird übersprungen.", normalized);
-            return null;
+            return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.Unavailable);
         }
     }
 
-    public async Task<SevenTvChannelState?> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    public async Task<SevenTvChannelStateResult> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -78,7 +79,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 logger.LogInformation("Kein 7TV-Account für Twitch-ID {Id}.", twitchUserId);
-                return null;
+                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
             }
 
             response.EnsureSuccessStatusCode();
@@ -86,9 +87,22 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvUserRestDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
-            if (dto?.EmoteSet is null)
+            // A 200 with no body at all is a broken answer, not a statement about the account —
+            // reporting it as "no emote set" would tell the owner to fix something that is fine.
+            if (dto is null)
             {
-                return null;
+                logger.LogWarning("7TV-Antwort für Twitch-ID {Id} war leer.", twitchUserId);
+                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
+            }
+
+            // The state behind issue #32, and the only one of the four that used to return silently:
+            // the account exists, but no emote set is active on the Twitch connection. Logged at
+            // Information because it is a legitimate configuration, not a fault of ours.
+            if (dto.EmoteSet is null)
+            {
+                logger.LogInformation(
+                    "7TV-Account für Twitch-ID {Id} hat kein aktives Emote-Set.", twitchUserId);
+                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoActiveEmoteSet);
             }
 
             var emotes = dto.EmoteSet.Emotes.Select(SevenTvEmoteJsonMapper.MapDto).ToList();
@@ -115,12 +129,13 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             // claim the set is full.
             var capacity = dto.EmoteSet.Capacity > 0 ? dto.EmoteSet.Capacity : (int?)null;
 
-            return new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity));
+            return SevenTvChannelStateResult.Ok(
+                new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity)));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "7TV-Emote-Set-Abruf für Twitch-ID {Id} fehlgeschlagen, wird übersprungen.", twitchUserId);
-            return null;
+            return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
         }
     }
 
