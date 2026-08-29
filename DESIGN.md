@@ -56,6 +56,12 @@ typography:
     fontWeight: 600
     lineHeight: "1rem"
     letterSpacing: "0.13em"
+  micro:
+    fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "0.625rem"
+    fontWeight: 600
+    lineHeight: "0.875rem"
+    letterSpacing: "0.11em"
   data:
     fontFamily: "Azeret Mono, ui-monospace, Cascadia Code, Courier New, monospace"
     fontSize: "0.875rem"
