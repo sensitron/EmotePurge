@@ -358,6 +358,8 @@
       "database": {
         "title": "Database",
         "lastSync": "Last successful sync",
+        "lastAttempt": "Last sync attempt",
+        "syncFailure": "Last failure reason",
         "lastInventoryChange": "Last inventory change",
         "emotes": "Emotes",
         "emoteSet": "Active emote set",
@@ -575,7 +577,7 @@
     "loading": "Loading…",
     "awaitingSync": "Loading the emote set – the bot is syncing this channel's emotes with 7TV. This takes a moment.",
     "noActiveEmotes": "No active emotes for this time range.",
-    "noActiveEmotesHint": "Either the 7TV emote set is empty, or the first sync is still running — the list fills up as soon as data arrives.",
+    "noActiveEmotesHint": "This channel's active 7TV emote set currently holds no emotes.",
     "noMatches": "No emotes match the current filters.",
     "resetFilters": "Reset filters",
     "createVoteSession": "Put up for vote ({{count}})",
@@ -586,6 +588,25 @@
     },
     "errors": {
       "loadFailed": "Couldn't load usage data."
+    }
+  },
+  "sevenTvSync": {
+    "failure": {
+      "no_seventv_account": {
+        "title": "There is no 7TV account for this Twitch channel.",
+        "hint": "Emote Purge reads emotes through 7TV. Without a 7TV account linked to this Twitch login there is nothing to count here. This page fills itself in once the account exists.",
+        "short": "7TV: no account for this Twitch channel."
+      },
+      "no_active_emote_set": {
+        "title": "This channel has no active emote set on 7TV.",
+        "hint": "Create an emote set on 7tv.app and set it active for the channel. This page fills itself in afterwards — the bot asks 7TV again every minute.",
+        "short": "7TV: no active emote set."
+      },
+      "seventv_unavailable": {
+        "title": "7TV could not be reached on the last attempt.",
+        "hint": "This is usually temporary and not caused by this channel. The bot retries every minute; this page updates itself as soon as it works.",
+        "short": "7TV was unreachable on the last attempt."
+      }
     }
   },
   "voting": {

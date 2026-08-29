@@ -1,4 +1,5 @@
 import { ChannelLiveState } from '../channels/channel.model';
+import { SevenTvSyncFailureReason } from '../emotes/seven-tv-sync-failure';
 
 /** Twitch IRC state, derived server-side from the worker's snapshot (thresholds live in the Api). */
 export type WorkerConnectionStatus = 'connected' | 'stale' | 'disconnected' | 'unknown';
@@ -84,6 +85,12 @@ export interface AdminChannel {
    *  the UI never renders a nameless set that exists. */
   activeEmoteSetId: string | null;
   activeEmoteSetCapacity: number | null;
+  /** Why the last 7TV sync attempt produced nothing (`SevenTvSyncFailureReason`), else null. The
+   *  field that tells a channel with no active 7TV emote set apart from one joined a second ago. */
+  lastSyncFailureReason: SevenTvSyncFailureReason | null;
+  /** When the last attempt finished, successful or not. Says how current `lastSyncFailureReason`
+   *  is; null means none has been made. */
+  lastSyncAttemptAtUtc: string | null;
   trackingResumedAt: string | null;
   /** From the worker's live-status snapshot, not the database — see `ChannelLiveState`. */
   liveState: ChannelLiveState;

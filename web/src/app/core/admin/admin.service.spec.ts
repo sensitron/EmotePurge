@@ -216,6 +216,8 @@ describe('AdminService', () => {
           lastInventoryChangeUtc: '2026-07-31T11:00:00Z',
           activeEmoteSetId: '01HSET',
           activeEmoteSetCapacity: 1000,
+          lastSyncFailureReason: null,
+          lastSyncAttemptAtUtc: '2026-07-31T11:55:00Z',
           trackingResumedAt: null,
           liveState: 'live',
         },
