@@ -48,3 +48,8 @@ src/EmotePurge.Api/wwwroot/
 # Machine-local runtime state; the durable decisions live in docs/DECISIONS.md
 # and the direction contract in web/src/index.html.
 .impeccable/
+
+# Superpowers-Arbeitsverzeichnis je Plan: Ledger, Task-Briefs, Reports, Review-Pakete.
+# Sitzungs-Scratch — die dauerhafte Spur eines Plans sind seine Commits und die Plandatei
+# unter docs/superpowers/plans/.
+.superpowers/
