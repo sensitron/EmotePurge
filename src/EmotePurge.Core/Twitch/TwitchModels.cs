@@ -36,3 +36,9 @@ public record TwitchModeratedChannelInfo(string Login, string BroadcasterId);
 // already in ChannelName.Normalize form. StartedAtUtc is carried for the eventual per-stream
 // accounting (A10 Stufe 2), even though the per-day coverage only needs "was live".
 public record TwitchStreamInfo(string UserLogin, DateTime StartedAtUtc);
+
+// One identity from GET /helix/users, resolved by id or by login for identity reconciliation
+// (rename tracking, id backfill). Login is Twitch's lowercase login, but the caller normalizes it
+// anyway (Regel 9) rather than relying on Twitch always sending it that way. Id is the immutable,
+// non-normalized numeric Twitch account id.
+public record TwitchUserIdentity(string Id, string Login);

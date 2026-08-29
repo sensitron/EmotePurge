@@ -24,6 +24,20 @@ internal sealed class TwitchUserDto
     public string ProfileImageUrl { get; set; } = string.Empty;
 }
 
+// GET api.twitch.tv/helix/users, batched id/login identity lookup — only id/login are needed
+// here, unlike TwitchGetUsersResponseDto/TwitchUserDto above which back the self-lookup and also
+// carry display name/avatar.
+internal sealed class TwitchGetUserIdentitiesResponseDto
+{
+    public List<TwitchUserIdentityDto> Data { get; set; } = [];
+}
+
+internal sealed class TwitchUserIdentityDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Login { get; set; } = string.Empty;
+}
+
 // GET api.twitch.tv/helix/moderation/channels
 internal sealed class TwitchGetModeratedChannelsResponseDto
 {

@@ -10,6 +10,7 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
 {
     private const int MaxModeratedChannelPages = 10;
     private const int MaxStreamsLoginsPerRequest = 100;
+    private const int MaxUsersParametersPerRequest = 100;
 
     public async Task<TwitchUserInfo?> GetUserInfoAsync(string accessToken, CancellationToken cancellationToken = default)
     {
@@ -165,6 +166,57 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "Twitch Get Streams fehlgeschlagen.");
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<TwitchUserIdentity>?> GetUsersAsync(
+        IReadOnlyCollection<string> ids, IReadOnlyCollection<string> logins, string accessToken, CancellationToken cancellationToken = default)
+    {
+        if (ids.Count == 0 && logins.Count == 0)
+        {
+            // An empty id/login filter isn't "nothing to resolve" to Helix — it falls back to the
+            // token owner. That would silently resolve the wrong account, so short-circuit instead.
+            return [];
+        }
+
+        var identities = new List<TwitchUserIdentity>();
+
+        try
+        {
+            // Helix caps id and login together at 100 values per request, not 100 each — a batch
+            // can therefore mix both kinds of parameters.
+            var parameters = ids.Select(id => (Key: "id", Value: id))
+                .Concat(logins.Select(login => (Key: "login", Value: login)));
+
+            foreach (var batch in parameters.Chunk(MaxUsersParametersPerRequest))
+            {
+                var url = "users?" + string.Join('&', batch.Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value)}"));
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("Twitch Get Users (Identities) fehlgeschlagen mit Status {Status}.", response.StatusCode);
+                    return null;
+                }
+
+                var dto = await response.Content.ReadFromJsonAsync<TwitchGetUserIdentitiesResponseDto>(TwitchJsonOptions.Value, cancellationToken);
+                if (dto is null)
+                {
+                    return null;
+                }
+
+                identities.AddRange(dto.Data.Select(u => new TwitchUserIdentity(u.Id, u.Login)));
+            }
+
+            return identities;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Twitch Get Users (Identities) fehlgeschlagen.");
             return null;
         }
     }
