@@ -33,7 +33,14 @@ public class SevenTvDispatchParserTests
         var emote = Assert.Single(delta.Pushed);
         Assert.Equal("01FFWH9WV80000JT8GHDKHJNZC", emote.Id);
         Assert.Equal("Aware", emote.Name);
-        Assert.Equal("https://cdn.7tv.app/emote/01FFWH9WV80000JT8GHDKHJNZC/2x.webp", emote.ImageUrl);
+        // 4x and the file's own static_name, both: the atlas draws a 64 px cell, so 4x (128 px) is
+        // what stays sharp at a device pixel ratio of 2 — and "Aware" is animated, where the plain
+        // 4x.webp carries every frame. Measured 2026-08-28 over HandOfBlood's 931 emotes: the
+        // animated ones average 133 KB at 2x and reach 1.2 MB, which is 73 MB for one set. The
+        // static variant brings the same set to 15 MB. The animation is not lost, it moves to the
+        // sidecar, which shows one emote at a time (see the frontend's animatedEmoteUrl).
+        Assert.Equal(
+            "https://cdn.7tv.app/emote/01FFWH9WV80000JT8GHDKHJNZC/4x_static.webp", emote.ImageUrl);
         Assert.Empty(delta.Updated);
         Assert.Empty(delta.PulledIds);
     }
