@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.SevenTv;
 using Microsoft.Extensions.Logging;
@@ -51,7 +52,18 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlUsersResponseDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
-            var match = dto?.Data?.Users
+            // GraphQL errors surface as HTTP 200 with `data: null` (or `users` missing inside it)
+            // plus an `errors` array — that's a failed query, not evidence the account is missing.
+            // Only a successfully returned, genuinely empty `users` list means "no match".
+            if (dto?.Data?.Users is null)
+            {
+                logger.LogWarning(
+                    "7TV-Nutzersuche für {Channel} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?).",
+                    normalized);
+                return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.Unavailable);
+            }
+
+            var match = dto.Data.Users
                 .SelectMany(u => u.Connections)
                 .FirstOrDefault(c => c.Platform == "TWITCH" &&
                     string.Equals(c.Username, normalized, StringComparison.OrdinalIgnoreCase));
@@ -68,7 +80,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
 
             return SevenTvTwitchUserIdResult.Ok(match.Id);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             logger.LogWarning(ex, "7TV-Nutzersuche für {Channel} fehlgeschlagen, wird übersprungen.", normalized);
             return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.Unavailable);
@@ -91,8 +103,11 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvUserRestDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
-            // A 200 with no body at all is a broken answer, not a statement about the account —
-            // reporting it as "no emote set" would tell the owner to fix something that is fine.
+            // A literal JSON `null` body lands here as dto == null; a genuinely empty or malformed
+            // body never reaches this line at all — ReadFromJsonAsync throws JsonException first,
+            // caught below as Unavailable. Either way this is a broken answer, not a statement about
+            // the account, so it must not read as "no emote set" and send the owner off to fix
+            // something that is fine.
             if (dto is null)
             {
                 logger.LogWarning("7TV-Antwort für Twitch-ID {Id} war leer.", twitchUserId);
@@ -141,7 +156,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             return SevenTvChannelStateResult.Ok(
                 new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity)));
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             logger.LogWarning(ex, "7TV-Emote-Set-Abruf für Twitch-ID {Id} fehlgeschlagen, wird übersprungen.", twitchUserId);
             return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
@@ -278,7 +293,12 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
 
             return result;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // JsonException belongs here rather than in the caller's catch: a malformed v4 answer must
+        // stay a missing date, not turn the whole channel Unavailable. The caller now treats
+        // JsonException as a broken lookup, which is right for the v3 payload it reads itself — but
+        // this optional overlay has always been allowed to fail on its own without taking the sync
+        // with it, and letting its parse errors bubble would quietly reverse that.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             logger.LogWarning(ex,
                 "7TV-v4-addedAt-Abruf für Set {SetId} fehlgeschlagen — Beitrittsdaten bleiben vorerst unbekannt.",

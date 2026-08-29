@@ -8,7 +8,9 @@ internal sealed class SevenTvGqlUsersResponseDto
 
 internal sealed class SevenTvGqlDataDto
 {
-    public List<SevenTvGqlUserDto> Users { get; set; } = [];
+    // Nullable, not defaulted to `[]`: a GraphQL error response omits `users` entirely, and the
+    // client needs to tell that apart from a query that genuinely matched nobody.
+    public List<SevenTvGqlUserDto>? Users { get; set; }
 }
 
 internal sealed class SevenTvGqlUserDto
