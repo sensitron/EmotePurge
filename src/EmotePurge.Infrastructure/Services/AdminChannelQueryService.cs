@@ -103,7 +103,9 @@ public class AdminChannelQueryService(AppDbContext db) : IAdminChannelQueryServi
                     // synced, and an empty string in a JSON payload is a worse "unknown" than null.
                     c.ActiveEmoteSetId is { Length: > 0 } setId ? setId : null,
                     c.ActiveEmoteSetCapacity,
-                    c.TrackingResumedAt);
+                    c.TrackingResumedAt,
+                    LastSyncFailureReason: c.LastSyncFailureReason,
+                    LastSyncAttemptAtUtc: c.LastSyncAttemptAtUtc);
             })
             .ToList();
     }
@@ -121,7 +123,9 @@ public class AdminChannelQueryService(AppDbContext db) : IAdminChannelQueryServi
         DateTime? LastSyncedAtUtc,
         string ActiveEmoteSetId,
         int? ActiveEmoteSetCapacity,
-        DateTime? TrackingResumedAt)
+        DateTime? TrackingResumedAt,
+        string? LastSyncFailureReason,
+        DateTime? LastSyncAttemptAtUtc)
     {
         public static Expression<Func<Channel, ChannelRow>> Projection { get; } =
             c => new ChannelRow(
@@ -133,6 +137,8 @@ public class AdminChannelQueryService(AppDbContext db) : IAdminChannelQueryServi
                 c.LastSyncedAtUtc,
                 c.ActiveEmoteSetId,
                 c.ActiveEmoteSetCapacity,
-                c.TrackingResumedAt);
+                c.TrackingResumedAt,
+                c.LastSyncFailureReason,
+                c.LastSyncAttemptAtUtc);
     }
 }
