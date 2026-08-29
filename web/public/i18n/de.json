@@ -358,6 +358,8 @@
       "database": {
         "title": "Datenbank",
         "lastSync": "Letzter erfolgreicher Sync",
+        "lastAttempt": "Letzter Sync-Versuch",
+        "syncFailure": "Letzter Fehlergrund",
         "lastInventoryChange": "Letzte Inventaränderung",
         "emotes": "Emotes",
         "emoteSet": "Aktives Emote-Set",
@@ -575,7 +577,7 @@
     "loading": "Lädt…",
     "awaitingSync": "Emote-Set wird geladen – der Bot gleicht die Emotes gerade mit 7TV ab. Das dauert einen Moment.",
     "noActiveEmotes": "Keine aktiven Emotes für diesen Zeitraum.",
-    "noActiveEmotesHint": "Entweder ist das 7TV-Emote-Set leer, oder der erste Sync läuft noch — die Liste füllt sich, sobald Daten da sind.",
+    "noActiveEmotesHint": "Das aktive 7TV-Emote-Set dieses Channels enthält derzeit keine Emotes.",
     "noMatches": "Keine Emotes passen zu den aktuellen Filtern.",
     "resetFilters": "Filter zurücksetzen",
     "createVoteSession": "Zur Abstimmung stellen ({{count}})",
@@ -586,6 +588,25 @@
     },
     "errors": {
       "loadFailed": "Nutzungsdaten konnten nicht geladen werden."
+    }
+  },
+  "sevenTvSync": {
+    "failure": {
+      "no_seventv_account": {
+        "title": "Für diesen Twitch-Channel gibt es kein 7TV-Konto.",
+        "hint": "Emote Purge liest die Emotes über 7TV. Ohne ein 7TV-Konto mit verknüpftem Twitch-Login gibt es hier nichts zu zählen. Sobald das Konto existiert, füllt sich diese Seite von selbst.",
+        "short": "7TV: kein Konto für diesen Twitch-Channel."
+      },
+      "no_active_emote_set": {
+        "title": "Dieser Channel hat auf 7TV kein aktives Emote-Set.",
+        "hint": "Auf 7tv.app lässt sich ein Emote-Set anlegen und für den Channel aktiv schalten. Danach füllt sich diese Seite von selbst — der Bot fragt 7TV jede Minute erneut.",
+        "short": "7TV: kein aktives Emote-Set."
+      },
+      "seventv_unavailable": {
+        "title": "7TV war beim letzten Versuch nicht erreichbar.",
+        "hint": "Das ist meist vorübergehend und liegt nicht an diesem Channel. Der Bot versucht es jede Minute erneut; die Seite aktualisiert sich von selbst, sobald es geklappt hat.",
+        "short": "7TV war beim letzten Versuch nicht erreichbar."
+      }
     }
   },
   "voting": {

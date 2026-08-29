@@ -214,6 +214,8 @@ export interface MockAdminChannel {
   lastInventoryChangeUtc?: string | null;
   activeEmoteSetId?: string | null;
   activeEmoteSetCapacity?: number | null;
+  lastSyncFailureReason?: string | null;
+  lastSyncAttemptAtUtc?: string | null;
   liveState?: 'live' | 'offline' | 'unknown';
 }
 
@@ -240,6 +242,8 @@ export async function mockAdminChannelList(
         lastInventoryChangeUtc: c.lastInventoryChangeUtc ?? null,
         activeEmoteSetId: c.activeEmoteSetId ?? null,
         activeEmoteSetCapacity: c.activeEmoteSetCapacity ?? null,
+        lastSyncFailureReason: c.lastSyncFailureReason ?? null,
+        lastSyncAttemptAtUtc: c.lastSyncAttemptAtUtc ?? null,
         trackingResumedAt: null,
         liveState: c.liveState ?? 'unknown',
       })),
@@ -287,6 +291,8 @@ export async function mockAdminChannelDetail(
         lastInventoryChangeUtc: channel.lastInventoryChangeUtc ?? null,
         activeEmoteSetId: channel.activeEmoteSetId ?? null,
         activeEmoteSetCapacity: channel.activeEmoteSetCapacity ?? null,
+        lastSyncFailureReason: channel.lastSyncFailureReason ?? null,
+        lastSyncAttemptAtUtc: channel.lastSyncAttemptAtUtc ?? null,
         trackingResumedAt: null,
         liveState: channel.liveState ?? 'unknown',
       },
@@ -704,7 +710,13 @@ export async function mockActiveEmoteSet(
   page: Page,
   channelName: string,
   activeEmoteSetId = 'set-1',
-  status: { capacity?: number | null; occupiedSlots?: number; trackedSince?: string } = {},
+  status: {
+    capacity?: number | null;
+    occupiedSlots?: number;
+    trackedSince?: string;
+    syncFailureReason?: string | null;
+    lastSyncAttemptAtUtc?: string | null;
+  } = {},
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/emotes/active-set`, (route) =>
     fulfillJson(route, 200, {
@@ -712,6 +724,8 @@ export async function mockActiveEmoteSet(
       capacity: status.capacity ?? 1000,
       occupiedSlots: status.occupiedSlots ?? 3,
       trackedSince: status.trackedSince ?? '2026-06-12T09:14:00Z',
+      syncFailureReason: status.syncFailureReason ?? null,
+      lastSyncAttemptAtUtc: status.lastSyncAttemptAtUtc ?? null,
     }),
   );
 }

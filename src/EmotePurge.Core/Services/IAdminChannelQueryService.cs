@@ -22,6 +22,16 @@ namespace EmotePurge.Core.Services;
 /// <paramref name="LastSyncedAtUtc"/> — a healthy channel whose set nobody edits shows a fresh sync
 /// and an ancient inventory change, and reporting only the latter made that look like a stalled bot.
 /// </param>
+/// <param name="LastSyncFailureReason">
+/// One of <see cref="SevenTvSyncFailureReasons"/> when the last attempt produced nothing, else
+/// <c>null</c>. This is what separates the four states that used to look identical here: no 7TV
+/// account, an account without an active emote set, 7TV unreachable, and never synced at all.
+/// </param>
+/// <param name="LastSyncAttemptAtUtc">
+/// When the last attempt finished, successful or not. Read next to
+/// <paramref name="LastSyncedAtUtc"/>: equal values mean the last attempt succeeded, a newer attempt
+/// next to an older success means the channel has been failing since then.
+/// </param>
 public record AdminChannelDto(
     string ChannelName,
     string? TwitchChannelId,
@@ -36,7 +46,9 @@ public record AdminChannelDto(
     string? ActiveEmoteSetId = null,
     int? ActiveEmoteSetCapacity = null,
     DateTime? TrackingResumedAt = null,
-    string LiveState = ChannelLiveStates.Unknown);
+    string LiveState = ChannelLiveStates.Unknown,
+    string? LastSyncFailureReason = null,
+    DateTime? LastSyncAttemptAtUtc = null);
 
 /// <summary>
 /// Read model behind GET /api/admin/channels: every tracked channel with the aggregates an admin

@@ -1,3 +1,5 @@
+import { SevenTvSyncFailureReason } from './seven-tv-sync-failure';
+
 /**
  * The channel's 7TV set as a slot budget, plus since when its usage data can be trusted.
  * Served by `GET /api/channels/{channel}/emotes/active-set`.
@@ -18,4 +20,15 @@ export interface EmoteSetStatus {
 
   /** ISO timestamp of the last join that (re)activated the channel, else its creation. */
   trackedSince: string;
+
+  /**
+   * Why the last 7TV sync attempt produced nothing, `null` when it succeeded — or when none has
+   * been made yet. Read together with `activeEmoteSetId`: an empty id and a `null` reason is the
+   * only combination that genuinely means "the first sync is still running", and it is the only one
+   * worth polling on.
+   */
+  syncFailureReason: SevenTvSyncFailureReason | null;
+
+  /** ISO timestamp of the last attempt, successful or not; `null` when none has been made. */
+  lastSyncAttemptAtUtc: string | null;
 }

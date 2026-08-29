@@ -181,6 +181,8 @@ describe('AdminService', () => {
         lastInventoryChangeUtc: '2026-05-01T09:00:00Z',
         activeEmoteSetId: '01HSET',
         activeEmoteSetCapacity: 1000,
+        lastSyncFailureReason: 'no_active_emote_set',
+        lastSyncAttemptAtUtc: '2026-08-01T12:00:00Z',
         trackingResumedAt: null,
         liveState: 'unknown',
       },
@@ -198,6 +200,7 @@ describe('AdminService', () => {
     expect(result?.roster.available).toBe(true);
     expect(result?.roster.channel).toBeNull();
     expect(result?.channel.lastSyncedAtUtc).not.toBe(result?.channel.lastInventoryChangeUtc);
+    expect(result?.channel.lastSyncFailureReason).toBe('no_active_emote_set');
   });
 
   it('listChannels GETs /api/admin/channels', () => {
@@ -216,6 +219,8 @@ describe('AdminService', () => {
           lastInventoryChangeUtc: '2026-07-31T11:00:00Z',
           activeEmoteSetId: '01HSET',
           activeEmoteSetCapacity: 1000,
+          lastSyncFailureReason: null,
+          lastSyncAttemptAtUtc: '2026-07-31T11:55:00Z',
           trackingResumedAt: null,
           liveState: 'live',
         },
@@ -255,6 +260,8 @@ describe('AdminService', () => {
           lastInventoryChangeUtc: null,
           activeEmoteSetId: null,
           activeEmoteSetCapacity: null,
+          lastSyncFailureReason: null,
+          lastSyncAttemptAtUtc: null,
           trackingResumedAt: null,
           liveState: 'unknown',
         },

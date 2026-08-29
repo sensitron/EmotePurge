@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
@@ -38,7 +39,7 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     {
         var apiClient = Substitute.For<ISevenTvApiClient>();
         apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
-            .Returns(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(emoteSetId, liveEmotes)));
+            .Returns(SevenTvChannelStateResult.Ok(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(emoteSetId, liveEmotes))));
         return new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
     }
 
@@ -55,7 +56,7 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     {
         var apiClient = Substitute.For<ISevenTvApiClient>();
         apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
-            .Returns(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(emoteSetId, liveEmotes, capacity)));
+            .Returns(SevenTvChannelStateResult.Ok(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(emoteSetId, liveEmotes, capacity))));
         return new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
     }
 
@@ -94,8 +95,8 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var tracker = new DuplicateEmoteNameTracker();
         var apiClient = Substitute.For<ISevenTvApiClient>();
         apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
-            .Returns(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(SetId,
-                [LiveEmote("7tv-dup-a", "Dup"), LiveEmote("7tv-dup-b", "Dup"), LiveEmote("7tv-solo", "Solo")])));
+            .Returns(SevenTvChannelStateResult.Ok(new SevenTvChannelState("7tv-user", new SevenTvEmoteSet(SetId,
+                [LiveEmote("7tv-dup-a", "Dup"), LiveEmote("7tv-dup-b", "Dup"), LiveEmote("7tv-solo", "Solo")]))));
         var service = new SevenTvSyncService(db, apiClient, cache, tracker, new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
 
         await service.SyncChannelAsync(channel.ChannelName);
@@ -291,9 +292,9 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
 
         var apiClient = Substitute.For<ISevenTvApiClient>();
         apiClient.GetChannelStateForTwitchUserAsync("77", Arg.Any<CancellationToken>())
-            .Returns(new SevenTvChannelState(
+            .Returns(SevenTvChannelStateResult.Ok(new SevenTvChannelState(
                 "7tv-user-77",
-                new SevenTvEmoteSet(SetId, [new SevenTvEmote("e1", "hi", "https://cdn/e1.webp")])));
+                new SevenTvEmoteSet(SetId, [new SevenTvEmote("e1", "hi", "https://cdn/e1.webp")]))));
         var service = new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
 
         var result = await service.SyncChannelAsync("wstest_syncresult");
@@ -691,5 +692,138 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
 
         Assert.Equal(1000, await db.Channels.Where(c => c.Id == channel.Id)
             .Select(c => c.ActiveEmoteSetCapacity).SingleAsync());
+    }
+
+    // ---- Warum ein Sync nichts geliefert hat (Issue #32) ----
+
+    // Builds a sync service whose 7TV client fails with a given status, so the four outcomes of the
+    // analysis can be driven one by one. Separate from CreateRestService, which only knows success.
+    private static SevenTvSyncService CreateFailingService(
+        Persistence.AppDbContext db,
+        EmoteMatchCache cache,
+        Channel channel,
+        SevenTvLookupStatus status)
+    {
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
+            .Returns(SevenTvChannelStateResult.Failed(status));
+        return new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+    }
+
+    [Theory]
+    [InlineData(SevenTvLookupStatus.NoActiveEmoteSet, "no_active_emote_set")]
+    [InlineData(SevenTvLookupStatus.NoSevenTvAccount, "no_seventv_account")]
+    [InlineData(SevenTvLookupStatus.Unavailable, "seventv_unavailable")]
+    public async Task SyncChannel_NoActiveEmoteSet_PersistsTheReason(SevenTvLookupStatus status, string expectedReason)
+    {
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, $"wstest_reason_{expectedReason}");
+        var service = CreateFailingService(db, cache, channel, status);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(result);
+        var row = await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => new { c.LastSyncFailureReason, c.LastSyncAttemptAtUtc, c.LastSyncedAtUtc })
+            .SingleAsync();
+        Assert.Equal(expectedReason, row.LastSyncFailureReason);
+        Assert.NotNull(row.LastSyncAttemptAtUtc);
+        // LastSyncedAtUtc keeps meaning "last *successful* sync" — a failed attempt must not
+        // advance it, or the admin drilldown would report a healthy sync for a broken channel.
+        Assert.Null(row.LastSyncedAtUtc);
+    }
+
+    [Fact]
+    public async Task SyncChannel_FailedAttempt_LeavesTheKnownSetAndItsEmotesAlone()
+    {
+        // The asymmetry that governs this whole area: a 7TV outage must not take the mass-delete
+        // panel away or archive a channel's entire set. A failure records *why*, and nothing else.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_reason_keeps", ("e1", "stable", false));
+        var service = CreateFailingService(db, cache, channel, SevenTvLookupStatus.Unavailable);
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        var row = await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => new { c.ActiveEmoteSetId, c.ActiveEmoteSetCapacity })
+            .SingleAsync();
+        Assert.Equal(SetId, row.ActiveEmoteSetId);
+        Assert.False(await db.Emotes.Where(e => e.ChannelId == channel.Id)
+            .Select(e => e.IsArchived).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_Success_ClearsAPreviousReason()
+    {
+        // The half that gets forgotten. A channel that activated an emote set on 7TV must stop being
+        // told it has none — otherwise the empty state outlives the problem it describes.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_reason_cleared");
+        channel.LastSyncFailureReason = SevenTvSyncFailureReasons.NoActiveEmoteSet;
+        channel.LastSyncAttemptAtUtc = new DateTime(2026, 8, 28, 10, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e1", "fresh"));
+
+        await service.SyncChannelAsync(channel.ChannelName);
+
+        var row = await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => new { c.LastSyncFailureReason, c.LastSyncAttemptAtUtc, c.LastSyncedAtUtc })
+            .SingleAsync();
+        Assert.Null(row.LastSyncFailureReason);
+        Assert.NotNull(row.LastSyncedAtUtc);
+        // Attempt and success are stamped from the same instant on a successful run, so the pair
+        // reads as "current" rather than leaving a stale attempt behind an up-to-date success.
+        Assert.Equal(row.LastSyncedAtUtc, row.LastSyncAttemptAtUtc);
+    }
+
+    [Fact]
+    public async Task SyncChannel_ImplausibleEmptyLiveSet_TouchesNeitherReasonNorAttempt()
+    {
+        // The empty-set guard (S3-12) deliberately makes no statement about the channel: it neither
+        // succeeded nor failed, it declined to act. Writing an attempt timestamp there would claim a
+        // reconciliation that never happened, and clearing a reason would hide a real one.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_reason_guard", ("e1", "stable", false));
+        channel.LastSyncFailureReason = SevenTvSyncFailureReasons.Unavailable;
+        await db.SaveChangesAsync();
+        var service = CreateRestService(db, cache, channel, SetId);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.False(result.HasChanges);
+        var row = await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => new { c.LastSyncFailureReason, c.LastSyncAttemptAtUtc })
+            .SingleAsync();
+        Assert.Equal("seventv_unavailable", row.LastSyncFailureReason);
+        Assert.Null(row.LastSyncAttemptAtUtc);
+    }
+
+    [Fact]
+    public async Task SyncChannel_UnresolvableTwitchId_RecordsTheMissingAccount()
+    {
+        // The pre-step: a channel whose TwitchChannelId was never backfilled resolves it through
+        // 7TV's own user search. Its "no match" answer is a missing 7TV account, not a network
+        // problem, and used to vanish into the same null as everything else.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        db.Channels.Add(new Channel { ChannelName = "wstest_reason_noid", TwitchChannelId = null, ActiveEmoteSetId = "" });
+        await db.SaveChangesAsync();
+
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        apiClient.ResolveTwitchUserIdAsync("wstest_reason_noid", Arg.Any<CancellationToken>())
+            .Returns(SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.NoSevenTvAccount));
+        var service = new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+
+        var result = await service.SyncChannelAsync("wstest_reason_noid");
+
+        Assert.Null(result);
+        Assert.Equal("no_seventv_account", await db.Channels
+            .Where(c => c.ChannelName == "wstest_reason_noid")
+            .Select(c => c.LastSyncFailureReason).SingleAsync());
     }
 }

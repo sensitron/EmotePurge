@@ -306,10 +306,20 @@
         }}</app-notice-banner>
       } @else if (atlasOrder().length === 0) {
         @if (emotes().length === 0) {
-          <app-empty-state
-            [title]="'usageStats.noActiveEmotes' | transloco"
-            [description]="'usageStats.noActiveEmotesHint' | transloco"
-          />
+          <!-- Nested inside "no emotes at all", never above the grid: a channel that still has its
+               previous set must keep seeing its numbers while 7TV is briefly unreachable. The reason
+               replaces the guess, it does not replace the data. -->
+          @if (syncFailureReason(); as reason) {
+            <app-empty-state
+              [title]="syncFailureKey(reason, 'title') | transloco"
+              [description]="syncFailureKey(reason, 'hint') | transloco"
+            />
+          } @else {
+            <app-empty-state
+              [title]="'usageStats.noActiveEmotes' | transloco"
+              [description]="'usageStats.noActiveEmotesHint' | transloco"
+            />
+          }
         } @else {
           <!-- The set has emotes; the filters hide all of them — offer the way back. -->
           <app-empty-state [title]="'usageStats.noMatches' | transloco">

@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AdminService } from '../../core/admin/admin.service';
+import { sevenTvSyncFailureKey } from '../../core/emotes/seven-tv-sync-failure';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
@@ -74,6 +75,15 @@ const WORKER_STATUS_TONES: Record<string, HealthTone> = {
       @if (showSkeleton()) {
         <app-skeleton-sections [count]="2" />
       } @else if (detail(); as data) {
+        @if (syncFailureReason(); as reason) {
+          <!-- Above the verdict on purpose: a channel with no active 7TV emote set will also read
+               as "degraded" (its emote-set subscription can never be acknowledged), and this is the
+               sentence that explains that one rather than competing with it. -->
+          <app-notice-banner variant="warning">
+            {{ syncFailureKey(reason, 'short') | transloco }}
+          </app-notice-banner>
+        }
+
         @if (verdictKey(); as verdict) {
           <app-notice-banner [variant]="verdictVariant()">
             {{ 'admin.channelDetail.verdict.' + verdict | transloco }}
@@ -104,6 +114,26 @@ const WORKER_STATUS_TONES: Record<string, HealthTone> = {
               <!-- The pair this whole column exists for: a fresh sync next to an ancient inventory
                    change is a healthy channel nobody edits, not a stalled bot. -->
               <dd class="text-fg-body">{{ formatDateTime(data.channel.lastSyncedAtUtc) }}</dd>
+            </div>
+            <div class="flex justify-between gap-4 sm:block">
+              <dt class="text-fg-muted">
+                {{ 'admin.channelDetail.database.lastAttempt' | transloco }}
+              </dt>
+              <!-- The counterpart to "letzter erfolgreicher Sync": equal values mean the last
+                   attempt worked, a newer attempt next to an older success dates the breakage. -->
+              <dd class="text-fg-body">{{ formatDateTime(data.channel.lastSyncAttemptAtUtc) }}</dd>
+            </div>
+            <div class="flex justify-between gap-4 sm:block">
+              <dt class="text-fg-muted">
+                {{ 'admin.channelDetail.database.syncFailure' | transloco }}
+              </dt>
+              <dd class="text-fg-body">
+                @if (syncFailureReason(); as reason) {
+                  {{ syncFailureKey(reason, 'short') | transloco }}
+                } @else {
+                  {{ NO_VALUE }}
+                }
+              </dd>
             </div>
             <div class="flex justify-between gap-4 sm:block">
               <dt class="text-fg-muted">
@@ -301,6 +331,8 @@ export class AdminChannelDetailPage {
 
   protected readonly NO_VALUE = NO_VALUE;
 
+  protected readonly syncFailureKey = sevenTvSyncFailureKey;
+
   protected readonly detail = computed(() =>
     this.detailResource.hasValue() ? this.detailResource.value() : undefined,
   );
@@ -314,6 +346,11 @@ export class AdminChannelDetailPage {
     const error = this.detailResource.error();
     return error instanceof HttpErrorResponse ? apiErrorTranslationKey(error) : null;
   });
+
+  /** The database side's own finding, independent of anything the worker reports. */
+  protected readonly syncFailureReason = computed(
+    () => this.detail()?.channel.lastSyncFailureReason ?? null,
+  );
 
   /**
    * The worker's active set and the database's disagree. Only meaningful while the worker actually

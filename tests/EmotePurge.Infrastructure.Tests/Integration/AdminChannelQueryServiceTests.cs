@@ -123,6 +123,29 @@ public class AdminChannelQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetAsync_ReportsWhyTheLastSyncProducedNothing()
+    {
+        // The support drilldown's whole job is "why isn't my channel syncing?". Before this, a
+        // channel without an active 7TV emote set showed an empty set id and a null last sync — the
+        // same picture as a channel that was joined a second ago.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "adminsyncreason", isBotActive: true);
+        channel.LastSyncFailureReason = SevenTvSyncFailureReasons.NoActiveEmoteSet;
+        channel.LastSyncAttemptAtUtc = new DateTime(2026, 8, 29, 12, 0, 0, DateTimeKind.Utc);
+        await db.SaveChangesAsync();
+
+        var row = await new AdminChannelQueryService(db).GetAsync("adminsyncreason");
+
+        Assert.NotNull(row);
+        Assert.Equal("no_active_emote_set", row.LastSyncFailureReason);
+        Assert.Equal(new DateTime(2026, 8, 29, 12, 0, 0, DateTimeKind.Utc), row.LastSyncAttemptAtUtc);
+        // The list and the drilldown share one aggregation path, so they can never disagree.
+        var listRow = Assert.Single(await new AdminChannelQueryService(db).ListAsync(),
+            c => c.ChannelName == "adminsyncreason");
+        Assert.Equal("no_active_emote_set", listRow.LastSyncFailureReason);
+    }
+
+    [Fact]
     public async Task GetAsync_ReturnsNull_ForAnUnknownChannel()
     {
         await using var db = fixture.CreateDbContext();

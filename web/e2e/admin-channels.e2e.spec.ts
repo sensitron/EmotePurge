@@ -236,6 +236,26 @@ test.describe('global admin on /admin/channels', () => {
     await expect(page.getByRole('link', { name: '#handofblood' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: '#sensitron' })).toBeVisible();
   });
+
+  test('the drilldown names why a channel never synced', async ({ page }) => {
+    await mockAdminChannelList(page, [{ channelName: 'sensitron' }]);
+    await mockAdminChannelDetail(page, {
+      channelName: 'sensitron',
+      lastSyncedAtUtc: null,
+      activeEmoteSetId: null,
+      lastSyncFailureReason: 'no_active_emote_set',
+      lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+    });
+
+    await page.goto('/admin/channels/sensitron');
+
+    // The sentence that used to be missing entirely: the page showed "kein Sync" and left the
+    // admin to guess between four causes. `.first()` because the same short reason renders twice
+    // on purpose — once as the banner above the verdict, once again in the database `<dl>` — so a
+    // bare getByText resolves to two elements and fails on strict mode rather than on the assertion.
+    await expect(page.getByText('7TV: kein aktives Emote-Set.').first()).toBeVisible();
+    await expect(page.getByText('Letzter Sync-Versuch')).toBeVisible();
+  });
 });
 
 test.describe('non-admin', () => {

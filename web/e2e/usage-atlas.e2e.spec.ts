@@ -386,3 +386,159 @@ test.describe('emote atlas', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
+
+test.describe('a channel without an active 7TV emote set', () => {
+  test('names the missing emote set instead of guessing', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockDuplicateEmoteNames(page, 'sensitron');
+    // Empty set id *and* a reason: exactly the state issue #32 describes.
+    await mockActiveEmoteSet(page, 'sensitron', '', {
+      capacity: null,
+      occupiedSlots: 0,
+      syncFailureReason: 'no_active_emote_set',
+      lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+    });
+    await mockUsageTotals(page, 'sensitron', []);
+
+    await page.goto('/channels/sensitron/usage-stats');
+
+    await expect(
+      page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.'),
+    ).toBeVisible();
+    await expect(page.getByText('Auf 7tv.app lässt sich ein Emote-Set anlegen')).toBeVisible();
+    // The poll banner must not appear at all: with a reason in hand there is nothing to wait for,
+    // and it used to hold the page for 30 seconds before falling back to the wrong message.
+    await expect(page.getByText('Emote-Set wird geladen')).toHaveCount(0);
+    await expect(
+      page.getByText('Entweder ist das 7TV-Emote-Set leer, oder der erste Sync läuft noch'),
+    ).toHaveCount(0);
+  });
+
+  // Issue #32 shipped the reason but not a way for it to keep up: SyncChannelAsync answers `null`
+  // both when a sync fails again and when it succeeds without changing anything, so `channel.synced`
+  // never fires either way and an open page kept describing a state that had already moved on — a
+  // real, observed case is a moderator registering their 7TV account mid-session. The 30 s recheck
+  // (SYNC_FAILURE_RECHECK_INTERVAL_MS in usage-stats-page.ts) closes that gap. Both tests below
+  // drive it with a route whose response can change mid-test, unlike mockActiveEmoteSet's fixed one.
+  test('adopts a resolved set once the reason clears, without a reload', async ({ page }) => {
+    // The real cadence, not a shortened test double of it — proof that the shipped 30 s constant is
+    // what drives this, not an assumption about it.
+    test.setTimeout(45_000);
+
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockDuplicateEmoteNames(page, 'sensitron');
+    // Empty for now: loadTotals runs unconditionally, independent of the set status, so a stray
+    // real emote here would make the grid render straight away and the reason-branch would never
+    // even be reached — the same reason the "names the missing emote set" test above mocks `[]`.
+    await mockUsageTotals(page, 'sensitron', []);
+
+    let resolved = false;
+    await page.route('**/api/channels/sensitron/emotes/active-set', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          resolved
+            ? {
+                activeEmoteSetId: 'set-1',
+                capacity: 1000,
+                occupiedSlots: 10,
+                trackedSince: '2026-06-12T09:14:00Z',
+                syncFailureReason: null,
+                lastSyncAttemptAtUtc: '2026-08-29T12:05:00Z',
+              }
+            : {
+                activeEmoteSetId: '',
+                capacity: null,
+                occupiedSlots: 0,
+                trackedSince: '2026-06-12T09:14:00Z',
+                syncFailureReason: 'no_active_emote_set',
+                lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+              },
+        ),
+      }),
+    );
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(
+      page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.'),
+    ).toBeVisible();
+
+    // Nothing else happens on the page — no click, no reload — between flipping the mocks and the
+    // grid showing up. The recheck is the only thing that can have picked this up.
+    resolved = true;
+    // Re-registered rather than mutated in place: Playwright tries the most-recently-added matching
+    // route first, so this simply supersedes the `[]` response above for the recheck's own totals
+    // fetch — mirroring the real backend, where a resolved sync is what makes the totals endpoint
+    // start returning rows at all.
+    await mockUsageTotals(page, 'sensitron', EMOTES);
+
+    await expect(page.getByRole('heading', { name: 'Tragend', exact: true })).toBeVisible({
+      timeout: 32_000,
+    });
+    await expect(page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.')).toHaveCount(
+      0,
+    );
+  });
+
+  test('adopts a changed reason without a reload', async ({ page }) => {
+    test.setTimeout(45_000);
+
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockDuplicateEmoteNames(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+
+    let reason: 'no_active_emote_set' | 'no_seventv_account' = 'no_active_emote_set';
+    await page.route('**/api/channels/sensitron/emotes/active-set', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          activeEmoteSetId: '',
+          capacity: null,
+          occupiedSlots: 0,
+          trackedSince: '2026-06-12T09:14:00Z',
+          syncFailureReason: reason,
+          lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+        }),
+      }),
+    );
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(
+      page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.'),
+    ).toBeVisible();
+
+    // Still no set id — just a different cause. The sentence has to change under the same "no
+    // grid" state, not merely disappear.
+    reason = 'no_seventv_account';
+
+    await expect(page.getByText('Für diesen Twitch-Channel gibt es kein 7TV-Konto.')).toBeVisible({
+      timeout: 32_000,
+    });
+    await expect(page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.')).toHaveCount(
+      0,
+    );
+  });
+});

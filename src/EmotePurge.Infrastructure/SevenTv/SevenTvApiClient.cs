@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.SevenTv;
 using Microsoft.Extensions.Logging;
@@ -38,7 +39,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
 
-    public async Task<string?> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default)
+    public async Task<SevenTvTwitchUserIdResult> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -51,26 +52,42 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlUsersResponseDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
-            var match = dto?.Data?.Users
+            // GraphQL errors surface as HTTP 200 with `data: null` (or `users` missing inside it)
+            // plus an `errors` array — that's a failed query, not evidence the account is missing.
+            // Only a successfully returned, genuinely empty `users` list means "no match".
+            if (dto?.Data?.Users is null)
+            {
+                logger.LogWarning(
+                    "7TV-Nutzersuche für {Channel} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?).",
+                    normalized);
+                return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.Unavailable);
+            }
+
+            var match = dto.Data.Users
                 .SelectMany(u => u.Connections)
                 .FirstOrDefault(c => c.Platform == "TWITCH" &&
                     string.Equals(c.Username, normalized, StringComparison.OrdinalIgnoreCase));
 
             if (match is null)
             {
-                logger.LogInformation("Kein 7TV-Twitch-Match für {Channel}.", normalized);
+                // Debug for the same reason as the missing emote set below: only SevenTvSyncService
+                // calls this, the periodic resync calls it again every 60 seconds for as long as the
+                // channel has no 7TV account, and the line that states the finding is the throttled
+                // one there. Measured: this one repeated every tick while that one stayed silent.
+                logger.LogDebug("Kein 7TV-Twitch-Match für {Channel}.", normalized);
+                return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
             }
 
-            return match?.Id;
+            return SevenTvTwitchUserIdResult.Ok(match.Id);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             logger.LogWarning(ex, "7TV-Nutzersuche für {Channel} fehlgeschlagen, wird übersprungen.", normalized);
-            return null;
+            return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.Unavailable);
         }
     }
 
-    public async Task<SevenTvChannelState?> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    public async Task<SevenTvChannelStateResult> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -78,7 +95,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 logger.LogInformation("Kein 7TV-Account für Twitch-ID {Id}.", twitchUserId);
-                return null;
+                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
             }
 
             response.EnsureSuccessStatusCode();
@@ -86,9 +103,30 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvUserRestDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
-            if (dto?.EmoteSet is null)
+            // A literal JSON `null` body lands here as dto == null; a genuinely empty or malformed
+            // body never reaches this line at all — ReadFromJsonAsync throws JsonException first,
+            // caught below as Unavailable. Either way this is a broken answer, not a statement about
+            // the account, so it must not read as "no emote set" and send the owner off to fix
+            // something that is fine.
+            if (dto is null)
             {
-                return null;
+                logger.LogWarning("7TV-Antwort für Twitch-ID {Id} war leer.", twitchUserId);
+                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
+            }
+
+            // The state behind issue #32, and the only one of the four that used to return silently:
+            // the account exists, but no emote set is active on the Twitch connection. Debug rather
+            // than Information because this runs on every resync tick: the periodic worker asks
+            // again every 60 seconds for as long as the channel stays like this, which is ~1440
+            // lines a day per affected channel. The line that carries the finding is the one in
+            // SevenTvSyncService, which knows the channel name and only speaks when the reason
+            // changes; this one adds the Twitch id and is worth the log level it costs only while
+            // someone is actually debugging a lookup.
+            if (dto.EmoteSet is null)
+            {
+                logger.LogDebug(
+                    "7TV-Account für Twitch-ID {Id} hat kein aktives Emote-Set.", twitchUserId);
+                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoActiveEmoteSet);
             }
 
             var emotes = dto.EmoteSet.Emotes.Select(SevenTvEmoteJsonMapper.MapDto).ToList();
@@ -115,12 +153,13 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             // claim the set is full.
             var capacity = dto.EmoteSet.Capacity > 0 ? dto.EmoteSet.Capacity : (int?)null;
 
-            return new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity));
+            return SevenTvChannelStateResult.Ok(
+                new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity)));
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             logger.LogWarning(ex, "7TV-Emote-Set-Abruf für Twitch-ID {Id} fehlgeschlagen, wird übersprungen.", twitchUserId);
-            return null;
+            return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
         }
     }
 
@@ -254,7 +293,12 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
 
             return result;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // JsonException belongs here rather than in the caller's catch: a malformed v4 answer must
+        // stay a missing date, not turn the whole channel Unavailable. The caller now treats
+        // JsonException as a broken lookup, which is right for the v3 payload it reads itself — but
+        // this optional overlay has always been allowed to fail on its own without taking the sync
+        // with it, and letting its parse errors bubble would quietly reverse that.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
             logger.LogWarning(ex,
                 "7TV-v4-addedAt-Abruf für Set {SetId} fehlgeschlagen — Beitrittsdaten bleiben vorerst unbekannt.",

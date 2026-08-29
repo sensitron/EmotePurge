@@ -31,20 +31,27 @@ public class SevenTvSyncService(
             return null;
         }
 
-        var twitchUserId = channel.TwitchChannelId
-            ?? await sevenTvApiClient.ResolveTwitchUserIdAsync(normalized, cancellationToken);
+        var twitchUserId = channel.TwitchChannelId;
         if (twitchUserId is null)
         {
-            return null;
+            var resolved = await sevenTvApiClient.ResolveTwitchUserIdAsync(normalized, cancellationToken);
+            if (resolved.Status != SevenTvLookupStatus.Ok || resolved.TwitchUserId is null)
+            {
+                await RecordFailedAttemptAsync(channel, resolved.Status, cancellationToken);
+                return null;
+            }
+
+            twitchUserId = resolved.TwitchUserId;
         }
 
         var channelState = await sevenTvApiClient.GetChannelStateForTwitchUserAsync(twitchUserId, cancellationToken);
-        if (channelState is null)
+        if (channelState.Status != SevenTvLookupStatus.Ok || channelState.State is null)
         {
+            await RecordFailedAttemptAsync(channel, channelState.Status, cancellationToken);
             return null;
         }
 
-        var emoteSet = channelState.EmoteSet;
+        var emoteSet = channelState.State.EmoteSet;
 
         // A successful response with an empty emote list is indistinguishable from a real set wipe,
         // but the consequences are wildly asymmetric: ReconcileAsync would archive every emote of
@@ -62,7 +69,7 @@ public class SevenTvSyncService(
                 logger.LogWarning(
                     "7TV meldet 0 aktive Emotes für {Channel}, obwohl bisher {Count} bekannt waren — Sync übersprungen.",
                     normalized, knownActiveEmotes);
-                return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId, HasChanges: false);
+                return new SevenTvSyncResult(emoteSet.Id, channelState.State.SevenTvUserId, HasChanges: false);
             }
         }
 
@@ -84,13 +91,20 @@ public class SevenTvSyncService(
         // in the delta path — a dispatch is not a full reconciliation, and ApplyEmoteSetUpdateAsync
         // decides NoChange vs Applied by asking the ChangeTracker, so a write there would turn every
         // no-op dispatch into a live event.
-        channel.LastSyncedAtUtc = DateTime.UtcNow;
+        var syncedAt = DateTime.UtcNow;
+        channel.LastSyncedAtUtc = syncedAt;
+        // The reset half of the contract, and the one that gets forgotten: a channel that activated
+        // an emote set on 7TV must stop being told it has none. Written in the same block as the
+        // success stamp so the two cannot drift apart — a reason cleared anywhere else would need a
+        // second place to remember it.
+        channel.LastSyncAttemptAtUtc = syncedAt;
+        channel.LastSyncFailureReason = null;
 
         var inventoryChanged = await ReconcileAsync(channel.Id, emoteSet.Emotes, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await RefreshMatchCacheAsync(channel, cancellationToken);
 
-        return new SevenTvSyncResult(emoteSet.Id, channelState.SevenTvUserId, emoteSetSwitched || inventoryChanged);
+        return new SevenTvSyncResult(emoteSet.Id, channelState.State.SevenTvUserId, emoteSetSwitched || inventoryChanged);
     }
 
     public async Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
@@ -187,6 +201,31 @@ public class SevenTvSyncService(
             "7TV-Dispatch auf {Channel} angewendet: {Pushed} hinzugefügt, {Updated} aktualisiert, {Pulled} entfernt.",
             normalized, delta.Pushed.Count, delta.Updated.Count, delta.PulledIds.Count);
         return SevenTvDeltaOutcome.Applied;
+    }
+
+    /// <summary>
+    /// Records why an attempt produced nothing. Writes the reason and the attempt timestamp and
+    /// nothing else — deliberately not <c>ActiveEmoteSetId</c>, the capacity or any emote row: a
+    /// 7TV outage must not take the mass-delete panel away or archive a whole set, and
+    /// <c>LastSyncedAtUtc</c> keeps meaning "last *successful* sync".
+    /// </summary>
+    private async Task RecordFailedAttemptAsync(Channel channel, SevenTvLookupStatus status, CancellationToken cancellationToken)
+    {
+        var reason = SevenTvSyncFailureReasons.FromStatus(status);
+        // Logged only when the reason changes: the periodic resync runs this for every broken
+        // channel every 60 seconds, and an unconditional line would bury everything else in the log.
+        // The stored value is what the UI reads, so nothing is lost by staying quiet.
+        var changed = channel.LastSyncFailureReason != reason;
+
+        channel.LastSyncAttemptAtUtc = DateTime.UtcNow;
+        channel.LastSyncFailureReason = reason;
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (changed)
+        {
+            logger.LogInformation(
+                "7TV-Sync für {Channel} ohne Ergebnis: {Reason}.", channel.ChannelName, reason);
+        }
     }
 
     private async Task RefreshMatchCacheAsync(Channel channel, CancellationToken cancellationToken)

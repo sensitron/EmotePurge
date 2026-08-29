@@ -11,6 +11,7 @@ import { AdminChannel, AdminChannelsResult } from '../../core/admin/admin.model'
 import { AdminService } from '../../core/admin/admin.service';
 import { channelNameValidator, normalizeChannelName } from '../../core/channels/channel-name';
 import { ChannelService } from '../../core/channels/channel.service';
+import { sevenTvSyncFailureKey } from '../../core/emotes/seven-tv-sync-failure';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
@@ -272,6 +273,15 @@ const LIVE_AGE_TICK_MS = 30_000;
                       | transloco: { date: formatDateTime(channel.lastSyncedAtUtc) }
                   }}
                 </span>
+                @if (channel.lastSyncFailureReason; as reason) {
+                  <span aria-hidden="true">·</span>
+                  <!-- The list is where an admin scans for the odd one out; "letzter Sync: —" alone
+                       looked identical for a channel joined a minute ago and one that can never
+                       sync at all. -->
+                  <span class="text-fg-secondary">
+                    {{ syncFailureKey(reason, 'short') | transloco }}
+                  </span>
+                }
               </p>
             </li>
           }
@@ -286,6 +296,8 @@ export class AdminChannelsPage {
   private readonly dialog = inject(Dialog);
   private readonly languageService = inject(LanguageService);
   private readonly translocoService = inject(TranslocoService);
+
+  protected readonly syncFailureKey = sevenTvSyncFailureKey;
 
   private readonly channelsResource = rxResource({
     stream: () => this.adminService.listChannels(),
