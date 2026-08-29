@@ -24,13 +24,22 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
         // A payload we cannot read is treated as a miss rather than as "no grants" — the caller then
         // resolves live, which is the safe direction for an authorization input.
         var stored = JsonSerializer.Deserialize<StoredEditorGrants>((string)value!, JsonSerializerOptions.Web);
-        return stored is null ? null : new SevenTvEditorGrants(ToSet(stored.ChannelLogins), ToSet(stored.TwitchChannelIds));
+        if (stored is null)
+        {
+            return null;
+        }
+
+        // A pre-upgrade payload has no "entries" property at all, so the constructor's default
+        // applies and Entries comes back null here — never an exception, never read as "no grants".
+        // That maps to an empty list, which combined with a non-empty ChannelLogins is exactly the
+        // legacy signal MyChannelsService looks for.
+        return new SevenTvEditorGrants(ToSet(stored.ChannelLogins), ToSet(stored.TwitchChannelIds), stored.Entries ?? []);
     }
 
     public async Task SetSevenTvEditorGrantsAsync(string twitchUserId, SevenTvEditorGrants grants, CancellationToken cancellationToken = default)
     {
         var payload = JsonSerializer.Serialize(
-            new StoredEditorGrants([.. grants.ChannelLogins], [.. grants.TwitchChannelIds]),
+            new StoredEditorGrants([.. grants.ChannelLogins], [.. grants.TwitchChannelIds], [.. grants.Entries]),
             JsonSerializerOptions.Web);
         await connectionMultiplexer.GetDatabase().StringSetAsync($"7tveditor:{twitchUserId}", payload, CacheTtl());
     }
@@ -94,5 +103,8 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
     // can never collide with another's regardless of what the second segment contains.
     private static string BuildKey(string prefix, string twitchUserId, string scope) => $"{prefix}:{twitchUserId}:{scope}";
 
-    private sealed record StoredEditorGrants(IReadOnlyList<string> ChannelLogins, IReadOnlyList<string> TwitchChannelIds);
+    // Entries defaults to null (not []) so a missing "entries" property in the JSON — the shape a
+    // pre-upgrade cache entry has — is distinguishable from a current write that legitimately found
+    // zero grants: the caller of TryGetSevenTvEditorGrantsAsync maps null to [] itself.
+    private sealed record StoredEditorGrants(IReadOnlyList<string> ChannelLogins, IReadOnlyList<string> TwitchChannelIds, IReadOnlyList<SevenTvEditorGrantEntry>? Entries = null);
 }

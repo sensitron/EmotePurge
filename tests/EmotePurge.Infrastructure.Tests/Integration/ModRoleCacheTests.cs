@@ -107,4 +107,39 @@ public class ModRoleCacheTests(RedisFixture fixture)
 
         Assert.Equal(0, await cache.InvalidateUserAsync("user-invalidate-nobody"));
     }
+
+    [Fact]
+    public async Task SetSevenTvEditorGrantsAsync_ThenTryGet_RoundTripsTheLoginIdPairs()
+    {
+        var cache = new ModRoleCache(fixture.Connection, BuildConfiguration());
+        var grants = new SevenTvEditorGrants(
+            new HashSet<string> { "channel-a" },
+            new HashSet<string> { "111" },
+            [new SevenTvEditorGrantEntry("channel-a", "111")]);
+
+        await cache.SetSevenTvEditorGrantsAsync("user-entries-roundtrip", grants);
+        var result = await cache.TryGetSevenTvEditorGrantsAsync("user-entries-roundtrip");
+
+        Assert.NotNull(result);
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal("channel-a", entry.ChannelLogin);
+        Assert.Equal("111", entry.TwitchChannelId);
+    }
+
+    [Fact]
+    public async Task TryGetSevenTvEditorGrantsAsync_ReadsALegacyPayloadWithoutEntries_AsEmptyEntries()
+    {
+        // Written by hand, not through SetSevenTvEditorGrantsAsync: this is exactly the shape a
+        // cache entry from before the Entries field existed still has in Redis, up to its TTL.
+        var cache = new ModRoleCache(fixture.Connection, BuildConfiguration());
+        const string legacyJson = """{"channelLogins":["legacy-channel"],"twitchChannelIds":["222"]}""";
+        await fixture.Connection.GetDatabase().StringSetAsync("7tveditor:user-legacy-payload", legacyJson);
+
+        var result = await cache.TryGetSevenTvEditorGrantsAsync("user-legacy-payload");
+
+        Assert.NotNull(result);
+        Assert.Contains("legacy-channel", result.ChannelLogins);
+        Assert.Contains("222", result.TwitchChannelIds);
+        Assert.Empty(result.Entries);
+    }
 }

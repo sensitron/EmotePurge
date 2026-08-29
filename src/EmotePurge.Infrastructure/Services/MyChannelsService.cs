@@ -3,6 +3,7 @@ using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace EmotePurge.Infrastructure.Services;
 
@@ -11,7 +12,9 @@ public class MyChannelsService(
     ITwitchHelixClient helixClient,
     ISevenTvEditorService sevenTvEditorService,
     ITwitchUserTokenService userTokenService,
-    ITwitchLiveStatusReader liveStatusReader) : IMyChannelsService
+    ITwitchLiveStatusReader liveStatusReader,
+    ITwitchAppTokenProvider appTokenProvider,
+    ILogger<MyChannelsService> logger) : IMyChannelsService
 {
     private sealed class ChannelFlags
     {
@@ -58,16 +61,73 @@ public class MyChannelsService(
         // to run the same two-call chain here, uncached, on every single overview load.
         var grants = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
         var sevenTvUnavailable = grants is null;
-        foreach (var login in grants?.ChannelLogins ?? Enumerable.Empty<string>())
+
+        // A cache entry written before Entries existed: still authoritative for authorization, but
+        // there is nothing to resolve by id yet. Handled like the pre-fix code — by login, no Helix
+        // call — until the entry's TTL expires and a fresh lookup repopulates Entries (issue #34
+        // still applies to these grants for up to that TTL).
+        var isLegacyGrantPayload = grants is { Entries.Count: 0, ChannelLogins.Count: > 0 };
+        if (isLegacyGrantPayload)
         {
-            GetOrAdd(flagsByChannel, login).IsSevenTvEditor = true;
+            foreach (var login in grants!.ChannelLogins)
+            {
+                GetOrAdd(flagsByChannel, login).IsSevenTvEditor = true;
+            }
         }
 
+        var grantTwitchIds = !isLegacyGrantPayload && grants is not null
+            ? new HashSet<string>(grants.Entries.Select(entry => entry.TwitchChannelId), StringComparer.Ordinal)
+            : [];
+
+        // Grant logins join the name criterion below purely so a pre-backfill row (TwitchChannelId
+        // still null, so it can't match via grantTwitchIds) is found by name instead. They must NOT
+        // be written into flagsByChannel here — that would resurrect the issue #34 ghost-channel bug
+        // this same commit fixed: a dead grant's stale login would produce an output row on its own,
+        // instead of being dropped once ResolveUntrackedGrantsAsync finds Helix has no such id.
+        var grantLogins = !isLegacyGrantPayload && grants is not null
+            ? new HashSet<string>(grants.Entries.Select(entry => entry.ChannelLogin), StringComparer.Ordinal)
+            : [];
+
+        // One query for both criteria: channels already known by name (self/moderated/legacy-grant/
+        // grant login) and channels the db tracks under a grant's Twitch id, whatever name they
+        // currently have. Matching the db-tracked, renamed case here — rather than after a Helix
+        // round trip — is exactly why this stays a single query instead of two.
         var trackedChannels = await db.Channels
             .AsNoTracking()
-            .Where(c => flagsByChannel.Keys.Contains(c.ChannelName))
-            .Select(c => new { c.ChannelName, c.IsBotActive })
-            .ToDictionaryAsync(c => c.ChannelName, c => c.IsBotActive, cancellationToken);
+            .Where(c =>
+                flagsByChannel.Keys.Contains(c.ChannelName) ||
+                grantLogins.Contains(c.ChannelName) ||
+                (c.TwitchChannelId != null && grantTwitchIds.Contains(c.TwitchChannelId)))
+            .Select(c => new { c.ChannelName, c.IsBotActive, c.TwitchChannelId })
+            .ToListAsync(cancellationToken);
+
+        var trackedByName = trackedChannels.ToDictionary(c => c.ChannelName, c => c.IsBotActive);
+        var trackedNameById = trackedChannels
+            .Where(c => c.TwitchChannelId is not null)
+            .ToDictionary(c => c.TwitchChannelId!, c => c.ChannelName, StringComparer.Ordinal);
+
+        if (!isLegacyGrantPayload && grants is not null)
+        {
+            var unresolved = new List<SevenTvEditorGrantEntry>();
+            foreach (var entry in grants.Entries)
+            {
+                if (trackedNameById.TryGetValue(entry.TwitchChannelId, out var currentName))
+                {
+                    // The db already tracks this channel by id — its current name wins over
+                    // whatever login 7TV's copy still carries.
+                    GetOrAdd(flagsByChannel, currentName).IsSevenTvEditor = true;
+                }
+                else
+                {
+                    unresolved.Add(entry);
+                }
+            }
+
+            if (unresolved.Count > 0)
+            {
+                await ResolveUntrackedGrantsAsync(unresolved, flagsByChannel, cancellationToken);
+            }
+        }
 
         // The worker's last live-poll result; only bot-active channels were polled, so for every
         // other row absence from the live set must read as "unknown", not "offline".
@@ -80,14 +140,67 @@ public class MyChannelsService(
                 kv.Value.IsBroadcaster,
                 kv.Value.IsModerator,
                 kv.Value.IsSevenTvEditor,
-                IsTracked: trackedChannels.ContainsKey(kv.Key),
-                IsBotActive: trackedChannels.GetValueOrDefault(kv.Key, false),
-                LiveState: ChannelLiveStates.Derive(liveLogins, kv.Key, trackedChannels.GetValueOrDefault(kv.Key, false))))
+                IsTracked: trackedByName.ContainsKey(kv.Key),
+                IsBotActive: trackedByName.GetValueOrDefault(kv.Key, false),
+                LiveState: ChannelLiveStates.Derive(liveLogins, kv.Key, trackedByName.GetValueOrDefault(kv.Key, false))))
             .OrderByDescending(c => c.IsBroadcaster)
             .ThenBy(c => c.ChannelName)
             .ToList();
 
         return new MyChannelsResultDto(helixUnavailable, reauthRequired, sevenTvUnavailable, channels, liveStatus?.GeneratedAtUtc);
+    }
+
+    // Grant entries whose Twitch id the db doesn't know: the only case where Helix gets asked. Never
+    // adds a flag under an entry's stale 7TV login on the success path — that would leave an orphan
+    // next to the resolved name, which GetOrAdd's merge would then never clean up.
+    private async Task ResolveUntrackedGrantsAsync(
+        IReadOnlyList<SevenTvEditorGrantEntry> unresolved,
+        Dictionary<string, ChannelFlags> flagsByChannel,
+        CancellationToken cancellationToken)
+    {
+        var appToken = await appTokenProvider.GetTokenAsync(cancellationToken);
+        if (appToken is null)
+        {
+            logger.LogInformation(
+                "Kein App-Token verfügbar, um {Count} 7TV-Editor-Grant(s) ohne DB-Treffer nach Twitch-ID aufzulösen — falle auf die 7TV-Logins zurück.",
+                unresolved.Count);
+            FallBackToSevenTvLogins(unresolved, flagsByChannel);
+            return;
+        }
+
+        var identities = await helixClient.GetUsersAsync(
+            ids: [.. unresolved.Select(entry => entry.TwitchChannelId)],
+            logins: [],
+            appToken,
+            cancellationToken);
+        if (identities is null)
+        {
+            logger.LogInformation(
+                "Helix hat {Count} 7TV-Editor-Grant(s) ohne DB-Treffer nicht auflösen können — falle auf die 7TV-Logins zurück.",
+                unresolved.Count);
+            FallBackToSevenTvLogins(unresolved, flagsByChannel);
+            return;
+        }
+
+        var identityById = identities.ToDictionary(identity => identity.Id, StringComparer.Ordinal);
+        foreach (var entry in unresolved)
+        {
+            if (identityById.TryGetValue(entry.TwitchChannelId, out var identity))
+            {
+                // Helix's own current login wins, not the one the grant carried — an untracked,
+                // renamed channel surfaces under its new name.
+                GetOrAdd(flagsByChannel, ChannelName.Normalize(identity.Login)).IsSevenTvEditor = true;
+            }
+            else
+            {
+                // The id resolved to nothing in an otherwise successful Helix response: this Twitch
+                // account no longer exists under this id. This is the dead-grant case from issue
+                // #34 — dropped rather than shown under its stale 7TV login.
+                logger.LogInformation(
+                    "7TV-Editor-Grant {Login} (Twitch-ID {TwitchId}) existiert auf Twitch nicht mehr — nicht in der Übersicht angezeigt.",
+                    entry.ChannelLogin, entry.TwitchChannelId);
+            }
+        }
     }
 
     private static ChannelFlags GetOrAdd(Dictionary<string, ChannelFlags> flagsByChannel, string channelName)
@@ -99,5 +212,13 @@ public class MyChannelsService(
         }
 
         return flags;
+    }
+
+    private static void FallBackToSevenTvLogins(IReadOnlyList<SevenTvEditorGrantEntry> entries, Dictionary<string, ChannelFlags> flagsByChannel)
+    {
+        foreach (var entry in entries)
+        {
+            GetOrAdd(flagsByChannel, entry.ChannelLogin).IsSevenTvEditor = true;
+        }
     }
 }
