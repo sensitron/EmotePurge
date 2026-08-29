@@ -187,6 +187,64 @@ test.describe('authenticated broadcaster', () => {
     await expect(page.getByText('Resync abgeschlossen.')).toBeVisible();
   });
 
+  // Regression pair for the race the shared liveReload subscription produced once it started
+  // debouncing the resync confirmation alongside the duplicate-names refetch (see
+  // channel-workspace-layout.ts): a stray event straddling the click either faked a finish that
+  // never happened, or a real finish went missing behind the debounce window. The fix splits the
+  // confirmation onto its own undebounced subscription; these two cases pin the reason it needed to
+  // be undebounced, not just that it still eventually turns green.
+  test('a channel.synced shortly before the resync click does not report a premature finish', async ({
+    page,
+  }) => {
+    // Stands in for the periodic sync from #35's t=0: it used to sit in the shared debounce window
+    // and fire only after the click's 202 had set resyncFeedbackKey, reporting "abgeschlossen" for a
+    // resync that had barely started. The confirmation handler now only acts while
+    // resyncFeedbackKey is already set, so an event that arrived before the click must never flip it
+    // — however long afterwards we wait.
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockChannelScopedResync(page, 'sensitron');
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(page.getByRole('heading', { name: 'Emote-Nutzung' })).toBeVisible();
+
+    // A sync from before the user touched anything on this page.
+    await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
+
+    await page.getByRole('button', { name: 'Neu synchronisieren' }).click();
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+
+    // Longer than CHANNEL_RELOAD_DEBOUNCE_MS (1000 ms): the old bug needed exactly this wait for the
+    // stale event to fall out of the debounce window and fire.
+    await page.waitForTimeout(1500);
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+    await expect(page.getByText('Resync abgeschlossen.')).toHaveCount(0);
+  });
+
+  test('a channel.synced after the resync click upgrades to finished without waiting out a debounce window', async ({
+    page,
+  }) => {
+    // The other half of the same bug: during a dense burst (7TV mass delete, ~275 ms apart) the
+    // shared debounce window never elapsed, so a resync started mid-burst could lose its
+    // confirmation entirely once RESYNC_FEEDBACK_MS cleared "angestoßen" back off screen. The
+    // confirmation subscription only sets a signal — it makes no HTTP request — so it no longer
+    // needs debouncing at all; the tight timeout below is what tells this apart from the old,
+    // merely-eventually-correct behaviour.
+    await mockChannelPermissions(page, 'sensitron');
+    await mockActiveEmoteSet(page, 'sensitron');
+    await mockUsageTotals(page, 'sensitron', []);
+    await mockChannelScopedResync(page, 'sensitron');
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await page.getByRole('button', { name: 'Neu synchronisieren' }).click();
+    await expect(page.getByText('Resync angestoßen …')).toBeVisible();
+
+    await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
+
+    await expect(page.getByText('Resync abgeschlossen.')).toBeVisible({ timeout: 500 });
+  });
+
   // The endpoint sits behind the wider permission check on purpose: the person who just added an
   // emote and is wondering why it is missing is usually the channel's 7TV editor.
   test('a 7TV editor sees the resync button but not the leave button', async ({ page }) => {

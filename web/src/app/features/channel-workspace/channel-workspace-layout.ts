@@ -11,7 +11,7 @@ import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { pluralKey } from '../../core/i18n/plural';
 import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
-import { CHANNEL_RELOAD_DEBOUNCE_MS, liveReload } from '../../core/live/live-reload';
+import { CHANNEL_RELOAD_DEBOUNCE_MS, liveEvents, liveReload } from '../../core/live/live-reload';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { BackLink } from '../../shared/ui/back-link';
@@ -219,14 +219,37 @@ export class ChannelWorkspaceLayout {
     // The 202 only means "the worker was told". This is what turns "angestoßen" into
     // "abgeschlossen": the RESYNC path publishes channel.synced unconditionally, unlike the
     // periodic one, precisely so this confirmation can exist. The stream is already scoped to this
-    // channel, so no event needs inspecting — but the upgrade only fires while a resync of ours is
-    // still on screen, otherwise the periodic sync of any channel would announce itself.
+    // channel, so no event needs inspecting beyond its type — but the upgrade only fires while a
+    // resync of ours is still on screen, otherwise the periodic sync of any channel would announce
+    // itself.
     //
-    // liveReload rather than liveEvents, since 2026-08-29: a 7TV mass delete pushes one
-    // channel.synced per removed emote, roughly every 275 ms, and this handler refetches
-    // duplicate-names on every one of them. Undebounced that was the single largest source of the
-    // 429s in issue #35 — 22 of 38 rejected requests. The window delays the resync confirmation by
-    // at most one second, which is well inside RESYNC_FEEDBACK_MS.
+    // liveEvents, undebounced, and split off from the duplicate-names refetch below: the two used to
+    // share one liveReload subscription, which raced in both directions. A channel.synced that
+    // arrived before the click (the periodic resync, say) sat in the debounce window and fired after
+    // resyncFeedbackKey was set by the click, reporting "abgeschlossen" for a resync that had barely
+    // started. And during a dense burst (7TV mass delete, ~275 ms apart) the window never elapsed at
+    // all, so a resync started mid-burst showed "angestoßen" and then lost the confirmation entirely
+    // once RESYNC_FEEDBACK_MS cleared it. Neither race needs debouncing to fix — this handler only
+    // sets a signal, it makes no HTTP request — so it gets its own, immediate subscription instead.
+    //
+    // This costs nothing extra: since 5f4cd14 ("share one live sse connection per url")
+    // LiveUpdateService.stream() is shared and ref-counted per URL, so a second subscription to the
+    // same channelLiveUrl no longer opens a second EventSource. That coupling is exactly what forced
+    // both concerns onto one pipeline originally, and it no longer holds.
+    liveEvents(
+      computed(() => channelLiveUrl(this.channelName())),
+      [LIVE_EVENT_TYPES.channelSynced],
+    ).subscribe(() => {
+      if (this.resyncFeedbackKey() !== null) {
+        this.showResyncFeedback('channelWorkspace.resync.completed');
+      }
+    });
+
+    // liveReload rather than liveEvents: a 7TV mass delete pushes one channel.synced per removed
+    // emote, roughly every 275 ms, and this handler refetches duplicate-names on every one of them.
+    // Undebounced that was the single largest source of the 429s in issue #35 — 22 of 38 rejected
+    // requests. All HTTP requests stay on this debounced branch; the confirmation subscription above
+    // makes none, so splitting it off does not reopen that 429 exposure.
     liveReload(
       computed(() => channelLiveUrl(this.channelName())),
       {
@@ -234,9 +257,6 @@ export class ChannelWorkspaceLayout {
         debounceMs: CHANNEL_RELOAD_DEBOUNCE_MS,
       },
     ).subscribe(() => {
-      if (this.resyncFeedbackKey() !== null) {
-        this.showResyncFeedback('channelWorkspace.resync.completed');
-      }
       // The inventory changed, so the collision set may have too — including the good case where
       // the banner disappears right after the user fixed the duplicate on 7TV.
       this.loadDuplicateNames(this.channelName());
