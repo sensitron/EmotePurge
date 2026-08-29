@@ -58,7 +58,11 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
 
             if (match is null)
             {
-                logger.LogInformation("Kein 7TV-Twitch-Match für {Channel}.", normalized);
+                // Debug for the same reason as the missing emote set below: only SevenTvSyncService
+                // calls this, the periodic resync calls it again every 60 seconds for as long as the
+                // channel has no 7TV account, and the line that states the finding is the throttled
+                // one there. Measured: this one repeated every tick while that one stayed silent.
+                logger.LogDebug("Kein 7TV-Twitch-Match für {Channel}.", normalized);
                 return SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
             }
 
@@ -96,11 +100,16 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             }
 
             // The state behind issue #32, and the only one of the four that used to return silently:
-            // the account exists, but no emote set is active on the Twitch connection. Logged at
-            // Information because it is a legitimate configuration, not a fault of ours.
+            // the account exists, but no emote set is active on the Twitch connection. Debug rather
+            // than Information because this runs on every resync tick: the periodic worker asks
+            // again every 60 seconds for as long as the channel stays like this, which is ~1440
+            // lines a day per affected channel. The line that carries the finding is the one in
+            // SevenTvSyncService, which knows the channel name and only speaks when the reason
+            // changes; this one adds the Twitch id and is worth the log level it costs only while
+            // someone is actually debugging a lookup.
             if (dto.EmoteSet is null)
             {
-                logger.LogInformation(
+                logger.LogDebug(
                     "7TV-Account für Twitch-ID {Id} hat kein aktives Emote-Set.", twitchUserId);
                 return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoActiveEmoteSet);
             }
