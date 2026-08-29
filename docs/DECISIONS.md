@@ -10,6 +10,26 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-29 — Emote-Bilder holen die Größe, die sie zeigen
+
+**Betrifft:** `web/src/app/shared/emotes/emote-image-loader.ts`, `web/src/app/shared/emotes/emote-sprite.ts`, `web/e2e/atlas-image-loading.measure.ts`, `web/playwright.measure.config.ts`, `docs/Untersuchung-Emote-Bildladen-2026-08-29.md`
+
+Die Nutzungsseite lud für jede Zelle die 4x-Variante eines Emotes — rund 128 px, gerendert auf ~56 px in einer 64-px-Zelle. Bei einem großen Set sind das rund 5,9 MB, und der Engpass war nicht das CDN, sondern die Warteschlange des Browsers: 650 Bilder über eine Verbindung, gemessene Wartezeit vor dem Absenden p90 rund 3,4 s, einzelne Zellen über 5 s leer. Die vollständige Messung samt der widerlegten Alternativhypothesen steht in [`Untersuchung-Emote-Bildladen-2026-08-29.md`](Untersuchung-Emote-Bildladen-2026-08-29.md).
+
+**Ein `IMAGE_LOADER`, kein neuer URL-Bau an der Aufrufstelle.** `EmoteSprite` stellt `NgOptimizedImage` einen Loader bereit, der die gespeicherte 4x-URL auf die kleinste Variante herunterschreibt, die die angeforderte Breite noch deckt (1x/2x/3x bei 32/64/96 px, sonst 4x). Angular baut daraus von selbst ein Density-`srcset`, also lädt ein Display mit normaler Pixeldichte die 2x-Variante und eines mit doppelter weiterhin 4x. Die Alternative — an jeder der sechs Aufrufstellen die passende URL selbst zusammensetzen — hätte die Größenlogik über das halbe Frontend verteilt und die Pixeldichte gar nicht berücksichtigen können.
+
+**Der Loader ist auf die Komponente begrenzt, nicht global registriert.** Er steht in `providers` von `EmoteSprite` und wirkt damit nur über den Element-Injector auf das eigene `<img>`. Global registriert würde er auch `shared/ui/avatar.ts` treffen, das `NgOptimizedImage` für Twitch-Profilbilder nutzt — 7TV-förmige Umschreibungen auf einer Twitch-CDN-URL ergeben Unsinn. Das ist der Grund, warum hier kein `provideImageLoader` in `app.config.ts` steht.
+
+**Was der Loader nicht anfasst, ist die eigentliche Feinheit.** Umgeschrieben wird ausschließlich, was auf `/4x_static.webp` oder `/4x.webp` endet, also genau die zwei Formen, die das Backend speichert. Die Hover-Animation des Sidecars läuft über `animatedEmoteUrl` und endet auf `/2x.webp`; sie fällt damit durch und bleibt unangetastet. Das ist Absicht: `1001d0b` hat die Animation bewusst auf 2x festgelegt, und sie wird einmal für ein einzelnes Emote geholt, nicht für jede Zelle — der Größenkompromiss des Atlas gilt für sie nicht. Jede andere URL läuft ebenfalls unverändert durch, und ohne `width` gibt der Loader die Eingabe zurück.
+
+**Die Vorbedingung wurde geprüft, nicht angenommen.** Eine fehlende Größenvariante wäre kein sichtbarer Fehler, sondern eine dauerhaft leere Zelle — `EmoteSprite` hält das `<img>` bis zum `load`-Ereignis auf `visibility: hidden` und setzt bei `(error)` nur den Zustand zurück. Vor der Umstellung wurden deshalb alle 649 Emotes des Testsets gegen ihre 2x-Variante geprüft: 431 `_static`, 218 plain, kein einziger Fehlschlag.
+
+**Gemessen, nicht geschätzt** (gemächliches Scrollen, Mediane): Bytes 5,87 → 3,50 MB, Wartezeit p90 3368 → 95 ms, Zelle leer p90 4803 → 959 ms, Zellen über 5 s leer 47 → 0 in jedem Lauf. Kontrolle, dass die Umschreibung greift: in allen Nachher-Läufen wurden ausschließlich 2x-URLs angefordert.
+
+**Das Messskript liegt im Repo, weil die Streuung die Lehre ist.** `web/e2e/atlas-image-loading.measure.ts` läuft über eine eigene Config auf Port 4301 und fällt nicht unter den `*.spec.ts`-Glob der E2E-Suite — es trifft das echte 7TV-CDN, dauert über die nötigen Wiederholungen Minuten und behauptet nichts. Der Grund für die Aufbewahrung: Einzelläufe streuen hier stärker als der gemessene Effekt, ein erster Vergleich aus je einem Lauf zeigte Verbesserungen, von denen nach Wiederholung nur die Byte-Zahl übrig blieb. Wer nachmisst, braucht mehrere Läufe im Wechsel — und soll dafür nicht die CDP-Verkabelung neu bauen müssen.
+
+**Nicht mitgekommen: der kleinere Virtual-Scroll-Puffer.** Er war gebaut und wurde nach isolierter Messung wieder entfernt — gegen den Loader allein kein belegbarer Zusatznutzen bei überlappenden Bereichen, dafür weniger Vorlaufstrecke.
+
 ### 2026-08-29 — Ein Sync, der nichts liefert, sagt warum
 
 **Betrifft:** `src/EmotePurge.Core/SevenTv/{SevenTvModels.cs,ISevenTvApiClient.cs}`, `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Core/Entities/Channel.cs`, `src/EmotePurge.Infrastructure/SevenTv/SevenTvApiClient.cs`, `src/EmotePurge.Infrastructure/Services/{SevenTvSyncService,EmoteSetStatusService,AdminChannelQueryService}.cs`, `src/EmotePurge.Infrastructure/Migrations/*_AddChannelSyncFailureReason.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/src/app/features/admin/admin-channel-detail-page.ts`, `web/public/i18n/*.json`

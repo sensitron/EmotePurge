@@ -1,5 +1,7 @@
-import { NgOptimizedImage } from '@angular/common';
+import { IMAGE_LOADER, NgOptimizedImage } from '@angular/common';
 import { Component, computed, input, signal } from '@angular/core';
+
+import { emoteSpriteImageLoader } from './emote-image-loader';
 
 /**
  * One emote sprite, drawn only once it belongs to the emote next to it.
@@ -45,6 +47,10 @@ import { Component, computed, input, signal } from '@angular/core';
     />
   `,
   host: { class: 'contents' },
+  // Scoped to this component's element injector, not registered app-wide: `shared/ui/avatar.ts`
+  // uses `NgOptimizedImage` too, for Twitch profile pictures, and a global 7TV-shaped loader would
+  // rewrite those urls into nonsense.
+  providers: [{ provide: IMAGE_LOADER, useValue: emoteSpriteImageLoader }],
 })
 export class EmoteSprite {
   readonly url = input.required<string>();
