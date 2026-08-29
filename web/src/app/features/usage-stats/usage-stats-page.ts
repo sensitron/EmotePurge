@@ -54,6 +54,7 @@ import {
   usageTrend,
 } from '../../shared/emotes/emote-context';
 import { EmoteSprite } from '../../shared/emotes/emote-sprite';
+import { EmoteSpriteAnimated } from '../../shared/emotes/emote-sprite-animated';
 import { EmoteUsageFilter } from '../../shared/emotes/emote-usage-filter';
 import { UsageRangeMenu } from '../../shared/emotes/usage-range-menu';
 import { UsageSparkline } from '../../shared/emotes/usage-sparkline';
@@ -147,6 +148,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     NoticeBanner,
     ScrollingModule,
     EmoteSprite,
+    EmoteSpriteAnimated,
     MassDeletePanel,
     RestorePanel,
     SlotBudgetBar,
