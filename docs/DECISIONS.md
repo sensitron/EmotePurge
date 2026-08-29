@@ -59,6 +59,22 @@ Die Kette ist seit kurzem **Client → Cloudflare → nginx → Kestrel**, nicht
 
 **Noch offen:** Ob SSE (`/api/channels/live-events`, `/api/channels/{c}/live`) durch Cloudflare unverändert durchkommt, ist nicht systematisch geprüft. `/api/` kommt als `cf-cache-status: DYNAMIC` durch, das Hardening-Snippet setzt `proxy_buffering off` und die Api sendet `X-Accel-Buffering: no` — aber ein LIVE-Badge, das ohne Reload umspringt, hat seit dem Umzug niemand bewusst beobachtet. Ebenfalls zu prüfen: ob Cloudflares Auto Minify und Rocket Loader aus sind.
 
+### 2026-08-29 — Pläne beschreiben Absicht, nicht Code; Codex wird zur Pflicht-Zweitmeinung
+
+**Betrifft:** `CLAUDE.md`, `~/.claude/CLAUDE.md`
+
+Die Arbeitsweise aus Homeport und ActivityTracker ist hierher übernommen worden, weil sie dort gemessen und angepasst wurde. Zwei Punkte davon ändern, wie in diesem Repo gearbeitet wird.
+
+**Pläne enthalten keinen fertigen Code.** Ein Plan beschreibt Absicht, Verträge, Grenzfälle und die Reihenfolge der Tasks. Was der Implementer nur abtippen soll, muss man nicht planen, sondern implementieren. Die Zahl dahinter stammt aus Homeport: die Pläne dort waren mit über 40.000 Zeilen fast doppelt so umfangreich wie der gesamte Produktivcode, und bei einem A/B-Test lieferten zwei verschiedene Modelle auf demselben Brief byte-identischen Code — das Denken war da längst erledigt, bezahlt wurde es zweimal. **Die Regel betrifft den Umfang, nicht das Modell:** Fable darf Pläne schreiben, sie sollen nur kein Listing enthalten, das abgetippt wird. Homeport weicht davon ab und lässt Pläne vorerst von Opus schreiben — das ist dort eine offene Messfrage und keine allgemeine Vorgabe. Die beiden am selben Tag entstandenen Pläne unter `docs/superpowers/plans/` sind noch im alten, ausformulierten Stil und bleiben so; nachträglich gekürzt wird nichts.
+
+**Plan-Tasks laufen immer als Subagent.** Nie direkt in der Hauptsession. Jeder startet mit frischem Kontext, bekommt seinen Task plus den nötigen Kontext, und der Orchestrator prüft das Ergebnis.
+
+**Der `Plan`-Subagent-Typ ist read-only** — er kann seine eigene Plandatei nicht schreiben. Beide Pläne dieses Tages mussten per Skript aus dem Agent-Transkript unter `/tmp/…/tasks/<id>.output` in die Datei gezogen werden, statt sie durch den Kontext der Hauptsession zu schleusen. Das steht jetzt als Handgriff in `CLAUDE.md`, damit die nächste Sitzung nicht dieselbe Runde dreht.
+
+**Codex Sol wird zur Pflicht vor jedem Merge auf `main`**, Konzepte und Pläne zusätzlich adversarial. Widersprechen sich Opus-Review und Codex, entscheidet Fable als Schiedsrichter — und zwar nur bei echtem Widerspruch (gegensätzliche Bewertung derselben Stelle, unvereinbare Fixes, ein P1/P2-Finding, das der andere gar nicht sieht); reine Ergänzungen zählen nicht. Der Orchestrator löst solche Konflikte nie stillschweigend selbst auf. **Implementierung bleibt trotzdem bei Claude-Subagents** — nicht wegen des Kontingents, das derzeit kein Engpass ist, sondern weil derselbe A/B-Test byte-identischen Produktivcode lieferte: die Delegation kauft nichts. Voraussetzung für Regel 22 ist ein lokaler Plugin-Patch, der `disable-model-invocation` entfernt; er ist schon einmal ohne Versionssprung verschwunden, der Prüfbefehl steht deshalb in `CLAUDE.md`.
+
+**Nicht übernommen:** Homeports Testregel („Komponenten testen, wenn sie eigene Logik tragen") widerspricht Regel 12, die isolierte Komponententests hier bewusst ausschließt. Das ist eine Entscheidung mit eigener Begründung und bleibt.
+
 ### 2026-08-09 — Die Bänder nennen ihren gemessenen Anteil und tragen eine Farbe
 
 **Betrifft:** `web/src/app/shared/emotes/usage-bands.ts`, `web/src/app/shared/grid/atlas-grid.ts`, `web/src/app/features/usage-stats/usage-stats-page.{ts,html}`, `web/src/app/features/landing/set-shape.ts`, `web/public/i18n/*.json`, `web/e2e/{usage-atlas,landing}.e2e.spec.ts`, `docs/UI-Designsprache.md`
