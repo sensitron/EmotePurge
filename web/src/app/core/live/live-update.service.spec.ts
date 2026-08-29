@@ -156,4 +156,69 @@ describe('LiveUpdateService', () => {
     expect(service.status()).toBe('open');
     subscription.unsubscribe();
   });
+
+  it('shares one connection between two subscribers of the same url', () => {
+    // The workspace layout and the page routed into it both listen to this URL. Before this they
+    // opened two EventSources, ran two auth handshakes and took two slots in ILiveEventStream.
+    const first: LiveEvent[] = [];
+    const second: LiveEvent[] = [];
+    const url = '/api/channels/sensitron/live';
+
+    const firstSubscription = service.stream(url).subscribe((event) => first.push(event));
+    const secondSubscription = service.stream(url).subscribe((event) => second.push(event));
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    FakeEventSource.instances[0].emit(
+      JSON.stringify({ type: 'channel.synced', channel: 'sensitron' }),
+    );
+
+    expect(first).toEqual([{ type: 'channel.synced', channel: 'sensitron' }]);
+    expect(second).toEqual([{ type: 'channel.synced', channel: 'sensitron' }]);
+
+    firstSubscription.unsubscribe();
+    secondSubscription.unsubscribe();
+  });
+
+  it('keeps the connection open while one subscriber remains', () => {
+    const url = '/api/channels/sensitron/live';
+    const firstSubscription = service.stream(url).subscribe();
+    const secondSubscription = service.stream(url).subscribe();
+    const source = FakeEventSource.instances[0];
+
+    firstSubscription.unsubscribe();
+
+    expect(source.closeCount).toBe(0);
+
+    secondSubscription.unsubscribe();
+
+    expect(source.closeCount).toBe(1);
+  });
+
+  it('opens a separate connection per url', () => {
+    const one = service.stream('/api/channels/one/live').subscribe();
+    const two = service.stream('/api/channels/two/live').subscribe();
+
+    expect(FakeEventSource.instances.map((instance) => instance.url)).toEqual([
+      '/api/channels/one/live',
+      '/api/channels/two/live',
+    ]);
+
+    one.unsubscribe();
+    two.unsubscribe();
+  });
+
+  it('reconnects a url whose last subscriber had left', () => {
+    // The switchMap in liveEvents() drops a channel's stream on navigation and picks it up again on
+    // the way back — a cached-but-dead observable would leave that user with no live updates at all.
+    const url = '/api/channels/sensitron/live';
+    service.stream(url).subscribe().unsubscribe();
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    const again = service.stream(url).subscribe();
+
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[1].url).toBe(url);
+    again.unsubscribe();
+  });
 });

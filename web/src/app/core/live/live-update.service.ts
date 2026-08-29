@@ -1,6 +1,6 @@
 import { DOCUMENT } from '@angular/common';
 import { Injectable, inject, signal } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, share } from 'rxjs';
 
 import { EVENT_SOURCE_FACTORY } from './event-source.factory';
 import { LIVE_EVENT_TYPES, LiveEvent } from './live-event.model';
@@ -37,11 +37,40 @@ export class LiveUpdateService {
    *  Nothing branches on it; it exists for diagnostics and a possible future indicator. */
   readonly status = this.statusSignal.asReadonly();
 
+  /** One entry per URL this session has ever subscribed to. Holds no connection — only the (inert)
+   *  multicast Observable, so a session that visited twenty channels carries twenty closures. */
+  private readonly sharedStreams = new Map<string, Observable<LiveEvent>>();
+
   /**
-   * Cold: the connection is opened per subscriber and closed again on unsubscribe, so a `switchMap`
-   * over a changing URL tears the old channel's connection down by itself.
+   * Multicast per URL, ref-counted: the first subscriber opens the connection, the last one to
+   * unsubscribe closes it, and everyone in between shares the same `EventSource`.
+   *
+   * Still cold — nothing is opened until someone subscribes — and a URL whose subscribers have all
+   * left is rebuilt from scratch on the next one, which is what keeps the `switchMap` in
+   * {@link liveEvents} working across navigation.
+   *
+   * Sharing rather than one connection per subscriber, because the subscribers of one URL sit on top
+   * of each other: the channel workspace layout and whichever page is routed into it both listen to
+   * `/api/channels/{name}/live`, and the admin monitoring page has up to three listeners on
+   * `/api/admin/live`. Each of those used to be its own connection, its own auth handshake, and its
+   * own slot in ILiveEventStream's connection limits.
+   *
+   * One behavioural consequence: the single visibility-retry after a fatal close is now per
+   * connection, not per component. That is the more honest budget — the connection is what failed.
    */
   stream(url: string): Observable<LiveEvent> {
+    const shared = this.sharedStreams.get(url);
+    if (shared) {
+      return shared;
+    }
+
+    const created = this.connect(url).pipe(share({ resetOnRefCountZero: true }));
+    this.sharedStreams.set(url, created);
+    return created;
+  }
+
+  /** The single-subscriber connection the multicast above wraps. */
+  private connect(url: string): Observable<LiveEvent> {
     return new Observable<LiveEvent>((subscriber) => {
       let source: EventSource | null = null;
       let retryUsed = false;
