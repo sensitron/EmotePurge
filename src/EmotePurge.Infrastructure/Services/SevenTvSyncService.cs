@@ -42,6 +42,20 @@ public class SevenTvSyncService(
             }
 
             twitchUserId = resolved.TwitchUserId;
+
+            // A rename leaves this exact shape: a second row under the new name, still without its
+            // own TwitchChannelId, resolving to the Twitch account the original row already holds.
+            // Writing it here via the backfill below would collide with the unique index on
+            // Channel.TwitchChannelId — so this row is left untouched. Reconciling the duplicate
+            // (folding it into the original, or vice versa) is not this method's job.
+            var existingOwner = await db.LoadChannelByTwitchIdAsync(twitchUserId, cancellationToken);
+            if (existingOwner is not null && existingOwner.Id != channel.Id)
+            {
+                logger.LogWarning(
+                    "SyncChannelAsync: {Channel} ({ChannelId}) löst dieselbe Twitch-ID {TwitchId} auf wie bereits getrackter Channel {ExistingChannel} ({ExistingChannelId}) — vermutlich ein Rename-Duplikat, Sync übersprungen.",
+                    normalized, channel.Id, twitchUserId, existingOwner.ChannelName, existingOwner.Id);
+                return null;
+            }
         }
 
         var channelState = await sevenTvApiClient.GetChannelStateForTwitchUserAsync(twitchUserId, cancellationToken);

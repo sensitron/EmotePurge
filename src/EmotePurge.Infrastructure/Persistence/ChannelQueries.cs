@@ -57,4 +57,15 @@ internal static class ChannelQueries
             s => s.Id == sessionId && s.ChannelId == channel.Id, cancellationToken);
         return (channel, session);
     }
+
+    /// <summary>
+    /// Loads a channel by its Twitch id: once a caller has a Twitch id in hand, it is looking for
+    /// the *channel*, not for whatever name it currently answers to, and a rename can leave a
+    /// second row under a new name sharing that same id. Tracked, since the callers that need this
+    /// (rename reconciliation) mutate what they find. Twitch ids are opaque digit strings, never
+    /// <see cref="ChannelName.Normalize"/>d.
+    /// </summary>
+    public static Task<Channel?> LoadChannelByTwitchIdAsync(
+        this AppDbContext db, string twitchChannelId, CancellationToken cancellationToken) =>
+        db.Channels.SingleOrDefaultAsync(c => c.TwitchChannelId == twitchChannelId, cancellationToken);
 }

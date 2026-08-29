@@ -826,4 +826,62 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
             .Where(c => c.ChannelName == "wstest_reason_noid")
             .Select(c => c.LastSyncFailureReason).SingleAsync());
     }
+
+    // ---- Rename duplicates (Channel.TwitchChannelId unique index) ----
+
+    [Fact]
+    public async Task SyncChannel_ResolvedTwitchIdNotHeldByAnyOtherRow_BackfillsNormally()
+    {
+        // The counterpart to the duplicate guard below: LoadChannelByTwitchIdAsync misses (no other
+        // row holds this id yet), so the ordinary first-time backfill must still go through.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = new Channel { ChannelName = "wstest_dup_nomatch", TwitchChannelId = null, ActiveEmoteSetId = "" };
+        db.Channels.Add(channel);
+        await db.SaveChangesAsync();
+
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        apiClient.ResolveTwitchUserIdAsync("wstest_dup_nomatch", Arg.Any<CancellationToken>())
+            .Returns(SevenTvTwitchUserIdResult.Ok("222"));
+        apiClient.GetChannelStateForTwitchUserAsync("222", Arg.Any<CancellationToken>())
+            .Returns(SevenTvChannelStateResult.Ok(new SevenTvChannelState("7tv-user-222", new SevenTvEmoteSet(SetId, [LiveEmote("e1", "hi")]))));
+        var service = new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        Assert.Equal("222", await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => c.TwitchChannelId).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SyncChannel_ResolvedTwitchIdAlreadyOwnedByAnotherRow_SkipsWithoutBackfillingOrPersisting()
+    {
+        // A rename leaves a second row under the new name without a TwitchChannelId. The resolve
+        // step finds the same Twitch account the original row already holds — writing it into this
+        // row via `??=` would collide with the unique index on Channel.TwitchChannelId.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        db.Channels.Add(new Channel { ChannelName = "wstest_dup_original", TwitchChannelId = "111", ActiveEmoteSetId = SetId });
+        var renamed = new Channel { ChannelName = "wstest_dup_renamed", TwitchChannelId = null, ActiveEmoteSetId = "" };
+        db.Channels.Add(renamed);
+        await db.SaveChangesAsync();
+
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        apiClient.ResolveTwitchUserIdAsync("wstest_dup_renamed", Arg.Any<CancellationToken>())
+            .Returns(SevenTvTwitchUserIdResult.Ok("111"));
+        // Stubbed so the pre-fix path — which does not short-circuit before this call — reaches the
+        // backfill and its SaveChangesAsync instead of failing earlier on an unconfigured NSubstitute
+        // member; the real bug is the unique-index collision that follows, not a missing stub.
+        apiClient.GetChannelStateForTwitchUserAsync("111", Arg.Any<CancellationToken>())
+            .Returns(SevenTvChannelStateResult.Ok(new SevenTvChannelState("7tv-user-dup", new SevenTvEmoteSet(SetId, [LiveEmote("e1", "hi")]))));
+        var service = new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+
+        var result = await service.SyncChannelAsync(renamed.ChannelName);
+
+        Assert.Null(result);
+        Assert.False(await db.Emotes.AnyAsync(e => e.ChannelId == renamed.Id));
+        Assert.Null(await db.Channels.Where(c => c.Id == renamed.Id)
+            .Select(c => c.TwitchChannelId).SingleAsync());
+    }
 }
