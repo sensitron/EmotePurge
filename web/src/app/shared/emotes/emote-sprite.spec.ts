@@ -108,6 +108,56 @@ describe('EmoteSprite', () => {
 
 @Component({
   imports: [EmoteSprite],
+  template: `<app-emote-sprite [url]="'https://cdn.7tv.app/emote/aaa/4x.webp'" [size]="64" />`,
+})
+class ResponsiveHost {}
+
+describe('EmoteSprite responsive srcset', () => {
+  let fixture: ComponentFixture<ResponsiveHost>;
+
+  function image(): HTMLImageElement {
+    return fixture.nativeElement.querySelector('img');
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [ResponsiveHost] }).compileComponents();
+    fixture = TestBed.createComponent(ResponsiveHost);
+    fixture.detectChanges();
+  });
+
+  // `sizes` is bound to the component's own edge length so NgOptimizedImage builds a width-based
+  // srcset instead of a density one — the whole point of this component-local IMAGE_CONFIG. No
+  // `auto, ` prefix here: Angular only adds that for `loading="lazy"` (the directive's default),
+  // and this component deliberately overrides that to `eager` (see below) so the browser has a
+  // resolved `sizes` value from the first layout instead of guessing high and re-fetching.
+  it('sets sizes to the component edge length, with no lazy-loading auto prefix', () => {
+    expect(image().getAttribute('sizes')).toBe('64px');
+  });
+
+  // The actual point of `loading="eager"` here: not scheduling (measured separately to be a
+  // non-factor), but keeping Angular from prepending `auto, ` to `sizes` — see the doc comment on
+  // `EmoteSprite`. Guards against silently reverting to `lazy` and reintroducing the double-fetch.
+  it('sets loading to eager so sizes resolves without a layout round-trip', () => {
+    expect(image().getAttribute('loading')).toBe('eager');
+  });
+
+  // One candidate per configured breakpoint (32/64/96/128), each rewritten through the same
+  // width -> variant mapping emoteVariantUrl uses elsewhere, rather than the two-candidate density
+  // srcset the same setup used to produce.
+  it('builds a width-descriptor srcset covering all four 7TV variants', () => {
+    expect(image().getAttribute('srcset')).toBe(
+      [
+        'https://cdn.7tv.app/emote/aaa/1x.webp 32w',
+        'https://cdn.7tv.app/emote/aaa/2x.webp 64w',
+        'https://cdn.7tv.app/emote/aaa/3x.webp 96w',
+        'https://cdn.7tv.app/emote/aaa/4x.webp 128w',
+      ].join(', '),
+    );
+  });
+});
+
+@Component({
+  imports: [EmoteSprite],
   template: `
     <app-emote-sprite
       [url]="'https://cdn.7tv.app/emote/aaa/2x.webp'"

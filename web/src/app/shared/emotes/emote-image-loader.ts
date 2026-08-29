@@ -8,9 +8,14 @@ import type { ImageLoader, ImageLoaderConfig } from '@angular/common';
  * tall. The atlas renders it into a 64 px cell — the browser downscales, but it still has to fetch
  * and decode the full 4x bytes first. Measured: 5.75 MB for 649 emotes at 4x, and the bottleneck is
  * the browser's own request queue (p90 5 s wait before a request is even sent), so fewer bytes per
- * emote shortens that queue directly. `EmoteSprite` provides this loader so `NgOptimizedImage`
- * builds a density `srcset` (1x/2x descriptors) and a normal-density display loads the 2x variant
- * instead of the 4x one it would otherwise fetch for both descriptors.
+ * emote shortens that queue directly. `EmoteSprite` provides this loader, together with an explicit
+ * `ngSrcset` and a matching `sizes` binding (see the doc comment on `EmoteSprite` for why it's
+ * `ngSrcset` and not a component-local `IMAGE_CONFIG`), so `NgOptimizedImage` builds a width-based
+ * `srcset` (one candidate per 7TV variant) instead of a density `srcset`. Density `srcset`s only
+ * offer 1x/2x candidates, so any devicePixelRatio above 1.0 — every fractional Windows display
+ * scaling, not just exact 2x — falls through to the 2x candidate's density bucket and fetches the 4x
+ * bytes; a width-based `srcset` lets the browser pick the 3x variant for those in-between ratios
+ * instead.
  *
  * 7TV serves four variants — `1x`/`2x`/`3x`/`4x`, each roughly 32/64/96/128 px tall, as `<n>x.webp`
  * and, for animated emotes, also `<n>x_static.webp`. The variant chosen is the smallest one whose

@@ -36,7 +36,9 @@ In **jedem** Lauf identisch. Die Entfernungs-Buckets sind lückenlos: von 0–19
 
 Der Grund ist arithmetisch: Chrome startet `loading="lazy"`-Requests bereits bei rund 1250 px Abstand zum Viewport (4G; 2500 px bei langsamerer Verbindung). Der CDK-Puffer der Seite ist mit `rowHeight * 8` = 544 px deutlich kleiner. Alles, was gerendert wird, liegt also ohnehin innerhalb der Schwelle — und jenseits davon existiert kein `<img>`, das man „eager" machen könnte.
 
-`loading="eager"` ist damit **messbar wirkungslos**: es kann 100 % nicht überbieten. Der Zeitunterschied oben ist Rauschen (überlappende Bereiche, der schlechteste `eager`-Lauf ist langsamer als jeder `lazy`-Lauf).
+`loading="eager"` ist damit **für den Ladezeitpunkt messbar wirkungslos**: es kann 100 % nicht überbieten. Der Zeitunterschied oben ist Rauschen (überlappende Bereiche, der schlechteste `eager`-Lauf ist langsamer als jeder `lazy`-Lauf).
+
+**Trotzdem steht `eager` in der ausgelieferten Fassung am `<img>` — aus einem völlig anderen Grund**, der nichts mit Scheduling zu tun hat: siehe Abschnitt 6b. Wer nur diesen Abschnitt liest, hält den Code für einen Widerspruch zur Messung.
 
 **Nicht gemessen:** Safari/WebKit. Dessen Schwelle lag historisch bei rund 100 px, Firefox bei rund 600 px — belastbare aktuelle Zahlen waren nicht auffindbar. Dort *könnte* `eager` etwas bringen; auf Chromium nicht. Playwrights WebKit-Build braucht Systembibliotheken (`sudo npx playwright install-deps webkit`), die auf der Devbox nicht installiert sind.
 
@@ -92,7 +94,7 @@ Das erklärt das Beobachtungsbild „mal sofort da, mal ewig" vollständig.
 
 ## 6. Die Änderung: passende Größenvariante statt immer 4x
 
-Ausgeliefert wurde für jede Zelle die 4x-Variante (~128 px) in eine 64-px-Zelle, in der das Bild auf ~56 px gerendert wird. 7TV bietet vier Größen; die Zuordnung übernimmt jetzt ein auf `EmoteSprite` begrenzter `IMAGE_LOADER`, aus dem Angular ein Density-`srcset` baut (Begründung im [Entscheidungslog](DECISIONS.md), Eintrag vom 2026-08-29).
+Ausgeliefert wurde für jede Zelle die 4x-Variante (~128 px) in eine 64-px-Zelle, in der das Bild auf ~56 px gerendert wird. 7TV bietet vier Größen; die Zuordnung übernimmt jetzt ein auf `EmoteSprite` begrenzter `IMAGE_LOADER`, aus dem Angular ein `srcset` baut (Begründung im [Entscheidungslog](DECISIONS.md), Eintrag vom 2026-08-29). Die Zahlen in diesem Abschnitt stammen aus der ersten Fassung mit Density-`srcset`; warum sie durch ein breitenbasiertes `srcset` ersetzt wurde, steht in Abschnitt 6b.
 
 Vorab geprüft: **alle 649 Emotes** haben eine funktionierende 2x-Variante (431 × `2x_static.webp`, 218 × `2x.webp`, null Fehlschläge). Das war notwendige Vorbedingung — eine fehlende Variante wäre wegen des `(error)`-Zweigs in `EmoteSprite` eine dauerhaft leere Zelle, kein sichtbarer Fehler.
 
@@ -112,6 +114,42 @@ Der mehrsekündige Ausläufer verschwindet in jedem Lauf. Die Byte-Halbierung is
 
 ---
 
+## 6b. Nachtrag: Density-`srcset` hilft nur bei genau `devicePixelRatio` 1
+
+Die erste Fassung setzte kein `sizes`, also erzeugte Angular ein **Density-`srcset` mit zwei Kandidaten** (`1x`, `2x`). Der Browser nimmt den kleinsten Kandidaten, dessen Dichte >= `devicePixelRatio` ist — alles über 1,0 landet damit beim 2x-Kandidaten, und das ist die 4x-Datei. Gemessen, gleicher Lauf, nur die Pixeldichte variiert:
+
+| `devicePixelRatio` | geladene Variante | Bytes |
+|---|---|---|
+| 1 | 2x | 3,50 MB |
+| 1,25 / 1,5 / 1,75 / 2 | **4x** | ~8,9 MB — unverändert |
+
+Damit half die Änderung nur bei exakt 100 % Skalierung. 125 % und 150 % sind Windows-Standardwerte, Handys liegen bei 2–3 — die Mehrheit hatte nichts davon. Eine Zwischenstufe kann ein Density-`srcset` grundsätzlich nicht ausdrücken.
+
+**Gegenprobe, dass die Zwischenstufe etwas wert ist** — gepaart über 120 Emotes, jede Variante für dasselbe Emote, hochgerechnet auf 649: 2x = 3,08 MB, 3x = 5,78 MB, 4x = 8,12 MB. 3x ist bei 106 von 120 Emotes kleiner als 4x, im Median 31 %. (Eine frühere, ungepaarte Stichprobe hatte 3x größer als 4x ausgewiesen — sie rechnete über verschiedene Teilmengen und war falsch.)
+
+**Die Lösung ist ein breitenbasiertes `srcset`**, also `ngSrcset="32w, 64w, 96w, 128w"` plus `sizes`. Zwei Fallen dabei, beide gemessen:
+
+1. **`sizes` mit Pixelwert und `IMAGE_CONFIG.breakpoints` funktioniert nicht.** Angulars automatischer Breiten-`srcset` ist nur für viewport-relative Layouts gebaut; ein `sizes="64px"` ohne eigenes `ngSrcset` wirft `NG02952` (`assertNoComplexSizes`) zur Laufzeit. `IMAGE_CONFIG.breakpoints` wird ausschließlich von `getResponsiveSrcset()` gelesen, das nur ohne `ngSrcset` läuft. Ein explizites `ngSrcset` überspringt die Prüfung und ist Angulars eigenes dokumentiertes Muster für feste Layoutbreiten.
+
+2. **`loading="lazy"` erzeugt Doppelabrufe.** Angular stellt `sizes` ein `auto, ` voran, aber nur bei `lazy`. Solange ein frisch gerendertes Bild keine Layoutbreite hat, ist `auto` nicht auflösbar, der Browser nimmt den größten Kandidaten und korrigiert nach dem Layout — mit einem zweiten Abruf. Gemessen bei DPR 1: **680 Anfragen für 650 Bilder**, davon 30 in 4x, 4,21 MB. Das ist nicht hoverbedingt; ohne Mauszeiger (Scrollen per `window.scrollBy`) tritt es identisch auf.
+
+Mit `loading="eager"` entfällt das `auto, `, `sizes` steht als fester Pixelwert von der ersten Layoutrunde an fest:
+
+| DPR 1 | Anfragen für 650 Bilder | Varianten | Bytes |
+|---|---|---|---|
+| Density-`srcset` | 650 | nur 2x | 3,50 MB |
+| Breiten-`srcset`, `lazy` | 680 | 2x + 30 × 4x | 4,21 MB |
+| Breiten-`srcset`, **`eager`** | **651** | nur 2x | **3,51 MB** |
+
+| DPR 1,25 | Varianten | Bytes |
+|---|---|---|
+| Density-`srcset` | 4x | 8,93 MB |
+| Breiten-`srcset`, `eager` | **3x** | **6,53 MB** |
+
+**Das ist der einzige Grund für `eager` an dieser Stelle** — nicht der Ladezeitpunkt, der laut Abschnitt 2 unberührt bleibt. Ein Zurückdrehen auf `lazy` holt die Doppelabrufe zurück; der Test in `emote-sprite.spec.ts` hält das fest.
+
+---
+
 ## 7. Nicht umgesetzt, mit Begründung
 
 **Kleinerer CDK-Puffer** (`rowHeight * 2` / `* 4` statt `* 4` / `* 8`) — gebaut, gemessen, verworfen. Isoliert gegen den Loader gemessen (Pause 1200 ms, Median): Loader allein 959 ms Zellenlatenz p90, Loader + kleinerer Puffer 699 ms, bei stark überlappenden Bereichen. Kein belegbarer Zusatznutzen, dafür weniger Vorlaufstrecke. Eine Änderung ohne Beleg wird nicht ausgeliefert.
@@ -125,7 +163,7 @@ Der mehrsekündige Ausläufer verschwindet in jedem Lauf. Die Byte-Halbierung is
 ## 8. Offene Punkte
 
 - **Schnelles Durchscrollen** (Pause 350 ms) ist nicht belastbar gemessen. Median besser (Zellenlatenz p90 3512 → 1427 ms, Zellen über 2 s 138 → 2), aber einer von drei Läufen war schlechter als die Baseline. Dort wird keine Verbesserung behauptet.
-- **Safari/WebKit** ungemessen (s. Abschnitt 2).
+- **Safari/WebKit** ungemessen (s. Abschnitt 2). Das wiegt seit dem Nachtrag schwerer: `eager` ist nur auf Chromium gemessen, wo es das Scheduling nachweislich nicht verändert. Auf Safari, dessen Lazy-Schwelle klein ist, fordert `eager` die gepufferten Zeilen früher an als vorher — Richtung und Größe dieses Effekts sind unbekannt.
 - **Request-Churn beim Erstaufbau:** 239 Requests für 185 Bilder — 58 (~24 %) gelten Zeilen, die nie angezeigt werden, weil CDK den Zeilensatz neu baut, sobald die Sheet-Breite feststeht. In allen acht Läufen identisch reproduziert, nicht weiter verfolgt.
 - **Messungen liefen gegen den Dev-Server** mit gemockter API, 649 statt ~900 Emotes, Scrollen in 600-px-Sprüngen simuliert. Die Relationen tragen, die Absolutwerte sind gegenüber einem Prod-Build pessimistisch.
 

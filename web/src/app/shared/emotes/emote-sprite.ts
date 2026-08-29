@@ -29,6 +29,34 @@ import { emoteSpriteImageLoader } from './emote-image-loader';
  * Not wrapped around that plate on purpose: the six call sites size and position their own container
  * (14, 12, 7 and 4 rem boxes, one of them the ballot's `app-sprite-cell-void`), so this owns the
  * picture and nothing else.
+ *
+ * `ngSrcset`/`sizes`: width descriptors matching 7TV's four variant heights (32/64/96/128 px, see
+ * `VARIANT_HEIGHTS` and the 4x cap in `emote-image-loader.ts`), paired with `sizes` bound to this
+ * component's own edge length so the browser can pick the right one. `ngSrcset` is set explicitly
+ * rather than left to `NgOptimizedImage`'s automatic width-based srcset (a component-local
+ * `IMAGE_CONFIG` with these same numbers as `breakpoints`, relying on `sizes` alone to drive it):
+ * that automatic path is gated by `assertNoComplexSizes`, which throws NG02952 for *any* `sizes`
+ * value containing a bare px number — it exists specifically to stop a fixed-size `sizes` string
+ * from being paired with the auto-generated srcset, since that path assumes a viewport-relative
+ * layout (`sizes="50vw"`), which this component's genuinely fixed edge length is not. Supplying
+ * `ngSrcset` explicitly sidesteps that check — `ng_optimized_image.ts` only calls
+ * `assertNoComplexSizes` `if (!this.ngSrcset)` — and matches Angular's own documented pattern for a
+ * fixed-size image that still wants width descriptors: `<img ngSrc="hero.jpg" ngSrcset="100w, 200w,
+ * 300w" sizes="50vw" />`. An `IMAGE_CONFIG` breakpoints array would be silently ignored here anyway:
+ * `getResponsiveSrcset()`, the only place that reads it, never runs once `ngSrcset` is set (see
+ * `updateSrcAndSrcset()`).
+ *
+ * `loading="eager"`: not about *when* the fetch fires — measured separately that `eager` changes
+ * nothing there, Chromium already requests `lazy` images once they're ~1250px from the viewport
+ * (the CDK virtual-scroll buffer is smaller than that), 184 of 185 rendered images were requested
+ * with no scrolling at all. It's here because `setHostAttributes` in `@angular/common` only
+ * prepends `auto, ` to `sizes` for `loading="lazy"` (its default). `auto` defers the `sizes`
+ * lookup to layout time; until a freshly rendered `<img>` has a box, the browser can't resolve it
+ * and grabs the largest `ngSrcset` candidate instead, then re-fetches the right one once layout
+ * settles — a second request per image. Measured on the 649-emote usage page at DPR 1: `lazy` cost
+ * 680 requests for 650 images (30 of them a redundant 4x fetch) at 4.21 MB; `eager` cost 651
+ * requests, all 2x, at 3.51 MB. See `docs/Untersuchung-Emote-Bildladen-2026-08-29.md`. Reverting
+ * this to `lazy` brings the double-fetch back — don't, without re-checking that doc.
  */
 @Component({
   selector: 'app-emote-sprite',
@@ -38,6 +66,9 @@ import { emoteSpriteImageLoader } from './emote-image-loader';
       [ngSrc]="url()"
       [width]="size()"
       [height]="size()"
+      ngSrcset="32w, 64w, 96w, 128w"
+      [sizes]="size() + 'px'"
+      loading="eager"
       alt=""
       [class]="spriteClass()"
       [class.opacity-40]="dimmed()"
@@ -55,8 +86,11 @@ import { emoteSpriteImageLoader } from './emote-image-loader';
 export class EmoteSprite {
   readonly url = input.required<string>();
   /**
-   * Edge length in px, for the intrinsic size NgOptimizedImage requires. Must be constant per call
-   * site — the directive objects to width/height changing after init.
+   * Edge length in px, for the intrinsic size NgOptimizedImage requires and for the `sizes`
+   * attribute that tells the browser which `ngSrcset` candidate to fetch. Must be constant per call
+   * site — the directive objects to width/height/sizes changing after init
+   * (`assertNoPostInitInputChange`), which this satisfies the same way it already does for
+   * width/height: every call site passes a literal.
    */
   readonly size = input.required<number>();
   readonly spriteClass = input('h-full w-full object-contain p-1');
