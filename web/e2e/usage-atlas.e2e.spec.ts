@@ -386,3 +386,38 @@ test.describe('emote atlas', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
+
+test.describe('a channel without an active 7TV emote set', () => {
+  test('names the missing emote set instead of guessing', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockDuplicateEmoteNames(page, 'sensitron');
+    // Empty set id *and* a reason: exactly the state issue #32 describes.
+    await mockActiveEmoteSet(page, 'sensitron', '', {
+      capacity: null,
+      occupiedSlots: 0,
+      syncFailureReason: 'no_active_emote_set',
+      lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+    });
+    await mockUsageTotals(page, 'sensitron', []);
+
+    await page.goto('/channels/sensitron/usage-stats');
+
+    await expect(
+      page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.'),
+    ).toBeVisible();
+    await expect(page.getByText('Auf 7tv.app lässt sich ein Emote-Set anlegen')).toBeVisible();
+    // The poll banner must not appear at all: with a reason in hand there is nothing to wait for,
+    // and it used to hold the page for 30 seconds before falling back to the wrong message.
+    await expect(page.getByText('Emote-Set wird geladen')).toHaveCount(0);
+    await expect(
+      page.getByText('Entweder ist das 7TV-Emote-Set leer, oder der erste Sync läuft noch'),
+    ).toHaveCount(0);
+  });
+});

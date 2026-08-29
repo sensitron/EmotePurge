@@ -704,7 +704,13 @@ export async function mockActiveEmoteSet(
   page: Page,
   channelName: string,
   activeEmoteSetId = 'set-1',
-  status: { capacity?: number | null; occupiedSlots?: number; trackedSince?: string } = {},
+  status: {
+    capacity?: number | null;
+    occupiedSlots?: number;
+    trackedSince?: string;
+    syncFailureReason?: string | null;
+    lastSyncAttemptAtUtc?: string | null;
+  } = {},
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/emotes/active-set`, (route) =>
     fulfillJson(route, 200, {
@@ -712,6 +718,8 @@ export async function mockActiveEmoteSet(
       capacity: status.capacity ?? 1000,
       occupiedSlots: status.occupiedSlots ?? 3,
       trackedSince: status.trackedSince ?? '2026-06-12T09:14:00Z',
+      syncFailureReason: status.syncFailureReason ?? null,
+      lastSyncAttemptAtUtc: status.lastSyncAttemptAtUtc ?? null,
     }),
   );
 }

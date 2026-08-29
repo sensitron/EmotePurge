@@ -20,6 +20,7 @@ import { Subscription, catchError, first, of, switchMap, take, timer } from 'rxj
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
+import { sevenTvSyncFailureKey } from '../../core/emotes/seven-tv-sync-failure';
 import { latestOnly } from '../../core/http/latest-only';
 import { apiErrorTranslationKey } from '../../core/i18n/api-error';
 import { LanguageService } from '../../core/i18n/language.service';
@@ -244,6 +245,12 @@ export class UsageStatsPage {
 
   /** Date-only form, which is what the range menu and the vote-session ballot both speak. */
   protected readonly trackedSinceDate = computed(() => this.trackedSince()?.slice(0, 10) ?? null);
+
+  /** Why the last 7TV sync produced nothing, or null when it worked (or was never attempted). */
+  protected readonly syncFailureReason = computed(
+    () => this.setStatus()?.syncFailureReason ?? null,
+  );
+  protected readonly syncFailureKey = sevenTvSyncFailureKey;
 
   // The selected range reaches back further than we have been counting, so its leading part is
   // silently empty. Saying so is the difference between "this emote is dead" and "we weren't here".
@@ -984,10 +991,11 @@ export class UsageStatsPage {
       next: (status) => {
         this.setStatus.set(status);
         this.setStatusChannel.set(channelName);
-        // An empty id means SevenTvSyncService has not completed a run for this channel yet. It is
-        // the only thing that tells "sync still pending" apart from "channel genuinely has no
-        // emotes" — an empty totals response looks identical in both cases.
-        if (!status.activeEmoteSetId) {
+        // An empty id means SevenTvSyncService has not written a set for this channel. Only worth
+        // waiting on while there is no reason: with one, the answer is already final — no sync will
+        // ever produce an id until the cause is fixed on 7TV, and channel.synced brings us back
+        // (see the live subscription in the constructor) the moment it is.
+        if (!status.activeEmoteSetId && !status.syncFailureReason) {
           this.awaitSync(channelName, from, to);
         }
       },
@@ -1040,14 +1048,21 @@ export class UsageStatsPage {
           this.emoteAdminService.getSetStatus(channelName).pipe(catchError(() => of(null))),
         ),
         take(SYNC_POLL_MAX_ATTEMPTS),
-        // Completes on the first status carrying a set id; if the attempts run out first, the
-        // default null arrives instead, so the subscriber always runs exactly once and never errors.
-        first((status) => !!status?.activeEmoteSetId, null),
+        // Completes on the first status that settles the question — a set id (the sync landed) or a
+        // reason (it cannot land). Running to SYNC_POLL_MAX_ATTEMPTS against a known reason spent
+        // 30 seconds to arrive at an answer the first tick already had.
+        first((status) => !!status?.activeEmoteSetId || !!status?.syncFailureReason, null),
       )
       .subscribe((status) => {
         this.isAwaitingSync.set(false);
-        if (status?.activeEmoteSetId) {
-          this.setStatus.set(status);
+        if (!status) {
+          return;
+        }
+
+        // Adopted even without a set id: the reason is the whole payload in that case, and the
+        // empty state below renders from it.
+        this.setStatus.set(status);
+        if (status.activeEmoteSetId) {
           this.loadTotals(channelName, from, to);
         }
       });

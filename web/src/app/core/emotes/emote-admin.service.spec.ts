@@ -65,6 +65,8 @@ describe('EmoteAdminService', () => {
       capacity: 1000,
       occupiedSlots: 847,
       trackedSince: '2026-06-12T09:14:00Z',
+      syncFailureReason: null,
+      lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
     });
 
     expect(status).toEqual({
@@ -72,7 +74,27 @@ describe('EmoteAdminService', () => {
       capacity: 1000,
       occupiedSlots: 847,
       trackedSince: '2026-06-12T09:14:00Z',
+      syncFailureReason: null,
+      lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
     });
+  });
+
+  it('getSetStatus passes a sync failure reason through untranslated', () => {
+    // The code must reach the page verbatim: translation happens exactly once, in the template
+    // (Regel 7), and a service that mapped it to prose here would put German into the model.
+    let status: EmoteSetStatus | undefined;
+    service.getSetStatus('sensitron').subscribe((value) => (status = value));
+
+    httpMock.expectOne('/api/channels/sensitron/emotes/active-set').flush({
+      activeEmoteSetId: '',
+      capacity: null,
+      occupiedSlots: 0,
+      trackedSince: '2026-06-12T09:14:00Z',
+      syncFailureReason: 'no_active_emote_set',
+      lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+    });
+
+    expect(status?.syncFailureReason).toBe('no_active_emote_set');
   });
 
   it('getDuplicateNames GETs the duplicate-names endpoint', () => {
