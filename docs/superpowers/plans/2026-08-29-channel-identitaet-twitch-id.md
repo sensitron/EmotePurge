@@ -326,12 +326,12 @@ ist korrekt, der Name veraltet — und wir werfen laut Befund 3/4 genau die ID w
   Anzeigepfad und Reconciliation. Login-Werte der Antwort sind bereits lowercase; trotzdem beim
   Konsumenten normalisieren (Regel 9).
 
-- [ ] **Step 1:** Record + Interface-Methode + Implementierung; Member-Reihenfolge und
+- [x] **Step 1:** Record + Interface-Methode + Implementierung; Member-Reihenfolge und
   vorhandene DTO-/Fehlerbehandlungs-Muster der Klasse übernehmen (Batch-Fehler ⇒ Gesamt-`null`,
   wie beim Streams-Poll).
-- [ ] **Step 2:** Kein eigener Testfile — der Helix-Client hat projektweit keinen (Transport wird
+- [x] **Step 2:** Kein eigener Testfile — der Helix-Client hat projektweit keinen (Transport wird
   per Regel 16 live verifiziert, Task 8); die Konsumentenlogik testen Task 3 und 5. Build grün.
-- [ ] **Step 3:** Nutzer fragen, Commit `feat(twitch): resolve user identities via helix users
+- [x] **Step 3:** Nutzer fragen, Commit `feat(twitch): resolve user identities via helix users
   endpoint`.
 
 ### Task 3: Anzeigepfad — Editor-Grants nach Identität statt nach 7TV-Login (der Issue-Fix)
@@ -371,22 +371,22 @@ Pro Grant-Entry dann genau ein Ausgang:
    Verhalten, stille Degradation mit `LogInformation`, kein neues DTO-Feld — Nicht-Ziel 6).
 3. Legacy-Cache ohne Entries (s. o.) → alle Grants wie heute per Login.
 
-- [ ] **Step 1 (Tests zuerst, `MyChannelsServiceTests` mit `PostgresFixture` + Substitutes):**
+- [x] **Step 1 (Tests zuerst, `MyChannelsServiceTests` mit `PostgresFixture` + Substitutes):**
   Messlatten je Ausgang: toter Grant (Helix antwortet, ID unbekannt) → **kein** Eintrag im
   Ergebnis; getrackter umbenannter Kanal (DB-Zeile per ID, anderer aktueller Name) → genau ein
   Eintrag unter dem aktuellen Namen mit `IsSevenTvEditor = true`, kein Orphan unter dem alten
   Login; ungetrackter umbenannter Kanal (kein DB-Treffer, Helix kennt die ID unter neuem Login)
   → Eintrag unter dem neuen Namen; Helix-`null` → Eintrag unter dem 7TV-Login (Regressionsfall);
   Legacy-Grants ohne Entries → heutiges Verhalten. Gemischt getippte Logins füttern (Regel 9).
-- [ ] **Step 2:** `ModRoleCacheTests` erweitern: Roundtrip des neuen Formats erhält die Paare;
+- [x] **Step 2:** `ModRoleCacheTests` erweitern: Roundtrip des neuen Formats erhält die Paare;
   ein von Hand in Redis gelegter Legacy-JSON (nur zwei Listen) liest als Grants mit leeren
   Entries, nicht als Miss und nicht als Exception.
-- [ ] **Step 3:** Umsetzung Record/Service/Cache/`MyChannelsService`; `SevenTvEditorService`
+- [x] **Step 3:** Umsetzung Record/Service/Cache/`MyChannelsService`; `SevenTvEditorService`
   reicht die Paare aus `GetEditorOfChannelsAsync` durch (die Normalisierungsstelle
   `SevenTvEditorService.cs:40-43` bleibt die einzige).
-- [ ] **Step 4:** Infrastructure-Suite grün; bestehende `ChannelAccessService*`-Tests unverändert
+- [x] **Step 4:** Infrastructure-Suite grün; bestehende `ChannelAccessService*`-Tests unverändert
   grün (Beleg, dass der Auth-Pfad unberührt ist).
-- [ ] **Step 5:** Nutzer fragen, Commit `fix(mine): resolve seventv editor grants by twitch id
+- [x] **Step 5:** Nutzer fragen, Commit `fix(mine): resolve seventv editor grants by twitch id
   instead of stale logins` — **das ist der Commit, der Issue #34s gemeldetes Symptom behebt.**
 
 ### Task 4: Lookup per Twitch-ID + konfliktbewusster Backfill im 7TV-Sync
