@@ -175,49 +175,16 @@ Die Begründung zu jeder Regel steht in [docs/DECISIONS.md](docs/DECISIONS.md).
 17. **Twitch-Client-Secrets nie ins Repo**: lokal `dotnet user-secrets` im `EmotePurge.Api`-Projekt, im Container `.env` (gitignored, Platzhalter in `.env.example`).
 18. **Formatierung ist Werkzeugsache, nicht Geschmackssache**: `npm --prefix web run format` (Prettier) und `dotnet format EmotePurge.slnx`. Die CI prüft beides plus `npm --prefix web run lint`. Repoweite Reformatierungen kommen in einen eigenen `style:`-Commit, der **nichts anderes** enthält, und wandern in `.git-blame-ignore-revs`.
 19. **Member-Reihenfolge in C#-Klassen**: `const`/`static readonly` → `readonly` Felder → veränderliche Felder → öffentliche Properties → öffentliche Methoden → private Methoden → `private static` Helper; verschachtelte Typen ans Klassenende. Kein StyleCop — das ist Review-Disziplin, nicht erzwungen (Begründung im Entscheidungslog). Die Angular-Entsprechung steht in [`web/.claude/CLAUDE.md`](web/.claude/CLAUDE.md) und wird dort per ESLint teilweise erzwungen.
-20. **Orchestrieren statt selbst ausführen.** Die Hauptsession delegiert Lesen, Suchen, Implementieren und Reviewen an Subagents und prüft deren Ergebnisse; das Modell wird bei **jedem** Agent-Aufruf explizit gesetzt. Details unter [Subagents & Modelle](#subagents--modelle).
-21. **Plan-Tasks laufen immer als Subagent**, nie direkt in der Hauptsession — und **Pläne enthalten keinen fertigen Code**. Details unter [Plan-Execution & Context-Hygiene](#plan-execution--context-hygiene).
-22. **Vor jedem Merge auf `main` eine unabhängige Zweitmeinung** (Codex Sol) über das fertige Arbeitspaket; Konzepte und Pläne zusätzlich adversarial gegenprüfen. Details unter [Codex-Integration](#codex-integration-zweitmeinung).
+20. **Orchestrieren statt selbst ausführen** — Delegation, Modellwahl und Fable-Einsatz stehen global in `~/.claude/CLAUDE.md`.
+21. **Plan-Tasks laufen immer als Subagent, und Pläne enthalten keinen fertigen Code** — ebenfalls global. Was hier zusätzlich gilt, steht unter [Arbeitsweise](#arbeitsweise).
+22. **Vor jedem Merge auf `main` eine unabhängige Zweitmeinung** (Codex Sol), Konzepte und Pläne zusätzlich adversarial — global geregelt.
 
+## Arbeitsweise
 
-## Subagents & Modelle
+Orchestrierung, Modellwahl, Fable-Einsatz, Pläne ohne fertigen Code, Plan-Tasks als Subagent und die Codex-Zweitmeinung stehen **global** in `~/.claude/CLAUDE.md` und gelten hier unverändert. Die Datei ist versioniert: sie liegt in `sensitron/infra-docs` unter `claude/` und ist nach `~/.claude/` gesymlinkt — eine Änderung daran gehört in einen Commit dort. Hier steht nur, was projektspezifisch ist:
 
-Übernommen aus Homeport und ActivityTracker am 2026-08-29, wo diese Arbeitsweise gemessen und angepasst wurde. Begründung im Entscheidungslog.
-
-- **Opus ist Orchestrator, nicht Fable.** Die Hauptsession läuft auf Opus und steuert den Ablauf: Delegation, laufende Ergebnisprüfung, Entscheidungen. Sie liest selbst nur, was für die anstehende Entscheidung unmittelbar nötig ist — etwa die Datei, die sie gleich editiert. Fable ist für den Dauerbetrieb als Hauptsession zu teuer.
-- **Pläne enthalten keinen fertigen Code.** Ein Plan beschreibt Absicht, Verträge, Grenzfälle und die Reihenfolge der Tasks. Was der Implementer nur abtippen soll, muss man nicht planen, sondern implementieren. Das ist in Homeport gemessen: Die Pläne dort waren mit über 40.000 Zeilen fast doppelt so umfangreich wie der gesamte Produktivcode, und bei einem A/B-Test lieferten zwei verschiedene Modelle auf demselben Brief **byte-identischen** Code — das Denken war da längst erledigt, bezahlt wurde es zweimal. Bestehende Pläne mit ausformuliertem Code bleiben, wie sie sind; sie werden nicht nachträglich gekürzt. Die Regel betrifft den *Umfang*, nicht das Modell: Fable darf Pläne schreiben — sie sollen nur kein Listing enthalten, das der Implementer bloß abtippt.
-- **Fable gezielt an hochgehebelten Stellen, nicht im Dauerbetrieb.** Leitfrage: Ist ein Fehler hier teuer, schwer entdeckbar und gehebelt — vergiftet er also viele Folgeartefakte? Dann Fable als eigener Subagent (`model: "fable"`), sonst nicht. Zwei Rollen:
-  - **Entwurf:** Specs und Konzepte *vor* dem Plan, größere UI-Entwürfe. Höchster Hebel bei kleinstem Textumfang — ein Denkfehler in der Spec steckt sonst in Plan, Tasks und Code, und das Review findet dann nur sauber implementierten Unsinn.
-  - **Beurteilung:** riskante Änderungen (Datenmigrationen, Autorisierung, Prod-relevantes), Schiedsrichter bei widersprüchlichen Subagent-Ergebnissen, oder wenn der Orchestrator selbst unsicher ist.
-
-  Die Plan-Erstellung bleibt ein Fable-Fall — ein Plan steuert jeden nachgelagerten Subagent, ein Denkfehler darin ist also gehebelt.
-
-  **Nicht für Fable:** reguläre Implementierung, Tests, Codebase-Suche, Formatierung, Browser-Verifikation.
-- **Modellwahl passend zur Aufgabe** (`model`-Parameter beim Agent-Tool), immer explizit, auch bei `Explore` und `Plan`:
-  - `haiku` — mechanisch und breit: Codebase-Suche, Datei-Inventuren, einfache Checks.
-  - `sonnet` — normale Implementierung: klar spezifizierte Features, Fixes, Refactorings, Tests.
-  - `opus` — anspruchsvoll: Architektur-Analysen, komplexe Debugging-Fälle, Code-Review.
-  - `fable` — nur die hochgehebelten Fälle oben: Spec/Konzept, Plan-Erstellung, größere UI-Entwürfe, Beurteilungs-Checkpoints.
-- Unabhängige Arbeitspakete parallel starten; Zusammenführen und Verifizieren macht der Orchestrator.
-
-## Plan-Execution & Context-Hygiene
-
-- **Jeder Task aus einem Plan geht an einen eigenen Subagent** (Modell passend zur Aufgabe), nie direkt in die Hauptsession. Jeder startet mit frischem Kontext; der Orchestrator gibt ihm den Task plus den nötigen Kontext mit und prüft das Ergebnis.
-- **Der `Plan`-Subagent-Typ ist read-only** — er kann die Plandatei nicht selbst schreiben. Entweder einen schreibfähigen Agenten beauftragen oder den Plan aus dem Agent-Transkript unter `/tmp/…/tasks/<id>.output` per Skript in die Datei ziehen, statt ihn durch den Kontext der Hauptsession zu schleusen.
-- **„Fertig" heißt: die Suiten sind grün** — `dotnet test EmotePurge.slnx`, `npm --prefix web test -- --watch=false`, bei UI-Änderungen zusätzlich `npm --prefix web run e2e`. Ein `dotnet build` allein ist keine Fertigmeldung, und bei Backend-Features ersetzt keine Suite die Live-Verifikation aus Regel 16.
-
-
-## Codex-Integration (Zweitmeinung)
-
-Das Codex-Plugin (`/codex:*`) ist eingerichtet. Modell-Klarnamen: „Sol" = `gpt-5.6-sol`, „Luna" = `gpt-5.6-luna`. Übernommen aus Homeport am 2026-08-29.
-
-- **Vor jedem Merge auf `main`:** `/codex:review --model gpt-5.6-sol` über das fertige Arbeitspaket — einmal je Branch bzw. Plan, nicht je Task, nie spekulativ und nie zweimal für dasselbe unveränderte Diff.
-- **Konzepte, Specs und Pläne zusätzlich challengen:** `/codex:adversarial-review --model gpt-5.6-sol [Fokustext]`. Nur dieses Kommando akzeptiert Fokustext.
-- **`--model` immer explizit mitgeben.** Ein Aufruf ohne fällt still auf die Voreinstellung in `~/.codex/config.toml` zurück, statt zu meckern.
-- **Widersprechen sich Opus-Review und Codex Sol, entscheidet Fable als Schiedsrichter.** Als Widerspruch gilt: einer meldet ein P1/P2-Finding, das der andere gar nicht sieht; beide bewerten dieselbe Stelle gegensätzlich; oder sie empfehlen unvereinbare Fixes. Reine Ergänzungen sind **kein** Widerspruch und brauchen kein Fable. Im Konfliktfall bekommt Fable nur die strittigen Findings plus die betroffenen Codestellen vorgelegt, nicht das ganze Diff. Der Orchestrator löst solche Konflikte nie stillschweigend selbst auf, indem er eine der beiden Meinungen übernimmt.
-- **Codex-Reviews sind strikt read-only.** Ausschließlich die beiden Review-Kommandos verwenden — sie ändern per Design keine Dateien; nie `/codex:rescue` für Review-Zwecke. Das Ergebnis unverändert wiedergeben: Findings sind Input für Orchestrator und Nutzer, kein Umsetzungsauftrag.
-- **Implementierung bleibt bei Claude-Subagents** — nicht aus Kontingentgründen (das ist derzeit kein Engpass), sondern weil ein A/B-Test in Homeport auf demselben Brief byte-identischen Produktivcode lieferte: die Delegation kauft nichts. Luna nur auf ausdrücklichen Wunsch (`/codex:rescue --model gpt-5.6-luna --effort xhigh <Task>`, schreibfähig). Ihre Sandbox hat **keinen Docker-Zugriff**, sie kann die Testcontainers-Suiten also nicht selbst grün melden — ein Claude-Subagent muss die Gates nachfahren.
-- **Voraussetzung, gelegentlich zu prüfen:** Die Review-Kommandos sind nur selbst startbar, solange der lokale Plugin-Patch steht, der `disable-model-invocation` entfernt. Prüfen mit `grep -rln "disable-model-invocation" ~/.claude/plugins/cache/openai-codex ~/.claude/plugins/marketplaces/openai-codex/plugins` — erwartet ist nur `transfer.md`. Der Patch ist schon einmal ohne Versionssprung verschwunden, und er greift erst in einer **neuen** Claude-Code-Sitzung.
+- **„Fertig" heißt in diesem Repo:** `dotnet test EmotePurge.slnx` (braucht laufendes Docker, Testcontainers), `npm --prefix web test -- --watch=false`, und bei UI-Änderungen zusätzlich `npm --prefix web run e2e` — Letzteres nur, wenn auf `:5151` keine Api lauscht. Ein `dotnet build` allein ist keine Fertigmeldung, und bei Backend-Features ersetzt keine Suite die Live-Verifikation aus Regel 16.
+- **Keine Abweichung von der globalen Arbeitsweise.** Sollte hier je eine nötig werden, steht sie an dieser Stelle und nicht als Kopie der ganzen Regel.
 
 ## Sprache
 

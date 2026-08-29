@@ -59,6 +59,20 @@ Die Kette ist seit kurzem **Client → Cloudflare → nginx → Kestrel**, nicht
 
 **Noch offen:** Ob SSE (`/api/channels/live-events`, `/api/channels/{c}/live`) durch Cloudflare unverändert durchkommt, ist nicht systematisch geprüft. `/api/` kommt als `cf-cache-status: DYNAMIC` durch, das Hardening-Snippet setzt `proxy_buffering off` und die Api sendet `X-Accel-Buffering: no` — aber ein LIVE-Badge, das ohne Reload umspringt, hat seit dem Umzug niemand bewusst beobachtet. Ebenfalls zu prüfen: ob Cloudflares Auto Minify und Rocket Loader aus sind.
 
+### 2026-08-29 — Die Arbeitsweise steht global und versioniert, nicht dreifach kopiert
+
+**Betrifft:** `CLAUDE.md` (Regeln 20–22, Abschnitt „Arbeitsweise"), `~/.claude/CLAUDE.md` → `sensitron/infra-docs`, `claude/`
+
+Die Abschnitte „Subagents & Modelle", „Codex-Integration" und „Plan-Execution & Context-Hygiene", am selben Tag hier angelegt, sind noch am selben Tag wieder verschwunden — sie stehen jetzt global. Zurück bleibt ein Verweis plus das, was wirklich projektspezifisch ist: welche Test-Gates hier „fertig" bedeuten.
+
+**Der Anlass war ein Schaden, kein Aufräumdrang.** Dieselben Regeln lagen in vier Fassungen vor — global, Homeport, ActivityTracker und seit heute früh hier — und sagten drei verschiedene Dinge. Die globale Datei war die einzige, die noch die alte Regel führte, und weil sie als einzige in *jeder* Sitzung geladen wird, wurde danach gehandelt: Der Plan zur Channel-Identität ging an einen Fable-Subagenten, obwohl zwei der drei Projektfassungen das ausschlossen. Kopien, die niemand gemeinsam pflegt, sind schlimmer als ein einzelner Ort, den man aufschlagen muss.
+
+**Warum die globale Datei überhaupt kopiert wurde:** sie war unversioniert. Das war ein echter Grund, aber ein lösbarer — es ist ein Symlink-Problem, kein Dokumentationsproblem. `~/.claude/CLAUDE.md` und `~/.claude/rules` zeigen jetzt nach `sensitron/infra-docs` unter `claude/`; die immer geladene Anweisung hat damit Historie, und der Grund für die Kopien ist entfallen. Eine Änderung daran wirkt sofort, ist aber erst gesichert, wenn sie dort committet ist — das steht als Hinweis in der Datei selbst und ausführlich in `claude/README.md`.
+
+**Die Grenze verläuft zwischen Werkzeug und Projekt.** Global: wie gearbeitet wird — Delegation, Modellwahl, Fable-Einsatz, Pläne ohne Code, Plan-Tasks als Subagent, Codex-Zweitmeinung. Projektdatei: was dieses Projekt ist — Stack, Schichtentreue, Domänenregeln — und ausschließlich die *Abweichung* von der Arbeitsweise, falls je eine nötig wird. Homeport hat eine solche und behält sie deshalb (Pläne dort vorerst von Opus, als offene Messfrage gekennzeichnet); hier gibt es keine.
+
+**Der Preis, bewusst getragen:** Wer nur dieses Repo klont, sieht die Arbeitsweise nicht mehr. Das ist richtig so — es ist Werkzeugkonfiguration und kein Projektwissen; ein Mitwirkender ohne diese Claude-Installation braucht sie nicht.
+
 ### 2026-08-29 — Pläne beschreiben Absicht, nicht Code; Codex wird zur Pflicht-Zweitmeinung
 
 **Betrifft:** `CLAUDE.md`, `~/.claude/CLAUDE.md`
