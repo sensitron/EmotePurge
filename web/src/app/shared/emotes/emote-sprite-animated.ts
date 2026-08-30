@@ -1,4 +1,4 @@
-import { Component, computed, effect, input, signal } from '@angular/core';
+import { Component, computed, effect, input, linkedSignal, signal } from '@angular/core';
 
 import { EmoteSprite } from './emote-sprite';
 import { animatedEmoteUrl } from './emote-url';
@@ -22,18 +22,36 @@ import { animatedEmoteUrl } from './emote-url';
  * for a sharper reason: a boolean left true from the previous emote would let the *next* emote's
  * animation mount instantly, skipping the dwell it was supposed to earn. Keying it means a url
  * change withdraws the overlay synchronously, with no dependency on when the effect happens to run.
+ *
+ * The still is only *painted underneath*, though — it stays in the DOM the whole time, and the
+ * `@if` above only ever adds a layer on top of it, never removes it. Nothing had ever hidden the
+ * still again once the overlay had something to show, so wherever the animation's own motion left
+ * its bounding box (any emote whose frames don't fully cover the paused pose) the still kept
+ * showing through it, visibly doubled. `revealedAnimatedUrl` closes that gap: it hides the still
+ * once — and only once — `EmoteSprite.settledUrl` reports the *current* animated url has actually
+ * painted, so the still keeps holding the box for exactly as long as it is needed and not a frame
+ * longer. Keyed on url identity again, for the same race a bare boolean would lose: a stale
+ * `settledUrl` emission for a url the pointer has since left must not hide the still for whatever
+ * emote is now underneath it. Because the comparison is a computed rather than something an effect
+ * writes, a url change clears it synchronously in the same tick — the still reappears immediately,
+ * with nothing to wait on.
  */
 @Component({
   selector: 'app-emote-sprite-animated',
   imports: [EmoteSprite],
   template: `
     <span class="relative block h-full w-full">
-      <app-emote-sprite [url]="url()" [size]="size()" [spriteClass]="spriteClass()" />
+      <app-emote-sprite
+        [url]="url()"
+        [size]="size()"
+        [spriteClass]="spriteClass() + (stillHidden() ? ' invisible' : '')"
+      />
       @if (upgraded()) {
         <app-emote-sprite
           [url]="animated()"
           [size]="size()"
           [spriteClass]="spriteClass() + ' absolute inset-0'"
+          (settledUrl)="revealedAnimatedUrl.set($event)"
         />
       }
     </span>
@@ -58,6 +76,24 @@ export class EmoteSpriteAnimated {
   private readonly upgradedUrl = signal<string | null>(null);
 
   protected readonly upgraded = computed(() => this.upgradedUrl() === this.animated());
+
+  /**
+   * See the class comment: which animated url, if any, has actually painted over the still.
+   *
+   * A `linkedSignal` on `animated`, not a plain one, and that is the whole point: revisiting an
+   * emote the pointer had already dwelt on (A -> B -> A) would otherwise find this still holding
+   * A's url from the first visit, so the still would hide itself the instant the pointer came back
+   * — while the overlay is not mounted yet, because the dwell starts over. That is a blank cell for
+   * at least the dwell, and forever if the animation then fails to load. Resetting on every url
+   * transition makes the second visit cost exactly what the first one did.
+   */
+  protected readonly revealedAnimatedUrl = linkedSignal<string, string | null>({
+    source: this.animated,
+    computation: () => null,
+  });
+
+  /** The still hides only once the overlay currently shown has itself settled — see class comment. */
+  protected readonly stillHidden = computed(() => this.revealedAnimatedUrl() === this.animated());
 
   constructor() {
     effect((onCleanup) => {

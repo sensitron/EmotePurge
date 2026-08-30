@@ -20,10 +20,20 @@ describe('EmoteSpriteAnimated', () => {
   let fixture: ComponentFixture<Host>;
   let host: Host;
 
+  function images(): HTMLImageElement[] {
+    return [...fixture.nativeElement.querySelectorAll('img')];
+  }
+
   function sources(): string[] {
-    return [...fixture.nativeElement.querySelectorAll('img')].map(
-      (img) => (img as HTMLImageElement).getAttribute('src') ?? '',
-    );
+    return images().map((img) => img.getAttribute('src') ?? '');
+  }
+
+  function stillImage(): HTMLImageElement {
+    return images()[0];
+  }
+
+  function overlayImage(): HTMLImageElement {
+    return images()[1];
   }
 
   beforeEach(async () => {
@@ -81,5 +91,70 @@ describe('EmoteSpriteAnimated', () => {
     fixture.detectChanges();
 
     expect(sources()).toEqual([STILL_ONLY]);
+  });
+
+  // The actual bug: the still painted forever underneath the animation, so wherever the animation's
+  // motion left its own bounding box the still showed through, doubled up with it.
+  it('keeps the still visible while the animation is still loading', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+
+    expect(stillImage().className).not.toContain('invisible');
+  });
+
+  it('hides the still once the animation has settled', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+
+    expect(stillImage().className).toContain('invisible');
+  });
+
+  // The url change has to win synchronously, with nothing left to wait on — a moment where neither
+  // picture is visible would be worse than the flicker this whole fix exists to remove.
+  it('shows the still again immediately once the url moves on, with no waiting on an effect', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+    expect(stillImage().className).toContain('invisible');
+
+    host.url.set(ANIMATED_B);
+    fixture.detectChanges();
+
+    expect(stillImage().className).not.toContain('invisible');
+  });
+
+  // Found by review, not by hand: the reveal marker used to survive the trip away, so coming back
+  // hid the still at once — while the overlay was gone and its dwell had started over. A blank
+  // cell for the dwell, and a permanent one if the animation then failed to load. Revisiting is
+  // the normal case on a dense grid, not an edge case.
+  it('does not hide the still when the pointer returns to an emote it already dwelt on', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+    expect(stillImage().className).toContain('invisible');
+
+    host.url.set(ANIMATED_B);
+    fixture.detectChanges();
+    host.url.set(ANIMATED_A);
+    fixture.detectChanges();
+
+    // The overlay remounts at once — `upgradedUrl` still names A, so the dwell is not re-earned —
+    // but it is a fresh instance and therefore unloaded and invisible. The still has to carry the
+    // box until that instance has actually painted, exactly as on the first visit.
+    expect(images()).toHaveLength(2);
+    expect(stillImage().className).not.toContain('invisible');
+
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    expect(stillImage().className).not.toContain('invisible');
+
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+    expect(stillImage().className).toContain('invisible');
   });
 });

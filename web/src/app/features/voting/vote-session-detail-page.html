@@ -247,9 +247,21 @@
                   (keydown.space)="onCardActivate(emote, $any($event))"
                   (mouseenter)="inspect(emote)"
                 >
+                  <!-- `size` stays the constant 96 the directive requires (NgOptimizedImage forbids
+                       changing it post-init); `sizes` tells the browser about the 64 px cell that
+                       cellPx() switches to, so it stops fetching the 96 px variant there. See
+                       EmoteSprite.sizes for why a media query is only an approximation of that
+                       container-width breakpoint.
+
+                       The number is NOT NARROW_BELOW_PX: that threshold measures the sheet, and the
+                       shell wraps it in `px-4`, so the sheet reaches 600 px only once the viewport
+                       is at 632. Rounded up to Tailwind's `sm` — in the 8 px of slack the browser
+                       fetches one step too large, which costs bytes, while the same error the other
+                       way would stretch a 64 px picture into a 96 px cell. -->
                   <app-emote-sprite
                     [url]="emote.imageUrl"
                     [size]="96"
+                    sizes="(min-width: 640px) 64px, 96px"
                     [dimmed]="emote.isArchived"
                   />
                   <!-- The usage figure printed onto the sprite, as on the usage atlas. `null` is
