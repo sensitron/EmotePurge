@@ -197,3 +197,83 @@ describe('EmoteSprite styling inputs', () => {
     expect(image().classList.contains('opacity-40')).toBe(true);
   });
 });
+
+@Component({
+  imports: [EmoteSprite],
+  template: `
+    <app-emote-sprite
+      [url]="'https://cdn.7tv.app/emote/aaa/2x.webp'"
+      [size]="96"
+      sizes="(min-width: 600px) 64px, 96px"
+    />
+  `,
+})
+class SizesOverrideHost {}
+
+describe('EmoteSprite sizes override', () => {
+  let fixture: ComponentFixture<SizesOverrideHost>;
+
+  function image(): HTMLImageElement {
+    return fixture.nativeElement.querySelector('img');
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [SizesOverrideHost] }).compileComponents();
+    fixture = TestBed.createComponent(SizesOverrideHost);
+    fixture.detectChanges();
+  });
+
+  // The ballot cell case (Fix 2): `size`/`width`/`height` stay the constant 96 the intrinsic image
+  // needs, but `sizes` names the container-width breakpoint the cell actually renders at, so the
+  // browser doesn't fetch the 96 px variant for a cell that is only ever drawn at 64 px.
+  it('uses the explicit sizes string instead of deriving one from size', () => {
+    expect(image().getAttribute('sizes')).toBe('(min-width: 600px) 64px, 96px');
+  });
+
+  it('still uses the constant size for width and height', () => {
+    expect(image().getAttribute('width')).toBe('96');
+    expect(image().getAttribute('height')).toBe('96');
+  });
+});
+
+@Component({
+  imports: [EmoteSprite],
+  template: ` <app-emote-sprite [url]="url()" [size]="64" (settledUrl)="emitted.push($event)" /> `,
+})
+class SettledUrlHost {
+  readonly url = signal('https://cdn.7tv.app/emote/aaa/2x.webp');
+  readonly emitted: string[] = [];
+}
+
+describe('EmoteSprite settledUrl output', () => {
+  let fixture: ComponentFixture<SettledUrlHost>;
+  let host: SettledUrlHost;
+
+  function image(): HTMLImageElement {
+    return fixture.nativeElement.querySelector('img');
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [SettledUrlHost] }).compileComponents();
+    fixture = TestBed.createComponent(SettledUrlHost);
+    host = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('emits the url once the image for it has loaded', () => {
+    image().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+
+    expect(host.emitted).toEqual(['https://cdn.7tv.app/emote/aaa/2x.webp']);
+  });
+
+  // Mirrors the `settled` test above: a stale load response can never reach a superseded url (the
+  // browser aborts it), so nothing here needs to guard against emitting for the wrong one — the url
+  // moving on is what stops a new emission from firing at all until the new one settles.
+  it('does not emit again for a url the sprite has since moved past', () => {
+    host.url.set('https://cdn.7tv.app/emote/bbb/2x.webp');
+    fixture.detectChanges();
+
+    expect(host.emitted).toEqual([]);
+  });
+});

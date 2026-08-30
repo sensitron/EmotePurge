@@ -1,5 +1,5 @@
 import { IMAGE_LOADER, NgOptimizedImage } from '@angular/common';
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, effect, input, output, signal } from '@angular/core';
 
 import { emoteSpriteImageLoader } from './emote-image-loader';
 
@@ -67,7 +67,7 @@ import { emoteSpriteImageLoader } from './emote-image-loader';
       [width]="size()"
       [height]="size()"
       ngSrcset="32w, 64w, 96w, 128w"
-      [sizes]="size() + 'px'"
+      [sizes]="sizes() ?? size() + 'px'"
       loading="eager"
       alt=""
       [class]="spriteClass()"
@@ -93,11 +93,45 @@ export class EmoteSprite {
    * width/height: every call site passes a literal.
    */
   readonly size = input.required<number>();
+  /**
+   * Static override for the `sizes` attribute NgOptimizedImage reads to pick the right `ngSrcset`
+   * candidate. Falls back to `size() + 'px'` when omitted, which is right for every call site whose
+   * rendered edge length truly is a constant `size`.
+   *
+   * A call site that draws itself at more than one edge length across a *container*-width
+   * breakpoint (the ballot cell — `CELL_WIDE_PX`/`CELL_NARROW_PX` in
+   * `vote-session-detail-page.ts`) can't just bind this to that computed width: `size`/`sizes` are
+   * once-per-init like `width`/`height` (`assertNoPostInitInputChange`), and that computed changes
+   * exactly at the breakpoint. What such a call site passes instead is a static CSS media-query
+   * string mirroring the same breakpoint in viewport terms, e.g.
+   * `"(min-width: 600px) 64px, 96px"`. That is an approximation, not an exact match — `atlasColumns`
+   * in `atlas-grid.ts` measures the *container* the cells actually sit in (the sheet can share the
+   * row with a sidecar from `lg` up), while a media query only ever sees the *viewport* — but it is
+   * strictly closer than a `sizes` that never changes and always claims the wider size.
+   */
+  readonly sizes = input<string>();
   readonly spriteClass = input('h-full w-full object-contain p-1');
   /** Archived ballot members, which stay listed but read as spent. */
   readonly dimmed = input(false);
 
+  /**
+   * Fires the url once *this* sprite has settled on it (the moment `settled` below flips true) —
+   * an identity, not a bare "ready" boolean, for the same reason `loadedUrl` is keyed on the url
+   * rather than a flag: a caller stacking more than one sprite on the same url (EmoteSpriteAnimated)
+   * needs to tell an emission for the url it currently cares about apart from a stale one still in
+   * flight for a url it has since moved past.
+   */
+  readonly settledUrl = output<string>();
+
   protected readonly loadedUrl = signal<string | null>(null);
 
   protected readonly settled = computed(() => this.loadedUrl() === this.url());
+
+  constructor() {
+    effect(() => {
+      if (this.settled()) {
+        this.settledUrl.emit(this.url());
+      }
+    });
+  }
 }

@@ -20,10 +20,20 @@ describe('EmoteSpriteAnimated', () => {
   let fixture: ComponentFixture<Host>;
   let host: Host;
 
+  function images(): HTMLImageElement[] {
+    return [...fixture.nativeElement.querySelectorAll('img')];
+  }
+
   function sources(): string[] {
-    return [...fixture.nativeElement.querySelectorAll('img')].map(
-      (img) => (img as HTMLImageElement).getAttribute('src') ?? '',
-    );
+    return images().map((img) => img.getAttribute('src') ?? '');
+  }
+
+  function stillImage(): HTMLImageElement {
+    return images()[0];
+  }
+
+  function overlayImage(): HTMLImageElement {
+    return images()[1];
   }
 
   beforeEach(async () => {
@@ -81,5 +91,39 @@ describe('EmoteSpriteAnimated', () => {
     fixture.detectChanges();
 
     expect(sources()).toEqual([STILL_ONLY]);
+  });
+
+  // The actual bug: the still painted forever underneath the animation, so wherever the animation's
+  // motion left its own bounding box the still showed through, doubled up with it.
+  it('keeps the still visible while the animation is still loading', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+
+    expect(stillImage().className).not.toContain('invisible');
+  });
+
+  it('hides the still once the animation has settled', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+
+    expect(stillImage().className).toContain('invisible');
+  });
+
+  // The url change has to win synchronously, with nothing left to wait on — a moment where neither
+  // picture is visible would be worse than the flicker this whole fix exists to remove.
+  it('shows the still again immediately once the url moves on, with no waiting on an effect', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+    expect(stillImage().className).toContain('invisible');
+
+    host.url.set(ANIMATED_B);
+    fixture.detectChanges();
+
+    expect(stillImage().className).not.toContain('invisible');
   });
 });

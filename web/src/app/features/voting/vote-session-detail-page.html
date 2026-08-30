@@ -247,9 +247,15 @@
                   (keydown.space)="onCardActivate(emote, $any($event))"
                   (mouseenter)="inspect(emote)"
                 >
+                  <!-- `size` stays the constant 96 the directive requires (NgOptimizedImage forbids
+                       changing it post-init); `sizes` is a static echo of NARROW_BELOW_PX above, so
+                       the browser doesn't fetch the 96 px variant once cellPx() has switched to the
+                       64 px cell. See EmoteSprite.sizes for why a media query is only an
+                       approximation of that container-width breakpoint. -->
                   <app-emote-sprite
                     [url]="emote.imageUrl"
                     [size]="96"
+                    sizes="(min-width: 600px) 64px, 96px"
                     [dimmed]="emote.isArchived"
                   />
                   <!-- The usage figure printed onto the sprite, as on the usage atlas. `null` is
