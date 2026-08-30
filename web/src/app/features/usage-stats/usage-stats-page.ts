@@ -712,6 +712,14 @@ export class UsageStatsPage {
     });
   }
 
+  // See VoteSessionDetailPage.trackRow for the full reasoning: rows() rebuilds fresh row arrays on
+  // every recompute, so tracking by index (not identity) keeps the row views stable and avoids
+  // rebuilding every cell — the inner @for (… track emote.emoteId) still reconciles row content
+  // correctly on a resize.
+  protected trackRow(index: number): number {
+    return index;
+  }
+
   protected refresh(): void {
     this.load(this.channelName(), this.from(), this.to(), this.rangeResolved());
   }

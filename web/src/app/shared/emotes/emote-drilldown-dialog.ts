@@ -15,7 +15,7 @@ import { openAppDialog } from '../ui/dialog';
 import { DialogShell } from '../ui/dialog-shell';
 import { NoticeBanner } from '../ui/notice-banner';
 import { UsageTrend, daysInSet, usageTrend } from './emote-context';
-import { EmoteSprite } from './emote-sprite';
+import { EmoteSpriteAnimated } from './emote-sprite-animated';
 import { UsageSparkline } from './usage-sparkline';
 import {
   SparklinePoint,
@@ -60,18 +60,24 @@ export interface EmoteDrilldownData {
  */
 @Component({
   selector: 'app-emote-drilldown-dialog',
-  imports: [Button, DialogShell, EmoteSprite, NoticeBanner, TranslocoPipe, UsageSparkline],
+  imports: [Button, DialogShell, EmoteSpriteAnimated, NoticeBanner, TranslocoPipe, UsageSparkline],
   template: `
     <app-dialog-shell>
       <!-- Heading with a thumbnail, hence the projection slot rather than [dialogTitle]. The id is
            the shell's DIALOG_TITLE_ID — that is what names the dialog for assistive tech. -->
       <div dialog-header class="flex items-center gap-3">
+        <!-- On touch this dialog is the only place the animation is ever seen: the sidecar is
+             'hidden lg:block' and the readout line is 'pointer-coarse:hidden'.
+             spriteClass is left at its default rather than the fixed-size 'max-h-10 max-w-10'
+             the plain sprite used: EmoteSpriteAnimated wraps its two layers in a
+             'relative block h-full w-full' span (the overlay needs that for its absolute
+             positioning), so the image is no longer a flex child this box's 'items-center
+             justify-center' can center — a fixed max-size class would sit top-left instead. The
+             default 'object-contain' fills and centers within the full 48px box on its own, and
+             its 'p-1' (4px per side) reproduces the same 40px picture that was rendered before.
+             Same construction as the usage page's sidecar. -->
         <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-emote-canvas">
-          <app-emote-sprite
-            [url]="data.imageUrl"
-            [size]="40"
-            spriteClass="max-h-10 max-w-10 object-contain"
-          />
+          <app-emote-sprite-animated [url]="data.imageUrl" [size]="40" />
         </div>
         <div class="min-w-0">
           <h2 id="app-dialog-title" class="truncate text-lg font-semibold text-fg">

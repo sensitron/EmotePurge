@@ -36,6 +36,7 @@ import {
   openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import { EmoteSprite } from '../../shared/emotes/emote-sprite';
+import { EmoteSpriteAnimated } from '../../shared/emotes/emote-sprite-animated';
 import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
@@ -113,6 +114,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     VoteAudienceBadge,
     ScrollingModule,
     EmoteSprite,
+    EmoteSpriteAnimated,
     MassDeletePanel,
     UsageRangeMenu,
     TranslocoPipe,
@@ -359,8 +361,13 @@ export class VoteSessionDetailPage {
     // Results reload on every relevant event; the channel-status side-load only when a
     // `channel.synced` was among them — that value changes on a 7TV sync, not on a vote or a
     // flush, and refetching it per event would triple the request volume.
-    // No echo suppression — one's own vote already reloads through vote(), and the debounce merges
-    // that with the push it caused; loadResults is idempotent either way.
+    // No echo suppression — the Api sends `vote.changed` back to the voter's own channel stream
+    // with no author exception, and this debounce only coalesces bursts of SSE events among
+    // themselves. It does nothing to the reload that vote() (below) fires immediately on its own
+    // request's success, which runs entirely outside this pipeline. A cast vote therefore
+    // reloads twice: once right away from vote(), once ~debounceMs later from the echo. That is
+    // deliberate for now (loadResults is idempotent either way) and tracked separately, not fixed
+    // here.
     liveReload(this.liveUrl, {
       accept: (event) => this.isRelevantLiveEvent(event),
       debounceMs: VOTE_RELOAD_DEBOUNCE_MS,
@@ -370,6 +377,27 @@ export class VoteSessionDetailPage {
         this.loadActiveEmoteSetId();
       }
     });
+  }
+
+  /**
+   * Tracks the outer virtual-scroll rows by index instead of by object identity.
+   *
+   * `rows()` (chunkIntoRows()) rebuilds every row array from scratch on each recompute, so
+   * CdkVirtualForOf's default identity-based differ sees a full remove+add on every reload and
+   * recycles the detached views into different row positions. The inner `@for (… track
+   * emote.emoteId)` then finds unfamiliar ids in those recycled views and rebuilds every cell —
+   * including a brand-new `EmoteSprite` per cell, which stays hidden until its `<img>` fires
+   * `load`, even for an image already cached. That was the double flash after casting a vote:
+   * one flash per reload the vote triggers.
+   *
+   * Indexing by position instead keeps the row views themselves stable across a recompute, so CDK
+   * only updates their context and the inner @for sees the same ids at the same positions — no
+   * rebuild. A column-count change (resize) still renders correctly under this, because the inner
+   * @for reconciles each row's actual content by emote id regardless of how many rows there now
+   * are.
+   */
+  protected trackRow(index: number): number {
+    return index;
   }
 
   // One guarded entry point for click/Enter/Space on the sprite, branched on cellAction. Both acting

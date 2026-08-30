@@ -103,11 +103,16 @@ export class EmoteSprite {
    * `vote-session-detail-page.ts`) can't just bind this to that computed width: `size`/`sizes` are
    * once-per-init like `width`/`height` (`assertNoPostInitInputChange`), and that computed changes
    * exactly at the breakpoint. What such a call site passes instead is a static CSS media-query
-   * string mirroring the same breakpoint in viewport terms, e.g.
-   * `"(min-width: 600px) 64px, 96px"`. That is an approximation, not an exact match — `atlasColumns`
-   * in `atlas-grid.ts` measures the *container* the cells actually sit in (the sheet can share the
-   * row with a sidecar from `lg` up), while a media query only ever sees the *viewport* — but it is
-   * strictly closer than a `sizes` that never changes and always claims the wider size.
+   * string mirroring the same breakpoint in viewport terms, e.g. `"(min-width: 640px) 64px,
+   * 96px"`. The `640` is not `NARROW_BELOW_PX` (600) itself: that threshold measures the *sheet*,
+   * the query measures the *window*, and the shell's `px-4` (`app-shell.ts`) sits between them —
+   * the sheet only reaches 600px once the window is 632px wide. Rounded up to Tailwind's `sm`
+   * (640) rather than down, so the remaining slack picks a size one step too *large* (a few
+   * wasted bytes) instead of one step too small (a stretched image). It stays an approximation
+   * even so — `atlasColumns` in `atlas-grid.ts` measures the *container* the cells actually sit in
+   * (the sheet can share the row with a sidecar from `lg` up),
+   * while a media query only ever sees the *viewport* — but accounting for the shell padding is
+   * what keeps it from being off in the wrong direction, which is the mistake this once was.
    */
   readonly sizes = input<string>();
   readonly spriteClass = input('h-full w-full object-contain p-1');

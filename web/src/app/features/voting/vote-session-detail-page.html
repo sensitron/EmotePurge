@@ -201,7 +201,7 @@
           [maxBufferPx]="rowHeight() * 4"
         >
           <div
-            *cdkVirtualFor="let row of rows()"
+            *cdkVirtualFor="let row of rows(); trackBy: trackRow"
             class="grid gap-1"
             [style.height.px]="rowHeight()"
             [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx() + 'px)'"
@@ -411,7 +411,11 @@
         <div class="flex flex-col gap-3 border-l border-border pl-4">
           <div class="flex items-start gap-3">
             <span class="app-sprite-cell flex h-14 w-14 shrink-0 items-center justify-center">
-              <app-emote-sprite [url]="emote.imageUrl" [size]="56" [dimmed]="emote.isArchived" />
+              <app-emote-sprite-animated
+                [url]="emote.imageUrl"
+                [size]="56"
+                [dimmed]="emote.isArchived"
+              />
             </span>
             <div class="min-w-0">
               <p class="text-sm font-semibold break-all text-fg">{{ emote.emoteName }}</p>

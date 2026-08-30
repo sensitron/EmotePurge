@@ -137,4 +137,57 @@ test.describe('vote ballot', () => {
     await expect(page.getByRole('button', { name: 'Löschen (1)' })).toBeVisible();
     await expect(keepButton(page, 0)).toHaveAttribute('aria-pressed', 'false');
   });
+
+  test('sprite DOM nodes survive the reload a vote triggers (no rebuild-on-reload regression)', async ({
+    page,
+  }) => {
+    // Needs multiple rows, not just multiple emotes: rows() hands *cdkVirtualFor a fresh row-array
+    // reference on every recompute, so without a trackBy, CdkVirtualForOf's identity differ treats
+    // every row as removed-then-inserted on each reload and its recycler reuses the detached row
+    // views through a view cache — with 2+ rows that can rebind a recycled row-view to a *different*
+    // row's data than it last held. The inner `@for (… track emote.emoteId)` then finds unfamiliar
+    // ids in a view it did not expect them in and rebuilds every cell in it — a brand-new
+    // `EmoteSprite` per cell, starting hidden until its own `load` event fires. 24 emotes reliably
+    // fills more than one 10-14-column desktop row (see atlasColumns/CELL_WIDE_PX). Marking only one
+    // sprite is not reliable here — which particular row-views get reshuffled depends on CDK's
+    // internal cache order, and only about half of a 24-item grid's rows turned out to be affected
+    // when this test was built (confirmed by temporarily reverting the trackBy: 10 of 24 marked
+    // sprites survived, not 0) — so every sprite gets marked and every one of them must survive.
+    const emotes = Array.from({ length: 24 }, (_, i) => ({
+      emoteId: `e${i}`,
+      emoteName: `Emote${i}`,
+    }));
+    await openBallot(page, emotes);
+
+    // Scoped to the virtual-scroll viewport, and marked with a plain DOM attribute rather than
+    // asserting on the component: a freshly created <img> never carries an attribute nobody bound
+    // to it, so a drop in the marked count is unambiguous proof that elements were destroyed and
+    // recreated, not just that their content changed.
+    const sprites = page.locator('cdk-virtual-scroll-viewport img');
+    const spriteCount = await sprites.count();
+    expect(spriteCount).toBe(emotes.length);
+    await sprites.evaluateAll((imgs) => {
+      imgs.forEach((img, i) => img.setAttribute('data-regression-probe', String(i)));
+    });
+
+    await page.route('**/vote-sessions/7/votes', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    // Overrides the results route openBallot() already registered — Playwright tries the
+    // most-recently-added matching handler first, so this wins for every request from here on,
+    // including the one vote() fires. e0's tally is bumped to a value nothing else in this test
+    // produces, purely so the assertion below has something visible to wait on.
+    const votedEmotes = emotes.map((emote, i) => (i === 0 ? { ...emote, keepVotes: 999 } : emote));
+    await mockVoteSessionResults(page, 'sensitron', SESSION, votedEmotes);
+
+    await keepButton(page, 0).click();
+    // Waiting on the GET's HTTP response is not enough: the response resolves before Angular has
+    // applied it, and toHaveCount() below succeeds on its very first passing poll — which can land
+    // in that gap, before a rebuild would even have happened, and pass for the wrong reason. This
+    // waits on the reload's *rendered* effect instead (a tally only the post-vote response could
+    // have produced), so everything after it is guaranteed to run against the post-reload DOM.
+    await expect(keepButton(page, 0)).toContainText('999');
+
+    await expect(page.locator('img[data-regression-probe]')).toHaveCount(spriteCount);
+  });
 });
