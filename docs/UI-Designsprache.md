@@ -133,6 +133,22 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Ausnahme:** Die Landing-Page (`web/src/app/features/landing/landing-page.html`) ist bewusst Marketing-skaliert (`text-4xl`/`sm:text-5xl`-Hero, `sm:text-3xl`-Sektionen) und folgt der Tabelle nicht.
 - **Referenz:** `web/src/app/features/admin/admin-layout.ts` (Seitentitel), `web/src/app/features/usage-stats/usage-stats-page.html` (Sektionstitel), `web/src/app/features/admin/admin-monitoring-page.ts` (Blocktitel).
 
+### 3.1 Mikroschrift: `label` und `micro`
+
+- **Was gilt:** Unterhalb von `text-xs` (12 px) gibt es **zwei** Stufen und **keine** weiteren:
+
+  | Stufe | Größe | Typische Kette | Wofür |
+  |---|---|---|---|
+  | `label` | 11 px (`text-[11px]`) | `text-[11px] font-semibold tracking-[0.13em] uppercase`, alternativ `font-mono text-[11px]` | Kapitälchen-Label und Zähler auf Sektionsebene: Bandtitel, Statusabzeichen, Stufenlabel |
+  | `micro` | 10 px (`text-[10px]`) | `text-[10px] font-semibold tracking-[0.11em] uppercase`, alternativ `font-mono text-[10px]` | dieselbe Rolle eine Ebene tiefer, in dichten Kontexten: Kennzahl-Terme im Sidecar, Achsenbeschriftung, Beschriftung gedrängter Schaltflächen |
+
+  Beide sind bewusst als Pixel-Literal geschrieben: Tailwind endet nach unten bei `text-xs`, und eigene Stufen sind weder in `styles.css` noch in einer Tailwind-Konfiguration definiert. Die maschinenlesbare Entsprechung steht in [`DESIGN.md`](../DESIGN.md) unter `typography.label` bzw. `typography.micro`.
+- **Wann anwenden:** `label`, solange die Beschriftung für sich steht. `micro` erst, wenn sie in einer Zeile mit anderen Angaben um Platz konkurriert — Sidecar, Achsen, Bandkopf. Wer neu baut und schwankt, nimmt `label`.
+- **Was nicht gilt:** Kein dritter Wert. Ein neues `text-[12px]`, `text-[13px]` oder `text-[8px]` ist kein Feinschliff, sondern eine vierte Ebene, die niemand benannt hat — dann gehört sie hierher oder sie entfällt.
+- **Eine benannte Ausnahme: 9 px** (`text-[9px]`), ausschließlich für die Nutzungszahl, die **auf** ein Emote-Sprite gedruckt wird (`usage-stats-page.html`, `vote-session-detail-page.html`, zusammen zwei Stellen). Sie steht über fremdem Bildmaterial und hat neben sich einen Scrim, nicht Weißraum; sie ist deshalb keine Stufe des Systems, sondern eine Eigenschaft dieses einen Bausteins. Als Stufe geführt wäre sie ein Freibrief für 9 px überall. Der Designsystem-Hook kennt sie als bewusste Ausnahme.
+- **Offener Vorbehalt:** `label` und `micro` werden an einzelnen Stellen für dasselbe benutzt — einmal als `<h3>`, einmal als `<dt>`, beide als Kapitälchen mit `tracking`. Entweder sind es wirklich zwei Ebenen, oder eine davon ist Drift. Die Bestandsaufnahme vom 2026-08-30 zählt 15 Vorkommen `label` in fünf Dateien und 14 Vorkommen `micro` in zwei; das reicht, um beide als Stufe zu führen, aber nicht, um die Abgrenzung als geklärt zu bezeichnen. Wer sie zusammenlegen will, ändert fünf Dateien — kein Doku-Eintrag.
+- **Referenz:** `web/src/app/features/usage-stats/usage-stats-page.html` (beide Stufen und die Ausnahme), `web/src/app/features/landing/landing-page.html` (`label`), `web/src/app/features/voting/vote-session-detail-page.html` (`micro`).
+
 ## 4. Buttons, Badges, Banner
 
 ### 4.1 Buttons: `appButton`
