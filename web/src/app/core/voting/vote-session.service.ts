@@ -16,6 +16,13 @@ import {
 export class VoteSessionService {
   private readonly http = inject(HttpClient);
 
+  // One-shot guard→page handoff, not a cache — see stashGuardResults/takeGuardResults below.
+  private guardResultsStash: {
+    channelName: string;
+    sessionId: number;
+    results: VoteSessionResults;
+  } | null = null;
+
   list(channelName: string, page = 1, pageSize = 20): Observable<PagedResult<VoteSessionSummary>> {
     return this.http.get<PagedResult<VoteSessionSummary>>(
       `/api/channels/${channelName}/vote-sessions`,
@@ -82,5 +89,30 @@ export class VoteSessionService {
     return this.http.delete<void>(
       `/api/channels/${channelName}/vote-sessions/${sessionId}/votes/${emoteId}`,
     );
+  }
+
+  /**
+   * Lets voteSessionAccessGuard hand its already-fetched `/results` response to the detail page
+   * instead of the page re-fetching the same thing a few hundred milliseconds later (baseline (c)
+   * measured this as two `/results` requests per page entry). Not a cache: a later stash always
+   * replaces whatever is left over from an earlier one, see takeGuardResults.
+   */
+  stashGuardResults(channelName: string, sessionId: number, results: VoteSessionResults): void {
+    this.guardResultsStash = { channelName, sessionId, results };
+  }
+
+  /**
+   * Consumes the stash — a second call, for any key, returns null. A key that does not match what
+   * is currently stashed also returns null and discards the stash, so it cannot go on to serve a
+   * *later* call for the original key either: exactly one page load may ever be served by exactly
+   * one guard probe.
+   */
+  takeGuardResults(channelName: string, sessionId: number): VoteSessionResults | null {
+    const stash = this.guardResultsStash;
+    this.guardResultsStash = null;
+    if (!stash || stash.channelName !== channelName || stash.sessionId !== sessionId) {
+      return null;
+    }
+    return stash.results;
   }
 }

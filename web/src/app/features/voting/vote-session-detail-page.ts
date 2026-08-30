@@ -11,10 +11,10 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { Observable } from 'rxjs';
+import { Observable, Subject, debounceTime, merge, tap } from 'rxjs';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { ChannelService } from '../../core/channels/channel.service';
@@ -23,7 +23,7 @@ import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
 import { LIVE_EVENT_TYPES, LiveEvent, channelLiveUrl } from '../../core/live/live-event.model';
-import { liveReload } from '../../core/live/live-reload';
+import { liveEvents } from '../../core/live/live-reload';
 import { PointerModeService } from '../../core/pointer/pointer-mode.service';
 import {
   VoteSessionResult,
@@ -136,8 +136,13 @@ export class VoteSessionDetailPage {
   protected readonly isCoarse = inject(PointerModeService).isCoarse;
 
   // Lazy on purpose — reading the required channelName input during construction would throw
-  // NG0950; the computed is first evaluated inside liveReload's toObservable effect.
+  // NG0950; the computed is first evaluated inside liveEvents' toObservable effect.
   private readonly liveUrl = computed(() => channelLiveUrl(this.channelName()));
+
+  // Feeds the reload pipeline built in the constructor from vote()'s own success handler, so a
+  // local vote and the server's `vote.changed` echo of it share one debounce window instead of each
+  // firing their own reload — see the pipeline comment in the constructor.
+  private readonly localVoteSuccess$ = new Subject<void>();
 
   protected readonly voteType = VoteType;
   protected readonly currentUser = this.authService.currentUser;
@@ -164,6 +169,10 @@ export class VoteSessionDetailPage {
   protected readonly sidecarTop = signal(ATLAS_STICKY_TOP_PX + SIDECAR_GAP_PX);
 
   protected readonly results = signal<VoteSessionResults | null>(null);
+  // See loadResults(): the "channelName:sessionId" this instance has already attempted a guard
+  // handoff for, so a reload (vote, SSE, refresh) never re-attempts one, but a direct navigation
+  // to a *different* session — same reused component, changed inputs — does.
+  private guardHandoffKey: string | null = null;
   protected readonly skeletonCells = Array.from({ length: 10 }, (_, i) => i);
   protected readonly activeEmoteSetId = signal<string | null>(null);
   protected readonly errorMessage = signal<string | null>(null);
@@ -357,26 +366,29 @@ export class VoteSessionDetailPage {
       onCleanup(() => observer.disconnect());
     });
 
-    // Live tally *and* live usage, off the one channel stream this page already holds open.
-    // Results reload on every relevant event; the channel-status side-load only when a
-    // `channel.synced` was among them — that value changes on a 7TV sync, not on a vote or a
-    // flush, and refetching it per event would triple the request volume.
-    // No echo suppression — the Api sends `vote.changed` back to the voter's own channel stream
-    // with no author exception, and this debounce only coalesces bursts of SSE events among
-    // themselves. It does nothing to the reload that vote() (below) fires immediately on its own
-    // request's success, which runs entirely outside this pipeline. A cast vote therefore
-    // reloads twice: once right away from vote(), once ~debounceMs later from the echo. That is
-    // deliberate for now (loadResults is idempotent either way) and tracked separately, not fixed
-    // here.
-    liveReload(this.liveUrl, {
-      accept: (event) => this.isRelevantLiveEvent(event),
-      debounceMs: VOTE_RELOAD_DEBOUNCE_MS,
-    }).subscribe((seen) => {
-      this.loadResults({ freeze: false });
-      if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
-        this.loadActiveEmoteSetId();
-      }
-    });
+    // Live tally *and* live usage, off the one channel stream this page already holds open — plus
+    // vote()'s own success, merged into the same window rather than reloading on its own. A cast
+    // vote must not wait on the Api's `vote.changed` echo of it (Redis publish, then SSE) to show
+    // up, so it feeds this pipeline directly; the echo still arrives afterwards and, landing inside
+    // the same debounce window, collapses into the same reload instead of causing a second one. The
+    // channel-status side-load only runs when a `channel.synced` was among the *live* events — that
+    // value changes on a 7TV sync, not on a vote or a flush, and a plain vote never carries it since
+    // localVoteSuccess$ contributes no event type to `seen`.
+    const seen = new Set<string>();
+    merge(
+      liveEvents(this.liveUrl, (event) => this.isRelevantLiveEvent(event)).pipe(
+        tap((event) => seen.add(event.type)),
+      ),
+      this.localVoteSuccess$,
+    )
+      .pipe(debounceTime(VOTE_RELOAD_DEBOUNCE_MS), takeUntilDestroyed())
+      .subscribe(() => {
+        this.loadResults({ freeze: false });
+        if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
+          this.loadActiveEmoteSetId();
+        }
+        seen.clear();
+      });
   }
 
   /**
@@ -626,7 +638,10 @@ export class VoteSessionDetailPage {
           );
 
     request$.subscribe({
-      next: () => this.load({ freeze: false }),
+      // Feeds the shared reload pipeline built in the constructor rather than reloading here
+      // directly — see that pipeline's comment. Only results are affected; the channel status
+      // (loadActiveEmoteSetId) never reloads off a vote, only off `channel.synced`.
+      next: () => this.localVoteSuccess$.next(),
       error: (error: HttpErrorResponse) => this.handleVoteError(error),
     });
   }
@@ -712,20 +727,36 @@ export class VoteSessionDetailPage {
     const channelName = this.channelName();
     const sessionId = Number(this.sessionId());
 
-    // voteSessionAccessGuard already verified login + audience eligibility before this component
-    // was even mounted — this call should always succeed for whoever reached this page normally.
+    // voteSessionAccessGuard already fetched /results once to verify login + audience eligibility
+    // before this component was even mounted. The very first loadResults() run for a given
+    // channel+session takes that response instead of asking again — see
+    // VoteSessionService.takeGuardResults. Keyed rather than a one-time boolean so navigating
+    // directly between two sessions (component reused, inputs change) still picks up the new
+    // guard run's stash instead of being permanently skipped after the first entry.
+    const handoffKey = `${channelName}:${sessionId}`;
+    if (this.guardHandoffKey !== handoffKey) {
+      this.guardHandoffKey = handoffKey;
+      const stashed = this.voteSessionService.takeGuardResults(channelName, sessionId);
+      if (stashed) {
+        this.applyResults(stashed, options);
+        return;
+      }
+    }
+
     this.voteSessionService.getResults(channelName, sessionId).subscribe({
-      next: (results) => {
-        this.results.set(results);
-        if (options.freeze) {
-          this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
-        }
-        // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
-        // deserialized objects this assigns resolve back to the same selection. Clearing would
-        // throw away a 50-emote selection on every single vote, since vote() reloads through here.
-      },
+      next: (results) => this.applyResults(results, options),
       error: () => this.errorMessage.set('voting.detail.errors.loadFailed'),
     });
+  }
+
+  private applyResults(results: VoteSessionResults, options: { freeze: boolean }): void {
+    this.results.set(results);
+    if (options.freeze) {
+      this.orderedEmoteIds.set(results.emotes.map((emote) => emote.emoteId));
+    }
+    // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
+    // deserialized objects this assigns resolve back to the same selection. Clearing would
+    // throw away a 50-emote selection on every single vote, since vote() reloads through here.
   }
 
   /** Split out of load() so the live-update path can refetch the tally alone — this value only

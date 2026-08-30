@@ -31,7 +31,12 @@ export const voteSessionAccessGuard: CanActivateFn = (route, state) => {
       }
 
       return voteSessionService.getResults(channelName, sessionId).pipe(
-        map(() => true),
+        map((results) => {
+          // Handed to the detail page's first loadResults() call — see stashGuardResults. Only on
+          // success: a rejected probe (403/404 below) must leave nothing behind to pick up.
+          voteSessionService.stashGuardResults(channelName, sessionId, results);
+          return true;
+        }),
         catchError(() => of(router.createUrlTree(['/channels', channelName, 'vote-sessions']))),
       );
     }),

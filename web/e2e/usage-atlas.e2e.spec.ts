@@ -3,6 +3,7 @@ import { Page, expect, test } from '@playwright/test';
 import {
   AUTH_USER,
   MockEmoteUsage,
+  emitLive,
   installLiveStub,
   mockActiveEmoteSet,
   mockAuthMe,
@@ -424,13 +425,14 @@ test.describe('a channel without an active 7TV emote set', () => {
   // Issue #32 shipped the reason but not a way for it to keep up: SyncChannelAsync answers `null`
   // both when a sync fails again and when it succeeds without changing anything, so `channel.synced`
   // never fires either way and an open page kept describing a state that had already moved on — a
-  // real, observed case is a moderator registering their 7TV account mid-session. The 30 s recheck
+  // real, observed case is a moderator registering their 7TV account mid-session. The 60 s recheck
   // (SYNC_FAILURE_RECHECK_INTERVAL_MS in usage-stats-page.ts) closes that gap. Both tests below
-  // drive it with a route whose response can change mid-test, unlike mockActiveEmoteSet's fixed one.
+  // drive it with a route whose response can change mid-test, unlike mockActiveEmoteSet's fixed one,
+  // and with Playwright's `page.clock` rather than 61 real seconds each — see the "waiting for the
+  // first 7TV sync" describe below for why `install()` runs before `goto` and only `runFor()` moves
+  // time afterwards.
   test('adopts a resolved set once the reason clears, without a reload', async ({ page }) => {
-    // The real cadence, not a shortened test double of it — proof that the shipped 30 s constant is
-    // what drives this, not an assumption about it.
-    test.setTimeout(45_000);
+    await page.clock.install();
 
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page);
@@ -445,6 +447,13 @@ test.describe('a channel without an active 7TV emote set', () => {
     // real emote here would make the grid render straight away and the reason-branch would never
     // even be reached — the same reason the "names the missing emote set" test above mocks `[]`.
     await mockUsageTotals(page, 'sensitron', []);
+
+    const activeSetRequests = { count: 0 };
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/emotes/active-set')) {
+        activeSetRequests.count += 1;
+      }
+    });
 
     let resolved = false;
     await page.route('**/api/channels/sensitron/emotes/active-set', (route) =>
@@ -478,6 +487,17 @@ test.describe('a channel without an active 7TV emote set', () => {
       page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.'),
     ).toBeVisible();
 
+    // The recheck's own comment justifies the 60 s cadence — prove the lower bound, not just that
+    // it eventually fires: nothing may ask again inside the first 59 s, only load()'s own initial
+    // read landed by now.
+    const afterInitialLoad = activeSetRequests.count;
+    await page.clock.runFor(59_000);
+    // A fired timer still has to cross into a real browser request event before the listener above
+    // sees it — give that a beat of genuine wall-clock time so a false negative here (asserting
+    // "nothing happened" before anything that did happen had a chance to be observed) cannot pass.
+    await page.waitForTimeout(200);
+    expect(activeSetRequests.count).toBe(afterInitialLoad);
+
     // Nothing else happens on the page — no click, no reload — between flipping the mocks and the
     // grid showing up. The recheck is the only thing that can have picked this up.
     resolved = true;
@@ -487,16 +507,17 @@ test.describe('a channel without an active 7TV emote set', () => {
     // start returning rows at all.
     await mockUsageTotals(page, 'sensitron', EMOTES);
 
-    await expect(page.getByRole('heading', { name: 'Tragend', exact: true })).toBeVisible({
-      timeout: 32_000,
-    });
+    // Crosses the 60 s mark the recheck fires on.
+    await page.clock.runFor(2_000);
+
+    await expect(page.getByRole('heading', { name: 'Tragend', exact: true })).toBeVisible();
     await expect(page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.')).toHaveCount(
       0,
     );
   });
 
   test('adopts a changed reason without a reload', async ({ page }) => {
-    test.setTimeout(45_000);
+    await page.clock.install();
 
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page);
@@ -508,6 +529,13 @@ test.describe('a channel without an active 7TV emote set', () => {
     await mockChannelStatus(page, 'sensitron');
     await mockDuplicateEmoteNames(page, 'sensitron');
     await mockUsageTotals(page, 'sensitron', []);
+
+    const activeSetRequests = { count: 0 };
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/emotes/active-set')) {
+        activeSetRequests.count += 1;
+      }
+    });
 
     let reason: 'no_active_emote_set' | 'no_seventv_account' = 'no_active_emote_set';
     await page.route('**/api/channels/sensitron/emotes/active-set', (route) =>
@@ -530,15 +558,122 @@ test.describe('a channel without an active 7TV emote set', () => {
       page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.'),
     ).toBeVisible();
 
+    // Same lower-bound proof as the case above: no second read inside the first 59 s.
+    const afterInitialLoad = activeSetRequests.count;
+    await page.clock.runFor(59_000);
+    await page.waitForTimeout(200);
+    expect(activeSetRequests.count).toBe(afterInitialLoad);
+
     // Still no set id — just a different cause. The sentence has to change under the same "no
     // grid" state, not merely disappear.
     reason = 'no_seventv_account';
 
-    await expect(page.getByText('Für diesen Twitch-Channel gibt es kein 7TV-Konto.')).toBeVisible({
-      timeout: 32_000,
-    });
+    // Crosses the 60 s mark the recheck fires on.
+    await page.clock.runFor(2_000);
+
+    await expect(page.getByText('Für diesen Twitch-Channel gibt es kein 7TV-Konto.')).toBeVisible();
     await expect(page.getByText('Dieser Channel hat auf 7TV kein aktives Emote-Set.')).toHaveCount(
       0,
     );
+  });
+});
+
+/**
+ * The wait for the very first 7TV sync used to be a two-second poll with fifteen attempts — up to
+ * fifteen `active-set` reads per page visit, the single largest client amplifier issue #33 measured
+ * (baseline flow (e)). The completion signal is now the `channel.synced` event the page already
+ * subscribes to; the probes below exist only as a fallback for a lost event, and there are at most
+ * three of them.
+ *
+ * Both cases drive the clock with Playwright's `page.clock` rather than waiting real seconds — the
+ * same technique the failure-reason recheck cases above use for their own 60 s cadence, for the
+ * same reason: real waits of that length would make this one spec run minutes longer than the rest
+ * of the suite. `install()` lets timers run normally while the page boots — zoneless change
+ * detection races `setTimeout` against `requestAnimationFrame`, both of which the fake clock owns,
+ * so a clock that were paused during boot would render nothing at all — and only the explicit
+ * `runFor()` calls jump ahead afterwards.
+ */
+test.describe('waiting for the first 7TV sync', () => {
+  /** No set id *and* no reason: the one state awaitSync waits on (see load() in usage-stats-page). */
+  const PENDING_SET = {
+    activeEmoteSetId: '',
+    capacity: null,
+    occupiedSlots: 0,
+    trackedSince: '2026-06-12T09:14:00Z',
+    syncFailureReason: null,
+    lastSyncAttemptAtUtc: null,
+  };
+
+  /** Opens the workspace on a channel whose 7TV set has not been resolved yet, counting every
+   *  `active-set` read the page makes from the very first one. */
+  async function openPendingSync(page: Page): Promise<{ activeSet: number }> {
+    const counter = { activeSet: 0 };
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith('/emotes/active-set')) {
+        counter.activeSet += 1;
+      }
+    });
+
+    await page.clock.install();
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: 'sensitron', isBroadcaster: true, isTracked: true, isBotActive: true },
+    ]);
+    await mockChannelPermissions(page, 'sensitron');
+    await mockChannelStatus(page, 'sensitron');
+    await mockDuplicateEmoteNames(page, 'sensitron');
+    // Empty on purpose: loadTotals runs independently of the set status, so a set of emotes here
+    // would render the sheet straight away and the awaiting branch would never show.
+    await mockUsageTotals(page, 'sensitron', []);
+    await page.route('**/api/channels/sensitron/emotes/active-set', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PENDING_SET),
+      }),
+    );
+
+    await page.goto('/channels/sensitron/usage-stats');
+    await expect(page.getByText('Emote-Set wird geladen')).toBeVisible();
+    return counter;
+  }
+
+  test('probes at most three times while no sync event arrives', async ({ page }) => {
+    const requests = await openPendingSync(page);
+
+    // The live stub stays silent for the whole span: nothing but the fallback probes can ask.
+    await page.clock.runFor(35_000);
+
+    // At least one probe has to have gone out — otherwise this would pass on a page that gave up
+    // immediately, which is not the behaviour under test.
+    await expect.poll(() => requests.activeSet).toBeGreaterThan(1);
+    // Let anything the fake 35 s put on the wire actually reach the recorder before counting.
+    await page.waitForTimeout(500);
+    // One initial read from load(), then at most three fallback probes — four in total today, and
+    // the ceiling rather than the exact number because how the three are staggered is free.
+    expect(requests.activeSet).toBeLessThanOrEqual(4);
+
+    // The banner ends with the last probe rather than hanging around: an unbounded wait would be
+    // just as wrong as the old burst.
+    await expect(page.getByText('Emote-Set wird geladen')).toHaveCount(0);
+  });
+
+  test('stops probing as soon as channel.synced arrives', async ({ page }) => {
+    const requests = await openPendingSync(page);
+
+    await emitLive(page, { type: 'channel.synced', channel: 'sensitron' });
+    // liveReload collapses a burst over CHANNEL_RELOAD_DEBOUNCE_MS (1 s) before it hands over.
+    await page.clock.runFor(1_500);
+
+    // The event ended the wait — not a probe: `active-set` still answers "no set, no reason", so
+    // nothing a probe could see would clear this banner.
+    await expect(page.getByText('Emote-Set wird geladen')).toHaveCount(0);
+
+    const afterEvent = requests.activeSet;
+    await page.clock.runFor(60_000);
+    await page.waitForTimeout(500);
+    expect(requests.activeSet).toBe(afterEvent);
   });
 });

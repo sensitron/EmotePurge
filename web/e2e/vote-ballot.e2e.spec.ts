@@ -40,6 +40,22 @@ const deleteButton = (page: Page, index = 0) =>
   page.getByRole('button', { name: 'Löschen vorschlagen', exact: true }).nth(index);
 
 test.describe('vote ballot', () => {
+  // Issue #33 baseline flow (c): the guard's own authorization probe and the page's first
+  // loadResults() used to each fetch /results independently, 582 ms apart. The guard now hands its
+  // response to the page (VoteSessionService.stashGuardResults/takeGuardResults) instead.
+  test('entering the page issues exactly one /results request', async ({ page }) => {
+    let resultsRequests = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname.endsWith(`/vote-sessions/${SESSION.id}/results`)) {
+        resultsRequests += 1;
+      }
+    });
+
+    await openBallot(page, [{ emoteId: 'e1', emoteName: 'catJAM' }]);
+
+    expect(resultsRequests).toBe(1);
+  });
+
   test('casts a keep vote and shows it as pressed', async ({ page }) => {
     let voted: { emoteId: string; type: number } | null = null;
     await page.route('**/vote-sessions/7/votes', async (route) => {
@@ -189,5 +205,60 @@ test.describe('vote ballot', () => {
     await expect(keepButton(page, 0)).toContainText('999');
 
     await expect(page.locator('img[data-regression-probe]')).toHaveCount(spriteCount);
+  });
+
+  // Issue #33 baseline flow (d): four votes in a 14 ms window used to cost 2n+1 = 9 permits (4
+  // mutations + 4 direct reloads + 1 SSE-echo reload) plus n policy-free channel-status reads.
+  // vote() now feeds the same 500 ms reload pipeline the SSE echo does instead of reloading on its
+  // own, so n votes should settle at n mutations + at most one reload, with the channel status
+  // (loadActiveEmoteSetId) untouched by voting entirely.
+  test('four fast votes cost four mutations and at most one results reload, no per-vote status recheck', async ({
+    page,
+  }) => {
+    const emotes = Array.from({ length: 4 }, (_, i) => ({
+      emoteId: `e${i}`,
+      emoteName: `Emote${i}`,
+    }));
+
+    let voteRequests = 0;
+    await page.route('**/vote-sessions/7/votes', async (route) => {
+      voteRequests += 1;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    let resultsRequests = 0;
+    let statusRequests = 0;
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (path.endsWith('/vote-sessions/7/results')) {
+        resultsRequests += 1;
+      }
+      if (path === '/api/channels/sensitron') {
+        statusRequests += 1;
+      }
+    });
+
+    await openBallot(page, emotes);
+    // openBallot's own mount already issues one /results (guard handoff) and one channel-status
+    // read (loadActiveEmoteSetId) — not what this test is about, see the dedicated "exactly one
+    // /results request" test above. Snapshot them instead of asserting on raw totals.
+    const resultsAfterEntry = resultsRequests;
+    const statusAfterEntry = statusRequests;
+
+    // No installLiveStub echo is ever pushed in this test (no emitLive call) — the reload this test
+    // observes can therefore only come from vote()'s own success handler, not from a Redis
+    // publish/SSE round-trip, which is exactly the independence the spec requires.
+    for (const index of emotes.keys()) {
+      await keepButton(page, index).click();
+    }
+
+    expect(voteRequests).toBe(4);
+
+    // Give the 500 ms debounce window (VOTE_RELOAD_DEBOUNCE_MS) time to fire and settle.
+    await page.waitForTimeout(700);
+
+    expect(resultsRequests - resultsAfterEntry).toBeGreaterThan(0);
+    expect(resultsRequests - resultsAfterEntry).toBeLessThanOrEqual(1);
+    expect(statusRequests).toBe(statusAfterEntry);
   });
 });

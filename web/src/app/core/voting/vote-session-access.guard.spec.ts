@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { AuthService } from '../auth/auth.service';
 import { voteSessionAccessGuard } from './vote-session-access.guard';
+import { VoteSessionService } from './vote-session.service';
 
 const USER = {
   twitchUserId: '1',
@@ -104,5 +105,37 @@ describe('voteSessionAccessGuard', () => {
     const result = await resultPromise;
     expect(result).toBeInstanceOf(UrlTree);
     expect(router.serializeUrl(result as UrlTree)).toBe('/channels/sensitron/vote-sessions');
+  });
+
+  it('stashes the results on the service when the probe succeeds, keyed by channel + session', async () => {
+    const voteSessionService = TestBed.inject(VoteSessionService);
+    const resultPromise = firstValueFrom(runGuard('sensitron', '5'));
+
+    const results = {
+      sessionId: 5,
+      title: 't',
+      isActive: true,
+      startedAt: '',
+      endedAt: null,
+      emotes: [],
+    };
+    httpMock.expectOne('/api/auth/me').flush(USER);
+    httpMock.expectOne('/api/channels/sensitron/vote-sessions/5/results').flush(results);
+
+    expect(await resultPromise).toBe(true);
+    expect(voteSessionService.takeGuardResults('sensitron', 5)).toEqual(results);
+  });
+
+  it('stashes nothing when the probe fails', async () => {
+    const voteSessionService = TestBed.inject(VoteSessionService);
+    const resultPromise = firstValueFrom(runGuard('sensitron', '5'));
+
+    httpMock.expectOne('/api/auth/me').flush(USER);
+    httpMock
+      .expectOne('/api/channels/sensitron/vote-sessions/5/results')
+      .flush(null, { status: 403, statusText: 'Forbidden' });
+
+    await resultPromise;
+    expect(voteSessionService.takeGuardResults('sensitron', 5)).toBeNull();
   });
 });

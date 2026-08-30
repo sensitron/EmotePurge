@@ -47,10 +47,11 @@ function isoDaysAgo(days: number): string {
 interface RangeRequests {
   series: URLSearchParams[];
   totals: URLSearchParams[];
+  activeSet: number;
 }
 
 function recordRangeRequests(page: Page): RangeRequests {
-  const recorded: RangeRequests = { series: [], totals: [] };
+  const recorded: RangeRequests = { series: [], totals: [], activeSet: 0 };
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (url.pathname.endsWith('/usage-stats/series')) {
@@ -58,6 +59,9 @@ function recordRangeRequests(page: Page): RangeRequests {
     }
     if (url.pathname.endsWith('/usage-stats/totals')) {
       recorded.totals.push(url.searchParams);
+    }
+    if (url.pathname.endsWith('/emotes/active-set')) {
+      recorded.activeSet += 1;
     }
   });
   return recorded;
@@ -96,6 +100,10 @@ test.describe('"all time" range resolution', () => {
 
     expect(requests.series.map((params) => params.get('from'))).toEqual([trackedSince]);
     expect(requests.totals.map((params) => params.get('from'))).toEqual([trackedSince]);
+    // The set status is what resolves "all time" against the tracking start in the first place, but
+    // once it has landed for this channel, the second effect run (the corrected range) must not ask
+    // for it again — that second active-set request is exactly the client amplifier #33 measured.
+    expect(requests.activeSet).toBe(1);
   });
 
   test('loads anyway when the set status fails, rather than waiting for a range forever', async ({
