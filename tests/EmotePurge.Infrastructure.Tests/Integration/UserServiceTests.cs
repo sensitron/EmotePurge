@@ -29,6 +29,11 @@ public class UserServiceTests(PostgresFixture fixture, RedisFixture redisFixture
 
     private ModRoleCache CreateRoleCache() => new(redisFixture.Connection, new ConfigurationBuilder().Build());
 
+    // The shared moderated-channel list is written by ModeratedChannelsProvider, not by ModRoleCache;
+    // seeding the key directly keeps this test about the invalidation reaching it.
+    private Task WriteModeratedChannelListAsync(string twitchUserId) =>
+        redisFixture.Connection.GetDatabase().StringSetAsync($"modlist:{twitchUserId}", "[]");
+
     [Fact]
     public async Task StoreTwitchTokens_ThenGet_RoundTripsAllFields()
     {
@@ -175,13 +180,13 @@ public class UserServiceTests(PostgresFixture fixture, RedisFixture redisFixture
         var roleCache = CreateRoleCache();
         var service = new UserService(db, CreateCipher(), roleCache);
         await service.UpsertLoginAsync("user-rolecache-1", "userrolecache1", "UserRoleCache1");
-        await roleCache.SetIsModeratorAsync("user-rolecache-1", "channel-a", isModerator: true);
+        await WriteModeratedChannelListAsync("user-rolecache-1");
         await roleCache.SetIsSubscriberAsync("user-rolecache-1", "9001", isSubscriber: true);
 
         var removedEntries = await service.InvalidateRoleCacheAsync("user-rolecache-1", new AuditActor("admin-1", "sensitron"));
 
         Assert.Equal(2, removedEntries);
-        Assert.Null(await roleCache.TryGetIsModeratorAsync("user-rolecache-1", "channel-a"));
+        Assert.False(await redisFixture.Connection.GetDatabase().KeyExistsAsync("modlist:user-rolecache-1"));
         Assert.Null(await roleCache.TryGetIsSubscriberAsync("user-rolecache-1", "9001"));
 
         await using var verifyDb = fixture.CreateDbContext();
@@ -201,16 +206,16 @@ public class UserServiceTests(PostgresFixture fixture, RedisFixture redisFixture
     public async Task InvalidateRoleCache_ForUnknownUser_ReturnsNull_AndTouchesNeitherStore()
     {
         // The unknown-user branch returns before Redis is reached — verified by seeding a key under
-        // that very id and watching it survive, which a SCAN-then-delete would have removed.
+        // that very id and watching it survive, which a delete would have removed.
         await using var db = fixture.CreateDbContext();
         var roleCache = CreateRoleCache();
         var service = new UserService(db, CreateCipher(), roleCache);
-        await roleCache.SetIsModeratorAsync("user-rolecache-nobody", "channel-a", isModerator: true);
+        await WriteModeratedChannelListAsync("user-rolecache-nobody");
 
         var removedEntries = await service.InvalidateRoleCacheAsync("user-rolecache-nobody", new AuditActor("admin-1", "sensitron"));
 
         Assert.Null(removedEntries);
-        Assert.True(await roleCache.TryGetIsModeratorAsync("user-rolecache-nobody", "channel-a"));
+        Assert.True(await redisFixture.Connection.GetDatabase().KeyExistsAsync("modlist:user-rolecache-nobody"));
         await using var verifyDb = fixture.CreateDbContext();
         Assert.False(await verifyDb.AuditLogEntries.AsNoTracking().AnyAsync(e => e.TargetId == "user-rolecache-nobody"));
     }

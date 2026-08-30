@@ -1,132 +1,102 @@
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Services;
-using Microsoft.Extensions.Logging.Abstractions;
+using EmotePurge.Infrastructure.Tests.Fakes;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
 namespace EmotePurge.Infrastructure.Tests.Unit;
 
-// Container-free: cache, Helix and the token store are all interfaces.
+// Container-free: the whole moderated-channel lookup sits behind one interface. Since the shared
+// list cache exists, this service neither paginates Helix nor caches anything itself — pagination,
+// single-flight and the "never cache a failure" rule all live in ModeratedChannelsProvider and are
+// tested there.
 //
-// Two of these tests exist because of a specific failure mode rather than a specific feature: a
-// transient Twitch failure must never be written to the cache. Caching a "no" that Twitch never
-// actually said would lock every moderator of every channel out for the full TTL, and the only
-// visible symptom would be moderators losing their permissions for ten minutes with nothing in the
-// logs pointing at Twitch.
+// What is left to pin here is the membership decision and, above all, that "moderates nothing" and
+// "could not be determined" stay two different things. Both deny, so the bool alone cannot tell
+// them apart; only the second one is a failure an operator must be able to see. Collapsing them
+// would hide a Twitch outage behind a perfectly ordinary-looking "not a moderator".
 public class ModeratorCheckServiceTests
 {
     [Fact]
-    public async Task IsModeratorAsync_ReturnsCachedPositive_WithoutCallingHelix()
+    public async Task IsModeratorAsync_ReturnsTrue_WhenTheChannelIsInTheModeratedList()
     {
-        var cache = Substitute.For<IModRoleCache>();
-        cache.TryGetIsModeratorAsync("42", "streamer", Arg.Any<CancellationToken>()).Returns(true);
-        var helix = Substitute.For<ITwitchHelixClient>();
-        var tokens = TokenService("valid-token");
-        var service = new ModeratorCheckService(helix, cache, tokens, NullLogger<ModeratorCheckService>.Instance);
+        var principal = Principal();
+        var provider = Provider(Lookup("streamer", "otherchannel"));
+        var logger = new RecordingLogger<ModeratorCheckService>();
+        var service = new ModeratorCheckService(provider, logger);
 
-        Assert.True(await service.IsModeratorAsync(Principal(), "streamer"));
+        Assert.True(await service.IsModeratorAsync(principal, "streamer"));
 
-        await helix.DidNotReceive().GetModeratedChannelLoginsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        // A cache hit must not cost a token refresh either — that is why the token lookup sits
-        // after the cache check in the service.
-        await tokens.DidNotReceive().GetValidAccessTokenAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<CancellationToken>());
+        await provider.Received(1).GetModeratedChannelsAsync(principal, Arg.Any<CancellationToken>());
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]
-    public async Task IsModeratorAsync_ReturnsCachedNegative_WithoutCallingHelix()
+    public async Task IsModeratorAsync_ReturnsFalse_WhenTheListAnsweredButOmitsTheChannel()
     {
-        var cache = Substitute.For<IModRoleCache>();
-        cache.TryGetIsModeratorAsync("42", "streamer", Arg.Any<CancellationToken>()).Returns(false);
-        var helix = Substitute.For<ITwitchHelixClient>();
-        var service = new ModeratorCheckService(helix, cache, TokenService("valid-token"), NullLogger<ModeratorCheckService>.Instance);
+        var provider = Provider(Lookup("otherchannel"));
+        var logger = new RecordingLogger<ModeratorCheckService>();
+        var service = new ModeratorCheckService(provider, logger);
 
         Assert.False(await service.IsModeratorAsync(Principal(), "streamer"));
 
-        await helix.DidNotReceive().GetModeratedChannelLoginsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // A confirmed "no" is not an incident and must not be logged as one.
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]
-    public async Task IsModeratorAsync_DeniesWithoutCallingHelix_WhenNoUsableTokenExists()
+    public async Task IsModeratorAsync_ReturnsFalseWithoutLogging_WhenTheUserModeratesNothing()
     {
-        var cache = Substitute.For<IModRoleCache>();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        var service = new ModeratorCheckService(helix, cache, TokenService(null), NullLogger<ModeratorCheckService>.Instance);
+        // An empty, non-null list is a real answer: Twitch said this user moderates no channel at
+        // all. Indistinguishable from the case below by return value — the absent log line is what
+        // separates them.
+        var provider = Provider(Lookup());
+        var logger = new RecordingLogger<ModeratorCheckService>();
+        var service = new ModeratorCheckService(provider, logger);
 
         Assert.False(await service.IsModeratorAsync(Principal(), "streamer"));
 
-        await helix.DidNotReceive().GetModeratedChannelLoginsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        // Not cached: a later refresh or re-login must be able to resolve this live.
-        await cache.DidNotReceive().SetIsModeratorAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]
-    public async Task IsModeratorAsync_DeniesWithoutWritingTheCache_WhenHelixCannotAnswer()
+    public async Task IsModeratorAsync_DeniesAndLogs_WhenTheListCannotBeDetermined()
     {
-        var cache = Substitute.For<IModRoleCache>();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        helix.GetModeratedChannelLoginsAsync("valid-token", "42", Arg.Any<CancellationToken>())
-            .Returns((IReadOnlySet<string>?)null);
-        var service = new ModeratorCheckService(helix, cache, TokenService("valid-token"), NullLogger<ModeratorCheckService>.Instance);
+        // No usable token, a transient Helix failure or an unfinished pagination. Denied like the
+        // empty list above, but reported — and the provider caches nothing in this case, so the
+        // next request resolves live again.
+        var provider = Provider(new ModeratedChannelsLookup(null, ReauthRequired: true));
+        var logger = new RecordingLogger<ModeratorCheckService>();
+        var service = new ModeratorCheckService(provider, logger);
 
         Assert.False(await service.IsModeratorAsync(Principal(), "streamer"));
 
-        await cache.DidNotReceive().SetIsModeratorAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
     }
 
     [Fact]
-    public async Task IsModeratorAsync_ResolvesLiveAndCaches_WhenTheUserModeratesTheChannel()
+    public async Task IsModeratorAsync_NormalizesTheChannelName_BeforeComparingIt()
     {
-        var cache = Substitute.For<IModRoleCache>();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        helix.GetModeratedChannelLoginsAsync("valid-token", "42", Arg.Any<CancellationToken>())
-            .Returns(new HashSet<string> { "streamer", "otherchannel" });
-        var service = new ModeratorCheckService(helix, cache, TokenService("valid-token"), NullLogger<ModeratorCheckService>.Instance);
-
-        Assert.True(await service.IsModeratorAsync(Principal(), "streamer"));
-
-        await cache.Received(1).SetIsModeratorAsync("42", "streamer", true, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task IsModeratorAsync_CachesTheNegative_WhenHelixAnsweredButTheChannelIsMissing()
-    {
-        // A confirmed "no" is cacheable — unlike the two failure cases above, Twitch actually said so.
-        var cache = Substitute.For<IModRoleCache>();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        helix.GetModeratedChannelLoginsAsync("valid-token", "42", Arg.Any<CancellationToken>())
-            .Returns(new HashSet<string> { "otherchannel" });
-        var service = new ModeratorCheckService(helix, cache, TokenService("valid-token"), NullLogger<ModeratorCheckService>.Instance);
-
-        Assert.False(await service.IsModeratorAsync(Principal(), "streamer"));
-
-        await cache.Received(1).SetIsModeratorAsync("42", "streamer", false, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task IsModeratorAsync_NormalizesTheChannelName_ForBothCacheKeyAndHelixComparison()
-    {
-        // Helix returns lowercase logins; the caller may pass "HandOfBlood". Without normalization
-        // the comparison silently fails and the cache would be keyed twice for one channel.
-        var cache = Substitute.For<IModRoleCache>();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        helix.GetModeratedChannelLoginsAsync("valid-token", "42", Arg.Any<CancellationToken>())
-            .Returns(new HashSet<string> { "handofblood" });
-        var service = new ModeratorCheckService(helix, cache, TokenService("valid-token"), NullLogger<ModeratorCheckService>.Instance);
+        // Twitch logins are typed with capitals ("HandOfBlood"), the list holds them normalized.
+        // Without normalization the comparison silently fails and a moderator loses access.
+        var provider = Provider(Lookup("handofblood"));
+        var service = new ModeratorCheckService(provider, new RecordingLogger<ModeratorCheckService>());
 
         Assert.True(await service.IsModeratorAsync(Principal(), " HandOfBlood "));
-
-        await cache.Received().TryGetIsModeratorAsync("42", "handofblood", Arg.Any<CancellationToken>());
-        await cache.Received(1).SetIsModeratorAsync("42", "handofblood", true, Arg.Any<CancellationToken>());
     }
 
     private static TwitchPrincipalInfo Principal() => new("42", "somemod", AccessToken: null);
 
-    private static ITwitchUserTokenService TokenService(string? accessToken)
+    private static ModeratedChannelsLookup Lookup(params string[] logins) =>
+        new([.. logins.Select((login, index) => new TwitchModeratedChannelInfo(login, $"broadcaster-{index}"))], ReauthRequired: false);
+
+    private static IModeratedChannelsProvider Provider(ModeratedChannelsLookup lookup)
     {
-        var tokens = Substitute.For<ITwitchUserTokenService>();
-        tokens.GetValidAccessTokenAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<CancellationToken>())
-            .Returns(new TwitchUserTokenResult(accessToken, ReauthRequired: accessToken is null));
-        return tokens;
+        var provider = Substitute.For<IModeratedChannelsProvider>();
+        provider.GetModeratedChannelsAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<CancellationToken>()).Returns(lookup);
+        return provider;
     }
 }

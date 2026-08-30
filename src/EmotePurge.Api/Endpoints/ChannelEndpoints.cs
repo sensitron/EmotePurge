@@ -122,10 +122,14 @@ public static class ChannelEndpoints
             var result = await myChannelsService.GetMyChannelsAsync(principal, ct);
             return Results.Ok(result);
         })
-        // The heaviest endpoint in the app per incoming request: up to ten Helix calls plus a 7TV
-        // identity resolve plus an editor lookup, none of them cached. Unlimited, it let any logged-in
-        // account exhaust the app-wide Twitch quota, at which point Helix returns nothing for
-        // everyone and every moderator of every channel silently loses their permissions.
+        // Still the heaviest endpoint in the app per incoming request, even though its two expensive
+        // lookups — the moderated-channel pagination and the 7TV editor grants — now share their
+        // server-side caches with the authorization path, so a repeat call inside the TTL reaches
+        // neither provider. The client deliberately does not cache this one: the overview refetches
+        // it on live events and has to show fresh channel, bot and live state. Unlimited, it let any
+        // logged-in account exhaust the app-wide Twitch quota on cache misses alone, at which point
+        // Helix returns nothing for everyone and every moderator of every channel silently loses
+        // their permissions.
         .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapPost("/{channelName}/join", async (

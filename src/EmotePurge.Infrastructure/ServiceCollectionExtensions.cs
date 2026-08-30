@@ -93,6 +93,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TwitchTokenRefreshGate>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ITwitchUserTokenService, TwitchUserTokenService>();
+        services.AddScoped<IModeratedChannelsProvider, ModeratedChannelsProvider>();
         services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
         services.AddScoped<ISevenTvEditorService, SevenTvEditorService>();
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
