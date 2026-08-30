@@ -126,4 +126,35 @@ describe('EmoteSpriteAnimated', () => {
 
     expect(stillImage().className).not.toContain('invisible');
   });
+
+  // Found by review, not by hand: the reveal marker used to survive the trip away, so coming back
+  // hid the still at once — while the overlay was gone and its dwell had started over. A blank
+  // cell for the dwell, and a permanent one if the animation then failed to load. Revisiting is
+  // the normal case on a dense grid, not an edge case.
+  it('does not hide the still when the pointer returns to an emote it already dwelt on', () => {
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+    expect(stillImage().className).toContain('invisible');
+
+    host.url.set(ANIMATED_B);
+    fixture.detectChanges();
+    host.url.set(ANIMATED_A);
+    fixture.detectChanges();
+
+    // The overlay remounts at once — `upgradedUrl` still names A, so the dwell is not re-earned —
+    // but it is a fresh instance and therefore unloaded and invisible. The still has to carry the
+    // box until that instance has actually painted, exactly as on the first visit.
+    expect(images()).toHaveLength(2);
+    expect(stillImage().className).not.toContain('invisible');
+
+    vi.advanceTimersByTime(200);
+    fixture.detectChanges();
+    expect(stillImage().className).not.toContain('invisible');
+
+    overlayImage().dispatchEvent(new Event('load'));
+    fixture.detectChanges();
+    expect(stillImage().className).toContain('invisible');
+  });
 });
