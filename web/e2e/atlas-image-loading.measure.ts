@@ -40,6 +40,15 @@ import {
  *
  * Timings come from CDP rather than from the page: cdn.7tv.app sends no `Timing-Allow-Origin`, so
  * `PerformanceResourceTiming` reports DNS, connect and body size as 0 for every emote.
+ *
+ * A result with `censored > 0` is NOT comparable to one with `censored: 0`: it means some
+ * requests were still in flight when the drain wait gave up, so they never got `ttfb`/`queued`/
+ * `finishedAt` and are excluded from `ttfb`, `queueing`, `cellLatency` and `bytesTotal` — and
+ * those are, by construction, the slowest requests of the run. The very first measurement round
+ * fell into exactly this trap: a flat `waitForTimeout(3000)` after scrolling stood in for waiting
+ * on the network, so 13-18% of requests in three of four baseline runs were still open and
+ * silently dropped, biasing the comparison in the baseline's favour. Treat any `censored > 0`
+ * result as unusable and re-run rather than trusting its percentiles.
  */
 
 const OUT_DIR = process.env['MEASURE_OUT'] ?? '/tmp/webp-measure';
@@ -106,11 +115,22 @@ function percentile(sorted: number[], fraction: number): number {
   return sorted.length ? sorted[Math.floor((sorted.length - 1) * fraction)] : -1;
 }
 
+// Upper bound on how long we wait for in-flight requests to settle after scrolling stops. A
+// fixed, shorter `waitForTimeout` was the original bug (see the header comment): it let the run
+// finish while the slowest requests were still open, dropping them out of the metrics instead of
+// counting them. 30s comfortably exceeds every `cellLatency.max` observed so far.
+const DRAIN_TIMEOUT_MS = 30_000;
+const DRAIN_POLL_INTERVAL_MS = 100;
+
 test('atlas image loading under scrolling', async ({ page, context }) => {
   const cdp = await context.newCDPSession(page);
   await cdp.send('Network.enable');
 
   const byRequestId = new Map<string, RequestRecord>();
+  // Requests that have been sent but have seen neither `loadingFinished` nor `loadingFailed` yet.
+  // Draining this to empty (or timing out) before evaluating is what keeps the slowest requests
+  // in the metrics instead of quietly falling out of them.
+  const openRequestIds = new Set<string>();
   const start = Date.now();
 
   cdp.on('Network.requestWillBeSent', (event) => {
@@ -119,6 +139,7 @@ test('atlas image loading under scrolling', async ({ page, context }) => {
         url: event.request.url,
         sentAt: Date.now() - start,
       });
+      openRequestIds.add(event.requestId);
     }
   });
   cdp.on('Network.responseReceived', (event) => {
@@ -142,12 +163,14 @@ test('atlas image loading under scrolling', async ({ page, context }) => {
       record.finishedAt = Date.now() - start;
       record.bytes = event.encodedDataLength;
     }
+    openRequestIds.delete(event.requestId);
   });
   cdp.on('Network.loadingFailed', (event) => {
     const record = byRequestId.get(event.requestId);
     if (record) {
       record.status = -1;
     }
+    openRequestIds.delete(event.requestId);
   });
 
   await openAtlas(page);
@@ -183,7 +206,22 @@ test('atlas image loading under scrolling', async ({ page, context }) => {
       break;
     }
   }
-  await page.waitForTimeout(3000);
+  // Wait for whatever is still in flight instead of assuming a fixed delay covers it — a request
+  // that is still open when we evaluate has no `ttfb`/`queued`/`finishedAt`, and it is dropped
+  // out of the metrics below rather than counted, which erases exactly the tail latency this
+  // harness is meant to measure (see the header comment and the `censored` field).
+  const drainStart = Date.now();
+  while (openRequestIds.size > 0 && Date.now() - drainStart < DRAIN_TIMEOUT_MS) {
+    await page.waitForTimeout(DRAIN_POLL_INTERVAL_MS);
+  }
+  const drainedAfterMs = Date.now() - drainStart;
+  const censored = openRequestIds.size;
+  if (censored > 0) {
+    console.warn(
+      `\n!!! ${censored} request(s) still in flight after a ${drainedAfterMs}ms drain wait — ` +
+        `this result is CENSORED and not comparable to a censored: 0 run !!!\n`,
+    );
+  }
 
   const records = [...byRequestId.values()];
   const answered = records.filter((record) => record.ttfb !== undefined);
@@ -202,6 +240,11 @@ test('atlas image loading under scrolling', async ({ page, context }) => {
     pause,
     emotesInPayload: emotes.length,
     totalRequests: records.length,
+    // Requests still in flight when the drain wait gave up: excluded from ttfb/queueing/
+    // cellLatency/bytesTotal below, by construction the slowest of the run. `censored > 0` means
+    // this result is not comparable to a `censored: 0` one — see the header comment.
+    censored,
+    drainWaitMs: drainedAfterMs,
     statuses: records.reduce<Record<string, number>>((acc, record) => {
       const key = String(record.status ?? 'pending');
       acc[key] = (acc[key] ?? 0) + 1;

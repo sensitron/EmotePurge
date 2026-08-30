@@ -2,7 +2,9 @@
 
 **Anlass:** Beobachtung im Browser — beim Betrachten der Nutzungsseite eines großen Sets „laden viele Bilder nicht, bzw. nur sehr langsam", einzelne Zellen bleiben über zehn Sekunden leer. Eine externe Analyse (Codex) schlug als Ursache vor, dass `NgOptimizedImage` die Bilder auf `loading="lazy"` setzt und der Browser die Requests für Zeilen zurückhält, die CDK bereits gerendert hat.
 
-**Ergebnis in einem Satz:** Die vorgeschlagene Ursache ist widerlegt; der Engpass ist die Warteschlange des Browsers, gespeist aus zu vielen und zu großen Bildern — behoben wurde er über die Bildgröße, nicht über die Ladestrategie.
+**Ergebnis in einem Satz:** Die vorgeschlagene Ursache ist widerlegt; ausgeliefert wurde eine Reduktion der Bildgröße, die **Bytes** belegbar senkt — ein Latenzgewinn ließ sich nach Korrektur der Messmethode **nicht** belegen.
+
+> **Achtung, Zahlen in den Abschnitten 5 und 6 sind überholt.** Sie stammen aus Läufen, in denen die Harness noch laufende Requests weggeworfen hat. Die belastbaren Werte stehen in **Abschnitt 10**, der auch erklärt, warum die erste Runde etwas anderes zeigte. Die Abschnitte bleiben stehen, weil der Irrweg der Punkt dieses Dokuments ist.
 
 Dieses Dokument hält vor allem fest, **was ausgeschlossen ist**. Der Vorschlag klingt plausibel und wird wiederkommen.
 
@@ -75,6 +77,8 @@ Nebenbefund: `cdn.7tv.app` löst auf `37.27.171.109` auf, also **Hetzner, nicht 
 
 ## 5. Die tatsächliche Ursache: die Warteschlange des Browsers
 
+> ⚠ **Überholt** — die Läufe unten sind zensiert (s. Abschnitt 10). Der Mechanismus stimmt, die Zahlen nicht.
+
 Beim Durchscrollen des gesamten Sets, Ausgangszustand, vier Läufe:
 
 | | Einzelwerte | Median |
@@ -97,6 +101,8 @@ Das erklärt das Beobachtungsbild „mal sofort da, mal ewig" vollständig.
 Ausgeliefert wurde für jede Zelle die 4x-Variante (~128 px) in eine 64-px-Zelle, in der das Bild auf ~56 px gerendert wird. 7TV bietet vier Größen; die Zuordnung übernimmt jetzt ein auf `EmoteSprite` begrenzter `IMAGE_LOADER`, aus dem Angular ein `srcset` baut (Begründung im [Entscheidungslog](DECISIONS.md), Eintrag vom 2026-08-29). Die Zahlen in diesem Abschnitt stammen aus der ersten Fassung mit Density-`srcset`; warum sie durch ein breitenbasiertes `srcset` ersetzt wurde, steht in Abschnitt 6b.
 
 Vorab geprüft: **alle 649 Emotes** haben eine funktionierende 2x-Variante (431 × `2x_static.webp`, 218 × `2x.webp`, null Fehlschläge). Das war notwendige Vorbedingung — eine fehlende Variante wäre wegen des `(error)`-Zweigs in `EmoteSprite` eine dauerhaft leere Zelle, kein sichtbarer Fehler.
+
+> ⚠ **Überholt** — die Vorher-Läufe unten sind zensiert (s. Abschnitt 10).
 
 Wirkung, gemächliches Scrollen (Pause 1200 ms je Schritt):
 
@@ -170,3 +176,39 @@ Mit `loading="eager"` entfällt das `auto, `, `sizes` steht als fester Pixelwert
 ## 9. Methodische Lehre
 
 Einzelläufe streuen hier **stärker als der gemessene Effekt**. Beim schnellen Scrollen lag die Wartezeit p90 derselben Variante zwischen 77 und 2228 ms. Ein erster Vorher/Nachher-Vergleich aus je einem Lauf zeigte −89 % Wartezeit und −66 % Latenz; nach Wiederholung hielt davon nur die Byte-Zahl. Wer hier nachmisst: mindestens drei Läufe je Variante, im Wechsel statt blockweise (sonst fällt Netzdrift auf eine Variante), und Mediane samt Einzelwerten berichten.
+
+---
+
+## 10. Korrektur nach dem Codex-Review: was wirklich belegt ist
+
+Das Codex-Review vom 2026-08-30 fand einen Methodenfehler in der Harness: nach dem Scrollen wurde pauschal drei Sekunden gewartet und dann ausgewertet. Requests, die dann noch liefen, fehlten in **jeder** Kennzahl — und zwar die langsamsten. Nachgezählt:
+
+| Lauf | offene Requests | ausgewertet |
+|---|---|---|
+| `vorher-s1` | **118** | 532 von 650 |
+| `vorher-s2` | **95** | 555 |
+| `vorher-s3` | **82** | 568 |
+| `vorher-s4` | 0 | 650 |
+| alle Nachher-Läufe | 0 | 650 |
+
+In drei von vier Baseline-Läufen fehlten 13–18 % der Requests, in keinem Nachher-Lauf auch nur einer. Der Vergleich war damit systematisch zugunsten der Baseline verzerrt — die gemessene Verbesserung war also eher zu klein als zu groß. Die Harness wartet jetzt, bis jeder Request abgeschlossen ist (30-s-Deckel), und weist übrig gebliebene als `censored` aus.
+
+**Neu gemessen mit korrigierter Harness**, DPR 1,25, je drei Läufe, `censored: 0` und `pending: 0` in allen sechs:
+
+| | alt (4x) | neu (3x) |
+|---|---|---|
+| **Bytes** | 8,91 / 8,92 / 8,92 → **8,92 MB** | 6,54 / 6,54 / 6,53 → **6,54 MB** |
+| Queue p90 | 37 / 47 / 49 → 47 ms | 83 / 50 / 59 → 59 ms |
+| Zelle leer p50 | 420 / 361 / 483 → 420 ms | 335 / 425 / 428 → 425 ms |
+| Zelle leer p90 | 924 / 1211 / 1045 → 1045 ms | 888 / 1119 / 789 → 888 ms |
+| Zellen über 2 s | **0 / 0 / 0** | 0 / 0 / 0 |
+| Zellen über 5 s | **0 / 0 / 0** | 0 / 0 / 0 |
+
+**Damit gilt:**
+
+1. **Die Byte-Ersparnis ist belegt** — 27 % bei DPR 1,25, rund 60 % bei DPR 1, in jedem Lauf identisch. Das ist der Grund, warum die Änderung ausgeliefert wurde.
+2. **Ein Latenzgewinn ist nicht belegt.** Queue und Zellenlatenz sind zwischen alt und neu nicht unterscheidbar. Die Änderung ist eine **Bandbreiten-Optimierung**, keine Latenz-Optimierung; sie wirkt dort, wo die Leitung der Engpass ist, und die Devbox ist das nicht.
+3. **Der Ausgangsbefund ist nicht mehr reproduzierbar.** Auch der alte Stand zeigt jetzt null Zellen über zwei Sekunden. Die ursprünglich beobachteten mehrsekündigen Ausläufer stammten aus zensierten Läufen plus vermutlich einem kälteren CDN-Edge. Ob das gemeldete Symptom „Zellen über zehn Sekunden leer" durch diese Änderung behoben ist, ist damit **offen** — es war an diesem Tag nicht mehr herstellbar.
+
+Was unberührt bleibt, weil es nicht an Latenzmessung hängt: die Widerlegung des Lazy-Loading-Verdachts (Abschnitt 2), das DNS-Artefakt (Abschnitt 4), die Variantenwahl je Pixeldichte und die beseitigten Doppelabrufe (Abschnitt 6b).
+
