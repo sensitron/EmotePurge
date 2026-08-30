@@ -10,6 +10,18 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-30 — Ein virtuelles Raster über gechunkte Zeilen trackt den Index
+
+**Betrifft:** `web/src/app/features/voting/vote-session-detail-page.html`, `web/src/app/features/voting/vote-session-detail-page.ts`, `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/usage-stats/usage-stats-page.ts`, `web/e2e/vote-ballot.e2e.spec.ts`
+
+Nach einem eigenen Vote blitzten auf der Abstimmungsseite sämtliche Emote-Bilder zweimal auf. Die Ursache liegt drei Ebenen tief und ist an keiner davon offensichtlich, deshalb steht sie hier: Beide virtuellen Raster gaben ihrem `*cdkVirtualFor` ein `rows()`, das seine Zeilen-Arrays bei jedem Recompute per `slice()` neu erzeugt (`chunkIntoRows`, `packAtlasRows`). Ohne `trackBy` legt `CdkVirtualForOf` seinen Differ auf **Objektidentität** an, meldet also nach jedem Reload „alle Zeilen entfernt, alle hinzugefügt". Die `_RecycleViewRepeaterStrategy` gibt die abgehängten Views per `pop()` wieder aus, sie landen an anderen Zeilenpositionen, und das innere `@for (… track emote.emoteId)` findet dort fremde IDs vor und baut jede Zelle neu. Jede neue Zelle ist eine neue `EmoteSprite`-Instanz, und die hält ihr `<img>` bis zum `load`-Ereignis auf `visibility: hidden` — auch bei einem Bild aus dem Cache. Das ist der Blitz, einer je Reload.
+
+**Die Regel lautet deshalb: ein `*cdkVirtualFor` über gechunkte Zeilen bekommt ein `trackBy` auf den Index.** Nicht auf die Zeilenidentität, denn die ist per Konstruktion bei jedem Recompute neu; der Index ist die einzige stabile Größe. CDK behält damit die Zeilen-Views und aktualisiert nur deren Kontext, und der Inhaltsabgleich bleibt beim inneren `@for`, das ohnehin auf `emote.emoteId` trackt — auch bei einer Änderung der Spaltenzahl.
+
+**Zweimal, nicht einmal, und das ist ein zweiter Befund.** Ein eigener Vote lädt sofort über `vote()` neu und ein zweites Mal rund 500 ms später, weil die Api `vote.changed` ohne Urheber-Ausnahme an den Kanal-Stream schickt und der Client sein eigenes Echo annimmt. Der Kommentar an der `liveReload`-Stelle behauptete bis hierher, die Debounce fange beides zusammen; sie debounct aber ausschließlich SSE-Ereignisse untereinander, während der Reload aus `vote()` an ihr vorbeiläuft. Der Kommentar ist korrigiert, das Verhalten bewusst nicht: `loadResults` ist idempotent, und nach dem `trackBy` ist der doppelte Abruf nicht mehr sichtbar. Er bleibt als offener Punkt bestehen.
+
+**Der Regressionstest misst den DOM, nicht das Flackern.** `vote-ballot.e2e.spec.ts` markiert vor dem Vote jedes `<img>` im Raster mit einem Attribut und prüft danach, dass alle Markierungen überlebt haben — ein frisch erzeugtes Element trägt kein Attribut, an das nie jemand gebunden hat. Zwei Fallen dabei, beide beim Bauen zugeschlagen und deshalb im Test kommentiert: Es werden **nicht alle** Zeilen neu gebaut, sondern etwa die Hälfte (ohne Fix überlebten 10 von 24), weshalb eine einzelne Sonde den Fehler nicht fängt — die erste Fassung war grün mit und ohne Fix. Und das Warten auf den HTTP-Response des Reloads genügt nicht, weil Angular ihn danach erst noch anwendet; der Test wartet stattdessen auf eine Tally, die nur die zweite Antwort erzeugen kann.
+
 ### 2026-08-29 — Emote-Bilder holen die Größe, die sie zeigen
 
 **Betrifft:** `web/src/app/shared/emotes/emote-image-loader.ts`, `web/src/app/shared/emotes/emote-sprite.ts`, `web/e2e/atlas-image-loading.measure.ts`, `web/playwright.measure.config.ts`, `docs/Untersuchung-Emote-Bildladen-2026-08-29.md`

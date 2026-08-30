@@ -201,7 +201,7 @@
           [maxBufferPx]="rowHeight() * 4"
         >
           <div
-            *cdkVirtualFor="let row of rows()"
+            *cdkVirtualFor="let row of rows(); trackBy: trackRow"
             class="grid gap-1"
             [style.height.px]="rowHeight()"
             [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx() + 'px)'"

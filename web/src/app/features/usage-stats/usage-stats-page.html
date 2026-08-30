@@ -344,7 +344,7 @@
           [attr.aria-label]="'usageStats.atlas.label' | transloco"
           (keydown)="onAtlasKeydown($event)"
         >
-          <div *cdkVirtualFor="let row of rows()" [style.height.px]="rowHeight">
+          <div *cdkVirtualFor="let row of rows(); trackBy: trackRow" [style.height.px]="rowHeight">
             @if (row.kind === 'band') {
               <div class="flex h-full items-end gap-3 pb-2">
                 <!-- Purely decorative: the band is named in words right next to it, so the swatch
