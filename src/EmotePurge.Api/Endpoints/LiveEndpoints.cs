@@ -25,10 +25,11 @@ public static class LiveEndpoints
 
     public static void MapLiveEndpoints(this WebApplication app)
     {
-        // Deliberately no rate-limiting policy on either stream. Both existing policies are fixed
-        // windows with QueueLimit = 0, and an Api restart makes every open browser reconnect at
-        // once — a 429 there is final for an EventSource, which stops retrying. The connection
-        // limits inside ILiveEventStream are the protection instead.
+        // Deliberately no rate-limiting policy on either stream — nor on the admin stream that
+        // OpenAdminAsync backs. Every policy runs with QueueLimit = 0, and an Api restart makes every
+        // open browser reconnect at once; a 429 there is final for an EventSource, which stops
+        // retrying. The connection limits inside ILiveEventStream are the protection instead, and they
+        // bound the right quantity: concurrently held streams, not requests per minute.
         app.MapGet("/api/channels/{channelName}/live", (
             string channelName,
             HttpContext httpContext,

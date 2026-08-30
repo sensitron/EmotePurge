@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Messaging;
@@ -52,7 +53,11 @@ public static class VoteSessionEndpoints
                 _ => Results.Problem()
             };
         })
-        .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+        .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+        // The three management mutations here (create, end, delete) had no policy at all until now.
+        // Bookkeeping: writes against our own database with no provider cost, and 120 a minute is far
+        // past anything a mod team does by hand.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         group.MapPost("/{sessionId:long}/end", async (
             string channelName,
@@ -83,7 +88,8 @@ public static class VoteSessionEndpoints
 
             return Results.Ok(ToSummaryDto(session));
         })
-        .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+        .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         group.MapDelete("/{sessionId:long}", async (
             string channelName,
@@ -101,7 +107,8 @@ public static class VoteSessionEndpoints
             var deleted = await voteSessionService.DeleteAsync(channelName, sessionId, actor, ct);
             return deleted ? Results.NoContent() : Results.NotFound();
         })
-        .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+        .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         group.MapGet("", async (
             string channelName,
@@ -153,9 +160,11 @@ public static class VoteSessionEndpoints
             var pageItems = visibleSessions.Skip((effectivePage - 1) * effectivePageSize).Take(effectivePageSize).ToList();
             return Results.Ok(new PagedResult<VoteSessionSummaryDto>(pageItems, effectivePage, effectivePageSize, visibleSessions.Count));
         })
-        // Rate limited because the non-manager branch above runs EvaluateAudienceAsync per session, and
-        // every session with the Subs flag triggers its own uncached Helix call with a 10s timeout.
-        .RequireRateLimiting("ExternalApi");
+        // A list a voter opens by navigating, so it belongs with the rest of navigation. The
+        // non-manager branch above runs EvaluateAudienceAsync per session and every session with the
+        // Subs flag triggers its own uncached Helix call — but that is a fan-out inside one request,
+        // which a per-request budget cannot bound anyway; the caches in front of Helix can.
+        .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapGet("/{sessionId:long}/results", async (
             string channelName,
@@ -180,7 +189,8 @@ public static class VoteSessionEndpoints
             return results is null ? Results.NotFound() : Results.Ok(results);
         })
         .AddEndpointFilter<VoteAudienceFilter>()
-        .RequireRateLimiting("ExternalApi");
+        // The page a voter sits on, and the one every vote-changed live event makes them refetch.
+        .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapPost("/{sessionId:long}/votes", async (
             string channelName,
@@ -222,7 +232,10 @@ public static class VoteSessionEndpoints
             };
         })
         .AddEndpointFilter<VoteEligibilityFilter>()
-        .RequireRateLimiting("ExternalApi");
+        // Voting, whose partition is user *and* session: clicking through a large ballot is the one
+        // burst in this app that is unquestionably legitimate, and it must not spend the budget that
+        // navigation or a second session runs on.
+        .RequireRateLimiting(RateLimitPolicyNames.Voting);
 
         group.MapDelete("/{sessionId:long}/votes/{emoteId}", async (
             string channelName,
@@ -253,7 +266,10 @@ public static class VoteSessionEndpoints
             };
         })
         .AddEndpointFilter<VoteEligibilityFilter>()
-        .RequireRateLimiting("ExternalApi");
+        // Voting rather than a read budget, deliberately: retracting is half of changing one's mind,
+        // and a ballot the voter is reworking produces casts and retracts in the same burst. Splitting
+        // the pair across two policies would let the cheaper-looking half be the one that fails.
+        .RequireRateLimiting(RateLimitPolicyNames.Voting);
 
         // Deliberately NOT nested under /api/channels/{channelName}/... — a user's voting history spans
         // every channel they've ever voted in, so there's no single channelName route value to key off.
@@ -275,7 +291,10 @@ public static class VoteSessionEndpoints
             var result = await voteSessionQueryService.ListMyVoteSessionsAsync(principal.TwitchUserId, effectivePage, effectivePageSize, ct);
             return Results.Ok(result);
         })
-        .RequireAuthorization();
+        .RequireAuthorization()
+        // Registered outside the group above, so it also missed the group's policy — a paged read like
+        // every other vote list, and now on the same one.
+        .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
     }
 
     // Maps a tracked VoteSession to its summary. Relies on the SessionEmotes collection being

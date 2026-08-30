@@ -1,5 +1,6 @@
 using System.Globalization;
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 
@@ -9,15 +10,18 @@ public static class UsageStatsEndpoints
 {
     public static void MapUsageStatsEndpoints(this WebApplication app)
     {
-        // Rate limited at group level: UsageStatsAccessAuthorizationFilter makes two uncached 7TV
-        // GraphQL calls for every caller who is not admin/broadcaster/mod, purely to decide access —
-        // so even a plain read here can be turned into pressure on someone else's API quota.
+        // Rate limited at group level, on the app's ordinary-navigation budget: every endpoint here is
+        // a read of our own aggregates, and opening the usage page is what produces the requests.
+        // UsageStatsAccessAuthorizationFilter makes two uncached 7TV GraphQL calls for a caller who is
+        // not admin/broadcaster/mod, but that is the cost of answering "may this person look", which
+        // belongs to the caches in front of it — a request budget shaped like a provider quota fires
+        // on the wrong traffic (see the policy comments in Program.cs).
         var group = app.MapGroup("/api/channels/{channelName}/usage-stats")
             .RequireAuthorization()
             // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
             .AddEndpointFilter<ChannelNameValidationFilter>()
             .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
-            .RequireRateLimiting("ExternalApi");
+            .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapGet("", async (
             string channelName,
@@ -46,10 +50,9 @@ public static class UsageStatsEndpoints
         });
 
         // The drilldown series (idea A5): one emote, server-side filtered — the whole-channel
-        // per-day endpoint above stays the unfiltered debug view it always was. Deliberately on the
-        // group's ExternalApi policy rather than a laxer one: the expensive part of a call here is
-        // the authorization filter's 7TV lookups, and raising the ceiling would licence more of
-        // exactly those. The client caches per (channel, emote, range) instead.
+        // per-day endpoint above stays the unfiltered debug view it always was. On the group's policy
+        // like everything else here — a drilldown is navigation. The client still caches per (channel,
+        // emote, range), which is what actually keeps these off the wire.
         group.MapGet("/daily", async (
             string channelName,
             string emoteId,
@@ -77,8 +80,8 @@ public static class UsageStatsEndpoints
 
         // The batch twin of /daily: every unarchived emote's days in one response. It exists to keep
         // the atlas's hover readout off the wire entirely — one call per (channel, range) instead of
-        // one per emote inspected. Both live on the same ExternalApi policy, and that is the point:
-        // the ceiling did not move, the demand did.
+        // one per emote inspected. Both live on the same policy, and that is the point: the ceiling did
+        // not move, the demand did.
         group.MapGet("/series", async (
             string channelName,
             string from,

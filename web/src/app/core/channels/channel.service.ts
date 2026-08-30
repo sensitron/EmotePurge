@@ -34,9 +34,10 @@ export class ChannelService {
    * independent times: the route guard, the workspace layout, and the page's own resource. All
    * three are legitimate — each needs the answer for its own decision — but on the wire they were
    * three identical requests, and each one costs a live Twitch/7TV role check server-side plus a
-   * permit from the 40/min `ExternalApi` limiter. That is what made ordinary clicking-around hit
-   * 429; the limit had already been doubled once for the same symptom, which is the sign that the
-   * requests, not the ceiling, were the problem. `shareReplay` also covers the in-flight case, so
+   * rate-limit permit. That is what made ordinary clicking-around hit 429 back when those permits
+   * came from a 40/min fixed window; the limit had already been doubled once for the same symptom,
+   * which is the sign that the requests, not the ceiling, were the problem. The window is gone
+   * since #33 (InteractiveRead, a token bucket), but the caching reason stands on its own. `shareReplay` also covers the in-flight case, so
    * the three readers of a single navigation share one response even before the TTL matters.
    *
    * Deliberately NOT extended to `listMine()`: the overview refetches that on live events, and a

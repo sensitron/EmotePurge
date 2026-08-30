@@ -1,4 +1,5 @@
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 
@@ -26,7 +27,12 @@ public static class ChannelEndpoints
                 ? Results.NotFound()
                 : Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive, channel.ActiveEmoteSetId });
         })
-        .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+        .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+        // Its first policy: the read itself is one indexed row, but ChannelManagementAuthorizationFilter
+        // can reach Helix on a cache miss, and until now nothing bounded how often an account could
+        // ask. InteractiveRead, because that is what this is — the join-status probe behind every
+        // workspace header.
+        .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         // The channel's own activity feed: the same audit log the global admin reads, narrowed to
         // one channel. A broadcaster could not see who on their mod team deleted a vote session
@@ -61,7 +67,7 @@ public static class ChannelEndpoints
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
         // Pure DB read against a covering index, but it is reachable per keystroke through the
         // actor filter — Bookkeeping is the policy for "ours only, still not unlimited".
-        .RequireRateLimiting("Bookkeeping");
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         // Deliberately behind no authorization filter of its own: this endpoint *reports* whether the
         // caller would pass those filters, so gating it with one would make it answer only for people
@@ -96,9 +102,11 @@ public static class ChannelEndpoints
                 IsTracked: channel is not null,
                 IsBotActive: channel?.IsBotActive ?? false));
         })
-        // Both access checks can reach Helix or 7TV on a cache miss, same reasoning as the
-        // usage-stats group.
-        .RequireRateLimiting("ExternalApi");
+        // Ordinary navigation, and the single most requested route in the app: every page that shows
+        // anything channel-scoped asks it first. Both access checks can reach Helix or 7TV on a cache
+        // miss, but that cost is answered by the caches in front of them, not by a request budget —
+        // see the policy comments in Program.cs.
+        .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapGet("/mine", async (
             HttpContext httpContext,
@@ -118,7 +126,7 @@ public static class ChannelEndpoints
         // identity resolve plus an editor lookup, none of them cached. Unlimited, it let any logged-in
         // account exhaust the app-wide Twitch quota, at which point Helix returns nothing for
         // everyone and every moderator of every channel silently loses their permissions.
-        .RequireRateLimiting("ExternalApi");
+        .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapPost("/{channelName}/join", async (
             string channelName,
@@ -136,7 +144,10 @@ public static class ChannelEndpoints
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
-        .RequireRateLimiting("ExternalApi");
+        // Bookkeeping, not a read budget: by the time this runs the caller has already made the bot a
+        // moderator over on Twitch, so a dropped join leaves the two sides disagreeing with nothing to
+        // say so — the same reason sync-deleted lives here.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         // Self-service for the most common support case there is: "I added an emote and it is not
         // showing up". The answer used to be "wait for the next 60-second tick" or "ask the admin".
@@ -192,7 +203,7 @@ public static class ChannelEndpoints
             };
         })
         .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
-        .RequireRateLimiting("ChannelResync");
+        .RequireRateLimiting(RateLimitPolicyNames.ChannelResync);
 
         group.MapDelete("/{channelName}", async (
             string channelName,
@@ -211,7 +222,9 @@ public static class ChannelEndpoints
             var deactivated = await channelService.LeaveAsync(channelName, actor, ct);
             return deactivated ? Results.NoContent() : Results.NotFound();
         })
-        .AddEndpointFilter<ChannelManagementAuthorizationFilter>();
+        .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
+        // A management mutation against our own database, like join above: guarded, but generously.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         // Admin-only: the only way to irreversibly remove a channel with its emotes, usage history,
         // vote sessions and votes. It has a UI since 2026-07-31 (admin channel page, S1-1 reversed) —
@@ -240,7 +253,11 @@ public static class ChannelEndpoints
 
             return purged ? Results.NoContent() : Results.NotFound();
         })
-        .AddEndpointFilter<GlobalAdminAuthorizationFilter>();
+        .AddEndpointFilter<GlobalAdminAuthorizationFilter>()
+        // Same class of action as the leave above. Not on the policy-free /api/admin group despite
+        // being admin-only: this route lives in the channel group, and a destructive one is the last
+        // place to inherit an exemption by accident.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
     }
 }
 

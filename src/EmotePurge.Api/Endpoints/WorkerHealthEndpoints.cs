@@ -1,4 +1,5 @@
 using EmotePurge.Api.Health;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Services;
 
@@ -8,6 +9,8 @@ public static class WorkerHealthEndpoints
 {
     public static void MapWorkerHealthEndpoints(this WebApplication app)
     {
+        // Deliberately policy-free: this is the app's own badge poll, every open page hitting it every
+        // 30 seconds, so a budget here would reject the app's own baseline traffic. One Redis read.
         app.MapGet("/api/worker/health", async (IWorkerHealthReader healthReader, CancellationToken ct) =>
         {
             // The worker publishes the snapshot to Redis with a TTL (see WorkerHealthPublisher), so Api
@@ -60,6 +63,6 @@ public static class WorkerHealthEndpoints
             return Results.StatusCode(isHealthy
                 ? StatusCodes.Status200OK
                 : StatusCodes.Status503ServiceUnavailable);
-        }).RequireRateLimiting("PublicHealth");
+        }).RequireRateLimiting(RateLimitPolicyNames.PublicHealth);
     }
 }

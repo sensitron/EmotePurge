@@ -1,4 +1,5 @@
 using EmotePurge.Api.Auth;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Messaging;
@@ -13,15 +14,18 @@ public static class EmoteEndpoints
         // UsageStatsAccessAuthorizationFilter (not ChannelManagementAuthorizationFilter) applies to the
         // whole group: a channel's 7TV editors can legitimately delete/view via 7TV's own permission
         // system, so they must be admitted here too, not just channel managers.
-        // The whole group carries the strict policy, because the *authorization filter itself* calls
-        // 7TV for every non-admin/broadcaster/mod caller — the cost is there even for the endpoints
-        // that look cheap. The two sync-* bookkeeping endpoints override it below.
+        // The whole group is InteractiveRead: what a caller does here is read a channel's emotes while
+        // navigating, and this policy is the app's ordinary-navigation budget. UsageStatsAccessAuthorization-
+        // Filter can reach 7TV for a caller who is neither admin, broadcaster nor mod — but that is a
+        // cache miss on an authorization answer, not a per-request cost a request budget could bound
+        // (see the policy comments in Program.cs). The two sync-* bookkeeping endpoints override the
+        // group below, and that override is the point: they must survive a spent read budget.
         var group = app.MapGroup("/api/channels/{channelName}/emotes")
             .RequireAuthorization()
             // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
             .AddEndpointFilter<ChannelNameValidationFilter>()
             .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
-            .RequireRateLimiting("ExternalApi");
+            .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
 
         group.MapPost("/sync-deleted", async (
             string channelName,
@@ -51,11 +55,11 @@ public static class EmoteEndpoints
 
             return Results.Ok(new { archivedCount = result.ArchivedCount, notFoundIds = result.NotFoundIds });
         })
-        // Overrides the group's strict policy: this is the one call that must never be dropped. The
-        // emotes are already gone from 7TV by the time it runs, so a 429 here leaves the database
-        // diverging from reality — and it used to share a 20/min budget with join and the vote
-        // endpoints, which several delete batches in one minute could exhaust.
-        .RequireRateLimiting("Bookkeeping");
+        // Overrides the group's policy: this is the one call that must never be dropped. The emotes
+        // are already gone from 7TV by the time it runs, so a 429 here leaves the database diverging
+        // from reality — and it used to share a 20/min budget with join and the vote endpoints, which
+        // several delete batches in one minute could exhaust.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         // The restore counterpart: the browser has already re-added the emotes on 7TV, this call
         // un-archives them here and — its actual reason to exist — writes the emotes.syncRestored
@@ -91,7 +95,7 @@ public static class EmoteEndpoints
         })
         // Same reasoning as sync-deleted: the emotes are already back on 7TV, a dropped call here
         // costs the paper trail and leaves the database stale until the next sync.
-        .RequireRateLimiting("Bookkeeping");
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         group.MapGet("/set-warning", async (
             string channelName,

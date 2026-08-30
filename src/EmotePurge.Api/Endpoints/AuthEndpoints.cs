@@ -16,6 +16,9 @@ public static class AuthEndpoints
 
     public static void MapAuthEndpoints(this WebApplication app)
     {
+        // Deliberately no rate-limit policy: a budget on the login path locks people out of the app
+        // over the one request they cannot retry their way around, and a rejected callback loses the
+        // OAuth state cookie with it. Abuse here is bounded by Twitch's own authorize flow.
         var group = app.MapGroup("/api/auth");
 
         group.MapGet("/twitch/login", (HttpContext httpContext, IConfiguration configuration) =>

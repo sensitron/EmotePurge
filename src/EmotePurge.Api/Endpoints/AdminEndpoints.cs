@@ -21,6 +21,9 @@ public static class AdminEndpoints
 
     public static void MapAdminEndpoints(this WebApplication app)
     {
+        // Deliberately no rate-limit policy, group-wide and including the /live stream below: the
+        // allowlist is the guard here, and internal tooling for a handful of named logins has no abuse
+        // surface a request budget would close. See the class summary.
         var group = app.MapGroup("/api/admin")
             .RequireAuthorization()
             .AddEndpointFilter<GlobalAdminAuthorizationFilter>();

@@ -27,13 +27,18 @@ internal static class RateLimitRejection
     internal const string LogCategory = "EmotePurge.Api.RateLimiting";
 
     /// <summary>
-    /// The window of every policy — they differ only in permit count. Also the Retry-After fallback:
-    /// the full window is never too short, so a client that waits it out is always past the boundary.
+    /// The window shared by every fixed-window policy — those differ only in permit count. Also
+    /// their Retry-After fallback: a full window is never too short, so a client that waits it out is
+    /// always past the boundary. The token-bucket policies use their replenishment period instead.
     /// </summary>
     internal static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
     private const string PolicyItemKey = "RateLimit:Policy";
     private const string PartitionItemKey = "RateLimit:PartitionKey";
+    private const string RetryAfterFallbackItemKey = "RateLimit:RetryAfterFallbackSeconds";
+
+    /// <summary>Route value carrying the vote session id, the second half of the Voting partition.</summary>
+    private const string SessionIdRouteValue = "sessionId";
 
     /// <summary>
     /// Partitions by the authenticated Twitch user, falling back to the remote IP and finally to a
@@ -41,22 +46,17 @@ internal static class RateLimitRejection
     /// requires auth.
     /// </summary>
     /// <remarks>
-    /// Records the policy name and the partition key on the request. <see cref="OnRejectedAsync"/>
-    /// has no other way to name either: the middleware hands it a lease, not a policy, and
-    /// re-deriving the key there would duplicate the fallback chain above — two copies that can
-    /// drift, in the one place whose whole job is to say accurately what happened.
+    /// A fixed window, kept for the three policies whose callers are machines on a cadence or writes
+    /// nobody bursts — there is no interactive burst to smooth out there, so a bucket would buy
+    /// nothing. See <see cref="Record"/> for what every partitioner leaves behind for the rejection.
     /// </remarks>
     public static RateLimitPartition<string> PartitionPerUser(
         HttpContext httpContext,
         string policyName,
         int permitLimit)
     {
-        var partitionKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? httpContext.Connection.RemoteIpAddress?.ToString()
-            ?? "unknown";
-
-        httpContext.Items[PolicyItemKey] = policyName;
-        httpContext.Items[PartitionItemKey] = partitionKey;
+        var partitionKey = ResolveUserKey(httpContext);
+        Record(httpContext, policyName, partitionKey, (int)Window.TotalSeconds);
 
         return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
         {
@@ -64,6 +64,55 @@ internal static class RateLimitRejection
             Window = Window,
             QueueLimit = 0
         });
+    }
+
+    /// <summary>
+    /// Partitions by the authenticated Twitch user like <see cref="PartitionPerUser"/>, but hands out
+    /// a token bucket instead of a fixed window.
+    /// </summary>
+    /// <remarks>
+    /// A fixed window empties for everyone at the same instant and refills for everyone at the same
+    /// instant, so a caller who happens to arrive late in a window is rejected for a full minute over
+    /// traffic that was never theirs. A bucket that refills continuously turns the same budget into a
+    /// sustained rate plus a burst allowance, which is what interactive navigation actually looks
+    /// like: idle, then seven requests at once on entering a workspace.
+    /// </remarks>
+    public static RateLimitPartition<string> PartitionPerUserTokenBucket(
+        HttpContext httpContext,
+        string policyName,
+        RateLimitingOptions.TokenBucketPolicy policy)
+    {
+        var partitionKey = ResolveUserKey(httpContext);
+        Record(httpContext, policyName, partitionKey, FallbackSecondsFor(policy));
+
+        return RateLimitPartition.GetTokenBucketLimiter(partitionKey, _ => TokenBucketOptions(policy));
+    }
+
+    /// <summary>
+    /// Partitions by the authenticated Twitch user *and* the vote session from the route, so that
+    /// spending a voting budget in one session leaves navigation and every other session untouched.
+    /// </summary>
+    /// <remarks>
+    /// The route value is there: <c>UseRouting</c> runs before <c>UseRateLimiter</c> — it has to,
+    /// since the middleware finds the policy on the selected endpoint's metadata. Should it ever be
+    /// missing anyway, this falls back to the user-only key rather than throwing: a partitioner that
+    /// throws takes the request down with a 500, and the failure this guards against is a caller
+    /// spending too much, not a caller sharing a budget too widely.
+    /// </remarks>
+    public static RateLimitPartition<string> PartitionPerUserAndVoteSessionTokenBucket(
+        HttpContext httpContext,
+        string policyName,
+        RateLimitingOptions.TokenBucketPolicy policy)
+    {
+        var userKey = ResolveUserKey(httpContext);
+        var sessionId = httpContext.Request.RouteValues.TryGetValue(SessionIdRouteValue, out var routeValue)
+            ? routeValue?.ToString()
+            : null;
+        var partitionKey = string.IsNullOrEmpty(sessionId) ? userKey : $"{userKey}:{sessionId}";
+
+        Record(httpContext, policyName, partitionKey, FallbackSecondsFor(policy));
+
+        return RateLimitPartition.GetTokenBucketLimiter(partitionKey, _ => TokenBucketOptions(policy));
     }
 
     /// <summary>
@@ -84,9 +133,17 @@ internal static class RateLimitRejection
         // FixedWindowRateLimiter reports the wait to the next window boundary on a failed lease. On
         // .NET 10 that value is the whole window rather than the remainder — an over-estimate, and
         // the safe direction to be wrong in; .NET 11 makes it exact with no change here.
-        var retryAfterSeconds = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
-            ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
-            : (int)Window.TotalSeconds;
+        // TokenBucketRateLimiter reports the periods it needs to refill the missing tokens, but the
+        // metadata is not part of any contract we control: it may be absent, and a bucket rejecting
+        // on a queue rather than on empty tokens can report zero. Falling back to the whole window
+        // there would tell a caller to wait a minute for a token that returns in a second, so each
+        // partitioner leaves behind the fallback that fits its own limiter. Never zero, whatever the
+        // source — a client told to retry after zero seconds retries straight into the next 429.
+        var fallbackSeconds = httpContext.Items[RetryAfterFallbackItemKey] as int? ?? (int)Window.TotalSeconds;
+        var reported = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+            ? (int)Math.Ceiling(retryAfter.TotalSeconds)
+            : 0;
+        var retryAfterSeconds = Math.Max(1, reported > 0 ? reported : fallbackSeconds);
 
         httpContext.Response.Headers.RetryAfter = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
 
@@ -110,4 +167,46 @@ internal static class RateLimitRejection
             new { errorCode = ApiErrorCodes.RateLimitExceeded, retryAfterSeconds },
             cancellationToken);
     }
+
+    /// <summary>
+    /// The authenticated Twitch user, the remote IP for the one anonymous endpoint, and a shared
+    /// bucket only if even that is unavailable.
+    /// </summary>
+    private static string ResolveUserKey(HttpContext httpContext)
+        => httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+
+    /// <summary>
+    /// Leaves behind everything <see cref="OnRejectedAsync"/> cannot derive on its own: the
+    /// middleware hands it a lease, not a policy, and re-deriving the key or the wait there would
+    /// duplicate the logic above — two copies that can drift, in the one place whose whole job is to
+    /// say accurately what happened.
+    /// </summary>
+    private static void Record(
+        HttpContext httpContext,
+        string policyName,
+        string partitionKey,
+        int retryAfterFallbackSeconds)
+    {
+        httpContext.Items[PolicyItemKey] = policyName;
+        httpContext.Items[PartitionItemKey] = partitionKey;
+        httpContext.Items[RetryAfterFallbackItemKey] = retryAfterFallbackSeconds;
+    }
+
+    private static int FallbackSecondsFor(RateLimitingOptions.TokenBucketPolicy policy)
+        => Math.Max(1, policy.ReplenishmentPeriodSeconds);
+
+    private static TokenBucketRateLimiterOptions TokenBucketOptions(RateLimitingOptions.TokenBucketPolicy policy)
+        => new()
+        {
+            TokenLimit = policy.TokenLimit,
+            TokensPerPeriod = policy.TokensPerPeriod,
+            ReplenishmentPeriod = TimeSpan.FromSeconds(policy.ReplenishmentPeriodSeconds),
+            // No queueing: a rejected caller is told to come back, never parked. Queued requests hold
+            // a connection and a thread for the length of the wait, which is how a limiter meant to
+            // shed load turns into the thing that exhausts the server.
+            QueueLimit = 0,
+            AutoReplenishment = true,
+        };
 }
