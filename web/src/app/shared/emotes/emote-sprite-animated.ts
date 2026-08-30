@@ -45,12 +45,14 @@ import { animatedEmoteUrl } from './emote-url';
         [url]="url()"
         [size]="size()"
         [spriteClass]="spriteClass() + (stillHidden() ? ' invisible' : '')"
+        [dimmed]="dimmed()"
       />
       @if (upgraded()) {
         <app-emote-sprite
           [url]="animated()"
           [size]="size()"
           [spriteClass]="spriteClass() + ' absolute inset-0'"
+          [dimmed]="dimmed()"
           (settledUrl)="revealedAnimatedUrl.set($event)"
         />
       }
@@ -63,6 +65,12 @@ export class EmoteSpriteAnimated {
   readonly url = input.required<string>();
   readonly size = input.required<number>();
   readonly spriteClass = input('h-full w-full object-contain p-1');
+  /**
+   * Passed to both inner sprites, not just the still: the overlay paints on top once upgraded, so
+   * leaving it undimmed would restore full opacity over an archived emote the moment the animation
+   * mounts.
+   */
+  readonly dimmed = input(false);
 
   /**
    * How long the emote has to stay put before its animation is worth fetching. 200 ms is below the

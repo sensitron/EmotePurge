@@ -36,6 +36,7 @@ import {
   openEmoteDrilldownDialog,
 } from '../../shared/emotes/emote-drilldown-dialog';
 import { EmoteSprite } from '../../shared/emotes/emote-sprite';
+import { EmoteSpriteAnimated } from '../../shared/emotes/emote-sprite-animated';
 import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
@@ -113,6 +114,7 @@ const FILTER_TOOLBAR_MIN_EMOTES = 13;
     VoteAudienceBadge,
     ScrollingModule,
     EmoteSprite,
+    EmoteSpriteAnimated,
     MassDeletePanel,
     UsageRangeMenu,
     TranslocoPipe,
