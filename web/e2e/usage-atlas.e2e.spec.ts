@@ -162,6 +162,44 @@ test.describe('emote atlas', () => {
     await expect(cell(page, 'catJAM')).toHaveAttribute('aria-pressed', 'false');
   });
 
+  test('a shift-click takes a range back out once the anchor click has unmarked it', async ({
+    page,
+  }) => {
+    await openAtlas(page);
+
+    // Build the range the way it always worked: click the head, shift-click the tail.
+    await cell(page, 'catJAM').click();
+    await cell(page, 'Bedge').click({ modifiers: ['Shift'] });
+    await expect(page.getByRole('button', { name: 'Löschen (7)' })).toBeVisible();
+
+    // A plain click on a marked cell takes that one out — and leaves the anchor on an unmarked row,
+    // which is what turns the next shift-click around. Covered as state in list-selection.spec.ts;
+    // what only a browser shows is that a real shift-click reaches that branch at all.
+    await cell(page, 'monkaW').click();
+    await expect(page.getByRole('button', { name: 'Löschen (6)' })).toBeVisible();
+
+    await cell(page, 'Pog').click({ modifiers: ['Shift'] });
+    await expect(page.getByRole('button', { name: 'Löschen (4)' })).toBeVisible();
+
+    for (const name of ['monkaW', 'KEKW', 'Pog']) {
+      await expect(cell(page, name)).toHaveAttribute('aria-pressed', 'false');
+    }
+    // Everything outside the range keeps its mark — a deselect must not reach past its own ends.
+    for (const name of ['catJAM', 'peepoSad', 'Sadge', 'Bedge']) {
+      await expect(cell(page, name)).toHaveAttribute('aria-pressed', 'true');
+    }
+  });
+
+  test('a shift-click still adds while the anchor stays marked', async ({ page }) => {
+    await openAtlas(page);
+
+    await cell(page, 'KEKW').click();
+    await cell(page, 'catJAM').click({ modifiers: ['Shift'] });
+
+    await expect(page.getByRole('button', { name: 'Löschen (4)' })).toBeVisible();
+    await expect(cell(page, 'Sadge')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   test('the action bar disappears again once nothing is marked', async ({ page }) => {
     await openAtlas(page);
 
