@@ -88,6 +88,39 @@ test.describe('vote ballot', () => {
     expect(method).toBe('DELETE');
   });
 
+  // External review, 2026-08-31: local vote success used to feed only the shared 500 ms SSE/reload
+  // debounce (VOTE_RELOAD_DEBOUNCE_MS) — `myVote` did not change until that debounced reload ran.
+  // The vote buttons unlock right after the first response (well before the debounce fires), so a
+  // second click on the same button in that window used to see the pre-vote `myVote` and cast a
+  // second time instead of retracting. vote() now patches `myVote` locally the moment its own
+  // request succeeds, independent of the reload.
+  test('a repeated click on the same button retracts, even before the reload debounce settles', async ({
+    page,
+  }) => {
+    await page.clock.install();
+
+    const methods: string[] = [];
+    await page.route('**/vote-sessions/7/votes', async (route) => {
+      methods.push(route.request().method());
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+    await page.route('**/vote-sessions/7/votes/**', async (route) => {
+      methods.push(route.request().method());
+      await route.fulfill({ status: 204, body: '' });
+    });
+    await openBallot(page, [{ emoteId: 'e1', emoteName: 'catJAM' }]);
+
+    await keepButton(page).click();
+    await expect(keepButton(page)).toHaveAttribute('aria-pressed', 'true');
+
+    // Well inside VOTE_RELOAD_DEBOUNCE_MS (500 ms) — this is the exact window the review flagged.
+    await page.clock.runFor(100);
+    await keepButton(page).click();
+    await expect(keepButton(page)).toHaveAttribute('aria-pressed', 'false');
+
+    expect(methods).toEqual(['POST', 'DELETE']);
+  });
+
   test('an archived emote stays listed but cannot be voted on', async ({ page }) => {
     await openBallot(page, [
       { emoteId: 'e1', emoteName: 'catJAM' },

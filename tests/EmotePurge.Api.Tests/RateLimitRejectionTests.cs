@@ -222,6 +222,74 @@ public class RateLimitRejectionTests : IClassFixture<ApiFactory>
     }
 
     /// <summary>
+    /// The bypass an external review flagged: the Voting partition keys on the route's raw text, but
+    /// the route is declared <c>{sessionId:long}</c> and the handler binds the parsed number. "1" and
+    /// "01" parse to the very same session and are treated as such by the handler — but as raw text
+    /// they are two different partition keys, so a caller could mint a fresh token budget per leading
+    /// zero and vote past the configured limit indefinitely. Regression for that: exhaust the budget
+    /// addressed as "1", then spend one more against "01" — a fixed partitioner must reject it from
+    /// the same, already-empty bucket.
+    /// </summary>
+    [Fact]
+    public async Task VotingBudget_TreatsAnEquivalentlyFormattedSessionId_AsTheSameBucket()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string>
+        {
+            ["RateLimiting:Voting:TokenLimit"] = TestVoteTokenLimit.ToString(),
+            ["RateLimiting:Voting:TokensPerPeriod"] = "1",
+            ["RateLimiting:Voting:ReplenishmentPeriodSeconds"] = TestReplenishmentPeriodSeconds.ToString(),
+        });
+        using var client = factory.CreateClient();
+        const string userId = "rate-limit-vote-session-alias";
+
+        // Spend the whole budget against the canonical route text.
+        for (var attempt = 0; attempt < TestVoteTokenLimit; attempt++)
+        {
+            using var accepted = await CastVoteAsync(client, userId, "1");
+            Assert.NotEqual(HttpStatusCode.TooManyRequests, accepted.StatusCode);
+        }
+
+        // Same session, same user, addressed with a leading zero — :long parses it to the identical
+        // session the handler binds, so a correct partitioner draws from the very budget just emptied.
+        using var padded = await CastVoteAsync(client, userId, "01");
+        Assert.Equal(HttpStatusCode.TooManyRequests, padded.StatusCode);
+    }
+
+    /// <summary>
+    /// The other half of the telemetry contract: a decision must be recorded even when the handler
+    /// behind the limiter throws. Before the fix, <c>RateLimitTelemetryMiddleware</c> recorded only
+    /// after <c>await next(context)</c> returned — an exception there skipped the recording entirely
+    /// and left the spent permit uncounted, undercounting exactly the error-heavy traffic an operator
+    /// most needs the numbers for.
+    /// </summary>
+    [Fact]
+    public async Task Telemetry_IsRecorded_WhenTheHandlerBehindTheLimiterThrows()
+    {
+        var telemetry = new RecordingTelemetry();
+        var access = Substitute.For<IChannelAccessService>();
+        access.CanManageChannelAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task<bool>>(_ => throw new InvalidOperationException("Provoked for the telemetry regression test."));
+
+        using var factory = CreateFactory(
+            new Dictionary<string, string>(),
+            builder => builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IRateLimitTelemetry>(telemetry);
+                services.AddScoped(_ => access);
+            }));
+        using var client = factory.CreateClient();
+
+        using var response = await SendAsync(client, HttpMethod.Get, PermissionsPath, "rate-limit-exception");
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+
+        var decision = Assert.Single(await telemetry.WaitForDecisionsAsync(1));
+        Assert.Equal(RateLimitPolicyNames.InteractiveRead, decision.PolicyName);
+        // Not the limiter's own rejection — the limiter let this request through, the handler failed.
+        Assert.True(decision.Accepted);
+        Assert.Null(decision.RetryAfterSeconds);
+    }
+
+    /// <summary>
     /// What the monitoring page will show, measured where it is produced. Three things are asserted
     /// together because they only mean anything together: every request under a policy is counted
     /// exactly once, an accepted request is told apart from a rejected one, and the dimension a
@@ -385,6 +453,14 @@ public class RateLimitRejectionTests : IClassFixture<ApiFactory>
     /// some form of rejection by the filter or the binder, and the permit is spent before either runs.
     /// </summary>
     private static Task<HttpResponseMessage> CastVoteAsync(HttpClient client, string userId, long sessionId)
+        => CastVoteAsync(client, userId, sessionId.ToString());
+
+    /// <summary>
+    /// As above, but with the session id given as raw route text rather than a parsed <c>long</c> —
+    /// what <see cref="VotingBudget_TreatsAnEquivalentlyFormattedSessionId_AsTheSameBucket"/> needs to
+    /// address the same session through two different textual encodings ("1" vs. "01").
+    /// </summary>
+    private static Task<HttpResponseMessage> CastVoteAsync(HttpClient client, string userId, string sessionId)
     {
         var request = new HttpRequestMessage(
             HttpMethod.Post,

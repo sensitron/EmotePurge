@@ -637,11 +637,25 @@ export class VoteSessionDetailPage {
             type,
           );
 
+    // What the button is about to become, applied to `results` the moment the request succeeds —
+    // not "the moment the debounced reload runs". The vote buttons unlock right after this response
+    // (they are disabled mid-mutation), so a second click landing inside the 500 ms reload window
+    // that follows must already see this vote's own effect. Without it, `emote.myVote` stayed at
+    // its pre-vote value until the debounced loadResults() below eventually ran — which could be
+    // long after a busy session's own SSE traffic keeps resetting that shared timer — so pressing
+    // the same button twice in a row cast a second time instead of retracting the first.
+    const nextMyVote = emote.myVote === type ? null : type;
+
     request$.subscribe({
-      // Feeds the shared reload pipeline built in the constructor rather than reloading here
-      // directly — see that pipeline's comment. Only results are affected; the channel status
-      // (loadActiveEmoteSetId) never reloads off a vote, only off `channel.synced`.
-      next: () => this.localVoteSuccess$.next(),
+      next: () => {
+        this.applyLocalMyVote(emote.emoteId, nextMyVote);
+        // Feeds the shared reload pipeline built in the constructor rather than reloading here
+        // directly — see that pipeline's comment. Only results are affected; the channel status
+        // (loadActiveEmoteSetId) never reloads off a vote, only off `channel.synced`. This debounced
+        // reload still runs (for tallies/score/order and other people's votes) — the fix above just
+        // means it no longer has to be the thing that makes this voter's own click show up.
+        this.localVoteSuccess$.next();
+      },
       error: (error: HttpErrorResponse) => this.handleVoteError(error),
     });
   }
@@ -757,6 +771,24 @@ export class VoteSessionDetailPage {
     // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
     // deserialized objects this assigns resolve back to the same selection. Clearing would
     // throw away a 50-emote selection on every single vote, since vote() reloads through here.
+  }
+
+  /**
+   * Patches one emote's `myVote` into `results` right after vote() gets a successful response —
+   * see the comment at that call site. Tallies/score/order stay whatever the last full load said
+   * until the debounced reload catches up; only the pressed/retract state has to be immediate.
+   */
+  private applyLocalMyVote(emoteId: string, myVote: VoteType | null): void {
+    this.results.update((results) =>
+      results
+        ? {
+            ...results,
+            emotes: results.emotes.map((emote) =>
+              emote.emoteId === emoteId ? { ...emote, myVote } : emote,
+            ),
+          }
+        : results,
+    );
   }
 
   /** Split out of load() so the live-update path can refetch the tally alone — this value only

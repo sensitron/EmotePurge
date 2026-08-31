@@ -131,10 +131,23 @@ internal static class RateLimitRejection
         RateLimitingOptions.TokenBucketPolicy policy)
     {
         var userKey = ResolveUserKey(httpContext);
-        var sessionId = httpContext.Request.RouteValues.TryGetValue(SessionIdRouteValue, out var routeValue)
-            ? routeValue?.ToString()
-            : null;
-        var partitionKey = string.IsNullOrEmpty(sessionId) ? userKey : $"{userKey}:{sessionId}";
+
+        // The route is declared `{sessionId:long}`, and the handler binds the *parsed* number — so
+        // "1", "01" and "001" are one and the same session to everything downstream of routing. Using
+        // RouteValues' raw text as-is (the bug this closes) let a caller mint a fresh token bucket per
+        // leading zero and vote past the configured limit indefinitely. Parsing here and re-formatting
+        // invariantly collapses every equivalent spelling back onto one partition key.
+        //
+        // A value that fails to parse falls back to the user-only key rather than appending the raw
+        // text: the `:long` route constraint already guarantees this parse cannot fail for a request
+        // that reached this partitioner, so the branch is unreachable in practice (same reasoning as
+        // the missing-route-value fallback below). Appending unparsed text back in would reintroduce
+        // exactly the class of bug fixed here — two different raw strings the handler cannot even bind
+        // silently becoming two different budgets — for no upside, since no real request can take it.
+        var partitionKey = httpContext.Request.RouteValues.TryGetValue(SessionIdRouteValue, out var routeValue)
+            && long.TryParse(routeValue?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var sessionId)
+            ? $"{userKey}:{sessionId.ToString(CultureInfo.InvariantCulture)}"
+            : userKey;
 
         Record(httpContext, policyName, partitionKey, FallbackSecondsFor(policy));
 

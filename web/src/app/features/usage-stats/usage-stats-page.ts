@@ -485,9 +485,27 @@ export class UsageStatsPage {
   private readonly latestTotals = latestOnly<EmoteUsageTotal[]>();
   private readonly latestSeries = latestOnly<ChannelUsageSeries>();
 
-  /** The channel whose set status has come back. Held as a channel rather than a flag so that
-   *  navigating to another one makes the range provisional again. */
+  /** The channel whose set status has come back *successfully*. Held as a channel rather than a
+   *  flag so that navigating to another one makes the range provisional again. Deliberately not
+   *  written on a failed attempt (see load()) — that used to make a transient failure permanent by
+   *  making this equal the channel anyway, which silenced every later retry for it, refresh button
+   *  included. */
   private readonly setStatusChannel = signal<string | null>(null);
+
+  /** The channel whose set status request has *failed* — narrower than setStatusChannel above: it
+   *  only exists to unblock the "all time" placeholder (see rangeResolved) once a failed attempt
+   *  makes it clear no tracking start is coming, without also gating load()'s own retry guard. */
+  private readonly setStatusFailedChannel = signal<string | null>(null);
+
+  /** The channel for which an active-set request is in flight or has already answered, success or
+   *  failure. A plain field, not a signal: writing it must never itself retrigger load()'s effect —
+   *  only reading channelName()/from()/to()/rangeResolved() should. A signal here would double-fire
+   *  the request when a failure flips rangeResolved from false to true (see setStatusFailedChannel):
+   *  that recompute reruns the effect once to release the placeholder, and if the guard reacted to
+   *  the same write it would ask a second time on that very rerun. refresh() resets this explicitly,
+   *  which is what lets the refresh button, and only the refresh button, ask again on an unchanged
+   *  channel. */
+  private requestedSetStatusFor: string | null = null;
 
   /**
    * False while "all time" still means the placeholder span rather than this channel's tracking
@@ -502,11 +520,13 @@ export class UsageStatsPage {
     if (this.rangePreset() !== 'all') {
       return true;
     }
-    if (this.setStatusChannel() !== this.channelName()) {
-      return false;
+    if (this.setStatusChannel() === this.channelName()) {
+      // A channel with no tracking start keeps the placeholder, and this holds for it too.
+      return this.from() === allTimeStart(this.trackedSinceDate());
     }
-    // A channel with no tracking start keeps the placeholder, and this holds for it too.
-    return this.from() === allTimeStart(this.trackedSinceDate());
+    // A failed attempt never learns a tracking start, so nothing will ever correct the range for
+    // this channel — treating it as resolved is what stops "all time" from waiting forever.
+    return this.setStatusFailedChannel() === this.channelName();
   });
 
   private readonly seriesByEmote = computed(
@@ -735,6 +755,10 @@ export class UsageStatsPage {
   }
 
   protected refresh(): void {
+    // Forces a fresh active-set request even though the channel has not changed: load()'s guard
+    // above only exists to stop a bare range correction from asking twice, and must not also
+    // swallow the one deliberate retry a previously failed request needs.
+    this.requestedSetStatusFor = null;
     this.load(this.channelName(), this.from(), this.to(), this.rangeResolved());
   }
 
@@ -1057,15 +1081,17 @@ export class UsageStatsPage {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    // The set status is bound to the channel, not to the range: setStatusChannel already names the
-    // channel of the last status response (successful or failed), so a range-only rerun of this
-    // effect (the "all time" correction below, or a manual from/to change) finds it already equal to
-    // channelName and skips this whole block — only a channel switch clears that equality. This is
-    // what turns the second "all time" effect run from a duplicate active-set request into
-    // totals/series only, and it is why the wait for a first sync is ended here and nowhere else:
-    // cancelling it on a range change too would kill it one frame after it started, with no status
-    // request left on that second run to start it again.
-    if (this.setStatusChannel() !== channelName) {
+    // The set status is bound to the channel, not to the range: requestedSetStatusFor already names
+    // the channel of the last status request (in flight, successful or failed), so a range-only
+    // rerun of this effect (the "all time" correction below, or a manual from/to change) finds it
+    // already equal to channelName and skips this whole block — only a channel switch, or an
+    // explicit refresh() resetting the field, clears that equality. This is what turns the second
+    // "all time" effect run from a duplicate active-set request into totals/series only, and it is
+    // why the wait for a first sync is ended here and nowhere else: cancelling it on a range change
+    // too would kill it one frame after it started, with no status request left on that second run
+    // to start it again.
+    if (this.requestedSetStatusFor !== channelName) {
+      this.requestedSetStatusFor = channelName;
       this.stopAwaitingSync();
       this.emoteAdminService.getSetStatus(channelName).subscribe({
         next: (status) => {
@@ -1079,11 +1105,14 @@ export class UsageStatsPage {
             this.awaitSync(channelName);
           }
         },
-        // Marked resolved on failure too: without a tracking start "all time" keeps the placeholder
-        // span, which is the honest fallback — but waiting here forever would leave the page loading.
+        // setStatusChannel is deliberately left as-is here — see its own comment. Marking only
+        // setStatusFailedChannel keeps "all time" from waiting forever (the honest placeholder
+        // fallback, unchanged) without also telling requestedSetStatusFor's guard above that this
+        // channel is done asking: a later load() call — most importantly the refresh button, which
+        // resets requestedSetStatusFor itself — must still be free to try again.
         error: () => {
           this.setStatus.set(null);
-          this.setStatusChannel.set(channelName);
+          this.setStatusFailedChannel.set(channelName);
         },
       });
     }
