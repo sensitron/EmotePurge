@@ -6,8 +6,15 @@ namespace EmotePurge.Infrastructure.Twitch;
 // Singleton (one token per process); resolves ITwitchAuthClient through a scope per fetch, because
 // typed HttpClients are transient and capturing one here would pin its message handler for the
 // process lifetime. Single-flight via semaphore: concurrent callers during a fetch wait for the
-// one request instead of each grabbing their own grant — Twitch invalidates the previous app token
-// on every new grant, so parallel grants would revoke each other.
+// one request instead of each grabbing their own grant. That is not about grants revoking one
+// another — measured 2026-08-31 against the real Twitch API (dev client ID): two client_credentials
+// grants in a row return two distinct tokens, and the older one keeps working afterwards
+// (GET /oauth2/validate and a real Helix call both answer 200 for it). Twitch's docs are silent on
+// this either way. What the gate actually buys is avoiding needless token churn: two 2020 Twitch
+// dev-forum posts (not from Twitch staff, not officially confirmed) describe an undocumented cap of
+// roughly 25 concurrently valid app tokens per client ID, with the oldest evicted past that — reason
+// enough to not mint a fresh grant per caller, even though this codebase has never hit that limit
+// directly.
 public class TwitchAppTokenProvider(IServiceScopeFactory scopeFactory) : ITwitchAppTokenProvider
 {
     // Generous because the token lives ~60 days: refreshing an hour early costs one request per

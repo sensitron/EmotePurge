@@ -10,6 +10,20 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-31 — Twitch entwertet App-Tokens nicht gegenseitig (gemessen)
+
+**Betrifft:** `src/EmotePurge.Infrastructure/Twitch/TwitchAppTokenProvider.cs`
+
+Issue #39: Der Kommentar am Kopf von `TwitchAppTokenProvider` begründete sein Single-Flight-Semaphor damit, Twitch entwerte „the previous app token on every new grant", weshalb parallele Grants sich gegenseitig widerrufen würden. Beide Hälften desselben Kommentars vertrugen sich nicht: Das Semaphor schützt nur **innerhalb eines Prozesses**, der Provider ist ein `AddSingleton` mit In-Memory-Cache, und es gibt keinen geteilten Zustand über Redis oder die DB. Api und Worker laufen als getrennte Container und halten je ein eigenes App-Token derselben Client-ID — stimmte der Kommentar, wäre das ein laufender Fehler mit sporadischen `401` in dem Prozess, der zuletzt *nicht* granted hat.
+
+**Der Kommentar war falsch, und zwar nachgemessen statt nachgeschlagen.** Am 2026-08-31 gegen die echte Twitch-API mit der Dev-Client-ID (nicht der der Produktion): Zwei aufeinanderfolgende `client_credentials`-Grants liefern zwei **unterschiedliche** Tokens, und das ältere bleibt danach gültig — `GET https://id.twitch.tv/oauth2/validate` antwortet 200, und ein echter `GET https://api.twitch.tv/helix/users` mit demselben Token ebenfalls. Es gibt also keine gegenseitige Entwertung und keinen laufenden Fehler; zu korrigieren war nur die Begründung.
+
+**Warum die Doku hier nicht weiterhalf** und die Messung nötig war: Twitchs Dokumentation äußert sich zu der Frage an keiner Stelle — weder `getting-tokens-oauth` noch `validate-tokens` noch `revoke-tokens` sagen etwas darüber, ob ein neuer Grant vorherige App-Tokens invalidiert oder wie viele gleichzeitig gültig sein dürfen. Die einzigen Quellen dazu sind zwei Beiträge im Entwicklerforum von 2020, nicht von Twitch-Mitarbeitern, die ein undokumentiertes Limit von **etwa 25** gleichzeitig gültigen App-Tokens pro Client-ID mit Verdrängung des ältesten nennen. Das steht im Code ausdrücklich als schwach belegter Hinweis und nicht als Zusicherung — es ist sechs Jahre alt und wurde von uns nicht verifiziert.
+
+**Das Semaphor bleibt, mit der richtigen Begründung.** Es verhindert nicht gegenseitige Entwertung, sondern überflüssige gleichzeitige Grants. Falls das ~25er-Limit real ist, ist das sogar der wichtigere Grund: Ein Prozess, der pro Request grantet, verdrängt irgendwann seine eigenen älteren Tokens — genau das Symptom, das der ursprüngliche Kommentar fälschlich schon zwei Prozessen zugeschrieben hat.
+
+**Nebenbefund aus derselben Messung, bewusst nicht ausgedeutet:** Beide Grants kamen mit *unterschiedlichen Restlaufzeiten* zurück (54,7 und 56,8 Tage statt der vollen 60), was nahelegt, dass Twitch bestehende Tokens aus einem Pool zurückgibt, statt bei jedem Grant frisch auszustellen. Für die Frage dieses Eintrags ändert das nichts, und wir haben es nicht weiter untersucht.
+
 ### 2026-08-31 — Ein Redis-Ausfall ist ein fehlender Wert, kein Fehler
 
 **Betrifft:** `src/EmotePurge.Infrastructure/Redis/{ModRoleCache,TwitchLiveStatusStore,WorkerHealthReader,RedisLiveEventStream}.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/{ModRoleCacheTests,UserServiceTests,TwitchLiveStatusStoreTests,WorkerRosterReaderTests}.cs`, `tests/EmotePurge.Infrastructure.Tests/Unit/{ModRoleCacheFailureModeTests,RedisReaderFailureModeTests,RedisLiveEventStreamFailureModeTests}.cs`
