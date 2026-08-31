@@ -2,6 +2,7 @@ using System.Text.Json;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Tests.Fixtures;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace EmotePurge.Infrastructure.Tests.Integration;
@@ -42,7 +43,7 @@ public class WorkerRosterReaderTests(RedisFixture fixture)
 
         await WriteAsync(JsonSerializer.Serialize(snapshot, JsonSerializerOptions.Web));
 
-        var read = await new WorkerRosterReader(fixture.Connection).ReadAsync();
+        var read = await new WorkerRosterReader(fixture.Connection, NullLogger<WorkerRosterReader>.Instance).ReadAsync();
 
         Assert.NotNull(read);
         Assert.Equal(snapshot.GeneratedAtUtc, read.GeneratedAtUtc);
@@ -71,7 +72,7 @@ public class WorkerRosterReaderTests(RedisFixture fixture)
         // not an error it has to handle.
         await fixture.Connection.GetDatabase().KeyDeleteAsync(WorkerHealthKeys.Roster);
 
-        Assert.Null(await new WorkerRosterReader(fixture.Connection).ReadAsync());
+        Assert.Null(await new WorkerRosterReader(fixture.Connection, NullLogger<WorkerRosterReader>.Instance).ReadAsync());
     }
 
     [Fact]
@@ -84,7 +85,7 @@ public class WorkerRosterReaderTests(RedisFixture fixture)
             {"generatedAtUtc":"2026-08-01T12:00:00Z","workerInstanceId":"old","somethingNew":42}
             """);
 
-        var read = await new WorkerRosterReader(fixture.Connection).ReadAsync();
+        var read = await new WorkerRosterReader(fixture.Connection, NullLogger<WorkerRosterReader>.Instance).ReadAsync();
 
         Assert.NotNull(read);
         Assert.Equal("old", read.WorkerInstanceId);

@@ -14,13 +14,18 @@ public interface ISevenTvApiClient
     Task<SevenTvChannelStateResult> GetChannelStateForTwitchUserAsync(string twitchUserId, CancellationToken cancellationToken = default);
 
     // Resolves a Twitch user's own 7TV account identity plus their currently active Twitch-linked
-    // emote set, via 7TV's userByConnection GQL query.
-    Task<SevenTvIdentity?> ResolveSevenTvIdentityAsync(string twitchUserId, CancellationToken cancellationToken = default);
+    // emote set, via 7TV's userByConnection GQL query. Never null; Identity is populated if and only
+    // if Status is Ok. NoSevenTvAccount ("no 7TV user carries this Twitch connection") must stay
+    // distinct from Unavailable — collapsing them onto one null used to make a user who simply has no
+    // 7TV account look like a failed lookup (issue #37).
+    Task<SevenTvIdentityResult> ResolveSevenTvIdentityAsync(string twitchUserId, CancellationToken cancellationToken = default);
 
     // The actual owner of a given 7TV emote set — distinct from whichever channel currently has it
     // active, since 7TV lets an editor point a channel's active set at someone else's set entirely.
     Task<string?> GetEmoteSetOwnerIdAsync(string emoteSetId, CancellationToken cancellationToken = default);
 
-    // Channels (by their Twitch connection) that the given 7TV account holds editor rights on.
-    Task<IReadOnlyList<SevenTvEditorGrant>?> GetEditorOfChannelsAsync(string sevenTvUserId, CancellationToken cancellationToken = default);
+    // Channels (by their Twitch connection) that the given 7TV account holds editor rights on. Never
+    // null; Grants is populated if and only if Status is Ok — an account with zero grants still
+    // answers Ok with an empty list, since only a genuinely unusable response reaches Unavailable.
+    Task<SevenTvEditorGrantsResult> GetEditorOfChannelsAsync(string sevenTvUserId, CancellationToken cancellationToken = default);
 }

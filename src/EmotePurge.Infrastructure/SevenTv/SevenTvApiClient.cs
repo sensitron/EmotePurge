@@ -163,7 +163,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         }
     }
 
-    public async Task<SevenTvIdentity?> ResolveSevenTvIdentityAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    public async Task<SevenTvIdentityResult> ResolveSevenTvIdentityAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -174,23 +174,46 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlUserByConnectionResponseDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
+            // A null user here is a broken GraphQL response (`data: null` plus an `errors`
+            // array, or `userByConnection` missing from an otherwise-parseable body), not
+            // evidence the account is missing: 7TV never answers a Twitch id with no linked
+            // account with a literal null — it returns HTTP 200 with a placeholder user
+            // instead, which the connection check right below already catches and maps to
+            // NoSevenTvAccount. That placeholder covers the "no account" case completely, so
+            // nothing is left for a null user to mean except a failed lookup. Same distinction
+            // ResolveTwitchUserIdAsync already draws for its own GraphQL response above; this
+            // brings this method in line with it rather than introducing anything new.
             var user = dto?.Data?.UserByConnection;
             if (user is null)
             {
-                logger.LogInformation("Kein 7TV-Account für Twitch-ID {Id}.", twitchUserId);
-                return null;
+                logger.LogWarning(
+                    "7TV-Identitätsauflösung für Twitch-ID {Id} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?).",
+                    twitchUserId);
+                return SevenTvIdentityResult.Failed(SevenTvLookupStatus.Unavailable);
             }
 
-            var activeEmoteSetId = user.Connections
-                .FirstOrDefault(c => c.Platform == "TWITCH" && c.Id == twitchUserId)
-                ?.EmoteSetId;
+            // 7TV never returns a literal null for a Twitch id with no linked account: it answers
+            // HTTP 200 with a placeholder user instead (measured live 2026-08-31, id
+            // "00000000000000000000000000", `connections: []`). 7TV finds the account BY this
+            // Twitch connection, so the connection's presence in the answer — not the account id —
+            // is the only thing that tells a real match apart from the placeholder; this also
+            // survives 7TV changing the sentinel value itself. `EmoteSetId` on that connection may
+            // still be null (account exists, no active set), which is a legitimate Ok — only the
+            // connection itself being absent means NoSevenTvAccount.
+            var twitchConnection = user.Connections
+                .FirstOrDefault(c => c.Platform == "TWITCH" && c.Id == twitchUserId);
+            if (twitchConnection is null)
+            {
+                logger.LogInformation("Kein 7TV-Account für Twitch-ID {Id}.", twitchUserId);
+                return SevenTvIdentityResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
+            }
 
-            return new SevenTvIdentity(user.Id, activeEmoteSetId);
+            return SevenTvIdentityResult.Ok(new SevenTvIdentity(user.Id, twitchConnection.EmoteSetId));
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "7TV-Identitätsauflösung für Twitch-ID {Id} fehlgeschlagen, wird übersprungen.", twitchUserId);
-            return null;
+            return SevenTvIdentityResult.Failed(SevenTvLookupStatus.Unavailable);
         }
     }
 
@@ -220,7 +243,7 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         }
     }
 
-    public async Task<IReadOnlyList<SevenTvEditorGrant>?> GetEditorOfChannelsAsync(string sevenTvUserId, CancellationToken cancellationToken = default)
+    public async Task<SevenTvEditorGrantsResult> GetEditorOfChannelsAsync(string sevenTvUserId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -231,22 +254,38 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlEditorOfResponseDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
+            // EditorOf on the DTO defaults to an empty list and 7TV's GraphQL schema returns list
+            // fields as `[]`, never `null`, for "no entries" — so a genuinely editor-of-nothing
+            // account already lands here as an empty (non-null) list, not this branch. Reaching here
+            // means the response itself is unusable: a GraphQL error (`data: null`) or `user` coming
+            // back null for an id this same call chain already resolved as valid moments earlier.
+            // That premise only holds since ResolveSevenTvIdentityAsync stopped treating 7TV's
+            // placeholder user (measured live 2026-08-31: HTTP 200, id
+            // "00000000000000000000000000", `connections: []`) as a real match — before that fix,
+            // this method could receive that placeholder id and its 404 `LOAD_ERROR user not found`
+            // landed here too, indistinguishable from a genuinely broken response. Now only an id
+            // 7TV already confirmed via a real Twitch connection ever reaches this call, so `user:
+            // null` here is a broken lookup (Unavailable), never "no account".
             var grants = dto?.Data?.User?.EditorOf;
             if (grants is null)
             {
-                return null;
+                logger.LogWarning(
+                    "7TV-Editor-Abfrage für 7TV-User {Id} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?).",
+                    sevenTvUserId);
+                return SevenTvEditorGrantsResult.Failed(SevenTvLookupStatus.Unavailable);
             }
 
-            return grants
+            var result = grants
                 .SelectMany(g => g.User?.Connections ?? [])
                 .Where(c => c.Platform == "TWITCH")
                 .Select(c => new SevenTvEditorGrant(c.Username, c.Id))
                 .ToList();
+            return SevenTvEditorGrantsResult.Ok(result);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogWarning(ex, "7TV-Editor-Abfrage für 7TV-User {Id} fehlgeschlagen, wird übersprungen.", sevenTvUserId);
-            return null;
+            return SevenTvEditorGrantsResult.Failed(SevenTvLookupStatus.Unavailable);
         }
     }
 

@@ -1,5 +1,6 @@
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
+using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Services;
@@ -39,11 +40,12 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task GetMyChannelsAsync_KeepsTheOwnChannel_EvenWhenHelixAndSevenTvBothFail()
+    public async Task GetMyChannelsAsync_KeepsTheOwnChannel_EvenWhenHelixFailsAndSevenTvIsUnavailable()
     {
         await using var db = fixture.CreateDbContext();
         var editors = Substitute.For<ISevenTvEditorService>();
-        editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((SevenTvEditorGrants?)null);
+        editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(SevenTvEditorGrantsLookupResult.Failed(SevenTvLookupStatus.Unavailable));
         var service = CreateService(db, moderated: Undetermined(), editors: editors);
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels2_self"));
@@ -51,6 +53,24 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         Assert.True(result.HelixUnavailable);
         Assert.True(result.SevenTvUnavailable);
         Assert.Equal("mychannels2_self", Assert.Single(result.Channels).ChannelName);
+    }
+
+    // Issue #37: NoSevenTvAccount used to collapse onto the very same null as Unavailable, so a user
+    // without a 7TV account at all — the common case, not a degradation — saw the "7TV editor status
+    // could not be fully checked" warning banner. It must not raise SevenTvUnavailable.
+    [Fact]
+    public async Task GetMyChannelsAsync_DoesNotReportSevenTvUnavailable_WhenTheUserSimplyHasNoSevenTvAccount()
+    {
+        await using var db = fixture.CreateDbContext();
+        var editors = Substitute.For<ISevenTvEditorService>();
+        editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(SevenTvEditorGrantsLookupResult.Failed(SevenTvLookupStatus.NoSevenTvAccount));
+        var service = CreateService(db, moderated: Moderated(), editors: editors);
+
+        var result = await service.GetMyChannelsAsync(Principal("mychannels2b_self"));
+
+        Assert.False(result.SevenTvUnavailable);
+        Assert.Equal("mychannels2b_self", Assert.Single(result.Channels).ChannelName);
     }
 
     [Fact]
@@ -480,7 +500,8 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         if (editors is null)
         {
             editors = Substitute.For<ISevenTvEditorService>();
-            editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(grants ?? Grants());
+            editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                .Returns(SevenTvEditorGrantsLookupResult.Ok(grants ?? Grants()));
         }
 
         // Default is "no snapshot": the live-status axis stays out of every test that is not

@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using EmotePurge.Core.Messaging;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 
 namespace EmotePurge.Infrastructure.Redis;
 
@@ -63,7 +64,13 @@ public sealed class RedisLiveEventStream(
         Func<LiveEvent, bool> filter,
         CancellationToken cancellationToken = default)
     {
-        await EnsureRedisSubscribedAsync(cancellationToken);
+        if (!await EnsureRedisSubscribedAsync(cancellationToken))
+        {
+            // Before a single byte of the SSE body: SubscribeAsync answering null here is exactly
+            // the "cannot subscribe right now" contract LiveEndpoints.OpenAsync already renders as
+            // 503 — not a new case, just the existing degraded answer reached for a second reason.
+            return null;
+        }
 
         var subscription = new Subscription(subscriberKey, filter, _options, Remove);
 
@@ -102,11 +109,18 @@ public sealed class RedisLiveEventStream(
         return subscription;
     }
 
-    private async Task EnsureRedisSubscribedAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns whether the process is (now, or already) subscribed. On a Redis failure
+    /// <see cref="_redisSubscribed"/> is deliberately left <c>false</c> — never set optimistically
+    /// before the call succeeds — so the flag can never get "burned": the next caller, once Redis is
+    /// reachable again, retries the real subscribe instead of the stream staying dead for the rest of
+    /// the process's lifetime.
+    /// </summary>
+    private async Task<bool> EnsureRedisSubscribedAsync(CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _redisSubscribed))
         {
-            return;
+            return true;
         }
 
         await _subscribeGate.WaitAsync(cancellationToken);
@@ -114,11 +128,21 @@ public sealed class RedisLiveEventStream(
         {
             if (_redisSubscribed)
             {
-                return;
+                return true;
             }
 
-            await redisSubscriber.SubscribeAsync(LiveEvents.Channel, OnMessageAsync, cancellationToken);
+            try
+            {
+                await redisSubscriber.SubscribeAsync(LiveEvents.Channel, OnMessageAsync, cancellationToken);
+            }
+            catch (Exception ex) when (ex is RedisException or TimeoutException)
+            {
+                logger.LogWarning(ex, "Abonnieren von {Channel} für den Live-Event-Stream fehlgeschlagen — Redis nicht erreichbar.", LiveEvents.Channel);
+                return false;
+            }
+
             Volatile.Write(ref _redisSubscribed, true);
+            return true;
         }
         finally
         {

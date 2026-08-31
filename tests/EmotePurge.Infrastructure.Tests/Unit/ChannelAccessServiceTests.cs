@@ -1,5 +1,6 @@
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
+using EmotePurge.Core.SevenTv;
 using EmotePurge.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -119,14 +120,33 @@ public class ChannelAccessServiceTests
     [Fact]
     public async Task CanViewUsageStatsAsync_DeniesAccess_WhenSevenTvCannotAnswer()
     {
-        // The one-character trap from the report: null means "7TV could not tell us", and the only
-        // safe reading of that is "no grant". Answering true here would open every channel's usage
-        // statistics to every logged-in user, and a 7TV outage would be the trigger.
+        // The one-character trap from the report: a non-Ok status means "7TV could not tell us", and
+        // the only safe reading of that is "no grant". Answering true here would open every channel's
+        // usage statistics to every logged-in user, and a 7TV outage would be the trigger.
         var channels = Substitute.For<IChannelService>();
         channels.GetByNameAsync("streamer", Arg.Any<CancellationToken>())
             .Returns(new Channel { ChannelName = "streamer", TwitchChannelId = "1001" });
         var editors = Substitute.For<ISevenTvEditorService>();
-        editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>()).Returns((SevenTvEditorGrants?)null);
+        editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>())
+            .Returns(SevenTvEditorGrantsLookupResult.Failed(SevenTvLookupStatus.Unavailable));
+        var service = CreateService(sevenTvEditorService: editors, channelService: channels);
+
+        Assert.False(await service.CanViewUsageStatsAsync(Principal("stranger"), "streamer"));
+    }
+
+    [Fact]
+    public async Task CanViewUsageStatsAsync_DeniesAccess_WhenTheUserHasNoSevenTvAccountAtAll()
+    {
+        // Issue #37 regression guard: NoSevenTvAccount is not an outage, it is the common case of a
+        // user who never signed up for 7TV — but this is still an authorization check, so it must
+        // fail closed exactly like Unavailable does. Loosening this to "only Unavailable denies"
+        // would open every channel's usage statistics to every 7TV-account-less logged-in user.
+        var channels = Substitute.For<IChannelService>();
+        channels.GetByNameAsync("streamer", Arg.Any<CancellationToken>())
+            .Returns(new Channel { ChannelName = "streamer", TwitchChannelId = "1001" });
+        var editors = Substitute.For<ISevenTvEditorService>();
+        editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>())
+            .Returns(SevenTvEditorGrantsLookupResult.Failed(SevenTvLookupStatus.NoSevenTvAccount));
         var service = CreateService(sevenTvEditorService: editors, channelService: channels);
 
         Assert.False(await service.CanViewUsageStatsAsync(Principal("stranger"), "streamer"));
@@ -139,7 +159,7 @@ public class ChannelAccessServiceTests
         channels.GetByNameAsync("streamer", Arg.Any<CancellationToken>())
             .Returns(new Channel { ChannelName = "streamer", TwitchChannelId = "1001" });
         var editors = Substitute.For<ISevenTvEditorService>();
-        editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>()).Returns(Grants());
+        editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>()).Returns(SevenTvEditorGrantsLookupResult.Ok(Grants()));
         var service = CreateService(sevenTvEditorService: editors, channelService: channels);
 
         Assert.False(await service.CanViewUsageStatsAsync(Principal("stranger"), "streamer"));
@@ -153,7 +173,7 @@ public class ChannelAccessServiceTests
             .Returns(new Channel { ChannelName = "streamer", TwitchChannelId = "1001" });
         var editors = Substitute.For<ISevenTvEditorService>();
         editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>())
-            .Returns(Grants(logins: ["someoneelse"], twitchIds: ["1001"]));
+            .Returns(SevenTvEditorGrantsLookupResult.Ok(Grants(logins: ["someoneelse"], twitchIds: ["1001"])));
         var service = CreateService(sevenTvEditorService: editors, channelService: channels);
 
         // The login set deliberately does not contain "streamer": with an id on the row, the id is
@@ -171,7 +191,7 @@ public class ChannelAccessServiceTests
             .Returns(new Channel { ChannelName = "streamer", TwitchChannelId = "1001" });
         var editors = Substitute.For<ISevenTvEditorService>();
         editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>())
-            .Returns(Grants(logins: ["streamer"], twitchIds: ["2002"]));
+            .Returns(SevenTvEditorGrantsLookupResult.Ok(Grants(logins: ["streamer"], twitchIds: ["2002"])));
         var service = CreateService(sevenTvEditorService: editors, channelService: channels);
 
         Assert.False(await service.CanViewUsageStatsAsync(Principal("editor"), "streamer"));
@@ -185,7 +205,7 @@ public class ChannelAccessServiceTests
             .Returns(new Channel { ChannelName = "streamer", TwitchChannelId = null });
         var editors = Substitute.For<ISevenTvEditorService>();
         editors.GetEditorGrantsAsync("42", Arg.Any<CancellationToken>())
-            .Returns(Grants(logins: ["streamer"], twitchIds: ["2002"]));
+            .Returns(SevenTvEditorGrantsLookupResult.Ok(Grants(logins: ["streamer"], twitchIds: ["2002"])));
         var service = CreateService(sevenTvEditorService: editors, channelService: channels);
 
         Assert.True(await service.CanViewUsageStatsAsync(Principal("editor"), "streamer"));

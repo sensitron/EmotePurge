@@ -11,7 +11,7 @@ public class SevenTvEditorService(
     IRateLimitTelemetry telemetry,
     ILogger<SevenTvEditorService> logger) : ISevenTvEditorService
 {
-    public async Task<SevenTvEditorGrants?> GetEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default)
+    public async Task<SevenTvEditorGrantsLookupResult> GetEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
         var cached = await modRoleCache.TryGetSevenTvEditorGrantsAsync(twitchUserId, cancellationToken);
         // A miss here costs two 7TV REST calls (identity, then grants), which is what makes this hit
@@ -19,23 +19,24 @@ public class SevenTvEditorService(
         telemetry.RecordCacheLookup(RateLimitCacheNames.SevenTvGrants, cached is not null);
         if (cached is not null)
         {
-            return cached;
+            return SevenTvEditorGrantsLookupResult.Ok(cached);
         }
 
-        var identity = await sevenTvApiClient.ResolveSevenTvIdentityAsync(twitchUserId, cancellationToken);
-        if (identity is null)
+        var identityResult = await sevenTvApiClient.ResolveSevenTvIdentityAsync(twitchUserId, cancellationToken);
+        if (identityResult.Status != SevenTvLookupStatus.Ok)
         {
-            // Not cached, and not reported as "edits nothing": a 7TV outage means "unknown", and
-            // storing it as a negative would lock genuine editors out for the whole TTL.
+            // Not cached, and not reported as "edits nothing": a 7TV outage — or simply no 7TV
+            // account at all — means "unknown", and storing either as a negative would lock genuine
+            // editors out for the whole TTL.
             logger.LogInformation("7TV-Identität für {User} nicht auflösbar — Editor-Grants unbekannt.", twitchUserId);
-            return null;
+            return SevenTvEditorGrantsLookupResult.Failed(identityResult.Status);
         }
 
-        var editorOf = await sevenTvApiClient.GetEditorOfChannelsAsync(identity.SevenTvUserId, cancellationToken);
-        if (editorOf is null)
+        var editorOfResult = await sevenTvApiClient.GetEditorOfChannelsAsync(identityResult.Identity!.SevenTvUserId, cancellationToken);
+        if (editorOfResult.Status != SevenTvLookupStatus.Ok)
         {
             logger.LogInformation("7TV-Editor-Grants für {User} nicht abrufbar.", twitchUserId);
-            return null;
+            return SevenTvEditorGrantsLookupResult.Failed(editorOfResult.Status);
         }
 
         // The one place where grant logins get normalized. Previously done twice with two different
@@ -43,7 +44,7 @@ public class SevenTvEditorService(
         // keys in the overview), so a change to 7TV's grant semantics had to be followed correctly in
         // both — and a test for one said nothing about the other. Entries is built first and the two
         // sets are derived from it, so there is exactly one projection over editorOf, not three.
-        var entries = editorOf
+        var entries = editorOfResult.Grants!
             .Select(grant => new SevenTvEditorGrantEntry(ChannelName.Normalize(grant.TwitchChannelLogin), grant.TwitchChannelId))
             .ToList();
         var grants = new SevenTvEditorGrants(
@@ -52,6 +53,6 @@ public class SevenTvEditorService(
             entries);
 
         await modRoleCache.SetSevenTvEditorGrantsAsync(twitchUserId, grants, cancellationToken);
-        return grants;
+        return SevenTvEditorGrantsLookupResult.Ok(grants);
     }
 }

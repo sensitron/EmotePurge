@@ -33,11 +33,11 @@ public class EmoteSetOwnershipService(
         }
 
         // Tier 1: does this channel's own 7TV account actually own its currently active set?
-        var ownIdentity = await sevenTvApiClient.ResolveSevenTvIdentityAsync(channel.TwitchChannelId, cancellationToken);
+        var ownIdentityResult = await sevenTvApiClient.ResolveSevenTvIdentityAsync(channel.TwitchChannelId, cancellationToken);
         var setOwnerId = await sevenTvApiClient.GetEmoteSetOwnerIdAsync(channel.ActiveEmoteSetId, cancellationToken);
 
-        var available = ownIdentity is not null && setOwnerId is not null;
-        var isOwnSet = available && string.Equals(ownIdentity!.SevenTvUserId, setOwnerId, StringComparison.Ordinal);
+        var available = ownIdentityResult.Status == SevenTvLookupStatus.Ok && setOwnerId is not null;
+        var isOwnSet = available && string.Equals(ownIdentityResult.Identity!.SevenTvUserId, setOwnerId, StringComparison.Ordinal);
 
         if (!available)
         {
@@ -101,8 +101,8 @@ public class EmoteSetOwnershipService(
             await semaphore.WaitAsync(cancellationToken);
             try
             {
-                var identity = await sevenTvApiClient.ResolveSevenTvIdentityAsync(candidate.BroadcasterId, cancellationToken);
-                if (identity?.ActiveEmoteSetId == activeEmoteSetId)
+                var identityResult = await sevenTvApiClient.ResolveSevenTvIdentityAsync(candidate.BroadcasterId, cancellationToken);
+                if (identityResult.Status == SevenTvLookupStatus.Ok && identityResult.Identity!.ActiveEmoteSetId == activeEmoteSetId)
                 {
                     lock (matchesLock)
                     {

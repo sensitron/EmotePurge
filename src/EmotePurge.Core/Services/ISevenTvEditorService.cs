@@ -1,3 +1,5 @@
+using EmotePurge.Core.SevenTv;
+
 namespace EmotePurge.Core.Services;
 
 /// <summary>
@@ -39,6 +41,21 @@ public record SevenTvEditorGrants(IReadOnlySet<string> ChannelLogins, IReadOnlyS
 }
 
 /// <summary>
+/// The result of a grant lookup: <see cref="Grants"/> is populated if and only if <see cref="Status"/>
+/// is <see cref="SevenTvLookupStatus.Ok"/>. Ok always carries a (possibly empty) grant set — "answered:
+/// this user edits nothing" is Ok, not a failure status. The two factories are the only supported way
+/// to build one.
+/// </summary>
+public record SevenTvEditorGrantsLookupResult(SevenTvLookupStatus Status, SevenTvEditorGrants? Grants)
+{
+    public static SevenTvEditorGrantsLookupResult Ok(SevenTvEditorGrants grants) =>
+        new(SevenTvLookupStatus.Ok, grants);
+
+    public static SevenTvEditorGrantsLookupResult Failed(SevenTvLookupStatus status) =>
+        new(status, null);
+}
+
+/// <summary>
 /// Answers "which channels is this user a 7TV editor of?" — the single implementation of a chain
 /// (resolve 7TV identity, then look up editor grants) that used to exist twice, with two different
 /// string-comparison strategies, in ChannelAccessService and MyChannelsService.
@@ -46,10 +63,12 @@ public record SevenTvEditorGrants(IReadOnlySet<string> ChannelLogins, IReadOnlyS
 public interface ISevenTvEditorService
 {
     /// <summary>
-    /// Returns <c>null</c> when 7TV could not answer (outage, rate limit, unresolvable identity) —
-    /// deliberately distinct from an empty set, which means "answered: this user edits nothing".
-    /// Callers must not treat the two the same: the overview reports the former as a degradation, and
-    /// neither outcome is cached as a negative.
+    /// Never null. NoSevenTvAccount ("this Twitch user has no 7TV account at all") and Unavailable
+    /// ("7TV could not answer") are deliberately distinct failure statuses (issue #37) — collapsing
+    /// them used to make every account-less user look like a failed lookup. Neither is cached as a
+    /// negative, and callers must not treat the two failure statuses the same: MyChannelsService
+    /// reports only Unavailable as a degradation, while ChannelAccessService's authorization check
+    /// fails closed on both.
     /// </summary>
-    Task<SevenTvEditorGrants?> GetEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default);
+    Task<SevenTvEditorGrantsLookupResult> GetEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default);
 }

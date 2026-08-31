@@ -7,6 +7,7 @@ using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace EmotePurge.Infrastructure.Tests.Integration;
@@ -27,7 +28,7 @@ public class UserServiceTests(PostgresFixture fixture, RedisFixture redisFixture
         return new AesGcmTokenCipher(configuration);
     }
 
-    private ModRoleCache CreateRoleCache() => new(redisFixture.Connection, new ConfigurationBuilder().Build());
+    private ModRoleCache CreateRoleCache() => new(redisFixture.Connection, new ConfigurationBuilder().Build(), NullLogger<ModRoleCache>.Instance);
 
     // The shared moderated-channel list is written by ModeratedChannelsProvider, not by ModRoleCache;
     // seeding the key directly keeps this test about the invalidation reaching it.

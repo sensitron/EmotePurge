@@ -1,10 +1,11 @@
 using System.Text.Json;
 using EmotePurge.Core.Services;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace EmotePurge.Infrastructure.Redis;
 
-public class WorkerHealthReader(IConnectionMultiplexer connectionMultiplexer) : IWorkerHealthReader
+public class WorkerHealthReader(IConnectionMultiplexer connectionMultiplexer, ILogger<WorkerHealthReader> logger) : IWorkerHealthReader
 {
     /// <summary>
     /// The one place this key is named. The worker writes the same constant through
@@ -12,7 +13,23 @@ public class WorkerHealthReader(IConnectionMultiplexer connectionMultiplexer) : 
     /// </summary>
     public async Task<WorkerHealthSnapshot?> ReadAsync(CancellationToken cancellationToken = default)
     {
-        var value = await connectionMultiplexer.GetDatabase().StringGetAsync(WorkerHealthKeys.TwitchConnection);
+        RedisValue value;
+        try
+        {
+            value = await connectionMultiplexer.GetDatabase().StringGetAsync(WorkerHealthKeys.TwitchConnection);
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            // A missing key and an unreachable Redis mean the same thing to both consumers of this
+            // reader: "no snapshot right now". /api/worker/health already renders that as
+            // { status = "unknown" }; /api/health already renders it as the deliberate 503 dead-man's
+            // switch for the container HEALTHCHECK and Uptime Kuma (see the comment there) — a Redis
+            // outage collapsing into that same null is the already-designed degradation, not a new
+            // one, and never a laundered 200.
+            logger.LogWarning(ex, "Lesen des Worker-Health-Snapshots fehlgeschlagen — behandle als fehlenden Key.");
+            return null;
+        }
+
         if (value.IsNullOrEmpty)
         {
             return null;
@@ -22,11 +39,25 @@ public class WorkerHealthReader(IConnectionMultiplexer connectionMultiplexer) : 
     }
 }
 
-public class WorkerRosterReader(IConnectionMultiplexer connectionMultiplexer) : IWorkerRosterReader
+public class WorkerRosterReader(IConnectionMultiplexer connectionMultiplexer, ILogger<WorkerRosterReader> logger) : IWorkerRosterReader
 {
     public async Task<WorkerRosterSnapshot?> ReadAsync(CancellationToken cancellationToken = default)
     {
-        var value = await connectionMultiplexer.GetDatabase().StringGetAsync(WorkerHealthKeys.Roster);
+        RedisValue value;
+        try
+        {
+            value = await connectionMultiplexer.GetDatabase().StringGetAsync(WorkerHealthKeys.Roster);
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            // A missing key and an unreachable Redis mean the same thing to both consumers of this
+            // reader: "no snapshot right now". /api/admin/roster and /api/admin/channels/{channelName}
+            // already render that as snapshotAvailable/available = false — a Redis outage collapsing
+            // into that same null is the already-designed degradation, not a new one.
+            logger.LogWarning(ex, "Lesen des Worker-Roster-Snapshots fehlgeschlagen — behandle als fehlenden Key.");
+            return null;
+        }
+
         if (value.IsNullOrEmpty)
         {
             return null;
