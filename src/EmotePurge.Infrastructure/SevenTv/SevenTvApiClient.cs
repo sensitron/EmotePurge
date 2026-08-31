@@ -174,11 +174,22 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlUserByConnectionResponseDto>(
                 SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
 
+            // A null user here is a broken GraphQL response (`data: null` plus an `errors`
+            // array, or `userByConnection` missing from an otherwise-parseable body), not
+            // evidence the account is missing: 7TV never answers a Twitch id with no linked
+            // account with a literal null — it returns HTTP 200 with a placeholder user
+            // instead, which the connection check right below already catches and maps to
+            // NoSevenTvAccount. That placeholder covers the "no account" case completely, so
+            // nothing is left for a null user to mean except a failed lookup. Same distinction
+            // ResolveTwitchUserIdAsync already draws for its own GraphQL response above; this
+            // brings this method in line with it rather than introducing anything new.
             var user = dto?.Data?.UserByConnection;
             if (user is null)
             {
-                logger.LogInformation("Kein 7TV-Account für Twitch-ID {Id}.", twitchUserId);
-                return SevenTvIdentityResult.Failed(SevenTvLookupStatus.NoSevenTvAccount);
+                logger.LogWarning(
+                    "7TV-Identitätsauflösung für Twitch-ID {Id} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?).",
+                    twitchUserId);
+                return SevenTvIdentityResult.Failed(SevenTvLookupStatus.Unavailable);
             }
 
             // 7TV never returns a literal null for a Twitch id with no linked account: it answers

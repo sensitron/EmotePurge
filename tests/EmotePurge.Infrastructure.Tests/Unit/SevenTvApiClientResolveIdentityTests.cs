@@ -32,6 +32,23 @@ public class SevenTvApiClientResolveIdentityTests
         [{"platform":"TWITCH","id":"36340781","emote_set_id":"01FRY81K4800085N93FNKSBYXS"}]}}}
         """;
 
+    // Measured live 2026-08-31 for an unknown 7TV ObjectID (a GraphQL error, not "no account"):
+    // -> HTTP 200 {"data":null,"errors":[{"message":"LOAD_ERROR user not found",
+    //      "extensions":{"code":"LOAD_ERROR","status":404}}]}
+    private const string GraphQlErrorPayload =
+        """{"data":null,"errors":[{"message":"LOAD_ERROR user not found","extensions":{"code":"LOAD_ERROR","status":404}}]}""";
+
+    [Fact]
+    public async Task GraphQlErrorResponse_IsUnavailable_NotNoSevenTvAccount()
+    {
+        var client = CreateClient(GraphQlErrorPayload);
+
+        var result = await client.ResolveSevenTvIdentityAsync("999999999");
+
+        Assert.Equal(SevenTvLookupStatus.Unavailable, result.Status);
+        Assert.Null(result.Identity);
+    }
+
     [Fact]
     public async Task PlaceholderUser_WithEmptyConnections_IsNoSevenTvAccount()
     {
