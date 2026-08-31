@@ -1,5 +1,6 @@
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
+using EmotePurge.Core.SevenTv;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -42,11 +43,17 @@ public class ChannelAccessService(
         // Resolution and caching of the grants live in ISevenTvEditorService — this used to be the
         // most expensive authorization path in the app (two sequential 7TV calls per request, on
         // endpoints a viewer can poll freely) and one of two independent copies of the same chain.
-        var grants = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
-        if (grants is null)
+        var grantsResult = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
+        // Fail-closed on every non-Ok status, NoSevenTvAccount included: this is an authorization
+        // check, not a status display, so "this user simply has no 7TV account" must deny access
+        // exactly like "7TV is unreachable" does. Do not loosen this to only Unavailable — that
+        // distinction belongs to MyChannelsService's overview banner, not to this gate.
+        if (grantsResult.Status != SevenTvLookupStatus.Ok)
         {
             return false;
         }
+
+        var grants = grantsResult.Grants!;
 
         // Matched on the immutable Twitch id where we have one, for the same reason as IsBroadcaster.
         var channel = await channelService.GetByNameAsync(normalizedChannel, cancellationToken);

@@ -97,3 +97,31 @@ public record SevenTvTwitchUserIdResult(SevenTvLookupStatus Status, string? Twit
     public static SevenTvTwitchUserIdResult Failed(SevenTvLookupStatus status) =>
         new(status, null);
 }
+
+// Same shape again for the 7TV identity resolution (issue #37): it used to collapse "no 7TV account
+// linked to this Twitch id" and "7TV unreachable" onto the same null, which made
+// MyChannelsService show the "7TV editor status could not be checked" warning to users who simply
+// have no 7TV account at all. Only Ok and NoSevenTvAccount/Unavailable are reachable in practice —
+// there is no active-emote-set concept at the identity level.
+public record SevenTvIdentityResult(SevenTvLookupStatus Status, SevenTvIdentity? Identity)
+{
+    public static SevenTvIdentityResult Ok(SevenTvIdentity identity) =>
+        new(SevenTvLookupStatus.Ok, identity);
+
+    public static SevenTvIdentityResult Failed(SevenTvLookupStatus status) =>
+        new(status, null);
+}
+
+// Same shape for the editor_of lookup (issue #37): the grant list defaults to an empty collection on
+// its own DTO, so a genuinely empty grant set already deserializes as Ok with an empty list — this
+// Status only ever turns Unavailable when the response itself is unusable (GraphQL error, or the
+// queried 7TV user id — already resolved as valid earlier in the same call chain — coming back
+// empty).
+public record SevenTvEditorGrantsResult(SevenTvLookupStatus Status, IReadOnlyList<SevenTvEditorGrant>? Grants)
+{
+    public static SevenTvEditorGrantsResult Ok(IReadOnlyList<SevenTvEditorGrant> grants) =>
+        new(SevenTvLookupStatus.Ok, grants);
+
+    public static SevenTvEditorGrantsResult Failed(SevenTvLookupStatus status) =>
+        new(status, null);
+}

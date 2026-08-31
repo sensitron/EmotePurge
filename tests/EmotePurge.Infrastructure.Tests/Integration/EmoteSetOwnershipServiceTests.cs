@@ -29,7 +29,7 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
 
         var sevenTv = Substitute.For<ISevenTvApiClient>();
         sevenTv.ResolveSevenTvIdentityAsync("1001", Arg.Any<CancellationToken>())
-            .Returns(new SevenTvIdentity("7tv-user-a", "set-shared"));
+            .Returns(SevenTvIdentityResult.Ok(new SevenTvIdentity("7tv-user-a", "set-shared")));
         sevenTv.GetEmoteSetOwnerIdAsync("set-shared", Arg.Any<CancellationToken>())
             .Returns("7tv-user-a");
 
@@ -75,12 +75,12 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
 
         var sevenTv = Substitute.For<ISevenTvApiClient>();
         sevenTv.ResolveSevenTvIdentityAsync("2001", Arg.Any<CancellationToken>())
-            .Returns(new SevenTvIdentity("7tv-user-owner", "set-tier3"));
+            .Returns(SevenTvIdentityResult.Ok(new SevenTvIdentity("7tv-user-owner", "set-tier3")));
         sevenTv.GetEmoteSetOwnerIdAsync("set-tier3", Arg.Any<CancellationToken>())
             .Returns("7tv-user-owner");
         // The untracked moderated channel's broadcaster id resolves to the SAME active set.
         sevenTv.ResolveSevenTvIdentityAsync("3002", Arg.Any<CancellationToken>())
-            .Returns(new SevenTvIdentity("7tv-user-untracked", "set-tier3"));
+            .Returns(SevenTvIdentityResult.Ok(new SevenTvIdentity("7tv-user-untracked", "set-tier3")));
 
         var service = CreateService(db, sevenTv, Moderated(("tier3test_untracked", "3002")));
 
@@ -142,7 +142,7 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
     {
         var sevenTv = Substitute.For<ISevenTvApiClient>();
         sevenTv.ResolveSevenTvIdentityAsync(twitchChannelId, Arg.Any<CancellationToken>())
-            .Returns(new SevenTvIdentity("7tv-user", emoteSetId));
+            .Returns(SevenTvIdentityResult.Ok(new SevenTvIdentity("7tv-user", emoteSetId)));
         sevenTv.GetEmoteSetOwnerIdAsync(emoteSetId, Arg.Any<CancellationToken>()).Returns("7tv-user");
         return sevenTv;
     }

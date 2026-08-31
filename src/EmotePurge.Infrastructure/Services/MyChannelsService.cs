@@ -1,5 +1,6 @@
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
+using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -48,8 +49,12 @@ public class MyChannelsService(
         // relationship at all, so this can add brand-new channel keys, not just annotate existing ones.
         // Shares ISevenTvEditorService (and therefore its cache) with the authorization path; this used
         // to run the same two-call chain here, uncached, on every single overview load.
-        var grants = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
-        var sevenTvUnavailable = grants is null;
+        var grantsResult = await sevenTvEditorService.GetEditorGrantsAsync(principal.TwitchUserId, cancellationToken);
+        var grants = grantsResult.Grants;
+        // NoSevenTvAccount is not a degradation — it just means this user has no 7TV account at
+        // all, which is the common case, not a failed lookup (issue #37). Only a genuine Unavailable
+        // means the grant list may be incomplete.
+        var sevenTvUnavailable = grantsResult.Status == SevenTvLookupStatus.Unavailable;
 
         // A cache entry written before Entries existed: still authoritative for authorization, but
         // there is nothing to resolve by id yet. Handled like the pre-fix code — by login, no Helix
