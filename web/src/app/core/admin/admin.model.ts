@@ -214,3 +214,90 @@ export interface AuditLogFilter {
 // The row type itself lives in `core/audit/audit.model.ts`: both this endpoint and the
 // channel-scoped one return it, and a channel manager's page must not import from the
 // global-admin client.
+
+/** Which ASP.NET rate-limit algorithm a policy uses — decides which of the refill fields are set. */
+export type RateLimitPolicyType = 'token-bucket' | 'fixed-window';
+
+/**
+ * One policy's effective configuration plus accepted/rejected counts in both retention windows
+ * (`RateLimitPolicyDescriptor` in `AdminEndpoints.cs`). `tokensPerPeriod`/
+ * `replenishmentPeriodSeconds` are set only for `token-bucket`, `windowSeconds` only for
+ * `fixed-window` — the unused side of either kind is null rather than a borrowed number from the
+ * other kind. `policies` always lists every registered policy, even one the counter store never
+ * saw traffic for, so a quiet policy stays distinguishable from one that was never registered.
+ */
+export interface RateLimitPolicySnapshot {
+  name: string;
+  type: RateLimitPolicyType;
+  capacity: number;
+  tokensPerPeriod: number | null;
+  replenishmentPeriodSeconds: number | null;
+  windowSeconds: number | null;
+  partition: string;
+  queueLimit: number;
+  acceptedLastMinute: number;
+  rejectedLastMinute: number;
+  acceptedLast24Hours: number;
+  rejectedLast24Hours: number;
+}
+
+/** The most recent rejection produced by any local policy — one entry, overwritten each time. */
+export interface RateLimitLastRejection {
+  observedAtUtc: string;
+  httpMethod: string;
+  routeTemplate: string;
+  policyName: string;
+  partition: string;
+  retryAfterSeconds: number | null;
+}
+
+/** Hits and misses of one server-side cache, in both retention windows. */
+export interface RateLimitCacheCounters {
+  cacheName: string;
+  hitsLastMinute: number;
+  missesLastMinute: number;
+  hitsLast24Hours: number;
+  missesLast24Hours: number;
+}
+
+/** The provider's own `Ratelimit-*` headers as last seen — a sample, never a reservable or
+ *  authoritative shared budget. */
+export interface ProviderRateLimitHeaderSample {
+  observedAtUtc: string;
+  limit: string | null;
+  remaining: string | null;
+  reset: string | null;
+}
+
+/**
+ * What one provider client did and what came back, per (provider, call-source) pair. Deliberately
+ * without a percentage: for 7TV there is no defensible denominator, and reporting one for Twitch
+ * only would invite reading it as a budget.
+ */
+export interface RateLimitProviderCounters {
+  providerName: string;
+  callSource: string;
+  requestsLastMinute: number;
+  requestsLast24Hours: number;
+  rateLimitedLastMinute: number;
+  rateLimitedLast24Hours: number;
+  lastRetryAfterSeconds: number | null;
+  lastRateLimitedAtUtc: string | null;
+  lastHeaderSample: ProviderRateLimitHeaderSample | null;
+}
+
+/**
+ * GET /api/admin/rate-limits — read-only rate-limit observability (design 4 of the #33
+ * architecture doc). There is no write counterpart and no reservation: this only reports what
+ * already happened. `caches` and `providers` list only whatever the counter store has entries for.
+ * When `telemetryAvailable` is false the counter store could not be reached: every count elsewhere
+ * in this snapshot is a fabricated 0, not a real zero, so the UI must show configuration only and
+ * must not render the counts as data.
+ */
+export interface RateLimitTelemetrySnapshot {
+  telemetryAvailable: boolean;
+  policies: RateLimitPolicySnapshot[];
+  lastLocalRejection: RateLimitLastRejection | null;
+  caches: RateLimitCacheCounters[];
+  providers: RateLimitProviderCounters[];
+}

@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using EmotePurge.Api.Auth;
 using EmotePurge.Api.Health;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
+using Microsoft.Extensions.Options;
 
 namespace EmotePurge.Api.Endpoints;
 
@@ -21,6 +23,9 @@ public static class AdminEndpoints
 
     public static void MapAdminEndpoints(this WebApplication app)
     {
+        // Deliberately no rate-limit policy, group-wide and including the /live stream below: the
+        // allowlist is the guard here, and internal tooling for a handful of named logins has no abuse
+        // surface a request budget would close. See the class summary.
         var group = app.MapGroup("/api/admin")
             .RequireAuthorization()
             .AddEndpointFilter<GlobalAdminAuthorizationFilter>();
@@ -120,6 +125,59 @@ public static class AdminEndpoints
                     instanceId = snapshot.WorkerInstanceId,
                     processStartedUtc = snapshot.ProcessStartedUtc,
                 },
+            });
+        });
+
+        // Read-only snapshot for the "Rate Limits" admin section (design 4 of the #33 architecture
+        // doc): the effective configuration always comes from IOptions<RateLimitingOptions>, complete
+        // whether or not the counter store answers. Deliberately its own endpoint, not folded into
+        // /health: that contract's "same shape when unavailable" promise is about the worker snapshot,
+        // and a second, unrelated availability flag on the same payload would blur which one flipped.
+        group.MapGet("/rate-limits", async (
+            IRateLimitTelemetryReader telemetryReader,
+            IOptions<RateLimitingOptions> rateLimitOptions,
+            CancellationToken ct) =>
+        {
+            var snapshot = await telemetryReader.ReadAsync(ct);
+            var countersByPolicy = snapshot.Policies.ToDictionary(p => p.PolicyName, StringComparer.Ordinal);
+
+            // Built from configuration, not from the snapshot: a policy the counter store never saw
+            // traffic for — because nobody hit it, or because telemetryAvailable is false — still has
+            // a budget and still guards a route. Reversing the direction would make a quiet policy
+            // indistinguishable from one that was never registered.
+            var policies = RateLimitPolicyDescriptors(rateLimitOptions.Value)
+                .Select(descriptor =>
+                {
+                    var counters = countersByPolicy.GetValueOrDefault(descriptor.Name);
+                    return new
+                    {
+                        name = descriptor.Name,
+                        type = descriptor.Type,
+                        capacity = descriptor.Capacity,
+                        tokensPerPeriod = descriptor.TokensPerPeriod,
+                        replenishmentPeriodSeconds = descriptor.ReplenishmentPeriodSeconds,
+                        windowSeconds = descriptor.WindowSeconds,
+                        partition = descriptor.Partition,
+                        queueLimit = descriptor.QueueLimit,
+                        acceptedLastMinute = counters?.AcceptedLastMinute ?? 0,
+                        rejectedLastMinute = counters?.RejectedLastMinute ?? 0,
+                        acceptedLast24Hours = counters?.AcceptedLast24Hours ?? 0,
+                        rejectedLast24Hours = counters?.RejectedLast24Hours ?? 0,
+                    };
+                })
+                .ToList();
+
+            return Results.Ok(new
+            {
+                telemetryAvailable = snapshot.TelemetryAvailable,
+                policies,
+                lastLocalRejection = snapshot.LastLocalRejection,
+                // Caches and providers are not completed against a fixed list the way policies are:
+                // which ones exist is derived from the counters themselves (RateLimitTelemetryStore),
+                // matching how the store already reports providers — one fewer index to keep in sync,
+                // at the honest price that something silent for the whole retention window drops out.
+                caches = snapshot.Caches,
+                providers = snapshot.Providers,
             });
         });
 
@@ -391,4 +449,59 @@ public static class AdminEndpoints
         twitchConcurrentChannelLimit = WorkerCapacity.TwitchConcurrentChannelLimit,
         twitchJoinBudgetChannels = WorkerCapacity.TwitchJoinBudgetChannels,
     };
+
+    // The one policy list the app registers, described for display rather than re-derived from
+    // RateLimitRejection's partitioner delegates: those close over an HttpContext and exist to
+    // compute one request's key, not to describe the partitioning strategy in the abstract. Order
+    // matches Program.cs's AddRateLimiter registration.
+    private static IReadOnlyList<RateLimitPolicyDescriptor> RateLimitPolicyDescriptors(RateLimitingOptions options) =>
+    [
+        RateLimitPolicyDescriptor.TokenBucket(RateLimitPolicyNames.InteractiveRead, options.InteractiveRead, "twitch-user"),
+        RateLimitPolicyDescriptor.TokenBucket(RateLimitPolicyNames.Voting, options.Voting, "twitch-user+vote-session"),
+        RateLimitPolicyDescriptor.FixedWindow(RateLimitPolicyNames.Bookkeeping, options.Bookkeeping, "twitch-user"),
+        RateLimitPolicyDescriptor.FixedWindow(RateLimitPolicyNames.ChannelResync, options.ChannelResync, "twitch-user"),
+        // The one anonymous policy: PartitionPerUser falls back to the remote IP when there is no
+        // authenticated Twitch user, which for this route is every caller (RateLimitRejection.cs).
+        RateLimitPolicyDescriptor.FixedWindow(RateLimitPolicyNames.PublicHealth, options.PublicHealth, "remote-ip"),
+    ];
+
+    /// <summary>
+    /// One policy's display shape: a stable name, its kind, and the fields that kind actually has —
+    /// a token bucket's refill rate has no meaning for a fixed window and vice versa, so the unused
+    /// side is <c>null</c> rather than a borrowed number from the other kind.
+    /// </summary>
+    private sealed record RateLimitPolicyDescriptor(
+        string Name,
+        string Type,
+        int Capacity,
+        int? TokensPerPeriod,
+        int? ReplenishmentPeriodSeconds,
+        int? WindowSeconds,
+        string Partition,
+        int QueueLimit)
+    {
+        public static RateLimitPolicyDescriptor TokenBucket(
+            string name, RateLimitingOptions.TokenBucketPolicy policy, string partition) =>
+            new(
+                name,
+                "token-bucket",
+                policy.TokenLimit,
+                policy.TokensPerPeriod,
+                policy.ReplenishmentPeriodSeconds,
+                WindowSeconds: null,
+                partition,
+                RateLimitRejection.QueueLimit);
+
+        public static RateLimitPolicyDescriptor FixedWindow(
+            string name, RateLimitingOptions.FixedWindowPolicy policy, string partition) =>
+            new(
+                name,
+                "fixed-window",
+                policy.PermitLimit,
+                TokensPerPeriod: null,
+                ReplenishmentPeriodSeconds: null,
+                (int)RateLimitRejection.Window.TotalSeconds,
+                partition,
+                RateLimitRejection.QueueLimit);
+    }
 }

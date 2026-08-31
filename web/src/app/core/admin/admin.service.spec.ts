@@ -9,6 +9,7 @@ import {
   AdminHealth,
   AdminRoster,
   AdminUser,
+  RateLimitTelemetrySnapshot,
 } from './admin.model';
 import { AdminService } from './admin.service';
 import { AuditLogEntry } from '../audit/audit.model';
@@ -426,6 +427,122 @@ describe('AdminService', () => {
     httpMock
       .expectOne('/api/admin/audit-log?page=1&pageSize=25&channel=HandOfBlood')
       .flush({ items: [], page: 1, pageSize: 25, totalCount: 0, totalPages: 0 });
+  });
+
+  it('getRateLimits GETs /api/admin/rate-limits', () => {
+    const snapshot: RateLimitTelemetrySnapshot = {
+      telemetryAvailable: true,
+      policies: [
+        {
+          name: 'InteractiveRead',
+          type: 'token-bucket',
+          capacity: 300,
+          tokensPerPeriod: 5,
+          replenishmentPeriodSeconds: 1,
+          windowSeconds: null,
+          partition: 'twitch-user',
+          queueLimit: 0,
+          acceptedLastMinute: 42,
+          rejectedLastMinute: 0,
+          acceptedLast24Hours: 5000,
+          rejectedLast24Hours: 3,
+        },
+        {
+          name: 'ChannelResync',
+          type: 'fixed-window',
+          capacity: 5,
+          tokensPerPeriod: null,
+          replenishmentPeriodSeconds: null,
+          windowSeconds: 60,
+          partition: 'twitch-user',
+          queueLimit: 0,
+          acceptedLastMinute: 1,
+          rejectedLastMinute: 0,
+          acceptedLast24Hours: 12,
+          rejectedLast24Hours: 0,
+        },
+      ],
+      lastLocalRejection: {
+        observedAtUtc: '2026-08-30T12:00:00Z',
+        httpMethod: 'POST',
+        routeTemplate: '/api/vote-sessions/{sessionId}/votes',
+        policyName: 'Voting',
+        partition: 'user:4711+session:99',
+        retryAfterSeconds: 12,
+      },
+      caches: [
+        {
+          cacheName: 'moderated-channels',
+          hitsLastMinute: 30,
+          missesLastMinute: 1,
+          hitsLast24Hours: 4000,
+          missesLast24Hours: 50,
+        },
+      ],
+      providers: [
+        {
+          providerName: 'twitch',
+          callSource: 'twitch-helix',
+          requestsLastMinute: 8,
+          requestsLast24Hours: 900,
+          rateLimitedLastMinute: 0,
+          rateLimitedLast24Hours: 0,
+          lastRetryAfterSeconds: null,
+          lastRateLimitedAtUtc: null,
+          lastHeaderSample: {
+            observedAtUtc: '2026-08-30T11:59:00Z',
+            limit: '800',
+            remaining: '750',
+            reset: '1725019200',
+          },
+        },
+      ],
+    };
+
+    let result: RateLimitTelemetrySnapshot | undefined;
+    service.getRateLimits().subscribe((r) => (result = r));
+
+    const req = httpMock.expectOne('/api/admin/rate-limits');
+    expect(req.request.method).toBe('GET');
+    req.flush(snapshot);
+
+    expect(result).toEqual(snapshot);
+  });
+
+  it('getRateLimits passes a degraded response through without inventing numbers', () => {
+    // telemetryAvailable: false means the counter store could not be reached — every count in
+    // this shape is a fabricated 0 from the endpoint's `?? 0` fallback, not a measured zero. The
+    // service must not massage that away; the page decides how to render it.
+    let result: RateLimitTelemetrySnapshot | undefined;
+    service.getRateLimits().subscribe((r) => (result = r));
+
+    httpMock.expectOne('/api/admin/rate-limits').flush({
+      telemetryAvailable: false,
+      policies: [
+        {
+          name: 'InteractiveRead',
+          type: 'token-bucket',
+          capacity: 300,
+          tokensPerPeriod: 5,
+          replenishmentPeriodSeconds: 1,
+          windowSeconds: null,
+          partition: 'twitch-user',
+          queueLimit: 0,
+          acceptedLastMinute: 0,
+          rejectedLastMinute: 0,
+          acceptedLast24Hours: 0,
+          rejectedLast24Hours: 0,
+        },
+      ],
+      lastLocalRejection: null,
+      caches: [],
+      providers: [],
+    });
+
+    expect(result?.telemetryAvailable).toBe(false);
+    expect(result?.caches).toEqual([]);
+    expect(result?.providers).toEqual([]);
+    expect(result?.policies[0].acceptedLastMinute).toBe(0);
   });
 
   it('hands the whitelisted detail through as the server projected it', () => {

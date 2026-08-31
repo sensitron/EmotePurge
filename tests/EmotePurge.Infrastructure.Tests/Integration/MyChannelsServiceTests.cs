@@ -11,7 +11,7 @@ using Xunit;
 namespace EmotePurge.Infrastructure.Tests.Integration;
 
 // In Integration/ rather than Unit/: MyChannelsService takes AppDbContext to resolve the tracked
-// state of the channels it assembles. Helix, 7TV and the token store are substituted.
+// state of the channels it assembles. The moderated-channel provider, Helix and 7TV are substituted.
 //
 // The two properties worth pinning are the ones a user notices immediately when they break: the
 // caller's own channel is always in the list (Helix's moderated-channels endpoint never returns it),
@@ -42,12 +42,9 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
     public async Task GetMyChannelsAsync_KeepsTheOwnChannel_EvenWhenHelixAndSevenTvBothFail()
     {
         await using var db = fixture.CreateDbContext();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        helix.GetModeratedChannelLoginsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns((IReadOnlySet<string>?)null);
         var editors = Substitute.For<ISevenTvEditorService>();
         editors.GetEditorGrantsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns((SevenTvEditorGrants?)null);
-        var service = CreateService(db, helix: helix, editors: editors);
+        var service = CreateService(db, moderated: Undetermined(), editors: editors);
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels2_self"));
 
@@ -62,21 +59,50 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         // The sharper of the two degradations: only a fresh Twitch login can fix this, so the
         // frontend must offer a re-login instead of a generic "Helix is down" note.
         await using var db = fixture.CreateDbContext();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        var service = CreateService(db, helix: helix, tokens: TokenService(null, reauthRequired: true));
+        var service = CreateService(db, moderated: Undetermined(reauthRequired: true));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels3_self"));
 
         Assert.True(result.HelixUnavailable);
         Assert.True(result.ReauthRequired);
-        await helix.DidNotReceive().GetModeratedChannelLoginsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetMyChannelsAsync_ReportsHelixAvailable_WhenTheUserModeratesNothing()
+    {
+        // An empty list is a real answer, not a degradation. Reporting HelixUnavailable here would
+        // put a permanent "Twitch is unreachable" warning in front of every user who happens to
+        // moderate no channel at all.
+        await using var db = fixture.CreateDbContext();
+        var service = CreateService(db, moderated: Moderated());
+
+        var result = await service.GetMyChannelsAsync(Principal("mychannels21_self"));
+
+        Assert.False(result.HelixUnavailable);
+        Assert.False(result.ReauthRequired);
+        Assert.Equal("mychannels21_self", Assert.Single(result.Channels).ChannelName);
+    }
+
+    [Fact]
+    public async Task GetMyChannelsAsync_ReportsHelixUnavailable_WhenTheModeratedListCouldNotBeDetermined()
+    {
+        // Same visible channel list as the empty case above — one own channel — but the flag has to
+        // differ, because here the moderated channels are missing rather than absent.
+        await using var db = fixture.CreateDbContext();
+        var service = CreateService(db, moderated: Undetermined());
+
+        var result = await service.GetMyChannelsAsync(Principal("mychannels22_self"));
+
+        Assert.True(result.HelixUnavailable);
+        Assert.False(result.ReauthRequired);
+        Assert.Equal("mychannels22_self", Assert.Single(result.Channels).ChannelName);
     }
 
     [Fact]
     public async Task GetMyChannelsAsync_ReportsNoDegradation_WhenBothSourcesAnswered()
     {
         await using var db = fixture.CreateDbContext();
-        var service = CreateService(db, moderatedChannels: [], grants: Grants());
+        var service = CreateService(db, moderated: Moderated(), grants: Grants());
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels4_self"));
 
@@ -91,7 +117,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         // Helix answers with display-cased logins; the database holds them lowercase. Without the
         // normalization the same channel would appear twice, once per casing.
         await using var db = fixture.CreateDbContext();
-        var service = CreateService(db, moderatedChannels: ["MyChannels5_Modded"]);
+        var service = CreateService(db, moderated: Moderated("MyChannels5_Modded"));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels5_self"));
 
@@ -106,7 +132,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         // A 7TV editor grant is independent of the Twitch role axis, so it can introduce entirely
         // new channel keys rather than only annotating ones Helix already returned.
         await using var db = fixture.CreateDbContext();
-        var service = CreateService(db, moderatedChannels: [], grants: Grants(logins: ["mychannels6_edited"]));
+        var service = CreateService(db, moderated: Moderated(), grants: Grants(logins: ["mychannels6_edited"]));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels6_self"));
 
@@ -122,7 +148,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var service = CreateService(
             db,
-            moderatedChannels: ["mychannels7_both"],
+            moderated: Moderated("mychannels7_both"),
             grants: Grants(logins: ["mychannels7_both"]));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels7_self"));
@@ -139,7 +165,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         db.Channels.Add(new Channel { ChannelName = "mychannels8_active", IsBotActive = true, TwitchChannelId = NewTwitchId() });
         db.Channels.Add(new Channel { ChannelName = "mychannels8_left", IsBotActive = false, TwitchChannelId = NewTwitchId() });
         await db.SaveChangesAsync();
-        var service = CreateService(db, moderatedChannels: ["mychannels8_active", "mychannels8_left"]);
+        var service = CreateService(db, moderated: Moderated("mychannels8_active", "mychannels8_left"));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels8_self"));
 
@@ -157,7 +183,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
     public async Task GetMyChannelsAsync_SortsTheOwnChannelFirst_ThenAlphabetically()
     {
         await using var db = fixture.CreateDbContext();
-        var service = CreateService(db, moderatedChannels: ["mychannels9_c", "mychannels9_a", "mychannels9_b"]);
+        var service = CreateService(db, moderated: Moderated("mychannels9_c", "mychannels9_a", "mychannels9_b"));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels9_zzz_self"));
 
@@ -188,7 +214,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         var polledAt = new DateTime(2026, 8, 3, 18, 0, 0, DateTimeKind.Utc);
         var service = CreateService(
             db,
-            moderatedChannels: ["mychannels11_live", "mychannels11_off", "mychannels11_left"],
+            moderated: Moderated("mychannels11_live", "mychannels11_off", "mychannels11_left"),
             liveStatus: new TwitchLiveStatusSnapshot(polledAt, ["mychannels11_live"]));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels11_self"));
@@ -209,7 +235,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         db.Channels.Add(new Channel { ChannelName = "mychannels12_active", IsBotActive = true, TwitchChannelId = NewTwitchId() });
         await db.SaveChangesAsync();
-        var service = CreateService(db, moderatedChannels: ["mychannels12_active"]);
+        var service = CreateService(db, moderated: Moderated("mychannels12_active"));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels12_self"));
 
@@ -387,7 +413,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
             db,
             helix: helix,
             appTokenProvider: AppTokenProvider("app-token"),
-            moderatedChannels: ["mychannels19_newname"],
+            moderated: Moderated("mychannels19_newname"),
             grants: GrantsWithEntries(("MyChannels19_Oldlogin", twitchId)));
 
         var result = await service.GetMyChannelsAsync(Principal("mychannels19_self"));
@@ -429,33 +455,27 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
         return provider;
     }
 
-    private static ITwitchUserTokenService TokenService(string? accessToken, bool reauthRequired = false)
-    {
-        var tokens = Substitute.For<ITwitchUserTokenService>();
-        tokens.GetValidAccessTokenAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<CancellationToken>())
-            .Returns(new TwitchUserTokenResult(accessToken, reauthRequired));
-        return tokens;
-    }
+    // Logins go in verbatim, not pre-normalized: the service must keep normalizing them itself,
+    // which is what GetMyChannelsAsync_AnnotatesModeratedChannels_AndNormalizesTheirLogins pins.
+    private static ModeratedChannelsLookup Moderated(params string[] logins) =>
+        new([.. logins.Select((login, index) => new TwitchModeratedChannelInfo(login, $"moderated-{index}"))], ReauthRequired: false);
+
+    private static ModeratedChannelsLookup Undetermined(bool reauthRequired = false) => new(null, reauthRequired);
 
     private static MyChannelsService CreateService(
         AppDbContext db,
         ITwitchHelixClient? helix = null,
         ISevenTvEditorService? editors = null,
-        ITwitchUserTokenService? tokens = null,
         ITwitchAppTokenProvider? appTokenProvider = null,
-        string[]? moderatedChannels = null,
+        ModeratedChannelsLookup? moderated = null,
         SevenTvEditorGrants? grants = null,
         TwitchLiveStatusSnapshot? liveStatus = null)
     {
-        if (moderatedChannels is not null)
-        {
-            // Configured on whatever helix substitute the caller passed in (e.g. one already set up
-            // via HelixWithUsers for the grant-resolution axis), not only on a freshly created one —
-            // the two axes are independent and a test may need both configured on the same instance.
-            helix ??= Substitute.For<ITwitchHelixClient>();
-            helix.GetModeratedChannelLoginsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-                .Returns(new HashSet<string>(moderatedChannels));
-        }
+        // Default is "answered, moderates nothing" — the degraded variants are opt-in, so no test
+        // accidentally asserts against a HelixUnavailable it never meant to configure.
+        var moderatedChannelsProvider = Substitute.For<IModeratedChannelsProvider>();
+        moderatedChannelsProvider.GetModeratedChannelsAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<CancellationToken>())
+            .Returns(moderated ?? Moderated());
 
         if (editors is null)
         {
@@ -472,7 +492,7 @@ public class MyChannelsServiceTests(PostgresFixture fixture)
             db,
             helix ?? Substitute.For<ITwitchHelixClient>(),
             editors,
-            tokens ?? TokenService("valid-token"),
+            moderatedChannelsProvider,
             liveStatusReader,
             appTokenProvider ?? Substitute.For<ITwitchAppTokenProvider>(),
             NullLogger<MyChannelsService>.Instance);

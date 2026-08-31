@@ -9,8 +9,8 @@ export class UsageStatService {
   private readonly http = inject(HttpClient);
 
   /**
-   * Series cache per (channel, emote, range): /daily shares the ExternalApi budget (40/min) with
-   * the totals reload, and a drilldown opened twice is the same request. Entries live until
+   * Series cache per (channel, emote, range): /daily shares the InteractiveRead budget with the
+   * totals reload, and a drilldown opened twice is the same request. Entries live until
    * clearSeriesCache() — the pages call it when the channel or date range changes.
    */
   private readonly seriesCache = new Map<string, Observable<EmoteUsageSeries>>();

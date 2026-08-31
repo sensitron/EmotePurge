@@ -11,8 +11,7 @@ namespace EmotePurge.Infrastructure.Services;
 public class EmoteSetOwnershipService(
     AppDbContext db,
     ISevenTvApiClient sevenTvApiClient,
-    ITwitchHelixClient twitchHelixClient,
-    ITwitchUserTokenService userTokenService,
+    IModeratedChannelsProvider moderatedChannelsProvider,
     ILogger<EmoteSetOwnershipService> logger) : IEmoteSetOwnershipService
 {
     // Bounds how many parallel 7TV lookups Tier 3 fires off for a single check — a prolific mod's
@@ -72,20 +71,22 @@ public class EmoteSetOwnershipService(
             return [];
         }
 
-        var token = await userTokenService.GetValidAccessTokenAsync(caller, cancellationToken);
-        if (token.AccessToken is null)
+        // The same shared list the overview and the moderator check read, so a Tier-3 pass inside the
+        // cache TTL costs no Helix call at all.
+        var moderated = await moderatedChannelsProvider.GetModeratedChannelsAsync(caller, cancellationToken);
+        if (moderated.Channels is null)
         {
-            return [];
-        }
-
-        var moderated = await twitchHelixClient.GetModeratedChannelsAsync(token.AccessToken, caller.TwitchUserId, cancellationToken);
-        if (moderated is null || moderated.Count == 0)
-        {
+            // Tier 3 is skipped, not answered: the warning DTO has no field for a degraded tier, so
+            // this log line is the only thing that separates it from a caller who genuinely
+            // moderates nothing and therefore has no candidates.
+            logger.LogInformation(
+                "Tier-3-Prüfung für Channel {Channel} übersprungen: moderierte Channels von {User} nicht ermittelbar.",
+                currentChannelName, caller.TwitchUserId);
             return [];
         }
 
         var alreadyCovered = new HashSet<string>(alreadyCoveredByTier2, StringComparer.OrdinalIgnoreCase) { currentChannelName };
-        var candidates = moderated.Where(c => !alreadyCovered.Contains(c.Login)).ToList();
+        var candidates = moderated.Channels.Where(c => !alreadyCovered.Contains(c.Login)).ToList();
         if (candidates.Count == 0)
         {
             return [];

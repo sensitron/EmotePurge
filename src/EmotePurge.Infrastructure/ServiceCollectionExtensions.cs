@@ -6,6 +6,7 @@ using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.SevenTv;
+using EmotePurge.Infrastructure.Telemetry;
 using EmotePurge.Infrastructure.Twitch;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -64,7 +65,8 @@ public static class ServiceCollectionExtensions
             client.BaseAddress = new Uri("https://7tv.io/v3/");
             client.Timeout = TimeSpan.FromSeconds(10);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("EmotePurge/1.0");
-        });
+        })
+        .AddHttpMessageHandler(sp => ProviderTelemetry(sp, RateLimitProviders.SevenTv, RateLimitCallSources.SevenTvRest));
         services.AddSingleton<ChannelSyncGate>();
         services.AddScoped<ISevenTvSyncService, SevenTvSyncService>();
 
@@ -72,7 +74,8 @@ public static class ServiceCollectionExtensions
         {
             client.BaseAddress = new Uri("https://id.twitch.tv/");
             client.Timeout = TimeSpan.FromSeconds(10);
-        });
+        })
+        .AddHttpMessageHandler(sp => ProviderTelemetry(sp, RateLimitProviders.Twitch, RateLimitCallSources.TwitchAuth));
 
         var twitchClientId = configuration["Auth:Twitch:ClientId"];
         services.AddHttpClient<ITwitchHelixClient, TwitchHelixClient>(client =>
@@ -83,7 +86,8 @@ public static class ServiceCollectionExtensions
             {
                 client.DefaultRequestHeaders.Add("Client-Id", twitchClientId);
             }
-        });
+        })
+        .AddHttpMessageHandler(sp => ProviderTelemetry(sp, RateLimitProviders.Twitch, RateLimitCallSources.TwitchHelix));
 
         // Singleton cache over the transient typed client — see the class comment for why it
         // resolves ITwitchAuthClient through a scope instead of injecting it.
@@ -93,6 +97,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<TwitchTokenRefreshGate>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ITwitchUserTokenService, TwitchUserTokenService>();
+        services.AddScoped<IModeratedChannelsProvider, ModeratedChannelsProvider>();
         services.AddScoped<IModeratorCheckService, ModeratorCheckService>();
         services.AddScoped<ISevenTvEditorService, SevenTvEditorService>();
         services.AddScoped<IChannelAccessService, ChannelAccessService>();
@@ -112,10 +117,38 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ITwitchLiveStatusReader>(sp => sp.GetRequiredService<TwitchLiveStatusStore>());
         services.AddSingleton<ITwitchLiveStatusWriter>(sp => sp.GetRequiredService<TwitchLiveStatusStore>());
 
+        // Same one-instance-behind-two-interfaces shape as the live-status store above: the product
+        // path writes, the admin page reads, and the bucket layout lives in one class. Registered with
+        // TimeProvider.System explicitly instead of resolving it from DI, so the only thing that can
+        // move this clock is a test constructing the store itself.
+        services.AddSingleton(sp => new RateLimitTelemetryStore(
+            sp.GetRequiredService<IConnectionMultiplexer>(),
+            TimeProvider.System,
+            sp.GetRequiredService<ILogger<RateLimitTelemetryStore>>()));
+        services.AddSingleton<IRateLimitTelemetry>(sp => sp.GetRequiredService<RateLimitTelemetryStore>());
+        services.AddSingleton<IRateLimitTelemetryReader>(sp => sp.GetRequiredService<RateLimitTelemetryStore>());
+
         services.AddScoped<IVoteSessionService, VoteSessionService>();
         services.AddScoped<IVoteSessionQueryService, VoteSessionQueryService>();
         services.AddScoped<IVoteEligibilityService, VoteEligibilityService>();
 
         return services;
     }
+
+    /// <summary>
+    /// One counting handler for one typed client. All three outgoing clients get one — a call nobody
+    /// counts is a call the monitoring page silently reports as not having happened, and the two
+    /// Twitch clients have to stay apart: a Helix pagination and a token refresh are the same provider
+    /// and nothing like the same traffic.
+    /// </summary>
+    /// <remarks>
+    /// The browser's direct 7TV GraphQL mutations (the mass-delete engine) never pass through here —
+    /// they leave the user's machine, not this server. That is a real gap, and it is the admin page's
+    /// job to say so rather than this handler's to pretend otherwise.
+    /// </remarks>
+    private static ProviderRequestTelemetryHandler ProviderTelemetry(
+        IServiceProvider serviceProvider,
+        string providerName,
+        string callSource)
+        => new(providerName, callSource, serviceProvider.GetRequiredService<IRateLimitTelemetry>());
 }

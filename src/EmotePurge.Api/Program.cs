@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -90,8 +91,26 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 builder.Services.AddAuthorization();
 
-// Two policies rather than one, because "expensive" meant two unrelated things. Both partition by
-// authenticated user (every endpoint carrying them requires auth), falling back to the remote IP.
+// The local policies guard this API against loops and abuse. They deliberately do *not* model what a
+// request costs at Twitch or 7TV: the request count and the provider cost are unrelated quantities
+// here — a plain database read spends the same permit as /channels/mine, which may page through ten
+// Helix responses — so a budget shaped like a provider quota is a made-up number that fires on the
+// wrong traffic. Provider cost is answered by caches and, from step 4 of the rate-limit plan, by
+// observation; for no investigated case is a provider 429 on record, while every 429 users actually
+// hit came from the policy right here (issues #33/#35).
+// All budgets come from configuration (RateLimiting section, RateLimitingOptions) and can be moved
+// per environment variable and restart — the numbers below are no longer compiled in.
+var rateLimits = new RateLimitingOptions();
+builder.Configuration.GetSection(RateLimitingOptions.SectionName).Bind(rateLimits);
+// Fail fast, like the S3-34 migration guard further down: a capacity of zero from a mistyped
+// environment variable is not a lax limiter but a total outage of every route the policy guards,
+// and one that looks exactly like a genuine rate-limit incident in the log.
+rateLimits.Validate();
+
+// Exposed as IOptions so the read-only admin snapshot (GET /api/admin/rate-limits) can report the
+// effective, already-validated configuration without binding the section a second time.
+builder.Services.AddSingleton<IOptions<RateLimitingOptions>>(Options.Create(rateLimits));
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -100,43 +119,45 @@ builder.Services.AddRateLimiter(options =>
     // see RateLimitRejection for what that cost.
     options.OnRejected = RateLimitRejection.OnRejectedAsync;
 
-    // Names the policy exactly once. The partitioner needs the name for the rejection log, and
-    // AddPolicy does not hand it over.
-    void AddPerUserPolicy(string policyName, int permitLimit) =>
+    // Each helper names the policy exactly once. The partitioner needs the name for the rejection
+    // log, and AddPolicy does not hand it over.
+    void AddTokenBucketPolicy(string policyName, RateLimitingOptions.TokenBucketPolicy policy) =>
         options.AddPolicy(policyName, httpContext =>
-            RateLimitRejection.PartitionPerUser(httpContext, policyName, permitLimit));
+            RateLimitRejection.PartitionPerUserTokenBucket(httpContext, policyName, policy));
 
-    // Strict: every endpoint under this policy makes uncached calls to Twitch Helix or 7TV, and
-    // those quotas are per application, not per user. A single looping account could therefore
-    // exhaust the app-wide bucket, at which point Helix returns nothing for *everyone* and
-    // ModeratorCheckService can no longer distinguish "not a mod" from "quota exhausted" — every
-    // moderator of every channel silently loses their permissions.
-    // 40, not 20: ordinary navigation burns several permits per page switch (/channels/mine on
-    // every overview visit, /permissions plus usage-stats on every workspace entry), so 20/min
-    // ran out after ~7 page switches of plain clicking. The worst case per account stays below
-    // the app-wide Helix bucket (~800/min) even at /mine's up-to-10 Helix calls per request.
-    // Deliberately not raised again on 2026-08-29: the second round of 429s (issues #33/#35) was
-    // request volume, not ceiling — the fix is in the frontend's reload cycle.
-    AddPerUserPolicy("ExternalApi", permitLimit: 40);
+    void AddFixedWindowPolicy(string policyName, RateLimitingOptions.FixedWindowPolicy policy) =>
+        options.AddPolicy(policyName, httpContext =>
+            RateLimitRejection.PartitionPerUser(httpContext, policyName, policy.PermitLimit));
 
-    // Generous: bookkeeping against our own database with no downstream cost. Deliberately split
-    // out of the strict policy — sync-deleted is the one call that must never be dropped (a 429
-    // there leaves the database diverging from 7TV with no signal), and it used to share the
-    // 20/min budget with join and the vote endpoints.
-    AddPerUserPolicy("Bookkeeping", permitLimit: 120);
+    // Ordinary navigation: /channels/mine, channel status, permissions, usage stats, emote reads,
+    // vote lists and vote results. Generous on purpose — entering a workspace costs seven requests
+    // in one burst, and the app is in a test phase where a false local rejection hurts more than the
+    // extra load ever could. A bucket rather than a window because that burst is exactly what a
+    // fixed window cannot tell apart from a loop.
+    AddTokenBucketPolicy(RateLimitPolicyNames.InteractiveRead, rateLimits.InteractiveRead);
 
-    // Stricter than ExternalApi by a factor of eight, for the one endpoint a user can trigger that
-    // costs an unconditional 7TV call *and* fans a live event out to every open page of the channel.
-    // It is only half the guard: this partitions per user, so fifteen moderators of one channel
-    // would still get fifteen budgets — the per-channel half is IChannelResyncCooldown. Neither
-    // mechanism covers the other's case.
-    AddPerUserPolicy("ChannelResync", permitLimit: 5);
+    // Vote mutations, partitioned per user *and* vote session: a session someone is clicking through
+    // must not be able to lock that user out of navigation or of a second session.
+    options.AddPolicy(RateLimitPolicyNames.Voting, httpContext =>
+        RateLimitRejection.PartitionPerUserAndVoteSessionTokenBucket(
+            httpContext, RateLimitPolicyNames.Voting, rateLimits.Voting));
+
+    // Bookkeeping against our own database with no downstream cost. Deliberately its own policy:
+    // sync-deleted is the one call that must never be dropped — a 429 there leaves the database
+    // diverging from 7TV with no signal, because the deletion already happened over there.
+    AddFixedWindowPolicy(RateLimitPolicyNames.Bookkeeping, rateLimits.Bookkeeping);
+
+    // Far stricter, for the one endpoint a user can trigger that costs an unconditional 7TV call
+    // *and* fans a live event out to every open page of the channel. It is only half the guard: this
+    // partitions per user, so fifteen moderators of one channel would still get fifteen budgets —
+    // the per-channel half is IChannelResyncCooldown. Neither mechanism covers the other's case.
+    AddFixedWindowPolicy(RateLimitPolicyNames.ChannelResync, rateLimits.ChannelResync);
 
     // For the payload-free GET /api/health: public and anonymous, so this always partitions by IP
     // (PartitionPerUser falls back to it). One Redis read per hit — cheap, but unauthenticated,
     // and its legitimate callers are machines on fixed cadences: the container HEALTHCHECK
     // (every 30 s, from localhost) and the external uptime monitor (every 60 s).
-    AddPerUserPolicy("PublicHealth", permitLimit: 30);
+    AddFixedWindowPolicy(RateLimitPolicyNames.PublicHealth, rateLimits.PublicHealth);
 });
 
 var app = builder.Build();
@@ -240,6 +261,12 @@ void ApplyStaticCacheHeaders(StaticFileResponseContext context)
 app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = ApplyStaticCacheHeaders });
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Outside the limiter on purpose, and it measures on the way back out: the policy name and partition
+// are left behind by the partitioner on the way in, the rejection marker by OnRejectedAsync on the
+// way out, and neither is visible from inside. Step 4 of the rate-limit plan — this only counts, it
+// never decides: there is no observe/enforce switch and no reservation anywhere in this path.
+app.UseMiddleware<RateLimitTelemetryMiddleware>();
 app.UseRateLimiter();
 
 app.MapChannelEndpoints();

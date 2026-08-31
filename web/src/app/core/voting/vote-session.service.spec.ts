@@ -211,4 +211,56 @@ describe('VoteSessionService', () => {
     expect(req.request.method).toBe('DELETE');
     req.flush(null);
   });
+
+  describe('guard-results handoff', () => {
+    const RESULTS = {
+      sessionId: 5,
+      title: 't',
+      allowedVoterRoles: 1,
+      isActive: true,
+      startedAt: '',
+      endedAt: null,
+      voterCount: 0,
+      hideResultsUntilEnd: false,
+      emotes: [],
+    };
+
+    it('takeGuardResults returns what stashGuardResults stashed, once', () => {
+      service.stashGuardResults('sensitron', 5, RESULTS);
+
+      expect(service.takeGuardResults('sensitron', 5)).toEqual(RESULTS);
+      // Consumed — a second take must not still see it, or this would be a cache.
+      expect(service.takeGuardResults('sensitron', 5)).toBeNull();
+    });
+
+    it('takeGuardResults with no stash returns null', () => {
+      expect(service.takeGuardResults('sensitron', 5)).toBeNull();
+    });
+
+    it('a key mismatch returns null and discards the stash — a later matching take must not see it', () => {
+      service.stashGuardResults('sensitron', 5, RESULTS);
+
+      // Wrong session id.
+      expect(service.takeGuardResults('sensitron', 6)).toBeNull();
+      // The original, correct key must not still be served — the mismatch already discarded it.
+      expect(service.takeGuardResults('sensitron', 5)).toBeNull();
+    });
+
+    it('a channel-name mismatch also returns null and discards the stash', () => {
+      service.stashGuardResults('sensitron', 5, RESULTS);
+
+      expect(service.takeGuardResults('other-channel', 5)).toBeNull();
+      expect(service.takeGuardResults('sensitron', 5)).toBeNull();
+    });
+
+    it('a later stash replaces whatever was left over from an earlier one', () => {
+      const otherResults = { ...RESULTS, sessionId: 9, title: 'other' };
+      service.stashGuardResults('sensitron', 5, RESULTS);
+      // A second stash before anyone ever took the first — e.g. a redirect between two sessions
+      // of the same channel. The first entry must be gone, not just shadowed.
+      service.stashGuardResults('sensitron', 9, otherResults);
+
+      expect(service.takeGuardResults('sensitron', 9)).toEqual(otherResults);
+    });
+  });
 });

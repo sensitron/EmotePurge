@@ -279,6 +279,81 @@
         "pending": "Buffered emotes"
       }
     },
+    "rateLimits": {
+      "title": "Rate limits",
+      "degraded": "The counter store is currently unreachable. Only the active configuration is shown, no numbers.",
+      "policies": {
+        "title": "Local policies",
+        "capacity": "Capacity",
+        "refill": "Refill",
+        "refillTokenBucket": "{{tokensPerPeriod}} tokens / {{periodSeconds}} s",
+        "refillFixedWindow": "Window: {{windowSeconds}} s",
+        "partition": "Partition",
+        "queueLimit": "Queue",
+        "acceptedMinute": "Accepted (1 min)",
+        "rejectedMinute": "Rejected (1 min)",
+        "accepted24h": "Accepted (24 h)",
+        "rejected24h": "Rejected (24 h)",
+        "names": {
+          "InteractiveRead": "Navigation & reads",
+          "Voting": "Voting",
+          "Bookkeeping": "Bookkeeping (sync/join)",
+          "ChannelResync": "Manual channel resync",
+          "PublicHealth": "Public health check"
+        }
+      },
+      "lastRejection": {
+        "title": "Last local rejection",
+        "none": "No local rejection observed yet.",
+        "unavailable": "Not known without the counter store.",
+        "observedAt": "Observed at",
+        "method": "HTTP method",
+        "route": "Route template",
+        "policy": "Policy",
+        "partition": "Partition",
+        "retryAfter": "Retry-After"
+      },
+      "caches": {
+        "title": "Server caches",
+        "empty": "No cache lookups observed yet.",
+        "unavailable": "Not known without the counter store.",
+        "hitsMinute": "Hits (1 min)",
+        "missesMinute": "Misses (1 min)",
+        "hits24h": "Hits (24 h)",
+        "misses24h": "Misses (24 h)",
+        "names": {
+          "moderated-channels": "Moderated channels",
+          "seventv-grants": "7TV editor grants",
+          "subscriber-check": "Subscriber check"
+        }
+      },
+      "providers": {
+        "title": "Provider usage",
+        "empty": "No provider requests observed yet.",
+        "unavailable": "Not known without the counter store.",
+        "requestsMinute": "Requests (1 min)",
+        "requests24h": "Requests (24 h)",
+        "rateLimitedMinute": "429s (1 min)",
+        "rateLimited24h": "429s (24 h)",
+        "lastRateLimitedAt": "Last 429",
+        "retryAfter": "Retry-After",
+        "headerSample": "Twitch rate-limit headers (sample)",
+        "headerSampleValue": "Limit {{limit}} · Remaining {{remaining}} · Reset {{reset}} — observed {{observedAt}}",
+        "names": {
+          "twitch": "Twitch",
+          "seventv": "7TV"
+        },
+        "callSources": {
+          "twitch-helix": "Helix client",
+          "twitch-auth": "Auth client (OAuth/refresh)",
+          "seventv-rest": "7TV REST client"
+        }
+      },
+      "hints": {
+        "clientSevenTv": "Mass-delete and restore call 7TV directly from the browser (GraphQL) — those requests are missing from the server-side 7TV numbers above.",
+        "policyFreeRoutes": "SSE reconnects and the worker-health poll run without a local policy and therefore never show up in any policy counter."
+      }
+    },
     "roster": {
       "title": "Channel roster",
       "status": {

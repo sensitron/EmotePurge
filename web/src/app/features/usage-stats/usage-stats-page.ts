@@ -15,7 +15,7 @@ import {
 import { rxResource } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { Subscription, catchError, first, of, switchMap, take, timer } from 'rxjs';
+import { Subscription, catchError, first, merge, of, switchMap, timer } from 'rxjs';
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
@@ -117,10 +117,17 @@ const NEVER_USED_SORT_VALUE = Number.NEGATIVE_INFINITY;
 // Joining a channel does not fill it with emotes right away: POST /join only writes the channel row
 // and publishes JOIN to Redis, and the worker resolves the 7TV set a beat later. Since the overview
 // navigates straight into the workspace, the user reliably landed inside that window and saw an
-// empty grid that only a manual reload fixed. 30 seconds of polling covers a sync that normally
-// takes one or two, with headroom for a slow 7TV.
-const SYNC_POLL_INTERVAL_MS = 2000;
-const SYNC_POLL_MAX_ATTEMPTS = 15;
+// empty grid that only a manual reload fixed.
+//
+// What ends that wait is the `channel.synced` event, not a clock: it fires the moment the worker has
+// written the set, and the live subscription in the constructor already reloads status and totals
+// from it. The offsets below are only the fallback for an event that never arrives — a dropped SSE
+// frame, a connection reopened mid-sync. Three probes, where this used to fire fifteen two-second
+// ticks: each one is a request against the very rate limit issue #33 is about, and a fourth would
+// say nothing a slightly later third does not. The first covers the ordinary one-or-two-second
+// sync, the second a slow 7TV, and the last closes the same 30-second window as before — after
+// which the ordinary "no active emotes" state is the honest answer.
+const SYNC_PROBE_DELAYS_MS = [2000, 8000, 30000];
 
 // A shown sync-failure reason is already a true statement, not a blind wait — this is NOT the
 // abolished sync burst coming back (see awaitSync below): the page has something to say the whole
@@ -129,10 +136,13 @@ const SYNC_POLL_MAX_ATTEMPTS = 15;
 // e.g. no_seventv_account -> no_active_emote_set once someone registers) and when it succeeds but
 // changes nothing (case 2: emoteSetSwitched and inventoryChanged both false), so `channel.synced`
 // never fires for either case and the live subscription above cannot help. Polling is the fallback.
-// 30 s because the backend's own resync runs every 60 s (SevenTv:ResyncIntervalSeconds,
-// SevenTvPeriodicResyncWorker) — asking faster could not possibly see a fresher answer, and this
-// halves the worst-case staleness against that floor.
-const SYNC_FAILURE_RECHECK_INTERVAL_MS = 30000;
+// 60 s to match the backend's own resync cadence (SevenTv:ResyncIntervalSeconds,
+// SevenTvPeriodicResyncWorker) — asking faster could not possibly see a fresher answer than that
+// floor allows, so there is nothing to buy by polling twice as often as the thing being polled for
+// can itself change. This used to be 30 s, halving the worst-case staleness against that same
+// floor; issue #33 traded that headroom back for halving the request rate a page with a visible
+// reason keeps up for as long as it stays open.
+const SYNC_FAILURE_RECHECK_INTERVAL_MS = 60000;
 
 // Buckets in the distribution strip. Around a hundred is what fits across the content width at one
 // readable bar plus gutter — enough to show where the curve's knee sits, few enough that each bar
@@ -475,9 +485,27 @@ export class UsageStatsPage {
   private readonly latestTotals = latestOnly<EmoteUsageTotal[]>();
   private readonly latestSeries = latestOnly<ChannelUsageSeries>();
 
-  /** The channel whose set status has come back. Held as a channel rather than a flag so that
-   *  navigating to another one makes the range provisional again. */
+  /** The channel whose set status has come back *successfully*. Held as a channel rather than a
+   *  flag so that navigating to another one makes the range provisional again. Deliberately not
+   *  written on a failed attempt (see load()) — that used to make a transient failure permanent by
+   *  making this equal the channel anyway, which silenced every later retry for it, refresh button
+   *  included. */
   private readonly setStatusChannel = signal<string | null>(null);
+
+  /** The channel whose set status request has *failed* — narrower than setStatusChannel above: it
+   *  only exists to unblock the "all time" placeholder (see rangeResolved) once a failed attempt
+   *  makes it clear no tracking start is coming, without also gating load()'s own retry guard. */
+  private readonly setStatusFailedChannel = signal<string | null>(null);
+
+  /** The channel for which an active-set request is in flight or has already answered, success or
+   *  failure. A plain field, not a signal: writing it must never itself retrigger load()'s effect —
+   *  only reading channelName()/from()/to()/rangeResolved() should. A signal here would double-fire
+   *  the request when a failure flips rangeResolved from false to true (see setStatusFailedChannel):
+   *  that recompute reruns the effect once to release the placeholder, and if the guard reacted to
+   *  the same write it would ask a second time on that very rerun. refresh() resets this explicitly,
+   *  which is what lets the refresh button, and only the refresh button, ask again on an unchanged
+   *  channel. */
+  private requestedSetStatusFor: string | null = null;
 
   /**
    * False while "all time" still means the placeholder span rather than this channel's tracking
@@ -492,11 +520,13 @@ export class UsageStatsPage {
     if (this.rangePreset() !== 'all') {
       return true;
     }
-    if (this.setStatusChannel() !== this.channelName()) {
-      return false;
+    if (this.setStatusChannel() === this.channelName()) {
+      // A channel with no tracking start keeps the placeholder, and this holds for it too.
+      return this.from() === allTimeStart(this.trackedSinceDate());
     }
-    // A channel with no tracking start keeps the placeholder, and this holds for it too.
-    return this.from() === allTimeStart(this.trackedSinceDate());
+    // A failed attempt never learns a tracking start, so nothing will ever correct the range for
+    // this channel — treating it as resolved is what stops "all time" from waiting forever.
+    return this.setStatusFailedChannel() === this.channelName();
   });
 
   private readonly seriesByEmote = computed(
@@ -668,6 +698,10 @@ export class UsageStatsPage {
       });
       // Only a sync can have moved the active set id, its capacity or the occupied-slot count.
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
+        // This event is what awaitSync is really waiting for — the probes are only there for the
+        // case where it never shows up. The totals have just been refetched above, so letting the
+        // remaining probes run would only ask the same question again.
+        this.stopAwaitingSync();
         this.refreshSetStatus();
       }
     });
@@ -721,6 +755,10 @@ export class UsageStatsPage {
   }
 
   protected refresh(): void {
+    // Forces a fresh active-set request even though the channel has not changed: load()'s guard
+    // above only exists to stop a bare range correction from asking twice, and must not also
+    // swallow the one deliberate retry a previously failed request needs.
+    this.requestedSetStatusFor = null;
     this.load(this.channelName(), this.from(), this.to(), this.rangeResolved());
   }
 
@@ -1038,33 +1076,46 @@ export class UsageStatsPage {
   }
 
   private load(channelName: string, from: string, to: string, rangeResolved: boolean): void {
-    // A poll from a previous channel or date range must not survive into this one — and neither
-    // must a drilldown series cached against the previous channel or range.
+    // A drilldown series cached against the previous channel or range must not survive into this one.
     this.usageStatService.clearSeriesCache();
-    this.syncPoll?.unsubscribe();
-    this.isAwaitingSync.set(false);
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    this.emoteAdminService.getSetStatus(channelName).subscribe({
-      next: (status) => {
-        this.setStatus.set(status);
-        this.setStatusChannel.set(channelName);
-        // An empty id means SevenTvSyncService has not written a set for this channel. Only worth
-        // waiting on while there is no reason: with one, the answer is already final — no sync will
-        // ever produce an id until the cause is fixed on 7TV, and channel.synced brings us back
-        // (see the live subscription in the constructor) the moment it is.
-        if (!status.activeEmoteSetId && !status.syncFailureReason) {
-          this.awaitSync(channelName, from, to);
-        }
-      },
-      // Marked resolved on failure too: without a tracking start "all time" keeps the placeholder
-      // span, which is the honest fallback — but waiting here forever would leave the page loading.
-      error: () => {
-        this.setStatus.set(null);
-        this.setStatusChannel.set(channelName);
-      },
-    });
+    // The set status is bound to the channel, not to the range: requestedSetStatusFor already names
+    // the channel of the last status request (in flight, successful or failed), so a range-only
+    // rerun of this effect (the "all time" correction below, or a manual from/to change) finds it
+    // already equal to channelName and skips this whole block — only a channel switch, or an
+    // explicit refresh() resetting the field, clears that equality. This is what turns the second
+    // "all time" effect run from a duplicate active-set request into totals/series only, and it is
+    // why the wait for a first sync is ended here and nowhere else: cancelling it on a range change
+    // too would kill it one frame after it started, with no status request left on that second run
+    // to start it again.
+    if (this.requestedSetStatusFor !== channelName) {
+      this.requestedSetStatusFor = channelName;
+      this.stopAwaitingSync();
+      this.emoteAdminService.getSetStatus(channelName).subscribe({
+        next: (status) => {
+          this.setStatus.set(status);
+          this.setStatusChannel.set(channelName);
+          // An empty id means SevenTvSyncService has not written a set for this channel. Only worth
+          // waiting on while there is no reason: with one, the answer is already final — no sync will
+          // ever produce an id until the cause is fixed on 7TV, and channel.synced brings us back
+          // (see the live subscription in the constructor) the moment it is.
+          if (!status.activeEmoteSetId && !status.syncFailureReason) {
+            this.awaitSync(channelName);
+          }
+        },
+        // setStatusChannel is deliberately left as-is here — see its own comment. Marking only
+        // setStatusFailedChannel keeps "all time" from waiting forever (the honest placeholder
+        // fallback, unchanged) without also telling requestedSetStatusFor's guard above that this
+        // channel is done asking: a later load() call — most importantly the refresh button, which
+        // resets requestedSetStatusFor itself — must still be free to try again.
+        error: () => {
+          this.setStatus.set(null);
+          this.setStatusFailedChannel.set(channelName);
+        },
+      });
+    }
 
     // Under "all time" the range is still the placeholder span until the status above names the
     // tracking start. Asking now would aggregate a year of rows for a channel counted for days and
@@ -1093,23 +1144,33 @@ export class UsageStatsPage {
       });
   }
 
+  // Ends the wait for the first sync, the in-flight probe included, and takes the banner down with
+  // it. Called both when something else has answered the question (a `channel.synced` event) and
+  // when the question no longer applies (a channel switch).
+  private stopAwaitingSync(): void {
+    this.syncPoll?.unsubscribe();
+    this.syncPoll = undefined;
+    this.isAwaitingSync.set(false);
+  }
+
   // Waits for the worker's 7TV sync to fill in the set id, then loads the totals once more.
   // Deliberately bounded: a channel with no 7TV emote set at all never gets an id, so this has to
   // give up eventually — at which point the ordinary "no active emotes" state is the honest answer.
-  private awaitSync(channelName: string, from: string, to: string): void {
+  private awaitSync(channelName: string): void {
     this.isAwaitingSync.set(true);
-    this.syncPoll = timer(SYNC_POLL_INTERVAL_MS, SYNC_POLL_INTERVAL_MS)
+    // Separate timers at fixed offsets from now rather than one interval: the gaps are deliberately
+    // uneven (see SYNC_PROBE_DELAYS_MS), and merge keeps each offset measured from the same start.
+    this.syncPoll = merge(...SYNC_PROBE_DELAYS_MS.map((delay) => timer(delay)))
       .pipe(
         // catchError sits on the inner request, not on the outer pipe: out here it would replace the
-        // whole polling stream on the first hiccup and end the wait. Inside, one failed tick just
-        // counts as "still empty" and the next tick tries again.
+        // whole probe stream on the first hiccup and end the wait. Inside, one failed probe just
+        // counts as "still empty" and the next probe tries again.
         switchMap(() =>
           this.emoteAdminService.getSetStatus(channelName).pipe(catchError(() => of(null))),
         ),
-        take(SYNC_POLL_MAX_ATTEMPTS),
         // Completes on the first status that settles the question — a set id (the sync landed) or a
-        // reason (it cannot land). Running to SYNC_POLL_MAX_ATTEMPTS against a known reason spent
-        // 30 seconds to arrive at an answer the first tick already had.
+        // reason (it cannot land). Probing on against a known reason would spend the rest of the
+        // window arriving at an answer the first probe already had.
         first((status) => !!status?.activeEmoteSetId || !!status?.syncFailureReason, null),
       )
       .subscribe((status) => {
@@ -1121,8 +1182,11 @@ export class UsageStatsPage {
         // Adopted even without a set id: the reason is the whole payload in that case, and the
         // empty state below renders from it.
         this.setStatus.set(status);
+        // Range read now rather than closed over when the wait started: a range change keeps the
+        // wait alive (see load()), and a stale from/to would fetch the wrong window — the same
+        // reasoning as in the failure-reason recheck.
         if (status.activeEmoteSetId) {
-          this.loadTotals(channelName, from, to);
+          this.loadTotals(channelName, this.from(), this.to());
         }
       });
   }

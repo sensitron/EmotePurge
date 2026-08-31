@@ -279,6 +279,81 @@
         "pending": "Gepufferte Emotes"
       }
     },
+    "rateLimits": {
+      "title": "Rate Limits",
+      "degraded": "Der Zähler-Store ist gerade nicht erreichbar. Es wird nur die aktive Konfiguration angezeigt, keine Zahlen.",
+      "policies": {
+        "title": "Lokale Policies",
+        "capacity": "Kapazität",
+        "refill": "Nachfüllung",
+        "refillTokenBucket": "{{tokensPerPeriod}} Tokens / {{periodSeconds}} s",
+        "refillFixedWindow": "Fenster: {{windowSeconds}} s",
+        "partition": "Partition",
+        "queueLimit": "Queue",
+        "acceptedMinute": "Akzeptiert (1 min)",
+        "rejectedMinute": "Abgelehnt (1 min)",
+        "accepted24h": "Akzeptiert (24 h)",
+        "rejected24h": "Abgelehnt (24 h)",
+        "names": {
+          "InteractiveRead": "Navigation & Reads",
+          "Voting": "Voting",
+          "Bookkeeping": "Buchführung (sync/join)",
+          "ChannelResync": "Manueller Channel-Resync",
+          "PublicHealth": "Öffentlicher Health-Check"
+        }
+      },
+      "lastRejection": {
+        "title": "Letzte lokale Ablehnung",
+        "none": "Noch keine lokale Ablehnung beobachtet.",
+        "unavailable": "Ohne Zähler-Store nicht bekannt.",
+        "observedAt": "Zeitpunkt",
+        "method": "HTTP-Methode",
+        "route": "Route-Template",
+        "policy": "Policy",
+        "partition": "Partition",
+        "retryAfter": "Retry-After"
+      },
+      "caches": {
+        "title": "Server-Caches",
+        "empty": "Noch keine Cache-Zugriffe beobachtet.",
+        "unavailable": "Ohne Zähler-Store nicht bekannt.",
+        "hitsMinute": "Treffer (1 min)",
+        "missesMinute": "Fehltreffer (1 min)",
+        "hits24h": "Treffer (24 h)",
+        "misses24h": "Fehltreffer (24 h)",
+        "names": {
+          "moderated-channels": "Moderierte Channels",
+          "seventv-grants": "7TV-Editor-Grants",
+          "subscriber-check": "Subscriber-Check"
+        }
+      },
+      "providers": {
+        "title": "Provider-Verbrauch",
+        "empty": "Noch keine Provider-Requests beobachtet.",
+        "unavailable": "Ohne Zähler-Store nicht bekannt.",
+        "requestsMinute": "Requests (1 min)",
+        "requests24h": "Requests (24 h)",
+        "rateLimitedMinute": "429er (1 min)",
+        "rateLimited24h": "429er (24 h)",
+        "lastRateLimitedAt": "Letzte 429",
+        "retryAfter": "Retry-After",
+        "headerSample": "Twitch-Rate-Limit-Header (Stichprobe)",
+        "headerSampleValue": "Limit {{limit}} · Remaining {{remaining}} · Reset {{reset}} — beobachtet {{observedAt}}",
+        "names": {
+          "twitch": "Twitch",
+          "seventv": "7TV"
+        },
+        "callSources": {
+          "twitch-helix": "Helix-Client",
+          "twitch-auth": "Auth-Client (OAuth/Refresh)",
+          "seventv-rest": "7TV-REST-Client"
+        }
+      },
+      "hints": {
+        "clientSevenTv": "Mass-Delete und Restore rufen 7TV direkt aus dem Browser auf (GraphQL) — diese Requests fehlen in den serverseitigen 7TV-Zahlen oben.",
+        "policyFreeRoutes": "SSE-Reconnects und der Worker-Health-Poll laufen ohne lokale Policy und erscheinen deshalb in keinem Policy-Zähler."
+      }
+    },
     "roster": {
       "title": "Channel-Roster",
       "status": {

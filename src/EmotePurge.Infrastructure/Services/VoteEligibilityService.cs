@@ -13,6 +13,7 @@ public class VoteEligibilityService(
     IModRoleCache modRoleCache,
     ITwitchHelixClient helixClient,
     ITwitchUserTokenService userTokenService,
+    IRateLimitTelemetry telemetry,
     ILogger<VoteEligibilityService> logger) : IVoteEligibilityService
 {
     public async Task<VoteEligibilityResult> EvaluateAsync(
@@ -89,6 +90,9 @@ public class VoteEligibilityService(
         // Cached, because the session list evaluates eligibility per session: a channel with ten Subs
         // sessions used to fire ten identical Helix calls (10s timeout each) for a single page view.
         var cached = await modRoleCache.TryGetIsSubscriberAsync(principal.TwitchUserId, broadcasterTwitchId, cancellationToken);
+        // Counted per lookup, not per page view: one channel with ten Subs sessions asks ten times,
+        // and the nine hits are exactly the Helix calls this cache exists to remove.
+        telemetry.RecordCacheLookup(RateLimitCacheNames.SubscriberCheck, cached is not null);
         if (cached is { } isSubscriberCached)
         {
             return isSubscriberCached;

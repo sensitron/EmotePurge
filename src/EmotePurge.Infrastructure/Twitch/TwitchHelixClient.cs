@@ -37,12 +37,6 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
         }
     }
 
-    public async Task<IReadOnlySet<string>?> GetModeratedChannelLoginsAsync(string accessToken, string twitchUserId, CancellationToken cancellationToken = default)
-    {
-        var channels = await FetchModeratedChannelsAsync(accessToken, twitchUserId, cancellationToken);
-        return channels?.Select(c => c.BroadcasterLogin).ToHashSet(StringComparer.OrdinalIgnoreCase);
-    }
-
     public async Task<IReadOnlyList<TwitchModeratedChannelInfo>?> GetModeratedChannelsAsync(string accessToken, string twitchUserId, CancellationToken cancellationToken = default)
     {
         var channels = await FetchModeratedChannelsAsync(accessToken, twitchUserId, cancellationToken);
@@ -87,6 +81,18 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
                 {
                     break;
                 }
+            }
+
+            if (!string.IsNullOrEmpty(cursor))
+            {
+                // Page cap reached while Helix still offers more: report a failure instead of a
+                // silently truncated list. Unreachable below 1000 moderated channels today, but a
+                // partial list must never be mistaken for a complete one — it would be cached, and
+                // every channel past the cut would read as "not moderated" for the whole TTL.
+                logger.LogWarning(
+                    "Twitch Get Moderated Channels für User {UserId} nach {Pages} Seiten abgebrochen, obwohl weitere Seiten vorliegen — melde Fehlschlag statt Teilergebnis.",
+                    twitchUserId, MaxModeratedChannelPages);
+                return null;
             }
 
             return channels;

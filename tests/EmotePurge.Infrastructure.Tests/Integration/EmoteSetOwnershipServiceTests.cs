@@ -2,9 +2,11 @@ using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
+using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Services;
+using EmotePurge.Infrastructure.Tests.Fakes;
 using EmotePurge.Infrastructure.Tests.Fixtures;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Xunit;
 
@@ -31,9 +33,7 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
         sevenTv.GetEmoteSetOwnerIdAsync("set-shared", Arg.Any<CancellationToken>())
             .Returns("7tv-user-a");
 
-        var helix = Substitute.For<ITwitchHelixClient>();
-        var userTokens = Substitute.For<ITwitchUserTokenService>();
-        var service = new EmoteSetOwnershipService(db, sevenTv, helix, userTokens, NullLogger<EmoteSetOwnershipService>.Instance);
+        var service = CreateService(db, sevenTv);
 
         var result = await service.CheckAsync("sharedsettest_a", caller: null);
 
@@ -52,9 +52,7 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
         await db.SaveChangesAsync();
 
         var sevenTv = Substitute.For<ISevenTvApiClient>();
-        var helix = Substitute.For<ITwitchHelixClient>();
-        var userTokens = Substitute.For<ITwitchUserTokenService>();
-        var service = new EmoteSetOwnershipService(db, sevenTv, helix, userTokens, NullLogger<EmoteSetOwnershipService>.Instance);
+        var service = CreateService(db, sevenTv);
 
         var result = await service.CheckAsync("neversynctest", caller: null);
 
@@ -84,20 +82,85 @@ public class EmoteSetOwnershipServiceTests(PostgresFixture fixture)
         sevenTv.ResolveSevenTvIdentityAsync("3002", Arg.Any<CancellationToken>())
             .Returns(new SevenTvIdentity("7tv-user-untracked", "set-tier3"));
 
-        var helix = Substitute.For<ITwitchHelixClient>();
-        helix.GetModeratedChannelsAsync("caller-token", "caller-id", Arg.Any<CancellationToken>())
-            .Returns(new List<TwitchModeratedChannelInfo> { new("tier3test_untracked", "3002") });
+        var service = CreateService(db, sevenTv, Moderated(("tier3test_untracked", "3002")));
 
-        var caller = new TwitchPrincipalInfo("caller-id", "callerlogin", "caller-token");
-        var userTokens = Substitute.For<ITwitchUserTokenService>();
-        userTokens.GetValidAccessTokenAsync(caller, Arg.Any<CancellationToken>())
-            .Returns(new TwitchUserTokenResult("caller-token", ReauthRequired: false));
-
-        var service = new EmoteSetOwnershipService(db, sevenTv, helix, userTokens, NullLogger<EmoteSetOwnershipService>.Instance);
-
-        var result = await service.CheckAsync("tier3test_owner", caller);
+        var result = await service.CheckAsync("tier3test_owner", Caller());
 
         Assert.Contains("tier3test_untracked", result.OtherModeratedChannelsSharingSet);
         Assert.Empty(result.OtherTrackedChannelsSharingSet);
+    }
+
+    [Fact]
+    public async Task CheckAsync_ReturnsNoModeratedMatches_WhenTheCallerModeratesNothing()
+    {
+        // An empty list is a real answer: there is simply no Tier-3 candidate to resolve, so 7TV is
+        // asked exactly once — for the channel under test itself.
+        await using var db = fixture.CreateDbContext();
+        db.Channels.Add(new Channel { ChannelName = "tier3empty_owner", TwitchChannelId = "ownership4001", ActiveEmoteSetId = "set-empty" });
+        await db.SaveChangesAsync();
+
+        var sevenTv = OwnedSet("ownership4001", "set-empty");
+        var logger = new RecordingLogger<EmoteSetOwnershipService>();
+        var service = CreateService(db, sevenTv, Moderated(), logger);
+
+        var result = await service.CheckAsync("tier3empty_owner", Caller());
+
+        Assert.Empty(result.OtherModeratedChannelsSharingSet);
+        await sevenTv.Received(1).ResolveSevenTvIdentityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // Nothing failed here, so nothing is reported.
+        Assert.Empty(logger.Entries);
+    }
+
+    [Fact]
+    public async Task CheckAsync_ReturnsNoModeratedMatches_AndLogs_WhenTheModeratedListCouldNotBeDetermined()
+    {
+        // Same empty Tier-3 result as above — the warning DTO has no way to express a degraded
+        // Tier 3 — so the log line is the only thing separating "moderates nothing" from "we could
+        // not find out", and an incomplete warning must be traceable to its cause.
+        await using var db = fixture.CreateDbContext();
+        db.Channels.Add(new Channel { ChannelName = "tier3unknown_owner", TwitchChannelId = "ownership5001", ActiveEmoteSetId = "set-unknown" });
+        await db.SaveChangesAsync();
+
+        var sevenTv = OwnedSet("ownership5001", "set-unknown");
+        var logger = new RecordingLogger<EmoteSetOwnershipService>();
+        var service = CreateService(db, sevenTv, new ModeratedChannelsLookup(null, ReauthRequired: false), logger);
+
+        var result = await service.CheckAsync("tier3unknown_owner", Caller());
+
+        Assert.Empty(result.OtherModeratedChannelsSharingSet);
+        await sevenTv.Received(1).ResolveSevenTvIdentityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+    }
+
+    private static TwitchPrincipalInfo Caller() => new("caller-id", "callerlogin", "caller-token");
+
+    private static ModeratedChannelsLookup Moderated(params (string Login, string BroadcasterId)[] channels) =>
+        new([.. channels.Select(c => new TwitchModeratedChannelInfo(c.Login, c.BroadcasterId))], ReauthRequired: false);
+
+    private static ISevenTvApiClient OwnedSet(string twitchChannelId, string emoteSetId)
+    {
+        var sevenTv = Substitute.For<ISevenTvApiClient>();
+        sevenTv.ResolveSevenTvIdentityAsync(twitchChannelId, Arg.Any<CancellationToken>())
+            .Returns(new SevenTvIdentity("7tv-user", emoteSetId));
+        sevenTv.GetEmoteSetOwnerIdAsync(emoteSetId, Arg.Any<CancellationToken>()).Returns("7tv-user");
+        return sevenTv;
+    }
+
+    private static EmoteSetOwnershipService CreateService(
+        AppDbContext db,
+        ISevenTvApiClient sevenTv,
+        ModeratedChannelsLookup? moderated = null,
+        ILogger<EmoteSetOwnershipService>? logger = null)
+    {
+        var moderatedChannelsProvider = Substitute.For<IModeratedChannelsProvider>();
+        moderatedChannelsProvider.GetModeratedChannelsAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<CancellationToken>())
+            .Returns(moderated ?? Moderated());
+
+        return new EmoteSetOwnershipService(
+            db,
+            sevenTv,
+            moderatedChannelsProvider,
+            logger ?? new RecordingLogger<EmoteSetOwnershipService>());
     }
 }

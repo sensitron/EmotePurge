@@ -7,12 +7,6 @@ namespace EmotePurge.Infrastructure.Redis;
 
 public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfiguration configuration) : IModRoleCache
 {
-    public Task<bool?> TryGetIsModeratorAsync(string twitchUserId, string channelName, CancellationToken cancellationToken = default) =>
-        TryGetAsync(BuildKey("modcheck", twitchUserId, channelName));
-
-    public Task SetIsModeratorAsync(string twitchUserId, string channelName, bool isModerator, CancellationToken cancellationToken = default) =>
-        SetAsync(BuildKey("modcheck", twitchUserId, channelName), isModerator);
-
     public async Task<SevenTvEditorGrants?> TryGetSevenTvEditorGrantsAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
         var value = await connectionMultiplexer.GetDatabase().StringGetAsync($"7tveditor:{twitchUserId}");
@@ -52,11 +46,18 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
 
     public async Task<int> InvalidateUserAsync(string twitchUserId, CancellationToken cancellationToken = default)
     {
-        // The per-scope keys (modcheck/subcheck) are not enumerable from the user id alone, so this
-        // SCANs for them — acceptable here: the keyspace is small (role checks for logged-in users
-        // only) and the call is a rare, admin-triggered action, not a request path. KeysAsync uses
-        // cursor-based SCAN under the hood, never the blocking KEYS command.
-        var keys = new List<RedisKey> { $"7tveditor:{twitchUserId}" };
+        // Both directly addressable keys are named from the user id alone; only the per-broadcaster
+        // subcheck keys need a SCAN — acceptable here: the keyspace is small (role checks for
+        // logged-in users only) and the call is a rare, admin-triggered action, not a request path.
+        // KeysAsync uses cursor-based SCAN under the hood, never the blocking KEYS command.
+        //
+        // No modcheck:* SCAN any more: nothing writes those keys since the moderated-channel list
+        // replaced the per-channel bool. Entries left over from a previous deployment are not worth
+        // scanning for — they expire on their own within the TTL (ten minutes by default) and no
+        // reader ever looks at them again.
+        // The modlist key format has to stay in step with ModeratedChannelsProvider.BuildKey — this
+        // is the only place outside that service that names it.
+        var keys = new List<RedisKey> { $"7tveditor:{twitchUserId}", $"modlist:{twitchUserId}" };
         foreach (var endpoint in connectionMultiplexer.GetEndPoints())
         {
             var server = connectionMultiplexer.GetServer(endpoint);
@@ -65,19 +66,14 @@ public class ModRoleCache(IConnectionMultiplexer connectionMultiplexer, IConfigu
                 continue;
             }
 
-            await foreach (var key in server.KeysAsync(pattern: $"modcheck:{twitchUserId}:*").WithCancellation(cancellationToken))
-            {
-                keys.Add(key);
-            }
-
             await foreach (var key in server.KeysAsync(pattern: $"subcheck:{twitchUserId}:*").WithCancellation(cancellationToken))
             {
                 keys.Add(key);
             }
         }
 
-        // KeyDelete reports how many keys existed — the 7tveditor guess above is only counted when
-        // there actually was a cached grant set.
+        // KeyDelete reports how many keys existed — the two guessed keys above are only counted
+        // when they actually held something.
         return (int)await connectionMultiplexer.GetDatabase().KeyDeleteAsync([.. keys.Distinct()]);
     }
 

@@ -11,7 +11,7 @@ public class MyChannelsService(
     AppDbContext db,
     ITwitchHelixClient helixClient,
     ISevenTvEditorService sevenTvEditorService,
-    ITwitchUserTokenService userTokenService,
+    IModeratedChannelsProvider moderatedChannelsProvider,
     ITwitchLiveStatusReader liveStatusReader,
     ITwitchAppTokenProvider appTokenProvider,
     ILogger<MyChannelsService> logger) : IMyChannelsService
@@ -30,29 +30,18 @@ public class MyChannelsService(
         // Helix's moderated-channels list only ever contains channels the user moderates for
         // someone else — it never includes the channel the user broadcasts themselves.
         var flagsByChannel = new Dictionary<string, ChannelFlags> { [selfLogin] = new() { IsBroadcaster = true } };
-        var helixUnavailable = false;
 
-        var token = await userTokenService.GetValidAccessTokenAsync(principal, cancellationToken);
-        var reauthRequired = token.ReauthRequired;
-        if (token.AccessToken is null)
+        // Shares the moderated-channel list (and therefore its cache) with the authorization path;
+        // this used to paginate Helix here, uncached, on every single overview load. A null list is
+        // the degradation the DTO reports as HelixUnavailable — an empty one is a complete answer
+        // and must not raise that flag, or every user who moderates nothing would be told Twitch is
+        // unreachable.
+        var moderated = await moderatedChannelsProvider.GetModeratedChannelsAsync(principal, cancellationToken);
+        var reauthRequired = moderated.ReauthRequired;
+        var helixUnavailable = moderated.Channels is null;
+        foreach (var moderatedChannel in moderated.Channels ?? [])
         {
-            helixUnavailable = true;
-        }
-        else
-        {
-            var moderatedChannels = await helixClient.GetModeratedChannelLoginsAsync(token.AccessToken, principal.TwitchUserId, cancellationToken);
-            if (moderatedChannels is null)
-            {
-                helixUnavailable = true;
-            }
-            else
-            {
-                foreach (var login in moderatedChannels)
-                {
-                    var normalized = ChannelName.Normalize(login);
-                    GetOrAdd(flagsByChannel, normalized).IsModerator = true;
-                }
-            }
+            GetOrAdd(flagsByChannel, ChannelName.Normalize(moderatedChannel.Login)).IsModerator = true;
         }
 
         // Independent of the Twitch-role axis above — a 7TV editor grant doesn't require any Twitch

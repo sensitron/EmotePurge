@@ -11,6 +11,7 @@ import {
   AdminRoster,
   AdminUser,
   AuditLogFilter,
+  RateLimitTelemetrySnapshot,
 } from './admin.model';
 
 /**
@@ -30,6 +31,15 @@ export class AdminService {
    *  section (GET /api/channels) was removed. */
   listChannels(): Observable<AdminChannelsResult> {
     return this.http.get<AdminChannelsResult>('/api/admin/channels');
+  }
+
+  /** Read-only rate-limit observability: effective policy configuration, accepted/rejected counts,
+   *  server-cache hit rates and real provider 429s — no write counterpart exists (design 4 of the
+   *  #33 architecture doc). `telemetryAvailable: false` means the counter store is unreachable;
+   *  the response still carries the effective configuration, which comes from options and is
+   *  unaffected by Redis. */
+  getRateLimits(): Observable<RateLimitTelemetrySnapshot> {
+    return this.http.get<RateLimitTelemetrySnapshot>('/api/admin/rate-limits');
   }
 
   /** The worker's per-channel roster next to the channels the database considers active. Separate

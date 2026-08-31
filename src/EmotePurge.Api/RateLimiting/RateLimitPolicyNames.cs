@@ -1,0 +1,30 @@
+namespace EmotePurge.Api.RateLimiting;
+
+/// <summary>
+/// The name of every rate-limit policy, in one place.
+/// </summary>
+/// <remarks>
+/// A policy name is a string in three unrelated spots: the registration in <c>Program.cs</c>, the
+/// <c>RequireRateLimiting</c> call on every route it guards, and the rejection log an operator reads
+/// when a 429 shows up. Typed out three times, a rename silently unhooks routes — ASP.NET Core does
+/// not fail a build over a policy name no registration answers, it throws at the first request
+/// against that route. Referencing the constants makes the compiler the guard instead, and lets the
+/// tests assert the name the code actually uses rather than a re-typed copy of it.
+/// </remarks>
+internal static class RateLimitPolicyNames
+{
+    /// <summary>Ordinary navigation: reads that cost this API a database query, nothing more.</summary>
+    internal const string InteractiveRead = "InteractiveRead";
+
+    /// <summary>Casting and retracting votes, partitioned per vote session rather than per user.</summary>
+    internal const string Voting = "Voting";
+
+    /// <summary>Writes against our own database whose loss would leave data diverging from 7TV.</summary>
+    internal const string Bookkeeping = "Bookkeeping";
+
+    /// <summary>The one user-triggered action that costs an unconditional 7TV call.</summary>
+    internal const string ChannelResync = "ChannelResync";
+
+    /// <summary>The anonymous <c>GET /api/health</c>, partitioned by remote IP.</summary>
+    internal const string PublicHealth = "PublicHealth";
+}
