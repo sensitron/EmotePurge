@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EmotePurge.Core.Services;
+using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 
 namespace EmotePurge.Infrastructure.Redis;
@@ -9,11 +10,24 @@ namespace EmotePurge.Infrastructure.Redis;
 /// are plain Redis string operations with no worker-side state, so splitting them would only
 /// duplicate the wire format.
 /// </summary>
-public class TwitchLiveStatusStore(IConnectionMultiplexer connectionMultiplexer) : ITwitchLiveStatusReader, ITwitchLiveStatusWriter
+public class TwitchLiveStatusStore(IConnectionMultiplexer connectionMultiplexer, ILogger<TwitchLiveStatusStore> logger) : ITwitchLiveStatusReader, ITwitchLiveStatusWriter
 {
     public async Task<TwitchLiveStatusSnapshot?> ReadAsync(CancellationToken cancellationToken = default)
     {
-        var value = await connectionMultiplexer.GetDatabase().StringGetAsync(TwitchLiveStatusKeys.LiveChannels);
+        RedisValue value;
+        try
+        {
+            value = await connectionMultiplexer.GetDatabase().StringGetAsync(TwitchLiveStatusKeys.LiveChannels);
+        }
+        catch (Exception ex) when (ex is RedisException or TimeoutException)
+        {
+            // A missing key and an unreachable Redis both mean the same thing to every consumer here
+            // (MyChannelsService derives "unknown" live state): "no statement right now" — so an outage
+            // collapses into the identical null a missing/expired key already produces, not a new case.
+            logger.LogWarning(ex, "Lesen des Live-Status-Caches fehlgeschlagen — behandle als fehlenden Key.");
+            return null;
+        }
+
         if (value.IsNullOrEmpty)
         {
             return null;

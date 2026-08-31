@@ -2,6 +2,7 @@ using System.Text.Json;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Tests.Fixtures;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace EmotePurge.Infrastructure.Tests.Integration;
@@ -15,7 +16,7 @@ public class TwitchLiveStatusStoreTests(RedisFixture fixture)
     [Fact]
     public async Task PublishAsync_RoundTripsThroughReadAsync_AndSetsTheTtl()
     {
-        var store = new TwitchLiveStatusStore(fixture.Connection);
+        var store = new TwitchLiveStatusStore(fixture.Connection, NullLogger<TwitchLiveStatusStore>.Instance);
         var snapshot = new TwitchLiveStatusSnapshot(
             new DateTime(2026, 8, 3, 18, 0, 0, DateTimeKind.Utc),
             ["handofblood", "sensitron"]);
@@ -37,7 +38,7 @@ public class TwitchLiveStatusStoreTests(RedisFixture fixture)
     {
         // "Nobody is live" is a poll result like any other — it must come back as an empty list,
         // distinguishable from the missing key that means "no statement".
-        var store = new TwitchLiveStatusStore(fixture.Connection);
+        var store = new TwitchLiveStatusStore(fixture.Connection, NullLogger<TwitchLiveStatusStore>.Instance);
 
         await store.PublishAsync(
             new TwitchLiveStatusSnapshot(new DateTime(2026, 8, 3, 3, 0, 0, DateTimeKind.Utc), []),
@@ -55,7 +56,7 @@ public class TwitchLiveStatusStoreTests(RedisFixture fixture)
         // "unknown" the API reports, not an error it has to handle.
         await fixture.Connection.GetDatabase().KeyDeleteAsync(TwitchLiveStatusKeys.LiveChannels);
 
-        Assert.Null(await new TwitchLiveStatusStore(fixture.Connection).ReadAsync());
+        Assert.Null(await new TwitchLiveStatusStore(fixture.Connection, NullLogger<TwitchLiveStatusStore>.Instance).ReadAsync());
     }
 
     [Fact]
@@ -67,7 +68,7 @@ public class TwitchLiveStatusStoreTests(RedisFixture fixture)
             TwitchLiveStatusKeys.LiveChannels,
             """{"generatedAtUtc":"2026-08-03T18:00:00Z","somethingNew":42}""");
 
-        var read = await new TwitchLiveStatusStore(fixture.Connection).ReadAsync();
+        var read = await new TwitchLiveStatusStore(fixture.Connection, NullLogger<TwitchLiveStatusStore>.Instance).ReadAsync();
 
         Assert.NotNull(read);
         Assert.Equal(new DateTime(2026, 8, 3, 18, 0, 0, DateTimeKind.Utc), read.GeneratedAtUtc);
