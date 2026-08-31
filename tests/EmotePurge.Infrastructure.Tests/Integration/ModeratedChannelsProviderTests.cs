@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.Twitch;
@@ -222,6 +223,32 @@ public class ModeratedChannelsProviderTests(RedisFixture fixture)
         return helix;
     }
 
+    /// <summary>
+    /// The hit rate the admin page reports, measured where it is produced. This cache is the one that
+    /// removes a Helix pagination from the request path, so its hit rate is the number that says
+    /// whether the provider cost was actually taken out — and a counter wired to the wrong side of the
+    /// read would report a flawless 100 % forever.
+    /// </summary>
+    [Fact]
+    public async Task GetModeratedChannelsAsync_CountsTheCacheLookup_AsAMissThenAHit()
+    {
+        const string userId = "modlist-user-telemetry";
+        var telemetry = new RecordingTelemetry();
+        var provider = CreateProvider(
+            HelixReturning(userId, new TwitchModeratedChannelInfo("HandOfBlood", "111")),
+            TokenService("token"),
+            telemetry);
+
+        await provider.GetModeratedChannelsAsync(Principal(userId));
+        await provider.GetModeratedChannelsAsync(Principal(userId));
+
+        // Three, not two: the miss looks a second time behind the single-flight gate, and that second
+        // look is a real lookup which simply did not hit either.
+        Assert.Equal(
+            [(RateLimitCacheNames.ModeratedChannels, false), (RateLimitCacheNames.ModeratedChannels, false), (RateLimitCacheNames.ModeratedChannels, true)],
+            telemetry.Lookups);
+    }
+
     private static ITwitchUserTokenService TokenService(string? accessToken, bool reauthRequired = false)
     {
         var tokens = Substitute.For<ITwitchUserTokenService>();
@@ -230,8 +257,37 @@ public class ModeratedChannelsProviderTests(RedisFixture fixture)
         return tokens;
     }
 
-    private ModeratedChannelsProvider CreateProvider(ITwitchHelixClient helix, ITwitchUserTokenService tokens) =>
-        new(tokens, helix, fixture.Connection, BuildConfiguration(), NullLogger<ModeratedChannelsProvider>.Instance);
+    private ModeratedChannelsProvider CreateProvider(
+        ITwitchHelixClient helix,
+        ITwitchUserTokenService tokens,
+        IRateLimitTelemetry? telemetry = null) =>
+        new(
+            tokens,
+            helix,
+            fixture.Connection,
+            BuildConfiguration(),
+            telemetry ?? Substitute.For<IRateLimitTelemetry>(),
+            NullLogger<ModeratedChannelsProvider>.Instance);
+
+    /// <summary>Collects the cache lookups the provider reports; every other call is unused here.</summary>
+    private sealed class RecordingTelemetry : IRateLimitTelemetry
+    {
+        private readonly ConcurrentQueue<(string CacheName, bool Hit)> _lookups = new();
+
+        public IReadOnlyList<(string CacheName, bool Hit)> Lookups => _lookups.ToList();
+
+        public Task RecordPolicyDecisionAsync(RateLimitPolicyDecision decision, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RecordProviderResponseAsync(ProviderResponseObservation observation, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RecordCacheLookupAsync(string cacheName, bool hit, CancellationToken cancellationToken = default)
+        {
+            _lookups.Enqueue((cacheName, hit));
+            return Task.CompletedTask;
+        }
+    }
 
     private static IConfiguration BuildConfiguration(int ttlMinutes = 10) =>
         new ConfigurationBuilder()

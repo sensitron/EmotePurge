@@ -1,11 +1,17 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
+using EmotePurge.Core.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NSubstitute;
 using Xunit;
 
 namespace EmotePurge.Api.Tests;
@@ -216,6 +222,129 @@ public class RateLimitRejectionTests : IClassFixture<ApiFactory>
     }
 
     /// <summary>
+    /// What the monitoring page will show, measured where it is produced. Three things are asserted
+    /// together because they only mean anything together: every request under a policy is counted
+    /// exactly once, an accepted request is told apart from a rejected one, and the dimension a
+    /// counter is filed under is the route <em>template</em>.
+    /// </summary>
+    /// <remarks>
+    /// The template is the load-bearing part. <c>/api/channels/{channelName}/resync</c> is one row an
+    /// operator can read; the raw paths would be one row per channel anyone ever resynced — an
+    /// unbounded key space in Redis, seeded with user-supplied text, in the one place whose whole
+    /// purpose is to stay readable during an incident.
+    /// </remarks>
+    [Fact]
+    public async Task PolicyDecisions_AreCountedOncePerRequest_UnderTheRouteTemplate()
+    {
+        var telemetry = new RecordingTelemetry();
+        using var factory = CreateThrottledFactory(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IRateLimitTelemetry>(telemetry)));
+        using var client = factory.CreateClient();
+        const string userId = "rate-limit-telemetry";
+
+        using var response = await ExhaustAsync(client, userId);
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+
+        // Two accepted (the budget) plus the one rejection that follows them.
+        var decisions = await telemetry.WaitForDecisionsAsync(TestPermitLimit + 1);
+
+        Assert.All(decisions, decision =>
+        {
+            Assert.Equal(RateLimitPolicyNames.ChannelResync, decision.PolicyName);
+            Assert.Equal("POST", decision.HttpMethod);
+            Assert.Equal("/api/channels/{channelName}/resync", decision.RouteTemplate);
+            Assert.Contains(userId, decision.Partition);
+        });
+
+        var accepted = decisions.Where(decision => decision.Accepted).ToList();
+        Assert.Equal(TestPermitLimit, accepted.Count);
+        // Nothing was throttled, so there is no wait to report — a Retry-After on an accepted request
+        // would tell the monitoring page a rejection happened that never did.
+        Assert.All(accepted, decision => Assert.Null(decision.RetryAfterSeconds));
+
+        var rejected = Assert.Single(decisions, decision => !decision.Accepted);
+        Assert.Equal(
+            int.Parse(Assert.Single(response.Headers.GetValues("Retry-After"))),
+            rejected.RetryAfterSeconds);
+    }
+
+    /// <summary>
+    /// The distinction this whole telemetry path exists to make: a 429 is not automatically a policy
+    /// violation. The resync cooldown answers 429 from inside the handler — per channel, which the
+    /// per-user limiter cannot express — and the limiter let that request through. Counting it as a
+    /// rejection would put a permanent baseline of "local rejections" on the monitoring page and make
+    /// the number an operator watches during an incident meaningless.
+    /// </summary>
+    [Fact]
+    public async Task DomainCooldown429_IsCountedAsAnAcceptedRequest_NotAsAPolicyRejection()
+    {
+        var telemetry = new RecordingTelemetry();
+
+        // Substituted here rather than on the shared fixture: configuring the fixture's own cooldown
+        // would make every other test on this route see a 429 it did not ask for, and the first one
+        // that came back would look exactly like a limiter rejection.
+        var access = Substitute.For<IChannelAccessService>();
+        access.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+        var cooldown = Substitute.For<IChannelResyncCooldown>();
+        cooldown.TryBeginAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new ResyncCooldownState(Acquired: false, RetryAfterSeconds: 30));
+
+        using var factory = CreateFactory(
+            new Dictionary<string, string>(),
+            builder => builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IRateLimitTelemetry>(telemetry);
+                services.AddScoped(_ => access);
+                services.AddSingleton(_ => cooldown);
+            }));
+        using var client = factory.CreateClient();
+
+        using var response = await SendAsync(client, HttpMethod.Post, ResyncPath, "rate-limit-cooldown");
+
+        // The cooldown's 429, not the limiter's — told apart by errorCode, exactly as a client does.
+        Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            ApiErrorCodes.ResyncCooldownActive,
+            body.RootElement.GetProperty("errorCode").GetString());
+
+        var decision = Assert.Single(await telemetry.WaitForDecisionsAsync(1));
+        Assert.True(decision.Accepted);
+        Assert.Null(decision.RetryAfterSeconds);
+    }
+
+    /// <summary>
+    /// A route with no policy moves no counter. The monitoring page marks those routes as a gap on
+    /// purpose (worker health, SSE, admin, auth) — silently filing them under a policy they do not
+    /// have would be worse than the gap, because the counter would then describe traffic no budget
+    /// ever applied to.
+    /// </summary>
+    [Fact]
+    public async Task PolicyFreeRoute_MovesNoCounter()
+    {
+        var telemetry = new RecordingTelemetry();
+        using var factory = CreateFactory(
+            new Dictionary<string, string>(),
+            builder => builder.ConfigureTestServices(services =>
+                services.AddSingleton<IRateLimitTelemetry>(telemetry)));
+        using var client = factory.CreateClient();
+
+        // First the policy-free request, then one that does carry a policy: requests are sequential
+        // and the middleware records before it returns, so if the health call had produced an entry
+        // it would be the first of the two — and the assertion below would see it.
+        using var health = await SendAsync(client, HttpMethod.Get, "/api/worker/health", "rate-limit-policy-free");
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+
+        using var permissions = await SendAsync(client, HttpMethod.Get, PermissionsPath, "rate-limit-policy-free");
+        Assert.Equal(HttpStatusCode.OK, permissions.StatusCode);
+
+        var decision = Assert.Single(await telemetry.WaitForDecisionsAsync(1));
+        Assert.Equal(RateLimitPolicyNames.InteractiveRead, decision.PolicyName);
+        Assert.Equal("/api/channels/{channelName}/permissions", decision.RouteTemplate);
+    }
+
+    /// <summary>
     /// A host of its own whose ChannelResync budget is spent in two requests. Its own, because a rate
     /// limiter is host state: a shared one would carry spent permits between test cases, and a
     /// logging provider has to be registered at startup anyway.
@@ -296,6 +425,49 @@ public class RateLimitRejectionTests : IClassFixture<ApiFactory>
 
         throw new InvalidOperationException(
             $"Nach {attempts} Anfragen kam keine 429-Antwort — der Rate-Limiter greift nicht.");
+    }
+
+    /// <summary>
+    /// Collects the decisions the telemetry middleware reports. A hand-written fake rather than a
+    /// substitute because the assertions are about a sequence, and because the recording has to be
+    /// thread-safe: the product path reports fire-and-forget, so the write can land after the client
+    /// already has its response — which is also why every read below goes through
+    /// <see cref="WaitForDecisionsAsync"/> instead of asserting immediately.
+    /// </summary>
+    private sealed class RecordingTelemetry : IRateLimitTelemetry
+    {
+        private readonly ConcurrentQueue<RateLimitPolicyDecision> _decisions = new();
+
+        public Task RecordPolicyDecisionAsync(RateLimitPolicyDecision decision, CancellationToken cancellationToken = default)
+        {
+            _decisions.Enqueue(decision);
+            return Task.CompletedTask;
+        }
+
+        public Task RecordProviderResponseAsync(ProviderResponseObservation observation, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RecordCacheLookupAsync(string cacheName, bool hit, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        /// <summary>
+        /// Waits until the expected number of decisions has arrived and hands them back. Then waits a
+        /// short moment more and fails if another one turned up: "exactly this many" is half of what
+        /// every case here asserts, and a race that over-counts would otherwise pass.
+        /// </summary>
+        public async Task<IReadOnlyList<RateLimitPolicyDecision>> WaitForDecisionsAsync(int expected)
+        {
+            var deadline = Stopwatch.StartNew();
+            while (_decisions.Count < expected && deadline.Elapsed < TimeSpan.FromSeconds(5))
+            {
+                await Task.Delay(10);
+            }
+
+            Assert.Equal(expected, _decisions.Count);
+            await Task.Delay(100);
+            Assert.Equal(expected, _decisions.Count);
+            return _decisions.ToList();
+        }
     }
 
     /// <summary>Captures every log entry so a test can assert on one. ILogger has no test double in

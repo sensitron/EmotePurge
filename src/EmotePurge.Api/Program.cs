@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -105,6 +106,10 @@ builder.Configuration.GetSection(RateLimitingOptions.SectionName).Bind(rateLimit
 // environment variable is not a lax limiter but a total outage of every route the policy guards,
 // and one that looks exactly like a genuine rate-limit incident in the log.
 rateLimits.Validate();
+
+// Exposed as IOptions so the read-only admin snapshot (GET /api/admin/rate-limits) can report the
+// effective, already-validated configuration without binding the section a second time.
+builder.Services.AddSingleton<IOptions<RateLimitingOptions>>(Options.Create(rateLimits));
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -256,6 +261,12 @@ void ApplyStaticCacheHeaders(StaticFileResponseContext context)
 app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = ApplyStaticCacheHeaders });
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Outside the limiter on purpose, and it measures on the way back out: the policy name and partition
+// are left behind by the partitioner on the way in, the rejection marker by OnRejectedAsync on the
+// way out, and neither is visible from inside. Step 4 of the rate-limit plan — this only counts, it
+// never decides: there is no observe/enforce switch and no reservation anywhere in this path.
+app.UseMiddleware<RateLimitTelemetryMiddleware>();
 app.UseRateLimiter();
 
 app.MapChannelEndpoints();

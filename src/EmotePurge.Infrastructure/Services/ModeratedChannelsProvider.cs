@@ -21,6 +21,7 @@ public class ModeratedChannelsProvider(
     ITwitchHelixClient helixClient,
     IConnectionMultiplexer connectionMultiplexer,
     IConfiguration configuration,
+    IRateLimitTelemetry telemetry,
     ILogger<ModeratedChannelsProvider> logger) : IModeratedChannelsProvider
 {
     // Process-wide on purpose although the service itself is scoped: the gate has to span the
@@ -75,7 +76,19 @@ public class ModeratedChannelsProvider(
         return new ModeratedChannelsLookup(normalized, token.ReauthRequired);
     }
 
+    /// <summary>
+    /// One cache lookup, counted. Wrapped around the read rather than repeated at its two call sites,
+    /// so the double-check behind the gate is counted too: it is a real lookup, and one that hits
+    /// there is one Helix pagination the gate just saved.
+    /// </summary>
     private async Task<IReadOnlyList<TwitchModeratedChannelInfo>?> TryReadCacheAsync(string twitchUserId)
+    {
+        var cached = await ReadCacheAsync(twitchUserId);
+        telemetry.RecordCacheLookup(RateLimitCacheNames.ModeratedChannels, cached is not null);
+        return cached;
+    }
+
+    private async Task<IReadOnlyList<TwitchModeratedChannelInfo>?> ReadCacheAsync(string twitchUserId)
     {
         RedisValue value;
         try

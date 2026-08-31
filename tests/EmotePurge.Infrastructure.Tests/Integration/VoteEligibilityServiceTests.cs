@@ -287,6 +287,7 @@ public class VoteEligibilityServiceTests(PostgresFixture fixture)
             cache ?? Substitute.For<IModRoleCache>(),
             helix ?? Substitute.For<ITwitchHelixClient>(),
             tokens ?? TokenService("valid-token"),
+            Substitute.For<IRateLimitTelemetry>(),
             NullLogger<VoteEligibilityService>.Instance);
     }
 

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using EmotePurge.Api.Validation;
+using EmotePurge.Core.Services;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace EmotePurge.Api.RateLimiting;
@@ -37,8 +38,33 @@ internal static class RateLimitRejection
     private const string PartitionItemKey = "RateLimit:PartitionKey";
     private const string RetryAfterFallbackItemKey = "RateLimit:RetryAfterFallbackSeconds";
 
+    /// <summary>
+    /// Set by <see cref="OnRejectedAsync"/> and by nothing else, which is the whole point: a 429 alone
+    /// does not say who produced it. The resync cooldown answers 429 from inside its handler, per
+    /// channel, on a request the limiter waved through — counting that as a policy violation would put
+    /// a standing baseline of local rejections onto the monitoring page and make the number an
+    /// operator watches during an incident unreadable.
+    /// </summary>
+    private const string RejectedItemKey = "RateLimit:Rejected";
+
+    /// <summary>
+    /// The wait actually handed to the caller, kept for the telemetry path so the number an operator
+    /// reads is the one the client got, rather than a second derivation of it that can drift.
+    /// </summary>
+    private const string RetryAfterItemKey = "RateLimit:RetryAfterSeconds";
+
     /// <summary>Route value carrying the vote session id, the second half of the Voting partition.</summary>
     private const string SessionIdRouteValue = "sessionId";
+
+    /// <summary>
+    /// The queue every policy below registers with, and therefore the value the admin snapshot
+    /// (<c>GET /api/admin/rate-limits</c>) reports for every policy: zero, for every one of them. A
+    /// queued request holds a connection and a thread for the length of the wait, which is how a
+    /// limiter meant to shed load turns into the thing that exhausts the server — see
+    /// <see cref="TokenBucketOptions"/>. Kept as one named constant rather than a literal repeated in
+    /// three places so the three cannot drift apart.
+    /// </summary>
+    internal const int QueueLimit = 0;
 
     /// <summary>
     /// Partitions by the authenticated Twitch user, falling back to the remote IP and finally to a
@@ -62,7 +88,7 @@ internal static class RateLimitRejection
         {
             PermitLimit = permitLimit,
             Window = Window,
-            QueueLimit = 0
+            QueueLimit = QueueLimit
         });
     }
 
@@ -147,6 +173,11 @@ internal static class RateLimitRejection
 
         httpContext.Response.Headers.RetryAfter = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
 
+        // Marks this request as the limiter's own rejection for RateLimitTelemetryMiddleware, which
+        // runs on the way back out and cannot tell a 429 from here apart from a 429 from a handler.
+        httpContext.Items[RejectedItemKey] = true;
+        httpContext.Items[RetryAfterItemKey] = retryAfterSeconds;
+
         // The partition key is a Twitch user id for every authenticated caller and the remote IP only
         // for the anonymous health endpoint — both are already in the database respectively in the
         // reverse proxy's own access log, so this adds no category of data the host did not hold.
@@ -166,6 +197,35 @@ internal static class RateLimitRejection
         await httpContext.Response.WriteAsJsonAsync(
             new { errorCode = ApiErrorCodes.RateLimitExceeded, retryAfterSeconds },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Describes what the limiter did with this request, or <c>null</c> if it never saw it.
+    /// </summary>
+    /// <remarks>
+    /// A request without a policy name never reached a partitioner: the route carries no
+    /// <c>RequireRateLimiting</c> (worker health, SSE, admin, auth), or a filter short-circuited it
+    /// before the limiter ran. Neither is a decision, and inventing one would file traffic under a
+    /// budget that was never applied to it. Reading the keys here rather than in the middleware keeps
+    /// them private to the class that writes them — they exist precisely because <c>OnRejectedAsync</c>
+    /// gets a lease and not a policy.
+    /// </remarks>
+    public static RateLimitPolicyDecision? TryDescribeDecision(HttpContext httpContext, string routeTemplate)
+    {
+        if (httpContext.Items[PolicyItemKey] is not string policyName)
+        {
+            return null;
+        }
+
+        var rejected = httpContext.Items.ContainsKey(RejectedItemKey);
+
+        return new RateLimitPolicyDecision(
+            policyName,
+            Accepted: !rejected,
+            httpContext.Request.Method,
+            routeTemplate,
+            httpContext.Items[PartitionItemKey] as string ?? "unknown",
+            rejected ? httpContext.Items[RetryAfterItemKey] as int? : null);
     }
 
     /// <summary>
@@ -206,7 +266,7 @@ internal static class RateLimitRejection
             // No queueing: a rejected caller is told to come back, never parked. Queued requests hold
             // a connection and a thread for the length of the wait, which is how a limiter meant to
             // shed load turns into the thing that exhausts the server.
-            QueueLimit = 0,
+            QueueLimit = QueueLimit,
             AutoReplenishment = true,
         };
 }
