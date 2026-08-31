@@ -588,7 +588,7 @@
     },
     "atlas": {
       "label": "Emote sheet",
-      "keyboardHint": "Use the arrow keys to move between emotes, space to mark one and enter to open its history. Shift-click marks a whole range."
+      "keyboardHint": "Use the arrow keys to move between emotes, space to mark one and enter to open its history. Shift-click repeats your last click across a whole range, marking it or clearing the mark."
     },
     "bands": {
       "heavy": {

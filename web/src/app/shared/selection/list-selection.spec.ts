@@ -200,6 +200,47 @@ describe('ListSelection', () => {
     expect(selection.selectedKeys().sort()).toEqual(['a', 'b', 'c', 'd']);
   });
 
+  it('a shift-click after selectMany() stays additive, matching the marked anchor it leaves behind', () => {
+    // Regression guard for #40: selectMany() always leaves its anchor marked, so a shift-click
+    // right after it must keep extending, never flip into a deselect.
+    const { selection, byId } = setup('a', 'b', 'c', 'd', 'e');
+
+    selection.onRowClick(byId('a'), click()); // pre-existing selection, unrelated to the group below
+    selection.selectMany([byId('c'), byId('d')]); // anchor moves to 'd', which selectMany leaves marked
+
+    selection.onRowClick(byId('e'), click(true)); // range d-e must be added, not removed
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'c', 'd', 'e']);
+  });
+
+  it('a shift-click after a deselecting click removes the whole range, leaving marks outside it untouched', () => {
+    const { selection, byId } = setup('a', 'b', 'c', 'd', 'e', 'f');
+
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('f'), click()); // a and f selected individually, outside the range below
+    selection.onRowClick(byId('c'), click());
+    selection.onRowClick(byId('e'), click(true)); // range c-e selected, anchor 'e' is marked
+
+    selection.onRowClick(byId('d'), click()); // deselects 'd' — anchor now points at an unmarked row
+    selection.onRowClick(byId('c'), click(true)); // shift-click ranges c-d, anchor 'd' says "deselect"
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'e', 'f']);
+  });
+
+  it('a further shift-click after a deselecting one keeps deselecting in the same direction', () => {
+    const { selection, byId } = setup('a', 'b', 'c', 'd', 'e', 'f');
+
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('f'), click(true)); // a-f all selected, anchor 'f' marked
+
+    selection.onRowClick(byId('c'), click()); // deselect c, anchor 'c' now unmarked
+    selection.onRowClick(byId('d'), click(true)); // range c-d removed, anchor 'd' unmarked
+
+    selection.onRowClick(byId('b'), click(true)); // another shift-click: still deselecting, range b-d
+
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'e', 'f']);
+  });
+
   it('notifies a computed() that reads the selection', () => {
     const { selection, byId } = setup('a', 'b', 'c');
     // Regression guard: with a plain mutable set instead of a signal, these stayed frozen at their
