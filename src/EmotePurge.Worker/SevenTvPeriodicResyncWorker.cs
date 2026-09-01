@@ -16,6 +16,7 @@ public class SevenTvPeriodicResyncWorker(
     ITwitchChatManager twitchChatManager,
     BootRecoveryGate bootRecoveryGate,
     ISevenTvEventClient sevenTvEventClient,
+    IEmoteMatchCache emoteMatchCache,
     IRedisPublisher redisPublisher,
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory) : BackgroundService
@@ -25,6 +26,10 @@ public class SevenTvPeriodicResyncWorker(
     // observable step instead of an automatic coupling to the feature flag.
     private readonly TimeSpan _resyncInterval =
         TimeSpan.FromSeconds(configuration.GetValue("SevenTv:ResyncIntervalSeconds", 60));
+
+    // RosterPrunePolicy's only state to keep between ticks (see its doc comment): channels it found
+    // inactive last tick but did not yet prune, waiting for a second consecutive stale tick.
+    private IReadOnlyCollection<string> _staleChannels = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -52,6 +57,10 @@ public class SevenTvPeriodicResyncWorker(
             // bridge network would escape ExecuteAsync and stop the whole host (StopHost default),
             // taking the buffered usage counts of the current flush window with it.
             var activeChannels = await channelService.ListActiveChannelNamesAsync(ct);
+
+            // Convergence net for a lost Redis LEAVE (issue #41): as close to the snapshot above as
+            // possible, before the sync loop below can add minutes of drift between the two reads.
+            await PruneStaleChannelsAsync(activeChannels);
 
             foreach (var channelName in activeChannels)
             {
@@ -95,6 +104,27 @@ public class SevenTvPeriodicResyncWorker(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Periodischer 7TV-Resync-Durchlauf fehlgeschlagen.");
+        }
+    }
+
+    // Symmetric counterpart to Worker.cs's Redis LEAVE handler — same three steps, in the same
+    // order, for every channel RosterPrunePolicy decides has fallen out of the active set. Neither
+    // EmoteMatchCache.RemoveChannel nor ISevenTvEventClient.Unsubscribe perform I/O, and
+    // LeaveChannelAsync already swallows its own exceptions, so no per-channel try/catch is needed
+    // here beyond the one already wrapping this whole tick in ResyncOnceAsync.
+    private async Task PruneStaleChannelsAsync(IReadOnlyList<string> activeChannels)
+    {
+        var result = RosterPrunePolicy.DetermineChannelsToPrune(activeChannels, twitchChatManager.GetRoster(), _staleChannels);
+        _staleChannels = result.StaleChannels;
+
+        foreach (var channelName in result.ChannelsToPrune)
+        {
+            logger.LogInformation(
+                "Konvergenznetz: {Channel} ist seit zwei aufeinanderfolgenden Durchläufen nicht mehr aktiv, aber noch im Roster — verlasse (verlorenes Redis-LEAVE, Issue #41).",
+                channelName);
+            emoteMatchCache.RemoveChannel(channelName);
+            sevenTvEventClient.Unsubscribe(channelName);
+            await twitchChatManager.LeaveChannelAsync(channelName);
         }
     }
 }
