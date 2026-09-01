@@ -13,7 +13,8 @@ public class TwitchChatManager(
     ILogger<TwitchChatManager> logger,
     ILoggerFactory loggerFactory,
     IEmoteMatchCache emoteMatchCache,
-    IEmoteUsageCounter usageCounter) : ITwitchChatManager
+    IEmoteUsageCounter usageCounter,
+    IBotChatterDetector botChatterDetector) : ITwitchChatManager
 {
     // Bounds how long we *wait* for a connect/reconnect, not how long TwitchLib tries: the
     // reconnection policy retries indefinitely in the background and still raises
@@ -487,7 +488,11 @@ public class TwitchChatManager(
     private Task OnMessageReceived(object? sender, OnMessageReceivedArgs e)
     {
         // Aktualisiert für JEDE Nachricht, nicht nur gematchte — der Watchdog erkennt so
-        // auch ein stilles Einfrieren der Verbindung auf Channels ohne Emote-Nutzung.
+        // auch ein stilles Einfrieren der Verbindung auf Channels ohne Emote-Nutzung. This must
+        // happen before any bot classification below: a bot message still proves the socket is
+        // alive. Moving the bot check above these two writes would make the watchdog blind to a
+        // channel whose only traffic is bots and force spurious reconnects — the exact failure
+        // mode fixed on 2026-08-03 (see TwitchWatchdogPolicy). Do not reorder.
         var receivedAtTicks = DateTime.UtcNow.Ticks;
         Interlocked.Exchange(ref _lastMessageReceivedUtcTicks, receivedAtTicks);
         // Hot path: one indexer assignment, no LINQ and no allocation beyond the dictionary's own
@@ -503,12 +508,18 @@ public class TwitchChatManager(
             return Task.CompletedTask;
         }
 
+        // Classified exactly once per message, after the watchdog bookkeeping above (a bot message
+        // still proves the socket is alive — see the class-level comment on that ordering) and
+        // before the token loop, so every emote match in this message shares the same isBot result
+        // instead of re-classifying the same chatter per token.
+        var isBot = botChatterDetector.IsBot(e.ChatMessage.UserId, e.ChatMessage.Badges);
+
         var matchedThisMessage = new HashSet<string>();
         foreach (var token in e.ChatMessage.Message.Split(' '))
         {
             if (channelEmotes.TryGetValue(token, out var emoteId) && matchedThisMessage.Add(emoteId))
             {
-                usageCounter.Increment(emoteId);
+                usageCounter.Increment(emoteId, isBot);
             }
         }
 

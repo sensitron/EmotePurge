@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Services;
 using EmotePurge.Infrastructure.Tests.Fixtures;
@@ -19,7 +20,7 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var emote = await SeedEmoteAsync(db, "flushtest1");
 
-        await CreateService(db).FlushAsync(new Dictionary<string, int> { [emote.Id] = 3 });
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts> { [emote.Id] = new(3, 0) });
 
         var stat = Assert.Single(await ReadStatsAsync(fixture, emote.Id));
         Assert.Equal(3, stat.UseCount);
@@ -35,11 +36,27 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
         // Two flushes in the same UTC day must accumulate on one row — this is the ON CONFLICT
         // DO UPDATE path, and the assertion that the arbiter actually matched the unique index
         // rather than raising a duplicate-key error.
-        await CreateService(db).FlushAsync(new Dictionary<string, int> { [emote.Id] = 4 });
-        await CreateService(db).FlushAsync(new Dictionary<string, int> { [emote.Id] = 6 });
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts> { [emote.Id] = new(4, 0) });
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts> { [emote.Id] = new(6, 0) });
 
         var stat = Assert.Single(await ReadStatsAsync(fixture, emote.Id));
         Assert.Equal(10, stat.UseCount);
+    }
+
+    [Fact]
+    public async Task FlushAsync_AddsToExistingRow_AccumulatesBothColumnsSeparately()
+    {
+        await using var db = fixture.CreateDbContext();
+        var emote = await SeedEmoteAsync(db, "flushtest2b");
+
+        // Same conflict path as above, but with both columns populated — the DO UPDATE must add
+        // "UseCount" and "BotUseCount" independently, not cross-add or drop one of them.
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts> { [emote.Id] = new(4, 1) });
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts> { [emote.Id] = new(6, 3) });
+
+        var stat = Assert.Single(await ReadStatsAsync(fixture, emote.Id));
+        Assert.Equal(10, stat.UseCount);
+        Assert.Equal(4, stat.BotUseCount);
     }
 
     [Fact]
@@ -50,10 +67,10 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
 
         // A count buffered for an emote that no longer exists would violate the FK; it must not
         // take the rest of the batch down with it.
-        await CreateService(db).FlushAsync(new Dictionary<string, int>
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>
         {
-            [emote.Id] = 2,
-            [Guid.NewGuid().ToString()] = 99,
+            [emote.Id] = new(2, 0),
+            [Guid.NewGuid().ToString()] = new(99, 0),
         });
 
         var stat = Assert.Single(await ReadStatsAsync(fixture, emote.Id));
@@ -69,10 +86,10 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
 
         // Guards the UNNEST array pairing: a mismatch between the id array and the count array
         // would silently attribute counts to the wrong emote.
-        await CreateService(db).FlushAsync(new Dictionary<string, int>
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>
         {
-            [first.Id] = 11,
-            [second.Id] = 22,
+            [first.Id] = new(11, 0),
+            [second.Id] = new(22, 0),
         });
 
         Assert.Equal(11, Assert.Single(await ReadStatsAsync(fixture, first.Id)).UseCount);
@@ -80,11 +97,51 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task FlushAsync_PairsAllThreeArraysCorrectly_AcrossMultipleEmotes()
+    {
+        await using var db = fixture.CreateDbContext();
+        var first = await SeedEmoteAsync(db, "flushtest4b");
+        var second = await SeedEmoteAsync(db, "flushtest5b");
+
+        // Now with a third UNNEST array (bot counts): a swap between any two of the three arrays
+        // would silently attribute counts to the wrong emote or the wrong column. Human and bot
+        // values are chosen distinct per emote so any transposition shows up as a wrong assertion.
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>
+        {
+            [first.Id] = new(11, 5),
+            [second.Id] = new(3, 22),
+        });
+
+        var firstStat = Assert.Single(await ReadStatsAsync(fixture, first.Id));
+        Assert.Equal(11, firstStat.UseCount);
+        Assert.Equal(5, firstStat.BotUseCount);
+
+        var secondStat = Assert.Single(await ReadStatsAsync(fixture, second.Id));
+        Assert.Equal(3, secondStat.UseCount);
+        Assert.Equal(22, secondStat.BotUseCount);
+    }
+
+    [Fact]
+    public async Task FlushAsync_WritesBotOnlyRow_WithZeroHumanCount()
+    {
+        await using var db = fixture.CreateDbContext();
+        var emote = await SeedEmoteAsync(db, "flushtest-botonly");
+
+        // E1: bot usage is preserved, not dropped, even when an emote had no human usage at all in
+        // the batch — no "only write rows with Human > 0" filter exists.
+        await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts> { [emote.Id] = new(0, 7) });
+
+        var stat = Assert.Single(await ReadStatsAsync(fixture, emote.Id));
+        Assert.Equal(0, stat.UseCount);
+        Assert.Equal(7, stat.BotUseCount);
+    }
+
+    [Fact]
     public async Task FlushAsync_DoesNothing_ForEmptyBatch()
     {
         await using var db = fixture.CreateDbContext();
 
-        Assert.Empty(await CreateService(db).FlushAsync(new Dictionary<string, int>()));
+        Assert.Empty(await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>()));
     }
 
     [Fact]
@@ -96,11 +153,11 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
 
         // The caller announces one live event per channel — two emotes of the same channel must not
         // produce two announcements.
-        var affected = await CreateService(db).FlushAsync(new Dictionary<string, int>
+        var affected = await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>
         {
-            [first.Id] = 1,
-            [second.Id] = 2,
-            [elsewhere.Id] = 3,
+            [first.Id] = new(1, 0),
+            [second.Id] = new(2, 0),
+            [elsewhere.Id] = new(3, 0),
         });
 
         Assert.Equal(["flushchannels1", "flushchannels2"], affected.OrderBy(name => name, StringComparer.Ordinal));
@@ -113,10 +170,10 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
         var emote = await SeedEmoteAsync(db, "flushchannels3");
 
         // An id with no row has no channel to announce, and must not smuggle a null into the result.
-        var affected = await CreateService(db).FlushAsync(new Dictionary<string, int>
+        var affected = await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>
         {
-            [emote.Id] = 5,
-            [Guid.NewGuid().ToString()] = 9,
+            [emote.Id] = new(5, 0),
+            [Guid.NewGuid().ToString()] = new(9, 0),
         });
 
         Assert.Equal("flushchannels3", Assert.Single(affected));
@@ -127,9 +184,9 @@ public class UsageStatFlushServiceTests(PostgresFixture fixture)
     {
         await using var db = fixture.CreateDbContext();
 
-        var affected = await CreateService(db).FlushAsync(new Dictionary<string, int>
+        var affected = await CreateService(db).FlushAsync(new Dictionary<string, EmoteUsageCounts>
         {
-            [Guid.NewGuid().ToString()] = 4,
+            [Guid.NewGuid().ToString()] = new(4, 0),
         });
 
         Assert.Empty(affected);
