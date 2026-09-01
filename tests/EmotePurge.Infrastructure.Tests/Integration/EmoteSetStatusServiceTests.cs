@@ -148,6 +148,78 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         Assert.Null(status);
     }
 
+    [Fact]
+    public async Task GetAsync_BotsExcludedSince_IsTheEarliestBotRow_NotTheEarliestRowOverall()
+    {
+        // A human-only row from before the bot ever showed up must not win the MIN — the field
+        // answers "since when is bot usage separated", not "since when is this emote used".
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest9", capacity: 1000);
+        var emoteOne = await SeedEmoteAsync(db, channel.Id, "One");
+        var emoteTwo = await SeedEmoteAsync(db, channel.Id, "Two");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10 },
+            new UsageStat { EmoteId = emoteTwo.Id, Date = new DateOnly(2026, 8, 15), UseCount = 3, BotUseCount = 2 },
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 20), UseCount = 1, BotUseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Equal(new DateOnly(2026, 8, 15), status.BotsExcludedSince);
+    }
+
+    [Fact]
+    public async Task GetAsync_NoBotRowsAtAll_BotsExcludedSinceIsNull()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest10", capacity: 1000);
+        var emote = await SeedEmoteAsync(db, channel.Id, "One");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10, BotUseCount = 0 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Null(status.BotsExcludedSince);
+    }
+
+    [Fact]
+    public async Task GetAsync_BeforeTheFirstSync_SkipsTheBotsExcludedSinceQueryToo()
+    {
+        // Same gate as occupiedSlots: an empty ActiveEmoteSetId means the MIN query is not even
+        // sent. A bot row existing regardless (seeded directly, bypassing the normal flush path
+        // that could never target an unsynced channel) proves the skip happened — nothing else
+        // could produce null here.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest11", capacity: null, activeEmoteSetId: "");
+        var emote = await SeedEmoteAsync(db, channel.Id, "One");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 0, BotUseCount = 5 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Null(status.BotsExcludedSince);
+    }
+
+    [Fact]
+    public async Task GetAsync_BotRowOnAnArchivedEmote_StillCounts()
+    {
+        // An emote deleted from 7TV since the bot sighting still tells us when the separation
+        // started for this channel — archived emotes are deliberately not excluded here.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest12", capacity: 1000);
+        var archived = await SeedEmoteAsync(db, channel.Id, "GoneEmote", isArchived: true);
+        db.UsageStats.Add(new UsageStat { EmoteId = archived.Id, Date = new DateOnly(2026, 8, 5), UseCount = 0, BotUseCount = 4 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Equal(new DateOnly(2026, 8, 5), status.BotsExcludedSince);
+    }
+
     private static async Task<Channel> SeedChannelAsync(
         AppDbContext db, string channelName, int? capacity, string activeEmoteSetId = "64c9e0f0aa1234567890abcd")
     {
@@ -163,16 +235,18 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         return channel;
     }
 
-    private static async Task SeedEmoteAsync(AppDbContext db, string channelId, string name, bool isArchived = false)
+    private static async Task<Emote> SeedEmoteAsync(AppDbContext db, string channelId, string name, bool isArchived = false)
     {
-        db.Emotes.Add(new Emote
+        var emote = new Emote
         {
             ChannelId = channelId,
             Name = name,
             SevenTvEmoteId = Guid.NewGuid().ToString("N")[..24],
             ImageUrl = "https://cdn.7tv.app/emote/example/2x.webp",
             IsArchived = isArchived
-        });
+        };
+        db.Emotes.Add(emote);
         await db.SaveChangesAsync();
+        return emote;
     }
 }

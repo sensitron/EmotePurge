@@ -53,8 +53,13 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         var previousFrom = from.AddDays(-windowLength);
 
         // One pass, three aggregates, all served by the covering index (EmoteId, Date) INCLUDE
-        // (UseCount) as an index-only scan. Deliberately unbounded in time: the max is the emote's
-        // last use ever, and clipping it to the range would make it a restatement of the total.
+        // (UseCount) as an index-only scan — the UseCount > 0 predicate below is evaluated on that
+        // same include column, so it stays in the index-only scan too. Deliberately unbounded in
+        // time: the max is the emote's last use ever, and clipping it to the range would make it a
+        // restatement of the total. The two sums need no predicate: they already sum UseCount, and a
+        // bot-only row (UseCount = 0, BotUseCount > 0) contributes nothing on its own. LastUsedDate
+        // does need one — a row's mere existence is no longer proof of human use once the flush can
+        // write UseCount = 0 rows, so a bot-only day must not read as "last used".
         var aggregates = await db.UsageStats
             .Where(u => emoteIds.Contains(u.EmoteId))
             .GroupBy(u => u.EmoteId)
@@ -63,7 +68,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
                 EmoteId = g.Key,
                 TotalUseCount = g.Sum(u => u.Date >= from && u.Date <= to ? u.UseCount : 0),
                 PreviousWindowUseCount = g.Sum(u => u.Date >= previousFrom && u.Date < from ? u.UseCount : 0),
-                LastUsedDate = g.Max(u => (DateOnly?)u.Date)
+                LastUsedDate = g.Max(u => u.UseCount > 0 ? (DateOnly?)u.Date : null)
             })
             .ToDictionaryAsync(g => g.EmoteId, cancellationToken);
 
@@ -112,17 +117,20 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         }
 
         // Sparse on purpose (only days with usage) — served by the covering index
-        // (EmoteId, Date) INCLUDE (UseCount) as an index-only scan.
+        // (EmoteId, Date) INCLUDE (UseCount) as an index-only scan. UseCount > 0 keeps a bot-only
+        // row (UseCount = 0, BotUseCount > 0) out of this list — it is evaluated on the include
+        // column, so the scan stays index-only.
         var days = await db.UsageStats
-            .Where(u => u.EmoteId == emote.Id && u.Date >= from && u.Date <= to)
+            .Where(u => u.EmoteId == emote.Id && u.Date >= from && u.Date <= to && u.UseCount > 0)
             .OrderBy(u => u.Date)
             .Select(u => new EmoteDailyUsageDto(u.Date, u.UseCount))
             .ToListAsync(cancellationToken);
 
         // First/last use ever, unbounded in time — same reasoning as LastUsedDate in
-        // GetUsageContextAsync. Single-table GroupBy, so rule 10 is not even touched.
+        // GetUsageContextAsync, including the UseCount > 0 predicate against bot-only rows.
+        // Single-table GroupBy, so rule 10 is not even touched.
         var bounds = await db.UsageStats
-            .Where(u => u.EmoteId == emote.Id)
+            .Where(u => u.EmoteId == emote.Id && u.UseCount > 0)
             .GroupBy(u => u.EmoteId)
             .Select(g => new
             {
@@ -196,9 +204,12 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         // partitioning with no aggregate to push down, so the database would do the same work and
         // hand back the same number of rows either way — and rule 10 makes a navigation-joined
         // GroupBy the fragile shape to reach for. Ordering by (EmoteId, Date) is what lets the
-        // in-memory GroupBy below emit each emote's days already ascending.
+        // in-memory GroupBy below emit each emote's days already ascending. UseCount > 0 excludes
+        // bot-only rows (UseCount = 0, BotUseCount > 0) — evaluated on the include column, so the
+        // scan stays index-only — which keeps a bot-only emote out of Emotes entirely, the same way
+        // an emote with no rows at all would be.
         var rows = await db.UsageStats
-            .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
+            .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to && u.UseCount > 0)
             .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
             .Select(u => new { u.EmoteId, u.Date, u.UseCount })
             .ToListAsync(cancellationToken);

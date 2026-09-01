@@ -11,7 +11,9 @@ public record EmoteUsageDto(string EmoteName, DateOnly Date, int UseCount);
 /// range. Bounded, it would collapse into the total ("0 uses in the range" already says that) and
 /// switching the range to 7 days would report almost the whole set as never used. <c>null</c> means
 /// never used since tracking began: the flush only ever writes rows for days with actual usage, so
-/// an absent maximum is the honest answer rather than a missing one.
+/// an absent maximum is the honest answer rather than a missing one. A row with <c>UseCount = 0</c>
+/// (bot-only usage) does not count as "used" for this field either — the flush can now write such a
+/// row, and it is not a day this emote was used.
 /// </param>
 /// <param name="PreviousWindowUseCount">
 /// Sum over the equally long window immediately preceding the requested range (<c>from</c>
@@ -41,13 +43,16 @@ public record EmoteDailyUsageDto(DateOnly Date, int UseCount);
 /// Only days with actual usage, ascending. A missing day inside [From, To] means 0 — the flush
 /// only ever writes rows for days with real usage, and inventing zero rows server-side just to
 /// transport them would be the expensive way to say nothing; the client zero-fills for rendering.
+/// A day whose row has <c>UseCount = 0</c> (bot-only usage) is missing here too, for the same
+/// reason.
 /// </param>
 /// <param name="TotalUseCount">Sum over [From, To].</param>
 /// <param name="FirstUsedDate">
 /// First use ever, deliberately not bounded by the range — same reasoning as
-/// <see cref="EmoteUsageContextDto.LastUsedDate"/>. <c>null</c> = never used since tracking began.
+/// <see cref="EmoteUsageContextDto.LastUsedDate"/>. <c>null</c> = never used since tracking began,
+/// and a <c>UseCount = 0</c> (bot-only) row does not count as a use.
 /// </param>
-/// <param name="LastUsedDate">Last use ever, equally unbounded.</param>
+/// <param name="LastUsedDate">Last use ever, equally unbounded and equally blind to bot-only rows.</param>
 /// <param name="LiveDays">
 /// Days within [From, To] on which the channel was live (any coverage at all), ascending — so the
 /// chart can tell "offline day" apart from "dead emote" (idea A10). Coverage data only exists
@@ -95,9 +100,10 @@ public record EmoteSeriesEntryDto(string EmoteId, IReadOnlyList<int[]> Days);
 /// "absent means unknown, not offline" caveat as <see cref="EmoteUsageSeriesDto.LiveDays"/>.
 /// </param>
 /// <param name="Emotes">
-/// Only emotes with at least one day of usage in the range, and only unarchived ones. An emote the
-/// caller knows about but does not find here has no usage in the window — the same statement the
-/// omitted days inside an entry make, one level up.
+/// Only emotes with at least one day of <em>human</em> usage in the range (rows with
+/// <c>UseCount = 0</c>, bot-only usage, do not count), and only unarchived ones. An emote the
+/// caller knows about but does not find here has no (human) usage in the window — the same
+/// statement the omitted days inside an entry make, one level up.
 /// </param>
 public record ChannelUsageSeriesDto(
     DateOnly From,

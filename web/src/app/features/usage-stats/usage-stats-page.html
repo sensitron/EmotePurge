@@ -199,6 +199,14 @@
       @if (liveDaysInRangeKey(); as liveKey) {
         {{ liveKey | transloco: { live: liveDayDates().length } }}
       }
+      <!-- One more sentence in the same caption, not a banner: an honesty statement belongs with the
+           other honesty statement it sits next to, not as a control of its own (E3). Absent entirely
+           when botsExcludedKey() is null — a channel with no bot ever seen has nothing to explain,
+           and this is also the known-limitation case (see botsExcludedCaptionKey): the date names
+           when a bot was first SEEN, not when the separation began. -->
+      @if (botsExcludedKey(); as botsKey) {
+        {{ botsKey | transloco: { date: formatDate(setStatus()?.botsExcludedSince ?? null) } }}
+      }
     </p>
     @if (rangeStartsBeforeTracking()) {
       <!-- Named openly rather than hidden: on incomplete data nobody deletes anything, and a

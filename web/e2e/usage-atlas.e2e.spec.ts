@@ -46,7 +46,11 @@ const EMOTES = [
   lastUsedDate: emote.uses > 0 ? '2026-07-14' : null,
 }));
 
-async function openAtlas(page: Page, emotes: MockEmoteUsage[] = EMOTES): Promise<void> {
+async function openAtlas(
+  page: Page,
+  emotes: MockEmoteUsage[] = EMOTES,
+  botsExcludedSince: string | null = null,
+): Promise<void> {
   await mockAuthMe(page, AUTH_USER);
   await mockWorkerHealth(page);
   await installLiveStub(page);
@@ -56,7 +60,11 @@ async function openAtlas(page: Page, emotes: MockEmoteUsage[] = EMOTES): Promise
   await mockChannelPermissions(page, 'sensitron');
   await mockChannelStatus(page, 'sensitron');
   await mockDuplicateEmoteNames(page, 'sensitron');
-  await mockActiveEmoteSet(page, 'sensitron', 'set-1', { capacity: 1000, occupiedSlots: 10 });
+  await mockActiveEmoteSet(page, 'sensitron', 'set-1', {
+    capacity: 1000,
+    occupiedSlots: 10,
+    botsExcludedSince,
+  });
   await mockUsageTotals(page, 'sensitron', emotes);
 
   await page.goto('/channels/sensitron/usage-stats');
@@ -295,6 +303,30 @@ test.describe('emote atlas', () => {
     await expect(
       page.getByText(/Im gewählten Zeitraum war der Stream an 4 Tagen live\./),
     ).toBeVisible();
+  });
+
+  test('names the bot-exclusion date when the Api reports one, alongside the other honesty statements', async ({
+    page,
+  }) => {
+    await mockUsageChannelSeries(page, 'sensitron', { e1: [[3, 700]] }, [3, 4, 5, 9]);
+    await openAtlas(page, EMOTES, '2026-08-15');
+
+    await expect(
+      page.getByText(/Nachrichten bekannter Bots zählen seit dem 15\.08\.2026 nicht mit/),
+    ).toBeVisible();
+    // The two sentences it shares the caption paragraph with must still be there — this is one more
+    // sentence in the same place, not a replacement.
+    await expect(page.getByText(/Wir zählen für diesen Channel seit dem/)).toBeVisible();
+    await expect(
+      page.getByText(/Im gewählten Zeitraum war der Stream an 4 Tagen live\./),
+    ).toBeVisible();
+  });
+
+  test('says nothing about bot exclusion when the Api reports no date', async ({ page }) => {
+    // mockActiveEmoteSet's default (see openAtlas) — no botsExcludedSince set at all.
+    await openAtlas(page);
+
+    await expect(page.getByText(/Nachrichten bekannter Bots/)).toHaveCount(0);
   });
 
   test('says nothing about live days for a range with no coverage', async ({ page }) => {

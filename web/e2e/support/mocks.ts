@@ -716,6 +716,9 @@ export async function mockActiveEmoteSet(
     trackedSince?: string;
     syncFailureReason?: string | null;
     lastSyncAttemptAtUtc?: string | null;
+    // Default null, matching today's behaviour for every existing caller that does not set it: no
+    // bot ever seen, no caption.
+    botsExcludedSince?: string | null;
   } = {},
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/emotes/active-set`, (route) =>
@@ -726,6 +729,7 @@ export async function mockActiveEmoteSet(
       trackedSince: status.trackedSince ?? '2026-06-12T09:14:00Z',
       syncFailureReason: status.syncFailureReason ?? null,
       lastSyncAttemptAtUtc: status.lastSyncAttemptAtUtc ?? null,
+      botsExcludedSince: status.botsExcludedSince ?? null,
     }),
   );
 }

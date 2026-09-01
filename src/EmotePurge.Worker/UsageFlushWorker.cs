@@ -84,8 +84,9 @@ public class UsageFlushWorker(
         // the flush is committed. If a Redis outage were allowed to fall into the catch above, a
         // successful flush would be booked as a failure and its counts requeued — the next flush
         // would then add them a second time onto the same (EmoteId, Date) row (ON CONFLICT DO UPDATE
-        // ... + EXCLUDED), i.e. silently double-count chat usage. A missed notification only costs
-        // the browser its automatic refresh; every page still has its refresh button.
+        // ... + EXCLUDED, now for both UseCount and BotUseCount), i.e. silently double-count chat
+        // usage. A missed notification only costs the browser its automatic refresh; every page
+        // still has its refresh button.
         try
         {
             foreach (var channelName in affectedChannels)

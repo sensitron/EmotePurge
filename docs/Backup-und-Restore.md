@@ -44,13 +44,15 @@ ein User in der `docker`-Gruppe).
 
 ### 1.1 Skript ablegen
 
-`<VPS-HOST>`/`<VPS-USER>` sind Platzhalter — durch die tatsächlichen SSH-Zugangsdaten
-des VPS ersetzen.
+`vps` ist der Host-Alias aus `~/.ssh/config` auf der Devbox; er trägt Origin-Adresse
+und Benutzer. Den Hostnamen `emotepurge.app` hier **nicht** einsetzen — der zeigt seit
+dem Cloudflare-Umzug (s. DECISIONS 2026-08-29) auf Cloudflare statt auf den Origin, SSH
+läuft dann ins Leere.
 
 ```sh
 # Vom lokalen Checkout aus:
-scp scripts/backup-postgres.sh <VPS-USER>@<VPS-HOST>:/tmp/backup-postgres.sh
-ssh <VPS-USER>@<VPS-HOST> 'sudo mv /tmp/backup-postgres.sh /usr/local/bin/backup-postgres.sh && sudo chmod 755 /usr/local/bin/backup-postgres.sh'
+scp scripts/backup-postgres.sh vps:/tmp/backup-postgres.sh
+ssh vps 'sudo mv /tmp/backup-postgres.sh /usr/local/bin/backup-postgres.sh && sudo chmod 755 /usr/local/bin/backup-postgres.sh'
 ```
 
 (Alternativ: Falls das Repo ohnehin auf dem VPS gecloned ist, genügt `sudo cp
@@ -364,8 +366,9 @@ Aktualisiert 2026-08-05 nach der Einrichtung (VPS-Härtung, s. Kasten oben):
 - ~~**Off-Site-Ziel**~~ — **erledigt (anders als vorgeschlagen):** nicht
   B2-push vom VPS, sondern NAS-Pull + rclone-Crypt nach OneDrive (s. Kasten
   oben). Der B2-Abschnitt 3 bleibt als Alternative stehen.
-- **VPS-SSH-Zugangsdaten** (`<VPS-USER>@<VPS-HOST>` in Abschnitt 1.1) — nicht im
-  Repo hinterlegt, rein illustrativ. Seit 2026-08-04: sudo-User statt root.
+- **VPS-SSH-Zugangsdaten** (hinter dem Alias `vps` in Abschnitt 1.1) — Origin-Adresse
+  und Benutzer stehen in `~/.ssh/config` auf der Devbox, nicht im Repo. Seit 2026-08-04:
+  sudo-User statt root.
 - **Pfad zu `docker-compose.prod.yml` auf dem VPS** (Abschnitt 2.2) — unklar, ob
   die Datei dort überhaupt als lokale Datei existiert oder nur Portainer-intern
   verwaltet wird; ggf. per Portainer-UI redeployen statt `docker compose -f ...`.

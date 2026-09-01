@@ -18,6 +18,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { Subscription, catchError, first, merge, of, switchMap, timer } from 'rxjs';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { botsExcludedCaptionKey } from '../../core/emotes/bots-excluded-caption';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { sevenTvSyncFailureKey } from '../../core/emotes/seven-tv-sync-failure';
@@ -267,6 +268,12 @@ export class UsageStatsPage {
 
   /** Date-only form, which is what the range menu and the vote-session ballot both speak. */
   protected readonly trackedSinceDate = computed(() => this.trackedSince()?.slice(0, 10) ?? null);
+
+  /** `?? null` guards against an older Api response taken mid-deploy, which simply omits the field —
+   *  that must read exactly like "no bot ever seen here", not throw or render `undefined`. */
+  protected readonly botsExcludedKey = computed(() =>
+    botsExcludedCaptionKey(this.setStatus()?.botsExcludedSince ?? null),
+  );
 
   /** Why the last 7TV sync produced nothing, or null when it worked (or was never attempted). */
   protected readonly syncFailureReason = computed(
@@ -696,12 +703,19 @@ export class UsageStatsPage {
         preserveSelection: true,
         silent: true,
       });
-      // Only a sync can have moved the active set id, its capacity or the occupied-slot count.
+      // A sync can move the active set id, its capacity or the occupied-slot count — nothing else in
+      // EmoteSetStatus moves on a sync, so it always earns a refetch.
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
         // This event is what awaitSync is really waiting for — the probes are only there for the
         // case where it never shows up. The totals have just been refetched above, so letting the
         // remaining probes run would only ask the same question again.
         this.stopAwaitingSync();
+        this.refreshSetStatus();
+      } else if (seen.has(LIVE_EVENT_TYPES.usageFlushed) && !this.setStatus()?.botsExcludedSince) {
+        // A flush can move the same DTO's botsExcludedSince: it is set the moment a flush first
+        // counts bot usage for this channel, not by a sync. Left unguarded this would refetch after
+        // every later flush too, forever, for a field that is a MIN over growing dates and therefore
+        // provably done changing once it holds a date — so only ask again while it is still null.
         this.refreshSetStatus();
       }
     });
@@ -934,9 +948,20 @@ export class UsageStatsPage {
       return '—';
     }
 
+    // A bare yyyy-MM-dd value (lastUsedDate, peak.date, botsExcludedSince — all date-only, no time
+    // of their own) must read as local midnight, not UTC midnight: `new Date('yyyy-MM-dd')` parses
+    // as the latter, and toLocaleDateString then renders it in the viewer's zone, which reads as the
+    // previous day for anyone west of UTC. A value that already carries a time part (e.g.
+    // trackedSince, a full UTC timestamp) has its own offset and must parse unshifted, so only the
+    // 10-character date-only form gets the local-midnight treatment.
+    const date =
+      iso.length === 10
+        ? new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)))
+        : new Date(iso);
+
     // LOCALE_ID is bootstrap-time static and cannot follow a runtime language switch, so dates go
     // through toLocale() — same as the admin pages.
-    return new Date(iso).toLocaleDateString(toLocale(this.languageService.lang()), {
+    return date.toLocaleDateString(toLocale(this.languageService.lang()), {
       dateStyle: 'medium',
     });
   }

@@ -9,7 +9,7 @@ namespace EmotePurge.Infrastructure.Services;
 
 public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushService> logger) : IUsageStatFlushService
 {
-    public async Task<IReadOnlyCollection<string>> FlushAsync(IReadOnlyDictionary<string, int> usageCounts, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyCollection<string>> FlushAsync(IReadOnlyDictionary<string, EmoteUsageCounts> usageCounts, CancellationToken cancellationToken = default)
     {
         if (usageCounts.Count == 0)
         {
@@ -45,20 +45,27 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
             return [];
         }
 
-        var useCounts = validIds.Select(id => usageCounts[id]).ToArray();
+        var useCounts = validIds.Select(id => usageCounts[id].Human).ToArray();
+        var botUseCounts = validIds.Select(id => usageCounts[id].Bot).ToArray();
 
         // Atomic upsert rather than read-then-insert. The previous version decided per emote between
         // += and Add based on a prior SELECT, which is only correct while there is exactly one
         // writer: the final flush in UsageFlushWorker.StopAsync can overlap a regular 30s tick, and
         // both would then see "row missing" and insert it — one loses on the unique index and its
         // entire batch (up to 30s of chat across ~1.000 emotes) is discarded. This also drops the
-        // extra SELECT with its ~1.000-element IN list every 30 seconds.
+        // extra SELECT with its ~1.000-element IN list every 30 seconds. Holds for both columns:
+        // "UseCount" and "BotUseCount" are addended independently, same reasoning either way.
+        //
+        // No "only rows with Human > 0" filter: a batch where an emote came only from bots still
+        // gets a row (UseCount = 0, BotUseCount = n) — bot usage is preserved, not discarded (E1).
         const string sql = """
-            INSERT INTO "UsageStats" ("EmoteId", "Date", "UseCount")
-            SELECT input."EmoteId", @date, input."UseCount"
-            FROM UNNEST(@emoteIds, @useCounts) AS input("EmoteId", "UseCount")
+            INSERT INTO "UsageStats" ("EmoteId", "Date", "UseCount", "BotUseCount")
+            SELECT input."EmoteId", @date, input."UseCount", input."BotUseCount"
+            FROM UNNEST(@emoteIds, @useCounts, @botUseCounts) AS input("EmoteId", "UseCount", "BotUseCount")
             ON CONFLICT ("EmoteId", "Date")
-            DO UPDATE SET "UseCount" = "UsageStats"."UseCount" + EXCLUDED."UseCount";
+            DO UPDATE SET
+                "UseCount" = "UsageStats"."UseCount" + EXCLUDED."UseCount",
+                "BotUseCount" = "UsageStats"."BotUseCount" + EXCLUDED."BotUseCount";
             """;
 
         await db.Database.ExecuteSqlRawAsync(
@@ -67,6 +74,7 @@ public class UsageStatFlushService(AppDbContext db, ILogger<UsageStatFlushServic
                 new NpgsqlParameter("date", NpgsqlDbType.Date) { Value = today },
                 new NpgsqlParameter("emoteIds", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = validIds.ToArray() },
                 new NpgsqlParameter("useCounts", NpgsqlDbType.Array | NpgsqlDbType.Integer) { Value = useCounts },
+                new NpgsqlParameter("botUseCounts", NpgsqlDbType.Array | NpgsqlDbType.Integer) { Value = botUseCounts },
             ],
             cancellationToken);
 
