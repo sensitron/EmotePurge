@@ -102,6 +102,9 @@ services:
       - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
       - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
       - Twitch__LivePollIntervalSeconds=${TWITCH_LIVE_POLL_INTERVAL_SECONDS:-300}
+      # Channel-eigene Bots, die in keiner Fremdliste stehen (s. IBotChatterDetector) —
+      # kommagetrennte Twitch-User-IDs, ergänzt die eingebaute statische Liste ohne Release.
+      - Twitch__AdditionalBotAccountIds=${TWITCH_ADDITIONAL_BOT_ACCOUNT_IDS:-}
     networks:
       - emotepurge-network
     depends_on:
