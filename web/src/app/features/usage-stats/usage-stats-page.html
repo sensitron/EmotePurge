@@ -252,17 +252,27 @@
             <i [class]="'block ' + bandFill(band.key)" [style.width.%]="band.share * 100"></i>
           }
         </div>
-        <p class="mt-1.5 flex font-mono text-[10px] text-fg-muted">
+        <!-- Measured (Playwright, scrollWidth against visible width): "11 % regelmäßig" needs
+             105px, and the old fixed-to-segment-width label had only 68px to work with — at
+             1280px viewport, not just on a narrow one. A percent threshold answers a pixel
+             question by accident, so it is gone; every non-zero band (usageSegments() already
+             drops the dead one) gets a legend entry. What is deliberately given up is alignment
+             under the segment it names — at 11% width that alignment never showed anything
+             anyway — in exchange for a legend that wraps onto a second line instead of clipping. -->
+        <p
+          data-distribution-legend
+          class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-fg-muted"
+        >
           @for (band of usageSegments(); track band.key) {
-            <!-- A label only where its segment can carry one; below that the segments would write
-                 over each other. The band headers in the sheet name every band anyway. -->
-            <span class="overflow-hidden whitespace-nowrap" [style.width.%]="band.share * 100">
-              @if (band.share >= 0.09) {
-                <b class="font-semibold text-fg-body">{{ formatBandShare(band.share) }}</b>
-                <span class="lowercase">
-                  {{ 'usageStats.bands.' + band.key + '.title' | transloco }}
-                </span>
-              }
+            <span class="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <i
+                [class]="'size-2 shrink-0 rounded-xs ' + bandFill(band.key)"
+                aria-hidden="true"
+              ></i>
+              <b class="font-semibold text-fg-body">{{ formatBandShare(band.share) }}</b>
+              <span class="lowercase">
+                {{ 'usageStats.bands.' + band.key + '.title' | transloco }}
+              </span>
             </span>
           }
         </p>
