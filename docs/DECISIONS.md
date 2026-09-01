@@ -35,6 +35,41 @@ Zwei Dinge daran haben den Fix entschieden. **Es war nie ein Mobile-Fehler:** ab
 
 **Ein Attribut ist neu im Markup:** `data-distribution-legend`. Das Repo kennt keine Test-Hooks und greift sonst über Rollen und Texte — hier reicht das nicht, weil „abgeschnitten" keine Rolle hat und die Bandnamen doppelt vorkommen, in der Legende und als Bandüberschrift im Bogen. Ein benannter Anker ist der ehrlichere Weg als ein Locator über Tailwind-Klassen, der beim nächsten Umbau still bricht.
 
+### 2026-09-01 — Kein Third-Party-Login bei 7TV: geprüft, verworfen, und zwar endgültig genug für ein `grep`
+
+**Betrifft:** `docs/Untersuchung-7TV-Token-Login-2026-07-30.md`, `docs/Architectur.md` (Grundsatz 4), `web/src/app/core/seven-tv/seven-tv-token.service.ts`, `web/src/app/shared/seven-tv/seven-tv-token-input.ts`
+
+Die Frage, ob EmotePurge das 7TV-Schreib-Token per Login-Redirect beschaffen kann statt es Nutzer aus den DevTools kopieren zu lassen, ist jetzt zum dritten Mal gestellt worden: am 2026-07-24 blind entschieden, am 2026-07-30 belegt untersucht, am 2026-09-01 erneut aufgeworfen — beim Blick auf `https://7tv.app/api/docs#/Authentication/get_v4_auth_login`. Die Untersuchung von damals hatte genau das vorhergesagt und empfohlen, das Ergebnis hier festzuhalten, „damit die Frage nicht erneut aufkommt". Das ist versäumt worden; dieser Eintrag holt es nach.
+
+**Es geht nicht, und der Grund steht im Server-Code**, nicht in einer Doku, die sich ändern könnte. `apps/api/src/http/v4/rest/auth.rs` im Monorepo `seventv/seventv`:
+
+```rust
+let allowed = [&config.api_origin, &config.old_website_origin, &config.website_origin];
+if !allowed.iter().any(|a| root_origin_match(a, &return_to)) {
+    return Err(ApiError::forbidden(ApiErrorCode::BadRequest, "return_to origin mismatch"));
+}
+```
+
+Die Allowlist ist fest verdrahtet (`7tv.app`, `old.7tv.app`, `7tv.io`) und hat keine Konfigurationsoption für weitere Origins. `client_id`, `redirect_uri` und `scope` gegenüber Twitch baut der Server aus seiner eigenen registrierten OAuth-App; der Aufrufer kann keines davon setzen. `return_to` ist der einzige Parameter mit Rückkanal-Charakter — und genau der wird geprüft.
+
+**Live gegengeprüft am 2026-09-01**, ohne Anmeldung und ohne Token:
+
+| Aufruf | Antwort |
+|---|---|
+| `GET /v4/auth/login` ohne Parameter | `400`, `missing field 'platform'` |
+| `?platform=twitch` | `303` → `id.twitch.tv/…?client_id=jzsoiyuc…&redirect_uri=https%3A%2F%2F7tv.app%2Flogin%2Fcallback` |
+| `?platform=twitch&return_to=https://example.org/cb` | **`403` `return_to origin mismatch`** |
+| dasselbe **ohne** `Referer`-Header | ebenfalls **`403`** |
+| `?platform=twitch&return_to=https://7tv.app/settings` | `303`, `return_to` wird als `state` durchgereicht |
+
+Das schärft Punkt (1) der Untersuchung vom 2026-07-30: dort waren `Referer`, `Origin` und `return_to` gemeinsam als Prüfkette genannt. Tatsächlich genügt der `return_to`-Wert allein für die Ablehnung, der Referer spielt dafür keine Rolle. Am Ergebnis ändert das nichts, es macht die Tür nur enger.
+
+**Zwei Beobachtungen, die dem nächsten Nachfragenden Zeit sparen.** Erstens: v4-Auth ist keine Neuerung, die man beobachten müsste — der älteste Commit an `auth.rs` datiert auf den 2024-12-11, der Endpunkt existierte also schon lange vor unserer Untersuchung. Zweitens: der Doku-Deep-Link taugt nicht mehr als Quelle. `https://7tv.app/api/docs` liefert für jeden Pfad dieselbe SvelteKit-App-Shell, die früher greifbare `v4docs.json` ist verschwunden, und im `main`-Branch gibt es überhaupt keinen OpenAPI-Generator für v4 mehr (`docs.rs` existiert nur unter `v3/`). Abrufbar ist nur noch die v3-Spec unter `https://api.7tv.app/v3/docs`. Wer die Frage erneut prüft, prüft sie am Quellcode und am Endpunkt, nicht an der Doku-Seite.
+
+**Damit ist Grundsatz 4 („Zero-Knowledge für Schreib-Tokens", `docs/Architectur.md`) eine Folge, keine freie Wahl.** Der Token bleibt im `sessionStorage` des Browsers und erreicht das Backend nie — das ist sicherheitstechnisch das Beste, was aus dieser Lage zu holen ist, und es bleibt richtig. Es ist aber nicht so entstanden, dass wir zwischen serverseitiger Token-Verwaltung und Zero-Knowledge abgewogen hätten: die erste Option gab es nie. Eine echte App-Integration mit registriertem Client wäre der sauberere Weg — sie erspart dem Nutzer den DevTools-Umweg, das Self-XSS-Gewöhnungsrisiko und die 30-Tage-Lebensdauer eines Tokens, das bei jedem 7TV-Logout still ungültig wird.
+
+**Was die Entscheidung umwerfen würde:** wenn 7TV eine Client-/App-Registrierung für Drittanbieter anbietet. Bis dahin ist jede Wiederaufnahme dieser Frage verlorene Zeit. Der einzige Hebel in unserer Hand wäre, 7TV danach zu fragen (Option D der Untersuchung) — **das ist am 2026-09-01 verworfen worden:** eine öffentliche Anfrage im `SevenTV/SevenTV`-Repo oder im Discord würde EmotePurge gegenüber 7TV sichtbar machen, und das ist derzeit nicht gewollt. Die Option bleibt technisch gangbar und kann jederzeit gezogen werden; sie ist nicht unmöglich, sondern nicht erwünscht.
+
 ### 2026-08-31 — Eine Geste darf richtungsabhängig abwählen, ein Gruppenknopf nicht
 
 **Betrifft:** `web/src/app/shared/selection/list-selection.ts`, `web/src/app/shared/selection/list-selection.spec.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
