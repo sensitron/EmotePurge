@@ -121,6 +121,21 @@ public sealed class RedisLiveEventStream(
     /// before the call succeeds — so the flag can never get "burned": the next caller, once Redis is
     /// reachable again, retries the real subscribe instead of the stream staying dead for the rest of
     /// the process's lifetime.
+    /// <para>
+    /// The reverse case — the latch short-circuiting <em>past</em> a Redis outage, so a client
+    /// arriving mid-outage is admitted with 200 where a cold process would answer 503 — is
+    /// deliberate rather than an oversight (measured 2026-09-01 while verifying #42, see
+    /// <c>RedisLiveEventStreamOutageTests</c>). StackExchange.Redis restores the channel
+    /// subscription itself on reconnect, and the fan-out is process-wide, so a connection admitted
+    /// during the outage resumes receiving with every other one and without any client action. A
+    /// 503 would be strictly worse for that client: the browser treats a non-2xx SSE handshake as
+    /// terminal (<c>LiveUpdateService</c> stops at readyState CLOSED with a single visibility
+    /// retry), which turns a transient outage into a permanently dead tab. Events published while
+    /// Redis is down are lost either way — pub/sub buffers nothing — so the admitted connection is
+    /// no worse off than the ones opened before the outage. The operator signal for a Redis outage
+    /// is <c>GET /api/health</c>, which reads the worker snapshot from Redis and answers 503; it
+    /// does not depend on this path.
+    /// </para>
     /// </summary>
     private async Task<bool> EnsureRedisSubscribedAsync(CancellationToken cancellationToken)
     {
