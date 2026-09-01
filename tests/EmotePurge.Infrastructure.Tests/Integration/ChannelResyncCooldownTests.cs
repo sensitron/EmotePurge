@@ -1,6 +1,7 @@
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Tests.Fixtures;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace EmotePurge.Infrastructure.Tests.Integration;
@@ -24,7 +25,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
     [Fact]
     public async Task TryBeginAsync_AcquiresOnTheFirstCall()
     {
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration());
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(), NullLogger<ChannelResyncCooldown>.Instance);
 
         var state = await cooldown.TryBeginAsync(NewChannel());
 
@@ -35,7 +36,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
     public async Task TryBeginAsync_BlocksTheSecondCall_AndReportsTheRemainingTime()
     {
         var channel = NewChannel();
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(60));
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(60), NullLogger<ChannelResyncCooldown>.Instance);
 
         await cooldown.TryBeginAsync(channel);
         var second = await cooldown.TryBeginAsync(channel);
@@ -51,7 +52,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
         // The single worst bug this class could have: SET NX without EX is a permanent lock, and
         // nothing in the codebase would ever delete that key.
         var channel = NewChannel();
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(60));
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(60), NullLogger<ChannelResyncCooldown>.Instance);
 
         await cooldown.TryBeginAsync(channel);
         var ttl = await fixture.Connection.GetDatabase().KeyTimeToLiveAsync($"resync:cooldown:{channel}");
@@ -67,7 +68,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
         // Without it, asking about a channel that was just rejoined would block the resync the
         // broadcaster actually wants for a full window.
         var channel = NewChannel();
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration());
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(), NullLogger<ChannelResyncCooldown>.Instance);
 
         await cooldown.TryBeginAsync(channel);
         await cooldown.ReleaseAsync(channel);
@@ -82,7 +83,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
         // Regel 9. A cooldown that could be bypassed by typing "HandOfBlood" instead of
         // "handofblood" would be no cooldown at all — and Twitch names are typed with capitals.
         var channel = NewChannel();
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration());
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(), NullLogger<ChannelResyncCooldown>.Instance);
 
         await cooldown.TryBeginAsync(channel.ToUpperInvariant());
         var second = await cooldown.TryBeginAsync($"  {channel}  ");
@@ -95,7 +96,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
     {
         // One second so the test does not have to wait a minute; the mechanism is the same.
         var channel = NewChannel();
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(1));
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(1), NullLogger<ChannelResyncCooldown>.Instance);
 
         Assert.True((await cooldown.TryBeginAsync(channel)).Acquired);
         Assert.False((await cooldown.TryBeginAsync(channel)).Acquired);
@@ -111,7 +112,7 @@ public class ChannelResyncCooldownTests(RedisFixture fixture)
         // The reason this is SET NX and not "read, decide, write": fifteen moderators clicking at
         // once is the realistic case, and a check-then-set would let all fifteen through.
         var channel = NewChannel();
-        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration());
+        var cooldown = new ChannelResyncCooldown(fixture.Connection, BuildConfiguration(), NullLogger<ChannelResyncCooldown>.Instance);
 
         var states = await Task.WhenAll(Enumerable.Range(0, 15).Select(_ => cooldown.TryBeginAsync(channel)));
 
