@@ -927,6 +927,8 @@
       "emote_not_eligible": "This emote can no longer be voted on.",
       "resync_cooldown_active": "A resync is already running for this channel. Please wait a moment.",
       "rate_limit_exceeded": "Too many requests in a short time. Wait a moment and try again.",
+      "live_stream_unavailable": "Live updates are not available right now. Reload the page if needed.",
+      "live_stream_quota_exhausted": "Too many open live connections. Close a few tabs and try again.",
       "unexpected_error": "An unexpected error occurred on the server. Please try again.",
       "no_health_data": "No worker data is available right now.",
       "health_data_unreadable": "The worker data could not be read."

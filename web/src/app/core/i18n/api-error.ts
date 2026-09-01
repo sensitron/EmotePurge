@@ -31,6 +31,8 @@ export const KNOWN_API_ERROR_CODES = new Set([
   'emote_not_eligible',
   'resync_cooldown_active',
   'rate_limit_exceeded',
+  'live_stream_unavailable',
+  'live_stream_quota_exhausted',
   'unexpected_error',
   'no_health_data',
   'health_data_unreadable',

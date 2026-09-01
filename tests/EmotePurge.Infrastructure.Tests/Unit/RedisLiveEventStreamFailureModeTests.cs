@@ -10,18 +10,21 @@ namespace EmotePurge.Infrastructure.Tests.Unit;
 
 // Container-free counterpart to Integration/RedisLiveEventStreamTests.cs (real Redis, happy path).
 // Reproduces what issue #37 measured with Redis stopped: GET /api/channels/live-events answering 500
-// instead of the 503 LiveEndpoints.OpenAsync already renders for a null subscription. See the twin
+// instead of the 503 LiveEndpoints.OpenAsync already renders for a failed subscription. See the twin
 // fixes in RedisReaderFailureModeTests/ModRoleCacheFailureModeTests, whose fail-open shape this mirrors.
+// Since #42, SubscribeAsync's failure carries a status rather than collapsing onto a bare null; the
+// tests below now assert that status, and the last one pins InfrastructureUnavailable and
+// QuotaExhausted apart — the very distinction #42 introduced.
 public class RedisLiveEventStreamFailureModeTests
 {
     private static RedisConnectionException BuildConnectionException() =>
         new(ConnectionFailureType.UnableToConnect, CommandFlags.None, "Redis ist nicht erreichbar.", null, CommandStatus.Unknown);
 
-    private static RedisLiveEventStream CreateStream(IRedisSubscriber redisSubscriber) =>
-        new(redisSubscriber, NullLogger<RedisLiveEventStream>.Instance);
+    private static RedisLiveEventStream CreateStream(IRedisSubscriber redisSubscriber, LiveEventStreamOptions? options = null) =>
+        new(redisSubscriber, NullLogger<RedisLiveEventStream>.Instance, options);
 
     [Fact]
-    public async Task SubscribeAsync_RedisSubscribeFails_ReturnsNullInsteadOfThrowing()
+    public async Task SubscribeAsync_RedisSubscribeFails_ReturnsInfrastructureUnavailableInsteadOfThrowing()
     {
         var redisSubscriber = Substitute.For<IRedisSubscriber>();
         redisSubscriber
@@ -30,9 +33,10 @@ public class RedisLiveEventStreamFailureModeTests
 
         var stream = CreateStream(redisSubscriber);
 
-        var subscription = await stream.SubscribeAsync("user-1", _ => true);
+        var result = await stream.SubscribeAsync("user-1", _ => true);
 
-        Assert.Null(subscription);
+        Assert.Equal(LiveEventSubscribeStatus.InfrastructureUnavailable, result.Status);
+        Assert.Null(result.Subscription);
     }
 
     [Fact]
@@ -55,13 +59,37 @@ public class RedisLiveEventStreamFailureModeTests
         var stream = CreateStream(redisSubscriber);
 
         var first = await stream.SubscribeAsync("user-1", _ => true);
-        Assert.Null(first);
+        Assert.Equal(LiveEventSubscribeStatus.InfrastructureUnavailable, first.Status);
 
         var second = await stream.SubscribeAsync("user-1", _ => true);
-        Assert.NotNull(second);
-        await second.DisposeAsync();
+        Assert.Equal(LiveEventSubscribeStatus.Ok, second.Status);
+        Assert.NotNull(second.Subscription);
+        await second.Subscription!.DisposeAsync();
 
         await redisSubscriber.Received(2).SubscribeAsync(
             Arg.Any<string>(), Arg.Any<Func<string, string, Task>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SubscribeAsync_QuotaExhausted_IsDistinctFromInfrastructureUnavailable()
+    {
+        // Redis works fine here — the rejection below comes purely from MaxPerSubscriber, never
+        // touching EnsureRedisSubscribedAsync's failure path. Before #42 both reasons answered the
+        // same null; this is the regression test for keeping them apart.
+        var redisSubscriber = Substitute.For<IRedisSubscriber>();
+        redisSubscriber
+            .SubscribeAsync(Arg.Any<string>(), Arg.Any<Func<string, string, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask);
+
+        var stream = CreateStream(redisSubscriber, new LiveEventStreamOptions { MaxPerSubscriber = 1 });
+
+        var first = await stream.SubscribeAsync("user-2", _ => true);
+        Assert.Equal(LiveEventSubscribeStatus.Ok, first.Status);
+
+        var second = await stream.SubscribeAsync("user-2", _ => true);
+        Assert.Equal(LiveEventSubscribeStatus.QuotaExhausted, second.Status);
+        Assert.Null(second.Subscription);
+
+        await first.Subscription!.DisposeAsync();
     }
 }

@@ -27,11 +27,14 @@ public sealed record LiveEventStreamOptions
     /// because the overview page now holds a stream permanently per tab (<c>live.changed</c>), so
     /// 3 was exhaustible with ordinary multi-tab use: overview + a channel workspace is already
     /// 2 streams, overview + admin monitoring + the admin channel list is 3. An exhausted budget
-    /// makes <see cref="ILiveEventStream.SubscribeAsync"/> answer null, the endpoint answer 503,
-    /// and the browser treats a 503 on an EventSource handshake as terminal — the tab silently
-    /// stops receiving live updates for good. The structural fix (future) is sharing one
-    /// connection per URL inside the frontend's LiveUpdateService, which would collapse the
-    /// per-tab count to at most one per distinct stream URL.
+    /// makes <see cref="ILiveEventStream.SubscribeAsync"/> answer
+    /// <see cref="LiveEventSubscribeStatus.QuotaExhausted"/>, the endpoint answer 429 (issue #42 —
+    /// a bare, indistinguishable 503 before it), and the browser treats a 429 on an EventSource
+    /// handshake as terminal just like a 503 — the tab silently stops receiving live updates for
+    /// good. The structural fix — sharing one connection per URL inside the frontend's
+    /// <c>LiveUpdateService</c> — has been in place since 2026-08-29
+    /// (<c>stream()</c> in <c>live-update.service.ts</c>), which collapses the per-tab count to at
+    /// most one per distinct stream URL.
     /// </summary>
     public int MaxPerSubscriber { get; init; } = 6;
 }
@@ -59,17 +62,20 @@ public sealed class RedisLiveEventStream(
     private readonly Lock _limitLock = new();
     private bool _redisSubscribed;
 
-    public async Task<ILiveEventSubscription?> SubscribeAsync(
+    public async Task<LiveEventSubscribeResult> SubscribeAsync(
         string subscriberKey,
         Func<LiveEvent, bool> filter,
         CancellationToken cancellationToken = default)
     {
         if (!await EnsureRedisSubscribedAsync(cancellationToken))
         {
-            // Before a single byte of the SSE body: SubscribeAsync answering null here is exactly
-            // the "cannot subscribe right now" contract LiveEndpoints.OpenAsync already renders as
-            // 503 — not a new case, just the existing degraded answer reached for a second reason.
-            return null;
+            // Before a single byte of the SSE body: SubscribeAsync answering InfrastructureUnavailable
+            // here is exactly the "cannot subscribe right now" contract LiveEndpoints.OpenAsync
+            // renders as 503 — not a new case, just the existing degraded answer reached for a second
+            // reason. Distinct from QuotaExhausted below since #42: an operator reading the log line
+            // just above (missing here because EnsureRedisSubscribedAsync already logged) needs to
+            // tell "Redis is down" apart from "the connection budget is full".
+            return LiveEventSubscribeResult.Failed(LiveEventSubscribeStatus.InfrastructureUnavailable);
         }
 
         var subscription = new Subscription(subscriberKey, filter, _options, Remove);
@@ -83,7 +89,7 @@ public sealed class RedisLiveEventStream(
                 logger.LogWarning(
                     "Live-Event-Stream abgelehnt: prozessweites Limit von {Limit} Verbindungen erreicht.",
                     _options.MaxSubscriptions);
-                return null;
+                return LiveEventSubscribeResult.Failed(LiveEventSubscribeStatus.QuotaExhausted);
             }
 
             var perSubscriber = 0;
@@ -100,13 +106,13 @@ public sealed class RedisLiveEventStream(
                 logger.LogInformation(
                     "Live-Event-Stream abgelehnt: {Key} hält bereits {Limit} Verbindungen.",
                     subscriberKey, _options.MaxPerSubscriber);
-                return null;
+                return LiveEventSubscribeResult.Failed(LiveEventSubscribeStatus.QuotaExhausted);
             }
 
             _subscriptions[subscription.Id] = subscription;
         }
 
-        return subscription;
+        return LiveEventSubscribeResult.Ok(subscription);
     }
 
     /// <summary>
@@ -115,6 +121,21 @@ public sealed class RedisLiveEventStream(
     /// before the call succeeds — so the flag can never get "burned": the next caller, once Redis is
     /// reachable again, retries the real subscribe instead of the stream staying dead for the rest of
     /// the process's lifetime.
+    /// <para>
+    /// The reverse case — the latch short-circuiting <em>past</em> a Redis outage, so a client
+    /// arriving mid-outage is admitted with 200 where a cold process would answer 503 — is
+    /// deliberate rather than an oversight (measured 2026-09-01 while verifying #42, see
+    /// <c>RedisLiveEventStreamOutageTests</c>). StackExchange.Redis restores the channel
+    /// subscription itself on reconnect, and the fan-out is process-wide, so a connection admitted
+    /// during the outage resumes receiving with every other one and without any client action. A
+    /// 503 would be strictly worse for that client: the browser treats a non-2xx SSE handshake as
+    /// terminal (<c>LiveUpdateService</c> stops at readyState CLOSED with a single visibility
+    /// retry), which turns a transient outage into a permanently dead tab. Events published while
+    /// Redis is down are lost either way — pub/sub buffers nothing — so the admitted connection is
+    /// no worse off than the ones opened before the outage. The operator signal for a Redis outage
+    /// is <c>GET /api/health</c>, which reads the worker snapshot from Redis and answers 503; it
+    /// does not depend on this path.
+    /// </para>
     /// </summary>
     private async Task<bool> EnsureRedisSubscribedAsync(CancellationToken cancellationToken)
     {

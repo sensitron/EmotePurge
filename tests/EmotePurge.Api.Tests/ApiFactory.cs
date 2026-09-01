@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using EmotePurge.Api.Auth;
+using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -57,6 +58,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public IWorkerHealthReader WorkerHealth { get; } = Substitute.For<IWorkerHealthReader>();
 
     /// <summary>
+    /// Substituted so the live-stream failure-path tests (issue #42) can drive
+    /// <c>SubscribeAsync</c>'s result directly. The real <c>RedisLiveEventStream</c> would need
+    /// <c>EnsureRedisSubscribedAsync</c> to succeed against the substituted
+    /// <see cref="IConnectionMultiplexer"/> below, which it cannot.
+    /// </summary>
+    public ILiveEventStream LiveEventStream { get; } = Substitute.For<ILiveEventStream>();
+
+    /// <summary>
     /// Substituted because Program.cs now runs the S3-34 migration guard at startup — the real
     /// implementation would open a connection to the placeholder database configured below.
     /// The substitute simply completes, which is the "fully migrated" answer.
@@ -91,6 +100,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddScoped(_ => Channels);
             services.AddSingleton(_ => ResyncCooldown);
             services.AddSingleton(_ => WorkerHealth);
+            services.AddSingleton(_ => LiveEventStream);
             services.AddScoped(_ => _migrationGuard);
 
             // Load-bearing, and not obvious: RequestDelegateFactory resolves a handler's injected

@@ -27,12 +27,21 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
     private Task PublishRawAsync(string payload) =>
         new RedisPublisher(fixture.Connection).PublishAsync(LiveEvents.Channel, payload);
 
+    // Asserts the Ok case and unwraps the subscription — SubscribeAsync returns a
+    // LiveEventSubscribeResult since #42, not a bare ILiveEventSubscription?, so every happy-path call
+    // site needs one line to get from the result to the disposable it wraps.
+    private static ILiveEventSubscription RequireOk(LiveEventSubscribeResult result)
+    {
+        Assert.Equal(LiveEventSubscribeStatus.Ok, result.Status);
+        Assert.NotNull(result.Subscription);
+        return result.Subscription!;
+    }
+
     [Fact]
     public async Task PublishedEvent_ReachesTheSubscriber()
     {
         var stream = CreateStream();
-        await using var subscription = await stream.SubscribeAsync("user-1", ForChannel("reach-1"));
-        Assert.NotNull(subscription);
+        await using var subscription = RequireOk(await stream.SubscribeAsync("user-1", ForChannel("reach-1")));
 
         await PublishAsync(new LiveEvent(LiveEvents.UsageFlushed, "reach-1"));
 
@@ -45,8 +54,7 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
     public async Task Filter_ExcludesNonMatchingEvents()
     {
         var stream = CreateStream();
-        await using var subscription = await stream.SubscribeAsync("user-2", ForChannel("filter-mine"));
-        Assert.NotNull(subscription);
+        await using var subscription = RequireOk(await stream.SubscribeAsync("user-2", ForChannel("filter-mine")));
 
         // The unwanted one first: if the filter leaked, the very first item read would be it.
         await PublishAsync(new LiveEvent(LiveEvents.UsageFlushed, "filter-other"));
@@ -61,10 +69,8 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
     public async Task TwoSubscribers_EachReceiveTheirOwnCopy()
     {
         var stream = CreateStream();
-        await using var first = await stream.SubscribeAsync("user-3a", ForChannel("fanout"));
-        await using var second = await stream.SubscribeAsync("user-3b", ForChannel("fanout"));
-        Assert.NotNull(first);
-        Assert.NotNull(second);
+        await using var first = RequireOk(await stream.SubscribeAsync("user-3a", ForChannel("fanout")));
+        await using var second = RequireOk(await stream.SubscribeAsync("user-3b", ForChannel("fanout")));
 
         await PublishAsync(new LiveEvent(LiveEvents.ChannelSynced, "fanout"));
 
@@ -78,13 +84,11 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
         var options = new LiveEventStreamOptions { MaxPerSubscriber = 1 };
         var stream = CreateStream(options);
 
-        var closed = await stream.SubscribeAsync("user-4", ForChannel("dispose"));
-        Assert.NotNull(closed);
+        var closed = RequireOk(await stream.SubscribeAsync("user-4", ForChannel("dispose")));
         await closed.DisposeAsync();
 
         // The slot is free again — proof the fan-out entry is gone, not just its reader.
-        await using var reopened = await stream.SubscribeAsync("user-4", ForChannel("dispose"));
-        Assert.NotNull(reopened);
+        await using var reopened = RequireOk(await stream.SubscribeAsync("user-4", ForChannel("dispose")));
 
         await PublishAsync(new LiveEvent(LiveEvents.UsageFlushed, "dispose"));
 
@@ -92,44 +96,41 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
     }
 
     [Fact]
-    public async Task SubscribeAsync_ReturnsNull_WhenTheSameSubscriberHitsItsLimit()
+    public async Task SubscribeAsync_ReturnsQuotaExhausted_WhenTheSameSubscriberHitsItsLimit()
     {
         var stream = CreateStream(new LiveEventStreamOptions { MaxPerSubscriber = 2 });
 
-        await using var first = await stream.SubscribeAsync("user-5", _ => true);
-        await using var second = await stream.SubscribeAsync("user-5", _ => true);
+        await using var first = RequireOk(await stream.SubscribeAsync("user-5", _ => true));
+        await using var second = RequireOk(await stream.SubscribeAsync("user-5", _ => true));
         var third = await stream.SubscribeAsync("user-5", _ => true);
 
-        Assert.NotNull(first);
-        Assert.NotNull(second);
-        // null rather than an exception or a lazily-failing enumerable: the endpoint has to answer
-        // 503 before it writes the first response byte.
-        Assert.Null(third);
+        // QuotaExhausted rather than an exception or a lazily-failing enumerable: the endpoint has to
+        // answer 429 before it writes the first response byte.
+        Assert.Equal(LiveEventSubscribeStatus.QuotaExhausted, third.Status);
+        Assert.Null(third.Subscription);
 
         // Another identity is unaffected by one account exhausting its own budget.
-        await using var other = await stream.SubscribeAsync("user-5-other", _ => true);
-        Assert.NotNull(other);
+        await using var other = RequireOk(await stream.SubscribeAsync("user-5-other", _ => true));
     }
 
     [Fact]
-    public async Task SubscribeAsync_ReturnsNull_WhenTheProcessWideLimitIsReached()
+    public async Task SubscribeAsync_ReturnsQuotaExhausted_WhenTheProcessWideLimitIsReached()
     {
         var stream = CreateStream(new LiveEventStreamOptions { MaxSubscriptions = 2, MaxPerSubscriber = 5 });
 
-        await using var first = await stream.SubscribeAsync("user-6a", _ => true);
-        await using var second = await stream.SubscribeAsync("user-6b", _ => true);
+        await using var first = RequireOk(await stream.SubscribeAsync("user-6a", _ => true));
+        await using var second = RequireOk(await stream.SubscribeAsync("user-6b", _ => true));
 
-        Assert.NotNull(first);
-        Assert.NotNull(second);
-        Assert.Null(await stream.SubscribeAsync("user-6c", _ => true));
+        var third = await stream.SubscribeAsync("user-6c", _ => true);
+        Assert.Equal(LiveEventSubscribeStatus.QuotaExhausted, third.Status);
+        Assert.Null(third.Subscription);
     }
 
     [Fact]
     public async Task MalformedPayload_IsDropped_WithoutTearingDownTheSubscription()
     {
         var stream = CreateStream();
-        await using var subscription = await stream.SubscribeAsync("user-7", ForChannel("garbage"));
-        Assert.NotNull(subscription);
+        await using var subscription = RequireOk(await stream.SubscribeAsync("user-7", ForChannel("garbage")));
 
         await PublishRawAsync("this is not json");
         await PublishRawAsync("""{"noTypeHere":true}""");
@@ -146,8 +147,7 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
         // 50 ms instead of the production 15 s — the whole reason the interval is a constructor
         // parameter rather than a constant.
         var stream = CreateStream(new LiveEventStreamOptions { HeartbeatInterval = TimeSpan.FromMilliseconds(50) });
-        await using var subscription = await stream.SubscribeAsync("user-8", _ => false);
-        Assert.NotNull(subscription);
+        await using var subscription = RequireOk(await stream.SubscribeAsync("user-8", _ => false));
 
         var received = await ReadAsync(subscription, 3);
 
@@ -164,8 +164,7 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
     {
         // Long heartbeat so no ping can slip between the events and confuse the ordering assertions.
         var stream = CreateStream(new LiveEventStreamOptions { HeartbeatInterval = TimeSpan.FromSeconds(30) });
-        await using var subscription = await stream.SubscribeAsync("user-9", ForChannel("backpressure"));
-        Assert.NotNull(subscription);
+        await using var subscription = RequireOk(await stream.SubscribeAsync("user-9", ForChannel("backpressure")));
 
         // 100 events into a 64-slot buffer that nobody is reading from.
         var stopwatch = Stopwatch.StartNew();

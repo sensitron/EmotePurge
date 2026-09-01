@@ -37,6 +37,17 @@ internal static class ApiErrorCodes
     // is spent. Both carry retryAfterSeconds and a Retry-After header, so the frontend can say which
     // of the two happened instead of falling back to one message for every 429 in existence.
     public const string RateLimitExceeded = "rate_limit_exceeded";
+    // 503 with a body: RedisLiveEventStream could not subscribe to the Redis channel at all — an
+    // infrastructure failure, not the caller's fault (issue #42). Distinct from
+    // LiveStreamQuotaExhausted below so a bare 503 no longer hides which of the two happened.
+    public const string LiveStreamUnavailable = "live_stream_unavailable";
+    // 429 with a body: either the process-wide or the per-login live-stream connection limit is
+    // exhausted (RedisLiveEventStream.MaxSubscriptions / MaxPerSubscriber) — one code for both,
+    // because a caller cannot act on the two any differently: no slot right now, try again shortly.
+    // Carries retryAfterSeconds and a Retry-After header like ResyncCooldownActive/RateLimitExceeded
+    // above, but — unlike those — the value is a fixed heuristic, not a measured remaining cooldown:
+    // neither connection limit has a natural expiry to report.
+    public const string LiveStreamQuotaExhausted = "live_stream_quota_exhausted";
 
     // Returned by the global exception handler — deliberately opaque, no exception detail.
     public const string UnexpectedError = "unexpected_error";
