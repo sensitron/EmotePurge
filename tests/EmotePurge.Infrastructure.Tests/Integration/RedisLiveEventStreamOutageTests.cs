@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Docker.DotNet;
 using EmotePurge.Core.Messaging;
 using EmotePurge.Infrastructure.Redis;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -29,15 +30,14 @@ public class RedisLiveEventStreamOutageTests
     [Fact]
     public async Task RedisOutage_DeniesAColdStream_ButOpenConnectionsHealThemselvesOnReconnect()
     {
-        // A fixed host port, not Testcontainers' random mapping: the container is stopped and started
-        // again, and only a pinned port keeps the address the multiplexer reconnects to valid —
-        // which is what `docker compose stop redis` looks like from inside the Api.
-        var container = new RedisBuilder()
-            .WithImage("redis:7.2-alpine")
-            .WithPortBinding(FreeTcpPort(), 6379)
-            .Build();
-
-        await container.StartAsync();
+        // A fixed host port is load-bearing, not incidental: measured directly against this Docker
+        // (2026-09-01, Docker 29.7.2) before writing this fix, Testcontainers' random mapping — no
+        // WithPortBinding — allocates a *new* host port on every StartAsync of the same container
+        // (empty HostConfig.PortBindings, i.e. Docker's `-P` behaviour), so the multiplexer created
+        // before the outage would have nothing to reconnect to after `container.StartAsync()` below.
+        // A fixed binding's HostConfig.PortBindings entry, in the same measurement, survived
+        // stop/start unchanged — that is what the outage-and-recovery below actually needs.
+        var container = await StartRedisContainerAsync();
         try
         {
             var config = ConfigurationOptions.Parse(container.GetConnectionString());
@@ -80,19 +80,22 @@ public class RedisLiveEventStreamOutageTests
             await WaitUntilAsync(() => connection.IsConnected, TimeSpan.FromSeconds(60));
             Assert.True(connection.IsConnected);
 
-            // One event for both readers: StackExchange.Redis restored the channel subscription on
-            // its own, so neither the pre-outage connection nor the one admitted mid-outage needs any
-            // client action to receive again. Nothing was published while Redis was down — Redis
-            // pub/sub buffers nothing — so both buffers are empty and this is the next event each of
-            // them sees.
-            await WaitUntilAsync(async () =>
-            {
-                await PublishAsync(publisher, 2);
-                return true;
-            }, TimeSpan.FromSeconds(30));
+            // IsConnected only says the physical server connection is back, not that
+            // StackExchange.Redis has re-registered our channel subscription with that server yet —
+            // PUBLISH succeeds even with zero subscribers, so a single blind publish-then-read right
+            // after IsConnected flips is exactly the race that made this test flaky. Instead, publish
+            // and read in a loop with a fresh SessionId each attempt until one is actually observed:
+            // an attempt in the still-unsubscribed window reaches nobody (Redis drops it, it does not
+            // queue), so there is no risk of a stale SessionId confusing a later attempt.
+            var recoveredSessionId = await PublishUntilDeliveredAsync(publisher, established, TimeSpan.FromSeconds(30));
 
-            Assert.Equal(2, (await ReadOneAsync(established))?.SessionId);
-            Assert.Equal(2, (await ReadOneAsync(admittedDuringOutage))?.SessionId);
+            // No separate wait for the second reader: OnMessageAsync offers one delivered message to
+            // every open subscription in the same synchronous pass, so the publish that
+            // PublishUntilDeliveredAsync just proved landed on `established` landed on
+            // `admittedDuringOutage` at the same time. Asserting the identical SessionId (rather than
+            // just "some event arrived") is the "both received after recovery" proof: it rules out
+            // this read picking up some other, unrelated event.
+            Assert.Equal(recoveredSessionId, (await ReadOneAsync(admittedDuringOutage))?.SessionId);
 
             // And the cold stream, still latch-less, now genuinely succeeds.
             var coldAfterRecovery = await cold.SubscribeAsync("outage-cold-2", ForChannel("outage"));
@@ -102,6 +105,52 @@ public class RedisLiveEventStreamOutageTests
         finally
         {
             await container.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// A fixed port is required (see the comment at the call site), but picking one ourselves is an
+    /// inherent TOCTOU race against every other test process doing the same thing: <see cref="FreeTcpPort"/>
+    /// closes its probe listener before Docker binds the port, and something else can claim it in
+    /// between. Rather than eliminate the race — not possible without asking Docker itself for a free
+    /// port, which is exactly what the plain random-mapping builder does and which breaks reconnection
+    /// (see the call site) — this retries with a freshly picked port on the specific failure that race
+    /// produces.
+    /// </summary>
+    private static async Task<RedisContainer> StartRedisContainerAsync()
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            var container = new RedisBuilder()
+                .WithImage("redis:7.2-alpine")
+                .WithPortBinding(FreeTcpPort(), 6379)
+                .Build();
+
+            try
+            {
+                await container.StartAsync();
+                return container;
+            }
+            catch (DockerApiException ex) when (attempt < maxAttempts &&
+                ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase))
+            {
+                await container.DisposeAsync();
+            }
+        }
+    }
+
+    private static int FreeTcpPort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            return ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
+        finally
+        {
+            listener.Stop();
         }
     }
 
@@ -116,13 +165,56 @@ public class RedisLiveEventStreamOutageTests
     private static Func<LiveEvent, bool> ForChannel(string channelName) =>
         liveEvent => string.Equals(liveEvent.Channel, channelName, StringComparison.Ordinal);
 
-    // Returns null on timeout rather than throwing, so a failure reports the missing event.
-    private static async Task<LiveEvent?> ReadOneAsync(ILiveEventSubscription subscription)
+    /// <summary>
+    /// Publishes with a fresh, ever-increasing SessionId and reads once from <paramref name="subscription"/>
+    /// per attempt, until the read observes the very SessionId that attempt published — proof that the
+    /// channel subscription is live end-to-end, not just that the publish call itself did not throw.
+    /// Retries rather than a single publish-then-read because a publish while StackExchange.Redis is
+    /// still re-registering the subscription server-side reaches no one and is not queued for later.
+    /// </summary>
+    private static async Task<long> PublishUntilDeliveredAsync(
+        IRedisPublisher publisher, ILiveEventSubscription subscription, TimeSpan timeout)
     {
-        using var timeout = new CancellationTokenSource(ReadTimeout);
+        // Starts above the pre-outage SessionId (1) so a leftover from before the outage can never be
+        // mistaken for a delivery this loop caused.
+        var sessionId = 1;
+        var deadline = DateTime.UtcNow + timeout;
+        while (true)
+        {
+            sessionId++;
+            try
+            {
+                await PublishAsync(publisher, sessionId);
+            }
+            catch (Exception ex) when (ex is RedisException or TimeoutException)
+            {
+                // Reconnected but not yet ready to accept commands — try again below.
+            }
+
+            var received = await ReadOneAsync(subscription, TimeSpan.FromSeconds(2));
+            if (received?.SessionId == sessionId)
+            {
+                return sessionId;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+            {
+                Assert.Fail(
+                    $"Nach der Redis-Wiederherstellung kam innerhalb von {timeout} kein Live-Event auf der Subscription an.");
+            }
+        }
+    }
+
+    private static Task<LiveEvent?> ReadOneAsync(ILiveEventSubscription subscription) =>
+        ReadOneAsync(subscription, ReadTimeout);
+
+    // Returns null on timeout rather than throwing, so a failure reports the missing event.
+    private static async Task<LiveEvent?> ReadOneAsync(ILiveEventSubscription subscription, TimeSpan timeout)
+    {
+        using var timeoutSource = new CancellationTokenSource(timeout);
         try
         {
-            await foreach (var liveEvent in subscription.Events.WithCancellation(timeout.Token))
+            await foreach (var liveEvent in subscription.Events.WithCancellation(timeoutSource.Token))
             {
                 return liveEvent;
             }
@@ -156,20 +248,6 @@ public class RedisLiveEventStreamOutageTests
             }
 
             await Task.Delay(250);
-        }
-    }
-
-    private static int FreeTcpPort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
         }
     }
 }
