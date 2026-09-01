@@ -10,6 +10,26 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-08-31 — Eine Geste darf richtungsabhängig abwählen, ein Gruppenknopf nicht
+
+**Betrifft:** `web/src/app/shared/selection/list-selection.ts`, `web/src/app/shared/selection/list-selection.spec.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
+
+Issue #40 bestand aus seinem Titel: „Multi Deselect would be good. Currently only mutli select with Shift possible." Die Sichtung des Auswahl-Codes hat die Lücke zuerst enger gefasst, als der Titel sie beschreibt. **Einzelnes Abwählen gab es längst** — ein normaler Klick auf ein markiertes Emote nimmt es wieder heraus. Gefehlt hat ausschließlich das Abwählen *mehrerer auf einen Schlag*: die Range-Schleife des Shift-Klicks kannte nur `add`, nie `delete`. Wer von vierzig markierten Emotes die ersten zehn wieder herausnehmen wollte, musste sie einzeln durchklicken.
+
+**Die Geste bekommt eine Richtung, statt einen zweiten Modifier zu bekommen.** Ein Shift-Klick überträgt jetzt den Zustand der Ankerzelle auf den ganzen Bereich: Ist der Anker markiert, wird der Bereich markiert (unverändert); ist er es nicht, wird der Bereich abgewählt. Da derselbe Klick, der den Anker setzt, ihn auch umschaltet, wählt man ab, indem man das erste störende Emote wegklickt und dann mit Shift ans Ende des Bereichs — spiegelbildlich zum Markieren, ohne neue Taste. `ctrlKey`/`metaKey` wären frei gewesen und kommen im ganzen Repo nirgends vor; eine Zweifinger-Kombination wurde trotzdem verworfen, weil die einzige Stelle, an der die Gesten überhaupt erklärt werden, ein `sr-only`-Hinweis am Atlas-Viewport ist. Was dort nicht steht, findet niemand.
+
+**Die Grenze verläuft zwischen Geste und Gruppenaktion.** Der Kommentar bei `selectMany` begründet seit jeher, dass der „alle markieren"-Knopf des ungenutzt-Bands nicht als Toggle arbeiten darf: sein zweiter Druck würde eine handgebaute Auswahl ohne Vorwarnung vernichten. Das gilt weiter und widerspricht der neuen Geste nicht. Eine Geste zeigt ihre Richtung an, bevor sie wirkt — der Klick auf die Ankerzelle nimmt sichtbar genau ein Emote aus der Auswahl, und erst der folgende Shift-Klick zieht das über den Bereich. Ein Knopf hat diese Zwischenstufe nicht. Aus demselben Grund wurde ein sichtbares „alle abwählen" neben „alle markieren" erwogen und **nicht** gebaut: Es hätte nur auf dem Desktop gewirkt, wo die Geste bereits reicht, denn der ganze Band-Knopf ist auf Touch ausgeblendet.
+
+**Die Richtung wird gelesen, nicht gemerkt.** Sie ergibt sich aus dem aktuellen Zustand des Ankers im Moment des Shift-Klicks, nicht aus einem zweiten Feld neben `anchorKey`. Ein gemerktes Flag wäre eine zweite Wahrheit über dieselbe Zeile und könnte veralten — `retainVisible`, ein Refetch und `selectMany` bewegen die Auswahl unter dem Anker weg, ohne dass ein Klick stattfindet. Genau an dieser Klasse ist der Anker schon einmal aus dem entgegengesetzten Grund von einem Index auf einen Key umgestellt worden, weil er nach jedem Re-Sort auf die falsche Zeile zeigte.
+
+**Die bestehenden Ränder bleiben, was sie waren:** ein Anker, der nicht mehr in `items()` steht (weggefiltert, gelöscht), fällt weiter auf einfaches Umschalten zurück statt zu raten; ohne Anker gilt dasselbe; und nach `selectMany` steht der Anker auf der zuletzt hinzugefügten, also markierten Zeile, weshalb ein folgender Shift-Klick weiterhin additiv ist. Der letzte Punkt ist der einzige, an dem die Änderung leicht ins Gegenteil hätte kippen können, und hält deshalb einen eigenen Testfall.
+
+**Die Risikorichtung stimmt.** Ein Shift-Klick kann seit dieser Änderung Einträge aus der Auswahl *entfernen*, was er nie konnte. Für den Löschpfad ist das die harmlose Hälfte: es landen dadurch nie mehr Emotes im Auftrag, nur weniger. Die umgekehrte Änderung — eine Geste, die stillschweigend zusätzliche Emotes in eine unwiderrufliche Löschung aufnimmt — wäre ohne Bestätigungsschritt nicht vertretbar gewesen.
+
+**Touch bleibt ausdrücklich außen vor, und zwar ohne Lücke.** Naheliegend ist der Einwand, dass Touch-Geräte kein Shift haben. Auf `pointer: coarse` gibt es aber überhaupt keine Auswahl: ein `effect` leert sie, ein Tap öffnet stattdessen den Verlauf, und Dock wie Band-Knopf sind ausgeblendet — begründet damit, dass der 7TV-Write-Token nur per Desktop-DevTools aus dem LocalStorage zu holen ist. Ein fehlendes Shift ist dort folglich kein Problem, weil nichts zu markieren ist. Auswahl auf Touch nachzurüsten ist ein eigenes Vorhaben mit der Token-Frage davor und gehört nicht in #40.
+
+Beide Grids — der Usage-Atlas und das Voting-Ballot — instanziieren dieselbe `ListSelection`; die Voting-Seite bekommt das Verhalten ohne eigene Änderung. Der `sr-only`-Hinweis `usageStats.atlas.keyboardHint` musste in beiden Sprachdateien mit, weil er die Geste wörtlich beschreibt und danach falsch gewesen wäre.
+
 ### 2026-08-31 — Twitch entwertet App-Tokens nicht gegenseitig (gemessen)
 
 **Betrifft:** `src/EmotePurge.Infrastructure/Twitch/TwitchAppTokenProvider.cs`

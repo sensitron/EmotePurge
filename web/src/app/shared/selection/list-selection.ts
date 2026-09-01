@@ -1,7 +1,10 @@
 import { computed, signal } from '@angular/core';
 
 /**
- * Card-click + shift-click range multi-select over a (possibly virtual-scrolled) list.
+ * Card-click + shift-click range multi-select over a (possibly virtual-scrolled) list. A
+ * shift-click carries the anchor's current mark onto the whole range — it selects the range when
+ * the anchor is marked, or clears it when the anchor isn't, so a range can be undone the same way
+ * it was made.
  * Not a service — selection is page-local UI state, like a FormControl, not app-wide state.
  * `items` must return the full logically-ordered/filtered list (not the DOM-rendered subset),
  * so the shift-click range stays correct regardless of what CdkVirtualScrollViewport has mounted.
@@ -60,11 +63,22 @@ export class ListSelection<T> {
     // An anchor that is no longer visible (filtered out, deleted, replaced by another channel's
     // data) has no meaningful range to the clicked row — degrade to a single toggle instead of
     // guessing, since the wrong guess ends in irreversibly deleted emotes.
-    if (event.shiftKey && anchorIndex !== -1 && clickedIndex !== -1) {
+    if (event.shiftKey && anchorKey !== null && anchorIndex !== -1 && clickedIndex !== -1) {
       const [start, end] =
         anchorIndex < clickedIndex ? [anchorIndex, clickedIndex] : [clickedIndex, anchorIndex];
+      // The anchor's own mark at the moment of the shift-click is the verb for the whole range:
+      // still marked carries the range in (today's behaviour), already unmarked (a click that just
+      // deselected it) carries the range out. Reading it straight off `next` instead of a stored
+      // "direction" field means a plain click on the anchor is what steers the next shift-click,
+      // and there is nothing separate that could drift out of sync with the actual selection.
+      const rangeShouldSelect = next.has(anchorKey);
       for (const ranged of items.slice(start, end + 1)) {
-        next.add(this.keyFn(ranged));
+        const rangedKey = this.keyFn(ranged);
+        if (rangeShouldSelect) {
+          next.add(rangedKey);
+        } else {
+          next.delete(rangedKey);
+        }
       }
     } else if (next.has(key)) {
       next.delete(key);
@@ -81,8 +95,10 @@ export class ListSelection<T> {
    *
    * Add-only, never a toggle: the caller means "these too", and a group action that silently
    * *deselects* on the second press would be a way to lose a hand-built selection to one click.
-   * The anchor moves to the last added row so a following shift-click extends from the end of the
-   * group rather than from wherever the user last clicked.
+   * This is stricter than the shift-click range (which does carry a deselect, see onRowClick) —
+   * that direction-flip belongs to a deliberate per-row gesture, not to a group button one press
+   * away from an irreversible delete. The anchor moves to the last added row so a following
+   * shift-click extends from the end of the group rather than from wherever the user last clicked.
    */
   selectMany(items: readonly T[]): void {
     if (items.length === 0) {

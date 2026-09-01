@@ -588,7 +588,7 @@
     },
     "atlas": {
       "label": "Emote-Bogen",
-      "keyboardHint": "Mit den Pfeiltasten zwischen den Emotes wechseln, mit der Leertaste markieren, mit Enter den Verlauf öffnen. Umschalt+Klick markiert einen ganzen Bereich."
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Emotes wechseln, mit der Leertaste markieren, mit Enter den Verlauf öffnen. Umschalt+Klick wiederholt den letzten Klick über einen ganzen Bereich: markiert ihn oder hebt die Markierung auf."
     },
     "bands": {
       "heavy": {
