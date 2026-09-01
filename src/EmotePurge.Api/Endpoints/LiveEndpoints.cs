@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
@@ -22,6 +23,16 @@ public static class LiveEndpoints
     /// full auth pipeline again, so this costs nothing but bounds the revocation window at 10 min.
     /// </summary>
     private static readonly TimeSpan MaxConnectionLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// <c>Retry-After</c> handed out with the 429 for an exhausted live-stream quota (issue #42).
+    /// A fixed heuristic, not a measured value: unlike <c>ResyncCooldownActive</c>'s cooldown timer,
+    /// neither the process-wide nor the per-login connection limit has a natural expiry to report —
+    /// a slot frees the moment a browser tab closes or a stream hits <see cref="MaxConnectionLifetime"/>.
+    /// 30 s balances two things: long enough that a reconnect storm does not retry every second, short
+    /// enough that a freed slot (the common case — tabs close constantly) is usable again promptly.
+    /// </summary>
+    private const int LiveStreamQuotaRetryAfterSeconds = 30;
 
     public static void MapLiveEndpoints(this WebApplication app)
     {
@@ -87,14 +98,25 @@ public static class LiveEndpoints
         // can pin, and every one of these endpoints requires authentication.
         var subscriberKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";
 
-        var subscription = await liveEventStream.SubscribeAsync(subscriberKey, filter, ct);
-        if (subscription is null)
+        var result = await liveEventStream.SubscribeAsync(subscriberKey, filter, ct);
+        if (result.Status != LiveEventSubscribeStatus.Ok)
         {
             // Before a single byte of the body: once an SSE response has started there is no status
             // code left to send, which is why SubscribeAsync answers eagerly instead of failing
-            // lazily during enumeration.
-            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            // lazily during enumeration. Both bodies carry a language-neutral errorCode (Regel 7) —
+            // before #42 this was a single bare 503 for either cause.
+            return result.Status switch
+            {
+                LiveEventSubscribeStatus.InfrastructureUnavailable => Results.Json(
+                    new { errorCode = ApiErrorCodes.LiveStreamUnavailable },
+                    statusCode: StatusCodes.Status503ServiceUnavailable),
+                LiveEventSubscribeStatus.QuotaExhausted => QuotaExhaustedResult(httpContext),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(result), result.Status, "Unbekannter Live-Event-Subscribe-Status.")
+            };
         }
+
+        var subscription = result.Subscription!;
 
         // Deliberately in OnStarting and not set directly here: ServerSentEventsResult writes its own
         // Cache-Control ("no-cache,no-store") while executing, so anything assigned before returning
@@ -116,6 +138,21 @@ public static class LiveEndpoints
         lifetime.CancelAfter(MaxConnectionLifetime);
 
         return TypedResults.ServerSentEvents(StreamAsync(subscription, lifetime, lifetime.Token));
+    }
+
+    /// <summary>
+    /// The 429 for an exhausted live-stream quota — process-wide or per-login, collapsed onto one
+    /// code (see <see cref="LiveEventSubscribeStatus.QuotaExhausted"/>). Mirrors the
+    /// <c>ResyncCooldownActive</c> shape in <c>ChannelEndpoints</c>: header and body carry the same
+    /// value so a client reading either lands on the same number.
+    /// </summary>
+    private static IResult QuotaExhaustedResult(HttpContext httpContext)
+    {
+        httpContext.Response.Headers.RetryAfter =
+            LiveStreamQuotaRetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+        return Results.Json(
+            new { errorCode = ApiErrorCodes.LiveStreamQuotaExhausted, retryAfterSeconds = LiveStreamQuotaRetryAfterSeconds },
+            statusCode: StatusCodes.Status429TooManyRequests);
     }
 
     /// <summary>
