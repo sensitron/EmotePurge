@@ -29,13 +29,25 @@ namespace EmotePurge.Core.Services;
 /// When the last attempt finished, successful or not. <c>null</c> means none has been made. Read
 /// with <paramref name="SyncFailureReason"/>: it says how current the reason is.
 /// </param>
+/// <param name="BotsExcludedSince">
+/// The earliest UTC day on which this channel has a <c>UsageStat</c> row with <c>BotUseCount &gt;
+/// 0</c> — the first time a bot was <em>seen</em> here, not the day bot usage started being
+/// counted apart. That separation began the moment this feature was deployed, which is an event
+/// in the deploy history, not in the data: rows written before and after look identical when
+/// <c>BotUseCount</c> happens to be 0, so there is no way to derive the true cutover from the
+/// data alone. For a channel joined long before the deploy, this understates how far back the
+/// mixing goes; for one joined after, it can wrongly suggest older numbers are mixed when they
+/// never were. <c>null</c> means no bot has ever been seen here, in which case there is nothing
+/// to explain and a consumer should show nothing.
+/// </param>
 public record EmoteSetStatusDto(
     string ActiveEmoteSetId,
     int? Capacity,
     int OccupiedSlots,
     DateTime TrackedSince,
     string? SyncFailureReason,
-    DateTime? LastSyncAttemptAtUtc);
+    DateTime? LastSyncAttemptAtUtc,
+    DateOnly? BotsExcludedSince);
 
 public interface IEmoteSetStatusService
 {
