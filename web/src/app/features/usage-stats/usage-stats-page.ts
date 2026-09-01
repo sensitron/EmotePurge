@@ -948,9 +948,20 @@ export class UsageStatsPage {
       return '—';
     }
 
+    // A bare yyyy-MM-dd value (lastUsedDate, peak.date, botsExcludedSince — all date-only, no time
+    // of their own) must read as local midnight, not UTC midnight: `new Date('yyyy-MM-dd')` parses
+    // as the latter, and toLocaleDateString then renders it in the viewer's zone, which reads as the
+    // previous day for anyone west of UTC. A value that already carries a time part (e.g.
+    // trackedSince, a full UTC timestamp) has its own offset and must parse unshifted, so only the
+    // 10-character date-only form gets the local-midnight treatment.
+    const date =
+      iso.length === 10
+        ? new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)))
+        : new Date(iso);
+
     // LOCALE_ID is bootstrap-time static and cannot follow a runtime language switch, so dates go
     // through toLocale() — same as the admin pages.
-    return new Date(iso).toLocaleDateString(toLocale(this.languageService.lang()), {
+    return date.toLocaleDateString(toLocale(this.languageService.lang()), {
       dateStyle: 'medium',
     });
   }
