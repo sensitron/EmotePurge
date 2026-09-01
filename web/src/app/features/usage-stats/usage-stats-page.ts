@@ -703,12 +703,19 @@ export class UsageStatsPage {
         preserveSelection: true,
         silent: true,
       });
-      // Only a sync can have moved the active set id, its capacity or the occupied-slot count.
+      // A sync can move the active set id, its capacity or the occupied-slot count — nothing else in
+      // EmoteSetStatus moves on a sync, so it always earns a refetch.
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
         // This event is what awaitSync is really waiting for — the probes are only there for the
         // case where it never shows up. The totals have just been refetched above, so letting the
         // remaining probes run would only ask the same question again.
         this.stopAwaitingSync();
+        this.refreshSetStatus();
+      } else if (seen.has(LIVE_EVENT_TYPES.usageFlushed) && !this.setStatus()?.botsExcludedSince) {
+        // A flush can move the same DTO's botsExcludedSince: it is set the moment a flush first
+        // counts bot usage for this channel, not by a sync. Left unguarded this would refetch after
+        // every later flush too, forever, for a field that is a MIN over growing dates and therefore
+        // provably done changing once it holds a date — so only ask again while it is still null.
         this.refreshSetStatus();
       }
     });
