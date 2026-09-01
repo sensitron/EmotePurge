@@ -123,6 +123,45 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetUsageContextAsync_LastUsedDate_IgnoresBotOnlyRows()
+    {
+        // A row can carry UseCount = 0 while BotUseCount > 0 (a day an emote was posted only by
+        // bots) — such a row must not read as "used" for LastUsedDate, or a bot-only day would
+        // outrank a genuinely more recent human day.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "contexttest_botonly1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "BotSpam");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 1), UseCount = 5 },
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 15), UseCount = 0, BotUseCount = 3 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var totals = await service.GetUsageContextAsync(channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 31));
+
+        var result = Assert.Single(totals);
+        Assert.Equal(new DateOnly(2026, 7, 1), result.LastUsedDate);
+        Assert.Equal(5, result.TotalUseCount);
+    }
+
+    [Fact]
+    public async Task GetUsageContextAsync_LastUsedDate_IsNull_WhenOnlyBotRowsExist()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "contexttest_botonly2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "OnlyBot");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 10), UseCount = 0, BotUseCount = 7 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var totals = await service.GetUsageContextAsync(channel.ChannelName, new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31));
+
+        var result = Assert.Single(totals);
+        Assert.Null(result.LastUsedDate);
+        Assert.Equal(0, result.TotalUseCount);
+    }
+
+    [Fact]
     public async Task GetUsageContextAsync_CarriesFirstSeenAt()
     {
         await using var db = fixture.CreateDbContext();
@@ -257,6 +296,51 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
         Assert.Equal(0, series.TotalUseCount);
         Assert.Equal(new DateOnly(2026, 5, 1), series.FirstUsedDate);
         Assert.Equal(new DateOnly(2026, 8, 1), series.LastUsedDate);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_ExcludesBotOnlyDays_FromDaysAndBounds()
+    {
+        // Same UseCount = 0 / BotUseCount > 0 row shape as the context query — must not show up
+        // in the sparse Days list nor shift First/LastUsedDate.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest_botonly1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "BotDay");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 1), UseCount = 3 },
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 5), UseCount = 0, BotUseCount = 9 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Equal([new DateOnly(2026, 7, 1)], series.Days.Select(d => d.Date).ToArray());
+        Assert.Equal(new DateOnly(2026, 7, 1), series.FirstUsedDate);
+        Assert.Equal(new DateOnly(2026, 7, 1), series.LastUsedDate);
+    }
+
+    [Fact]
+    public async Task GetDailySeriesAsync_FirstAndLastUsedDate_AreNull_WhenOnlyBotRowsExist()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "dailytest_botonly2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "OnlyBotDaily");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 2), UseCount = 0, BotUseCount = 4 },
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 6), UseCount = 0, BotUseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetDailySeriesAsync(
+            channel.ChannelName, emote.Id, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.NotNull(series);
+        Assert.Empty(series.Days);
+        Assert.Equal(0, series.TotalUseCount);
+        Assert.Null(series.FirstUsedDate);
+        Assert.Null(series.LastUsedDate);
     }
 
     [Fact]
@@ -417,6 +501,44 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
             channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
 
         Assert.Equal(used.Id, Assert.Single(series.Emotes).EmoteId);
+    }
+
+    [Fact]
+    public async Task GetChannelSeriesAsync_OmitsEmoteWithOnlyBotUsage_InRange()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "seriestest_botonly1");
+        var human = await SeedEmoteAsync(db, channel.Id, "HumanOnly");
+        var botOnly = await SeedEmoteAsync(db, channel.Id, "BotOnly");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = human.Id, Date = new DateOnly(2026, 7, 3), UseCount = 2 },
+            new UsageStat { EmoteId = botOnly.Id, Date = new DateOnly(2026, 7, 4), UseCount = 0, BotUseCount = 5 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Equal(human.Id, Assert.Single(series.Emotes).EmoteId);
+    }
+
+    [Fact]
+    public async Task GetChannelSeriesAsync_ForMixedEmote_OnlyIncludesHumanDays()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "seriestest_botonly2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "Mixed");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 2), UseCount = 4 },                    // offset 1
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 5), UseCount = 0, BotUseCount = 8 });  // offset 4, bot-only
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var series = await service.GetChannelSeriesAsync(
+            channel.ChannelName, new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        var entry = Assert.Single(series.Emotes);
+        Assert.Equal([[1, 4]], entry.Days);
     }
 
     [Fact]
