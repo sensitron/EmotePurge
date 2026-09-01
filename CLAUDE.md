@@ -96,8 +96,10 @@ dotnet ef database update --project src/EmotePurge.Infrastructure --startup-proj
 Migrationen laufen in Produktion **nicht** automatisch beim App-Start — sie werden von Hand nachgezogen, **bevor** die neuen Images deployt werden (additive Migrationen ignoriert das noch laufende alte Image; umgekehrt liefe die neue Api gegen fehlende Spalten). Prod-Postgres ist auf dem VPS nur an `127.0.0.1:5433` gebunden (`docker-compose.prod.yml`), also erst tunneln:
 
 ```
-ssh -N -L 15432:127.0.0.1:5433 <VPS-USER>@<VPS-HOST>
+ssh -N -L 15432:127.0.0.1:5433 vps
 ```
+
+`vps` ist der Host-Alias aus `~/.ssh/config` auf der Devbox, und er ist **nicht** nur Bequemlichkeit: seit dem Cloudflare-Umzug (s. DECISIONS 2026-08-29) zeigt `emotepurge.app` auf Cloudflare, nicht mehr auf den Origin — ein `ssh …@emotepurge.app` läuft ins Leere. Der Alias trägt die echte Origin-Adresse und den Benutzer, beides gehört nicht ins Repo.
 
 Dann lokal, in einer zweiten Shell. `--connection` statt einer Umgebungsvariable, damit nichts für spätere lokale Läufe hängen bleibt; in PowerShell **einfache** Anführungszeichen, sonst interpoliert die Shell ein `$` im Passwort:
 

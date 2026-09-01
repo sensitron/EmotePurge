@@ -10,6 +10,30 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-01 — SSH auf den VPS läuft über den Host-Alias `vps`, nicht über `emotepurge.app`
+
+**Betrifft:** `CLAUDE.md`, `docs/Backup-und-Restore.md`
+
+Die Doku führte SSH-Befehle bislang als `<VPS-USER>@<VPS-HOST>` mit dem Hinweis, die
+Platzhalter durch die echten Zugangsdaten zu ersetzen. Naheliegend war dabei
+`emotepurge.app` — und genau das **funktioniert seit dem Cloudflare-Umzug nicht mehr**
+(s. Eintrag 2026-08-29): der Name zeigt auf Cloudflare, nicht auf den Origin, SSH läuft
+ins Leere. Die Anleitung für die Prod-Migration war damit nicht bloß ungenau, sie führte
+in einen Befehl, der scheitert — aufgefallen beim ersten Migrationsversuch nach dem Umzug.
+
+Ab jetzt steht in beiden Dokumenten schlicht `vps`, der Host-Alias aus `~/.ssh/config` auf
+der Devbox. Der Alias trägt Origin-Adresse und Benutzer; beides gehört nicht ins Repo, und
+ein Alias hat gegenüber einem Platzhalter den Vorteil, dass er **kopierbar korrekt** ist
+statt ausgefüllt werden zu müssen. Ändert sich die Origin-Adresse erneut, ist die
+`ssh/config` die eine Stelle, die es weiß — die Doku muss dann gar nicht mit.
+
+**Kein sudo für den Migrationsweg.** Der Tunnel greift auf `127.0.0.1:5433` auf dem VPS zu,
+also auf den von Docker *veröffentlichten* Host-Port; den erreicht jeder Benutzer. Sudo
+braucht nur, wer stattdessen direkt `docker exec` gegen `emotepurge-postgres` fährt (der
+Nachschau-Weg) — nicht das Anwenden der Migration.
+
+---
+
 ### 2026-09-01 — Bot-Nutzung bekommt eine zweite Spalte, keine zweite Zeile
 
 **Betrifft:** `src/EmotePurge.Worker/IBotChatterDetector.cs`, `src/EmotePurge.Worker/BotChatterDetector.cs`, `src/EmotePurge.Worker/IEmoteUsageCounter.cs`, `src/EmotePurge.Worker/EmoteUsageCounter.cs`, `src/EmotePurge.Worker/TwitchChatManager.cs`, `src/EmotePurge.Worker/UsageFlushWorker.cs`, `src/EmotePurge.Worker/Program.cs`, `src/EmotePurge.Core/Services/IUsageStatFlushService.cs`, `src/EmotePurge.Core/Entities/UsageStat.cs`, `src/EmotePurge.Infrastructure/Services/UsageStatFlushService.cs`, `src/EmotePurge.Infrastructure/Migrations/20260901193259_AddUsageStatBotUseCount.cs`, `tests/EmotePurge.Worker.Tests/BotChatterDetectorTests.cs`, `tests/EmotePurge.Worker.Tests/EmoteUsageCounterTests.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/UsageStatFlushServiceTests.cs`, `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`, `docs/Architectur.md`, `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs`, `src/EmotePurge.Core/Services/IUsageStatQueryService.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/UsageStatQueryServiceTests.cs`, `src/EmotePurge.Core/Services/IEmoteSetStatusService.cs`, `src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/EmoteSetStatusServiceTests.cs`, `web/src/app/core/emotes/bots-excluded-caption.ts`, `web/src/app/core/emotes/bots-excluded-caption.spec.ts`, `web/src/app/core/emotes/emote-set-status.model.ts`, `web/src/app/core/emotes/emote-admin.service.spec.ts`, `web/src/app/features/usage-stats/usage-stats-page.ts`, `web/src/app/features/usage-stats/usage-stats-page.html`, `web/public/i18n/de.json`, `web/public/i18n/en.json`, `web/e2e/support/mocks.ts`, `web/e2e/usage-atlas.e2e.spec.ts`
