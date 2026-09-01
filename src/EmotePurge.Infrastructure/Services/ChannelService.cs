@@ -66,6 +66,12 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         // touching anything and therefore without an entry.
         db.AddAuditEntry(actor, AuditActions.ChannelLeave, channelName: normalized);
         await db.SaveChangesAsync(cancellationToken);
+        // Committed before published: if this throws (Redis outage), the row is already the source
+        // of truth and SevenTvPeriodicResyncWorker's prune step (RosterPrunePolicy, issue #41) picks
+        // the channel up within one resync interval regardless — this publish is an acceleration, not
+        // a prerequisite. Same is true for JoinAsync below and TriggerResyncAsync via the periodic
+        // sync loop itself; only this method needed a new convergence net, since JOIN/RESYNC already
+        // had one.
         await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.LeavePrefix}{normalized}", cancellationToken);
 
         return true;
@@ -84,6 +90,13 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         // The deliberate hard delete, cascading through emotes, usage stats, vote sessions and
         // votes. Publishes LEAVE first so the worker stops matching chat for a channel whose
         // emotes are about to disappear.
+        //
+        // Issue #41 checked this ordering rather than assuming it: unlike JoinAsync/LeaveAsync/
+        // TriggerResyncAsync, the publish here already precedes SaveChangesAsync, so a Redis outage
+        // aborts the method (500) before anything is written — consistent, if unavailable, and left
+        // unchanged. A dedicated 503 for that case was considered and deferred (docs/DECISIONS.md,
+        // 2026-09-01): lowest-priority of the three points in #41, and today's UnexpectedError/500
+        // is at least honest about "nothing happened".
         await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.LeavePrefix}{normalized}", cancellationToken);
         // Staged before the Remove and committed with it: the entry is the only trace this channel
         // ever existed once the cascade has run, which is exactly why AuditLogEntry.ChannelName is a
