@@ -95,15 +95,34 @@ internal sealed class SevenTvGqlEditorOfOwnerDto
 
 // REST: GET users/twitch/{id}. The response models the Twitch *connection*: its top-level id is
 // the Twitch user id, while the 7TV account is the nested user object.
+//
+// EmoteSetId and User.Connections[].EmoteSetId exist for issue #43: 7TV announced (no date) that it
+// will null the embedded EmoteSet object out of this response. Measured live 2026-09-01: the
+// top-level EmoteSet is still populated, while the same object inside Connections[] is already null
+// everywhere and these plain-id fields stay filled either way. SevenTvApiClient falls back to them
+// and reloads the set from GET emote-sets/{id} when EmoteSet is absent; see
+// GetChannelStateForTwitchUserAsync.
 internal sealed class SevenTvUserRestDto
 {
     public SevenTvEmoteSetJsonDto? EmoteSet { get; set; }
+    public string? EmoteSetId { get; set; }
     public SevenTvUserRestUserDto? User { get; set; }
 }
 
 internal sealed class SevenTvUserRestUserDto
 {
     public string Id { get; set; } = string.Empty;
+    public List<SevenTvUserRestConnectionDto> Connections { get; set; } = [];
+}
+
+// One of the account's linked platform connections. Only ever read for Platform == "TWITCH" — a
+// user can have YouTube/Kick connections with entirely different active sets, and syncing those
+// would be silent data pollution (issue #43 fallback resolution).
+internal sealed class SevenTvUserRestConnectionDto
+{
+    public string Platform { get; set; } = string.Empty;
+    public string Id { get; set; } = string.Empty;
+    public string? EmoteSetId { get; set; }
 }
 
 internal sealed class SevenTvEmoteSetJsonDto

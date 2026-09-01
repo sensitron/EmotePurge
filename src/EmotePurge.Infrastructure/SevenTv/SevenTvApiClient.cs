@@ -39,6 +39,14 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
 
+    // Latches the fallback-set-load path (issue #43) from Information down to Debug after its first
+    // occurrence in this process. Once 7TV finishes rolling out the null embedded emote_set, this
+    // fallback becomes the permanent path for every channel on every 60s resync tick — an
+    // Information line there forever would be exactly the per-tick log spam NoActiveEmoteSet's Debug
+    // level (below) already exists to avoid. One Information line still marks the rollout as visibly
+    // arrived; every later tick logs Debug like the rest of this method's steady-state paths.
+    private static int _fallbackEmoteSetPathLoggedOnce;
+
     public async Task<SevenTvTwitchUserIdResult> ResolveTwitchUserIdAsync(string channelName, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
@@ -114,47 +122,51 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
                 return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
             }
 
-            // The state behind issue #32, and the only one of the four that used to return silently:
-            // the account exists, but no emote set is active on the Twitch connection. Debug rather
-            // than Information because this runs on every resync tick: the periodic worker asks
-            // again every 60 seconds for as long as the channel stays like this, which is ~1440
-            // lines a day per affected channel. The line that carries the finding is the one in
-            // SevenTvSyncService, which knows the channel name and only speaks when the reason
-            // changes; this one adds the Twitch id and is worth the log level it costs only while
-            // someone is actually debugging a lookup.
-            if (dto.EmoteSet is null)
+            var emoteSetDto = dto.EmoteSet;
+            if (emoteSetDto is null)
             {
-                logger.LogDebug(
-                    "7TV-Account für Twitch-ID {Id} hat kein aktives Emote-Set.", twitchUserId);
-                return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoActiveEmoteSet);
+                // Issue #43: 7TV announced (no date) that it will null this embedded object out of
+                // the response. Measured live 2026-09-01: this top-level one is still populated,
+                // but the same object one level down (user.connections[].emote_set) is already
+                // null for every checked channel while the plain-id fields stay filled — the
+                // rollout has started, it just has not reached this field yet. Resolve a usable set
+                // id from whatever the response still offers and reload the set separately rather
+                // than presenting every channel with a false "no active emote set".
+                var fallbackEmoteSetId = ResolveFallbackEmoteSetId(dto, twitchUserId);
+
+                // The state behind issue #32, and the only one of the four that used to return
+                // silently: the account exists, but no emote set is active on the Twitch connection.
+                // Debug rather than Information because this runs on every resync tick: the periodic
+                // worker asks again every 60 seconds for as long as the channel stays like this,
+                // which is ~1440 lines a day per affected channel. The line that carries the finding
+                // is the one in SevenTvSyncService, which knows the channel name and only speaks when
+                // the reason changes; this one adds the Twitch id and is worth the log level it costs
+                // only while someone is actually debugging a lookup.
+                if (fallbackEmoteSetId is null)
+                {
+                    logger.LogDebug(
+                        "7TV-Account für Twitch-ID {Id} hat kein aktives Emote-Set.", twitchUserId);
+                    return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.NoActiveEmoteSet);
+                }
+
+                LogFallbackEmoteSetPathEntered(twitchUserId);
+
+                emoteSetDto = await FetchEmoteSetAsync(fallbackEmoteSetId, cancellationToken);
+                if (emoteSetDto is null)
+                {
+                    // A non-success status (EnsureSuccessStatusCode, incl. 404) or a malformed body
+                    // already threw and landed in the catch below as Unavailable; only a literal
+                    // JSON `null` reload body reaches this branch, and it means the same thing: a
+                    // broken reload must not read as "no emote set" (see the null-body guard for the
+                    // primary response above).
+                    logger.LogWarning(
+                        "7TV-Emote-Set-Nachladen für Set {SetId} (Twitch-ID {TwitchId}) war leer.",
+                        fallbackEmoteSetId, twitchUserId);
+                    return SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable);
+                }
             }
 
-            var emotes = dto.EmoteSet.Emotes.Select(SevenTvEmoteJsonMapper.MapDto).ToList();
-
-            // Overlay the real set-entry dates from v4. Null (lookup failed) simply leaves every
-            // AddedToSetAt unknown — the sync's correction pass fills the gap on a later resync,
-            // which is strictly better than failing the whole channel sync over a date.
-            var addedAtByEmoteId = await GetSetEntryAddedAtAsync(dto.EmoteSet.Id, cancellationToken);
-            if (addedAtByEmoteId is not null)
-            {
-                emotes = emotes
-                    .Select(e => addedAtByEmoteId.TryGetValue(e.Id, out var addedAt)
-                        ? e with { AddedToSetAt = addedAt }
-                        : e)
-                    .ToList();
-            }
-
-            // The response's top-level id is the Twitch connection id, not the 7TV account —
-            // the account lives under user.id (verified live 2026-07-30).
-            var sevenTvUserId = string.IsNullOrEmpty(dto.User?.Id) ? null : dto.User.Id;
-
-            // 0 reads as "not reported", not as "no slots" — an absent field and a genuine zero are
-            // indistinguishable here, and treating either as a capacity of zero would make the UI
-            // claim the set is full.
-            var capacity = dto.EmoteSet.Capacity > 0 ? dto.EmoteSet.Capacity : (int?)null;
-
-            return SevenTvChannelStateResult.Ok(
-                new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(dto.EmoteSet.Id, emotes, capacity)));
+            return await BuildChannelStateResultAsync(emoteSetDto, dto.User, cancellationToken);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -289,6 +301,76 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         }
     }
 
+    // Common continuation for both branches of GetChannelStateForTwitchUserAsync: whether emoteSetDto
+    // came straight off the primary response or was reloaded via the issue #43 fallback, everything
+    // from here on (emote mapping, the v4 AddedToSetAt overlay, the account id, capacity handling)
+    // is identical.
+    private async Task<SevenTvChannelStateResult> BuildChannelStateResultAsync(
+        SevenTvEmoteSetJsonDto emoteSetDto, SevenTvUserRestUserDto? user, CancellationToken cancellationToken)
+    {
+        var emotes = emoteSetDto.Emotes.Select(SevenTvEmoteJsonMapper.MapDto).ToList();
+
+        // Overlay the real set-entry dates from v4. Null (lookup failed) simply leaves every
+        // AddedToSetAt unknown — the sync's correction pass fills the gap on a later resync,
+        // which is strictly better than failing the whole channel sync over a date.
+        var addedAtByEmoteId = await GetSetEntryAddedAtAsync(emoteSetDto.Id, cancellationToken);
+        if (addedAtByEmoteId is not null)
+        {
+            emotes = emotes
+                .Select(e => addedAtByEmoteId.TryGetValue(e.Id, out var addedAt)
+                    ? e with { AddedToSetAt = addedAt }
+                    : e)
+                .ToList();
+        }
+
+        // The response's top-level id is the Twitch connection id, not the 7TV account —
+        // the account lives under user.id (verified live 2026-07-30).
+        var sevenTvUserId = string.IsNullOrEmpty(user?.Id) ? null : user.Id;
+
+        // 0 reads as "not reported", not as "no slots" — an absent field and a genuine zero are
+        // indistinguishable here, and treating either as a capacity of zero would make the UI
+        // claim the set is full.
+        var capacity = emoteSetDto.Capacity > 0 ? emoteSetDto.Capacity : (int?)null;
+
+        return SevenTvChannelStateResult.Ok(
+            new SevenTvChannelState(sevenTvUserId, new SevenTvEmoteSet(emoteSetDto.Id, emotes, capacity)));
+    }
+
+    // Reloads a set that the primary response no longer embeds (issue #43). Any non-success status —
+    // EnsureSuccessStatusCode covers 404 too — or a malformed body throws HttpRequestException/
+    // JsonException/TaskCanceledException, which the caller's try/catch already maps to Unavailable;
+    // only a literal JSON `null` body returns normally, and the caller treats that null as Unavailable
+    // too. Either way this must never surface as NoActiveEmoteSet — a broken reload says nothing about
+    // whether a set is actually active.
+    private async Task<SevenTvEmoteSetJsonDto?> FetchEmoteSetAsync(string emoteSetId, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.GetAsync($"emote-sets/{emoteSetId}", cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<SevenTvEmoteSetJsonDto>(
+            SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
+    }
+
+    // First entry into the issue #43 fallback path this process has made logs at Information so the
+    // rollout's arrival is visible; every later entry — which, once 7TV finishes rolling out, is
+    // every channel on every 60s resync tick — drops to Debug for the same reason NoActiveEmoteSet
+    // above stays off Information: ~1440 lines a day per channel would drown everything else.
+    private void LogFallbackEmoteSetPathEntered(string twitchUserId)
+    {
+        if (Interlocked.Exchange(ref _fallbackEmoteSetPathLoggedOnce, 1) == 0)
+        {
+            logger.LogInformation(
+                "7TV liefert kein eingebettetes Emote-Set mehr für Twitch-ID {Id} (Ausrollung #43), lade Set separat über emote-sets/{{id}} nach.",
+                twitchUserId);
+        }
+        else
+        {
+            logger.LogDebug(
+                "7TV liefert kein eingebettetes Emote-Set für Twitch-ID {Id}, lade Set separat nach.",
+                twitchUserId);
+        }
+    }
+
     private async Task<Dictionary<string, DateTime>?> GetSetEntryAddedAtAsync(string emoteSetId, CancellationToken cancellationToken)
     {
         try
@@ -345,4 +427,43 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             return null;
         }
     }
+
+    // Resolution order for issue #43: the top-level id — this whole response *is* the requested
+    // Twitch connection — and otherwise that same connection found by its exact Twitch user id in
+    // the account's connection list. Nothing else, and deliberately so. Every looser candidate
+    // belongs to a *different* channel: a non-TWITCH connection can point at an entirely different
+    // set, and so can a second TWITCH connection on the same 7TV account. Such a candidate could
+    // only ever be reached when the requested connection has no set of its own — which is exactly
+    // the case NoActiveEmoteSet exists to report. Taking one instead would make SevenTvSyncService
+    // persist a foreign set id and reconcile a foreign channel's emotes into this one, where voting
+    // and the 7TV mass delete would then act on it: silent data pollution instead of a visible,
+    // truthful failure reason. Same exact-id contract ResolveSevenTvIdentityAsync already holds.
+    private static string? ResolveFallbackEmoteSetId(SevenTvUserRestDto dto, string twitchUserId)
+    {
+        if (IsUsableSevenTvId(dto.EmoteSetId))
+        {
+            return dto.EmoteSetId;
+        }
+
+        var ownConnection = (dto.User?.Connections ?? []).FirstOrDefault(c =>
+            c.Platform == "TWITCH" && c.Id == twitchUserId && IsUsableSevenTvId(c.EmoteSetId));
+
+        return ownConnection?.EmoteSetId;
+    }
+
+    // 7TV represents "no id" two different ways depending on the endpoint: sometimes a genuine
+    // absence (null/empty), sometimes a placeholder sentinel of all-zero characters — proven live for
+    // a different lookup on this same client (ResolveSevenTvIdentityAsync's
+    // "00000000000000000000000000" placeholder account id, measured 2026-08-31). Both must read as
+    // "not present" here, or a sentinel would be mistaken for a real emote-set id and forwarded to
+    // GET emote-sets/{id}. Checking "every character is '0'" rather than a fixed-length literal
+    // survives 7TV changing the sentinel's length or format.
+    //
+    // For this particular field the sentinel has not been observed: 62 accounts without an active
+    // set, sampled live 2026-09-01, all answered with a plain null emote_set_id (top level and in
+    // connections[]). The all-zero branch is therefore unproven defence, not a fix for a known
+    // behaviour — the null case, which keeps NoActiveEmoteSet reachable after the rollout, is the
+    // measured one.
+    private static bool IsUsableSevenTvId(string? id) =>
+        !string.IsNullOrWhiteSpace(id) && id.Any(c => c != '0');
 }
