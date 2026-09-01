@@ -629,6 +629,7 @@
       "other": "Im gewählten Zeitraum war der Stream an {{ live }} Tagen live."
     },
     "trackedSince": "Wir zählen für diesen Channel seit dem {{ date }}.",
+    "botsExcludedSince": "Nachrichten bekannter Bots zählen seit dem {{ date }} nicht mit; Zahlen davor enthalten sie noch.",
     "rangeBeforeTracking": "Der gewählte Zeitraum beginnt vor dem {{ date }} — davor haben wir für diesen Channel nichts gezählt. Die Zahlen sind für den früheren Teil nicht unvollständig, sondern gar nicht vorhanden.",
     "observationToday": "Neu · heute",
     "observationAge": {

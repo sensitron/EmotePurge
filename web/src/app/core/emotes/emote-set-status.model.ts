@@ -31,4 +31,12 @@ export interface EmoteSetStatus {
 
   /** ISO timestamp of the last attempt, successful or not; `null` when none has been made. */
   lastSyncAttemptAtUtc: string | null;
+
+  /**
+   * `yyyy-MM-dd` of the earliest day this channel has a UsageStat row with bot usage, or `null` when
+   * no bot has ever been seen here. This is the day a bot was first *seen*, not the day bot usage
+   * started being counted apart for this channel — see {@link botsExcludedCaptionKey} for why no
+   * consumer may read anything sharper into this than "show the sentence, or don't".
+   */
+  botsExcludedSince: string | null;
 }

@@ -67,6 +67,7 @@ describe('EmoteAdminService', () => {
       trackedSince: '2026-06-12T09:14:00Z',
       syncFailureReason: null,
       lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+      botsExcludedSince: '2026-09-01',
     });
 
     expect(status).toEqual({
@@ -76,6 +77,7 @@ describe('EmoteAdminService', () => {
       trackedSince: '2026-06-12T09:14:00Z',
       syncFailureReason: null,
       lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+      botsExcludedSince: '2026-09-01',
     });
   });
 
@@ -92,6 +94,7 @@ describe('EmoteAdminService', () => {
       trackedSince: '2026-06-12T09:14:00Z',
       syncFailureReason: 'no_active_emote_set',
       lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
+      botsExcludedSince: null,
     });
 
     expect(status?.syncFailureReason).toBe('no_active_emote_set');

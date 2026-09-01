@@ -18,6 +18,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { Subscription, catchError, first, merge, of, switchMap, timer } from 'rxjs';
 
 import { ChannelService } from '../../core/channels/channel.service';
+import { botsExcludedCaptionKey } from '../../core/emotes/bots-excluded-caption';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { sevenTvSyncFailureKey } from '../../core/emotes/seven-tv-sync-failure';
@@ -267,6 +268,12 @@ export class UsageStatsPage {
 
   /** Date-only form, which is what the range menu and the vote-session ballot both speak. */
   protected readonly trackedSinceDate = computed(() => this.trackedSince()?.slice(0, 10) ?? null);
+
+  /** `?? null` guards against an older Api response taken mid-deploy, which simply omits the field —
+   *  that must read exactly like "no bot ever seen here", not throw or render `undefined`. */
+  protected readonly botsExcludedKey = computed(() =>
+    botsExcludedCaptionKey(this.setStatus()?.botsExcludedSince ?? null),
+  );
 
   /** Why the last 7TV sync produced nothing, or null when it worked (or was never attempted). */
   protected readonly syncFailureReason = computed(
