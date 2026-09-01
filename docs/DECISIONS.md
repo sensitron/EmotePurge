@@ -10,6 +10,31 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-01 — Eine Prozentschwelle beantwortet keine Pixelfrage
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-page.html`, `web/e2e/usage-atlas.e2e.spec.ts`, `docs/UI-Designsprache.md`
+
+Der Verteilungsstreifen schnitt seine Segment-Beschriftungen ab — gemeldet als „auf dem Handy und auf Deutsch steht da *20 % selte*". Jede Beschriftung saß in einem `<span>`, dessen `width` der Nutzungsanteil ihres Segments war, dazu `overflow-hidden whitespace-nowrap`. Was nicht hineinpasste, wurde weggeschnitten. Der Schutz davor war die Bedingung `band.share >= 0.09`, wörtlich auch in der Designsprache festgeschrieben: „Ein Segment wird nur beschriftet, wenn es mindestens 9 % breit ist."
+
+**Die Regel stellte die falsche Frage.** Sie fragt „ist das Segment anteilig groß?", entscheiden muss aber „hat dieses Segment genug *Pixel* für dieses *Wort*" — und das hängt an zwei Größen, die ein Prozentwert nicht kennt: der Breite des Bildschirms und der Länge des Wortes in der aktiven Sprache. Jede Nachjustierung an der Zahl hätte das Problem nur zwischen Sprachen und Geräten hin- und hergeschoben.
+
+**Gemessen statt geschätzt** (Wegwerf-Playwright-Sonde, `scrollWidth` gegen `getBoundingClientRect().width`, deutsche Locale):
+
+| Viewport | Beschriftung | verfügbar | gebraucht |
+|---|---|---|---|
+| 393 px | „11 % regelmäßig" | 26 px | 105 px |
+| 768 px | „11 % regelmäßig" | 38 px | 105 px |
+| 1280 px | „11 % regelmäßig" | 68 px | 105 px |
+| 1280 px | „12 % selten" | 74 px | 77 px |
+
+Zwei Dinge daran haben den Fix entschieden. **Es war nie ein Mobile-Fehler:** abgeschnitten wurde auf jeder gemessenen Breite, auch auf 1280 px — auf Englisch nur unauffälliger, weil „regular" und „rare" kürzer sind als „regelmäßig" und „selten", und bei „12 % selten" fehlten am Desktop ganze 3 px, was wie ein Rendering-Zufall aussieht statt wie ein Fehler. **Und die naheliegende Reparatur wäre wirkungsarm gewesen:** eine Container-Query, die das Wort nur zeigt, wo es wirklich passt, hätte die richtige Frage gestellt — aber ein 11-%-Band erreicht die nötigen 105 px auf keinem realistischen Bildschirm, das Wort wäre also fast überall verschwunden statt gerettet worden.
+
+**Deshalb trägt jetzt eine umbrechende Legende die Beschriftung** — Farbplättchen, Anteil, Bandname, nach Inhalt bemessen, mit Umbruch statt Beschnitt. Aufgegeben wird die Ausrichtung des Textes unter seinem eigenen Segment; sie war bei 11 % Breite ohnehin keine, und das Farbplättchen stellt die Verbindung zum Balken zuverlässiger her als eine Position, die nur bei großen Bändern trägt. Die Schwelle entfällt ersatzlos: `usageSegments()` filtert bereits auf `usage > 0`, es sind also höchstens drei Einträge, und `formatBandShare` fängt ein durch einen Namensfilter winzig gewordenes Band längst mit „<1 %" ab.
+
+**Der Regressionsschutz misst den Fehler, nicht sein Symptom.** Der E2E-Fall prüft bei 393 px für jeden Legendeneintrag, dass `scrollWidth` seine sichtbare Breite nicht übersteigt — derselbe Messwert, mit dem der Fehler nachgewiesen wurde. Eine Zusicherung auf die Bandnamen allein hätte den ursprünglichen Zustand für gesund erklärt: die Namen *standen* da, sie waren nur halbiert. Der Fall schlägt damit auch an, wenn später eine längere Übersetzung hinzukommt.
+
+**Ein Attribut ist neu im Markup:** `data-distribution-legend`. Das Repo kennt keine Test-Hooks und greift sonst über Rollen und Texte — hier reicht das nicht, weil „abgeschnitten" keine Rolle hat und die Bandnamen doppelt vorkommen, in der Legende und als Bandüberschrift im Bogen. Ein benannter Anker ist der ehrlichere Weg als ein Locator über Tailwind-Klassen, der beim nächsten Umbau still bricht.
+
 ### 2026-08-31 — Eine Geste darf richtungsabhängig abwählen, ein Gruppenknopf nicht
 
 **Betrifft:** `web/src/app/shared/selection/list-selection.ts`, `web/src/app/shared/selection/list-selection.spec.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`

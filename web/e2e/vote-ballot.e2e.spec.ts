@@ -69,7 +69,11 @@ test.describe('vote ballot', () => {
 
     await keepButton(page).click();
 
-    expect(voted).toEqual({ emoteId: 'e1', type: 1 });
+    // Poll rather than a bare expect(): click() resolves once the click is delivered, while the
+    // POST — and with it the route handler that records its body — happens afterwards. A plain
+    // expect() on a variable does not retry the way a locator assertion does, so it read the value
+    // before the request existed and failed with null under load.
+    await expect.poll(() => voted).toEqual({ emoteId: 'e1', type: 1 });
   });
 
   test('pressing the same side again retracts instead of re-casting', async ({ page }) => {

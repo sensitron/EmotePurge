@@ -99,6 +99,37 @@ test.describe('emote atlas', () => {
     await expect(regular).toContainText('1 Emote');
   });
 
+  test('the distribution strip legend wraps its entries instead of clipping them', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 393, height: 851 });
+    await openAtlas(page);
+
+    // No entry may be wider than the box it renders into — a fixed, segment-proportional width is
+    // exactly what clipped "11 % regelmäßig" at every viewport width, not only a narrow one.
+    const entries = page.locator('[data-distribution-legend] > *');
+    await expect(entries).toHaveCount(3);
+    const overflows = await entries.evaluateAll((elements) =>
+      elements.map((element) => ({
+        text: element.textContent,
+        scrollWidth: element.scrollWidth,
+        clientWidth: Math.ceil(element.getBoundingClientRect().width),
+      })),
+    );
+    for (const entry of overflows) {
+      expect(entry.scrollWidth, `"${entry.text}" clipped`).toBeLessThanOrEqual(entry.clientWidth);
+    }
+
+    // The 9 % threshold used to hide small bands outright; catch a regression to "just drop it"
+    // rather than fixing the width.
+    // The names render visually lowercase (a CSS transform), but textContent keeps its original
+    // casing — match case-insensitively rather than assert on a presentation detail.
+    const legend = page.locator('[data-distribution-legend]');
+    await expect(legend).toContainText(/tragend/i);
+    await expect(legend).toContainText(/regelmäßig/i);
+    await expect(legend).toContainText(/selten/i);
+  });
+
   test('holds exactly one tab stop and moves it with the arrow keys', async ({ page }) => {
     await openAtlas(page);
 
