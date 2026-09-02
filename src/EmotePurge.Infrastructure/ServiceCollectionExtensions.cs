@@ -44,6 +44,11 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<RedisLiveEventStream>>()));
 
         services.AddScoped<IChannelService, ChannelService>();
+        // Scoped like every other AppDbContext consumer, with its warning deduplication parked in a
+        // singleton beside it: the worker opens a fresh scope per reconcile tick, so a set living on
+        // the service itself would be empty every time. Same split as ChannelSyncGate below.
+        services.AddSingleton<ChannelIdentityWarningState>();
+        services.AddScoped<IChannelIdentityService, ChannelIdentityService>();
         services.AddScoped<IAdminChannelQueryService, AdminChannelQueryService>();
         services.AddScoped<IAdminUserQueryService, AdminUserQueryService>();
         // Read side only — audit entries are written by the services that perform the actions, into
