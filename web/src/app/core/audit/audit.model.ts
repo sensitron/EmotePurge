@@ -17,6 +17,8 @@ export type AuditAction =
   | 'channel.leave'
   | 'channel.purge'
   | 'channel.resync'
+  | 'channel.rename'
+  | 'channel.merge'
   | 'voteSession.create'
   | 'voteSession.end'
   | 'voteSession.delete'

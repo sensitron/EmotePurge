@@ -520,6 +520,8 @@
       "channelLeave": "Channel verlassen",
       "channelPurge": "Channel gelöscht",
       "channelResync": "Resync angestoßen",
+      "channelRename": "Channel umbenannt",
+      "channelMerge": "Channel zusammengeführt",
       "voteSessionCreate": "Abstimmung erstellt",
       "voteSessionEnd": "Abstimmung beendet",
       "voteSessionDelete": "Abstimmung gelöscht",

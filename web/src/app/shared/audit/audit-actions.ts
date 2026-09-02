@@ -15,6 +15,8 @@ export const ACTION_KEYS: Record<string, string> = {
   'channel.leave': 'audit.actions.channelLeave',
   'channel.purge': 'audit.actions.channelPurge',
   'channel.resync': 'audit.actions.channelResync',
+  'channel.rename': 'audit.actions.channelRename',
+  'channel.merge': 'audit.actions.channelMerge',
   'voteSession.create': 'audit.actions.voteSessionCreate',
   'voteSession.end': 'audit.actions.voteSessionEnd',
   'voteSession.delete': 'audit.actions.voteSessionDelete',
