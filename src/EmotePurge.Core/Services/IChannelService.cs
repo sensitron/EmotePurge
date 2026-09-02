@@ -9,12 +9,30 @@ public enum ChannelResyncResult
     NotActive,
 }
 
+public enum ChannelJoinStatus
+{
+    Joined,
+
+    // Twitch was reachable and answered that no account holds this login. Deliberately distinct from
+    // "we could not ask": only a definite answer may reject a join, because the alternative — a
+    // typo'd login quietly becoming a permanent, never-syncing row — is what this status exists to
+    // prevent, and an outage is not evidence of a typo.
+    ChannelNotOnTwitch,
+}
+
+/// <summary><see cref="Channel"/> is non-null exactly for <see cref="ChannelJoinStatus.Joined"/>.</summary>
+public record ChannelJoinResult(ChannelJoinStatus Status, Channel? Channel);
+
 public interface IChannelService
 {
     // All three write methods take the acting user: each writes its own AuditLogEntry into the same
     // transaction as the change itself (see the implementations). The actor is a required parameter
     // rather than an optional one so a new call site cannot silently produce unattributed history.
-    Task<Channel> JoinAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default);
+    // Resolves the channel's Twitch identity before it writes anything (IChannelIdentityService):
+    // the immutable Twitch id is what a channel *is*, and asking for it at the one moment a human is
+    // waiting for an answer is what lets a join reject a login Twitch does not know, follow a rename
+    // onto the existing row, and stamp the id onto a row that is being created anyway.
+    Task<ChannelJoinResult> JoinAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default);
 
     // Deactivates the bot for this channel and keeps the row and all its history. Reversible via
     // JoinAsync. See PurgeAsync for the irreversible variant.

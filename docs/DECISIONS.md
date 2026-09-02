@@ -10,6 +10,275 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-02 — Kanal-Identität ist die Twitch-ID; der Name ist nur die Adresse
+
+**Betrifft:** `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Core/Services/AuditActor.cs`, `src/EmotePurge.Core/Entities/AuditLogEntry.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityWarningState.cs`, `src/EmotePurge.Infrastructure/Persistence/ChannelQueries.cs`, `src/EmotePurge.Infrastructure/ServiceCollectionExtensions.cs`, `src/EmotePurge.Worker/TwitchIdentityReconcileWorker.cs`, `src/EmotePurge.Worker/Program.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/ChannelIdentityServiceTests.cs`
+
+**Die Regel, die dieser Eintrag festschreibt:** Wo eine Operation die *Identität* eines Kanals
+meint — Join, Identitätsabgleich, Berechtigung —, wird per `TwitchChannelId` gesucht, sobald eine
+bekannt ist. Der `ChannelName` bleibt die *Adresse*: für IRC, HTTP-Routen, `EmoteMatchCache`, die
+Redis-Kommandos und jede Anzeige. Beides ist bewusst kein Entweder-oder — bestehende
+namensbasierte Endpunkt-Lookups bleiben unangetastet, weil die Route nun einmal den Namen trägt
+und der gespeicherte Name nach der Nachführung wieder stimmt. Der Grund für die Trennung ist, dass
+Twitch die eine Hälfte für unveränderlich erklärt und die andere jederzeit vom Kanalinhaber
+geändert werden kann, **ohne dass irgendjemand benachrichtigt wird**. Bis zu diesem Commit gab es
+im ganzen Repo keine einzige Stelle, die einen gespeicherten `ChannelName` je aktualisiert hätte.
+
+**Warum das trotzdem kein Bugfix ist, sondern zwei verschiedene Dinge.** Issue #34/#44 hat zwei
+Pfade, und nur einer war real. Der *Anzeigepfad* — ein 7TV-Editor-Grant, der unter seinem
+veralteten 7TV-Login in `/mine` steht — erzeugt den gemeldeten Effekt ganz ohne `Channel`-Zeile
+und ist mit Task 3 behoben. Der *Datenpfad* — zwei Zeilen für denselben Kanal, weil jemand den
+neuen Namen joint — ist am Code bewiesen, aber die Bestandsmessung in Prod (2026-08-29, read-only
+über den SSH-Tunnel) hat gezeigt: alle 13 Zeilen tragen eine Twitch-ID, und für den gemeldeten
+Fall existiert weder unter dem alten noch unter dem neuen Login eine Zeile. Diese Reconciliation
+repariert also **nichts Bestehendes**; sie ist die Prävention, die greift, sobald ein *getrackter*
+Kanal umbenannt wird. Das ist der Grund, warum sie sich Zeit lassen darf (60-Minuten-Takt) und
+warum sie im Zweifel lieber nichts tut, als zu raten.
+
+**Gefahren wird der Abgleich von `TwitchIdentityReconcileWorker`, dem neunten Hosted Service des
+Workers** — Takt `Twitch:IdentityReconcileIntervalMinutes`, Default 60 Minuten, weil ein Tick einen
+Helix-Request pro 100 Kanälen kostet und Umbenennungen selten genug sind. Er wartet auf
+`BootRecoveryGate`, anders als `TwitchLivePollWorker`, der nur Abdeckungszeilen schreibt, die sonst
+niemand anfasst: dieser hier kann genau die `Channel`-Zeilen umbenennen oder zusammenführen, die
+die Boot-Recovery selbst liest und schreibt — die beiden dürfen sich nicht überlappen. Der erste
+Lauf kommt dann **sofort** und nicht erst nach dem ersten Intervall, denn er ist zugleich der
+Prod-Backfill für alle Zeilen, die älter sind als die Twitch-ID-Spalte; eine Stunde Wartezeit dafür
+wäre nur Wartezeit. Ohne `Auth:Twitch:ClientId`/`ClientSecret` meldet er sich einmal ab, statt
+stündlich am Token-Abruf zu scheitern.
+
+**Helix `GET /helix/users` ist die Signalquelle, und die Alternativen scheitern jeweils an einer
+Eigenschaft, nicht an Aufwand.** Der 7TV-Sync kennt nur 7TVs Kopie des Twitch-Logins — Dritthand
+und nachweislich cache-verzögert (`docs/Untersuchung-7TV-WebSocket-2026-07-30.md`); im gemessenen
+Fall hielt 7TV den toten Login noch, während dieselbe ID im selben Objekt korrekt war. Der
+Live-Poll fragt per Login und ist für einen Rename **strukturell blind**: der umbenannte Kanal
+fehlt in der Antwort, ununterscheidbar von „offline". `/mine` feuert nur, wenn der betroffene
+Nutzer die Seite aufruft, und sieht nur dessen eigene Kanäle. Helix `/users` ist Twitchs eigene
+Antwort, löst ID→Login direkt auf, braucht keinen Scope (App-Token) und nimmt 100 Parameter pro
+Request — der gesamte Bestand passt in einen Aufruf pro Tick.
+
+Ausschlaggebend ist dabei eine Vertragsseite, die an Produktionsdaten gemessen wurde und ohne die
+der ganze Abgleich gefährlich wäre: **ein fehlender Eintrag in einer erfolgreichen Antwort heißt
+„existiert nicht", ein fehlgeschlagener Request heißt „wir wissen es nicht".** Deshalb liefert
+`ReconcileActiveChannelsAsync` bei fehlendem App-Token oder unerreichbarem Helix `null` statt einer
+Null-Summary, und deshalb hat `LookupByLoginAsync` drei Zustände (`Found`/`NotFound`/`Unavailable`)
+statt einer nullable Identität. Eine leere Antwort als „niemand existiert" zu lesen, hieße bei
+einem Ausfall, den gesamten Bestand als tot zu melden.
+
+**Die Merge-Invariante, und warum sie nicht bloß vorsichtig ist.** Zusammengeführt wird nur, wenn
+die Verlierer-Zeile **null Emote-Zeilen** hat. Das ist keine willkürliche Schwelle, sondern der
+belegte Normalzustand: Solange die alte Zeile die Twitch-ID hält, läuft der erste Sync der
+Duplikat-Zeile in die `DbUpdateException` des Unique-Index `IX_Channels_TwitchChannelId` — und weil
+derselbe fehlgeschlagene `SaveChangesAsync` die von `ReconcileAsync` eingefügten Emotes mit
+zurückrollt, kann eine Duplikat-Zeile gar keine Emote-Historie ansammeln (seit Task 4 zusätzlich
+durch einen expliziten Guard vor der Exception abgefangen). Historienverlust ist damit
+*strukturell* ausgeschlossen statt sorgfältig vermieden: Es gibt nichts zu verlieren. Was die Zeile
+sehr wohl ansammelt, sind `ChannelLiveDay`s — der Live-Poll läuft per Login und kennt den neuen
+Namen —, und die ziehen mit um. Hält die Invariante nicht (nach heutigem Code unerreichbar, aber
+Bestandsdaten sind Bestandsdaten), wird **nicht** gemerged: `MergesRefused++`, Warnung mit beiden
+Zeilen-IDs, kein einziger Schreibzugriff, Entscheidung beim Menschen. Ein generischer Merge mit
+`UsageStat`-Summierung über kollidierende `(EmoteId, Date)`-Paare wäre Code für einen Fall, den der
+Bestand nicht erzeugen kann — im Ernstfall ungetestet und damit selbst das Risiko.
+
+`ChannelLiveDay`-Kollisionen werden mit **MAX(LiveMinutes)** aufgelöst, nicht mit einer Summe:
+beide Zeilen haben denselben physischen Kanal an demselben Kalendertag gemessen, eine Summe könnte
+1440 Minuten pro Tag überschreiten.
+
+**Kein Schema-Change, Backfill zur Laufzeit.** Fehlende Twitch-IDs werden nicht per Einmalskript
+nachgetragen, sondern vom ersten Lauf derselben periodischen Reconciliation, die danach dauerhaft
+läuft. Der Backfill ist damit idempotent, selbstheilend und **exakt so getestet wie der
+Dauerbetrieb** — ein Migrationsskript hätte einen eigenen, nur einmal ausgeführten Codepfad
+gehabt. Ein Backfill schreibt bewusst *keinen* Audit-Eintrag und rührt `TrackingResumedAt` nicht
+an: Es hat sich nichts am Kanal geändert, wir haben nur aufgeschrieben, was immer schon galt —
+sonst stünde nach dem ersten Tick ein Eintrag pro Bestandskanal im Log.
+
+**Ein Rename setzt dagegen sehr wohl `TrackingResumedAt`.** Zwischen dem Rename auf Twitch und dem
+nächsten Abgleich zeigte der IRC-Join auf einen Namen, der nicht mehr antwortet; in dieser Lücke
+wurde nichts gezählt. Genau diese Art Lücke ist der Grund, aus dem das Feld existiert. `CreatedAt`
+bleibt unangetastet — es ist derselbe Kanal.
+
+**Nachher, nicht vorher, und LEAVE vor JOIN.** Beide Redis-Kommandos gehen erst nach dem Commit
+raus, in dieser Reihenfolge. Der Worker löst beim JOIN die Zeile **per Name** auf, und diesen Namen
+gibt es erst nach dem Commit; das LEAVE räumt `EmoteMatchCache` und EventAPI-Abo des alten Namens
+ab, ohne die der Worker weiter Chat unter einem Namen mitschreibt, den Twitch nirgendwohin mehr
+routet. Die Reihenfolge ist im Test festgenagelt, nicht bloß im Kommentar.
+
+**Rename und Merge sind auditpflichtig, und der Actor ist neu.** `AuditActions.ChannelRename` und
+`AuditActions.ChannelMerge` werden unter `AuditActor.System` geschrieben — dem ersten Actor dieses
+Repos, hinter dem kein Nutzer steht. Das Audit-Log ist hier nicht Beiwerk: Beide Aktionen
+überschreiben genau den Namen, unter dem jede andere Ansicht den Kanal adressiert, und ein Merge
+löscht zusätzlich eine Zeile. Ohne Eintrag wäre nachträglich nicht feststellbar, dass der Kanal
+früher anders hieß (alter und neuer Login stehen vorerst allerdings nur im Worker-Log:
+`AuditLogQueryService.ProjectDetail` reicht nur die Kinds `emoteCount`/`removedEntries`/`title`
+durch, im Admin-Log steht also bloß „Kanal umbenannt". Backlog-Idee B7 behebt das **nicht** —
+sie bringt Filter und CSV-Export über `DetailsJson`, lässt die Kind-Allowlist aber unangetastet;
+sichtbar würden die Logins erst durch zwei zusätzliche Kinds plus ihre `DETAIL_KEYS`-Einträge). Der Actor ist ein Snapshot-String und nie ein Fremdschlüssel auf `User`
+(s. `AuditLogEntry`), deshalb genügt das Literal `system` ohne Sonderfall im Frontend.
+
+**Die Warn-Deduplizierung liegt in einem Singleton, nicht im Service.** Für tote Logins und tote
+IDs (Fall 5/6), für eine durch eine fremde Zeile blockierte Umbenennung und für eine verweigerte
+Zusammenführung wird nur beim Zustandswechsel gewarnt — die Messlatte ist „keine Warnungsflut im
+Stundentakt, aber mindestens eine Warnung pro Prozesslauf". Vier Schlüsselräume in einem Set,
+per Präfix getrennt, weil ein toter Login und eine tote ID verschiedene Tatsachen über denselben
+Kanal sind und einander nicht stummschalten dürfen. Die verweigerte Zusammenführung hat dabei den
+stärksten Anspruch auf Deduplizierung: Sie wartet per Definition auf einen Menschen, löst sich also
+**nie** von selbst auf. Verloren geht dadurch nichts — `MergesRefused >= 1` lässt die Summary von
+der Null-Summary abweichen, und die Summary-Zeile wird jeden Tick geloggt, sobald sie das tut. Der Service selbst ist scoped wie alles
+mit `AppDbContext`, und der Worker öffnet pro Tick einen eigenen Scope; ein Set auf dem Service wäre
+jeden Tick leer gewesen und hätte nichts dedupliziert. `ChannelIdentityWarningState` ist deshalb ein
+Singleton daneben — dasselbe Muster wie `ChannelSyncGate`, `TwitchTokenRefreshGate` und
+`DuplicateEmoteNameTracker`, und ausdrücklich kein `static` Feld, das zwischen Tests leckt.
+Prozesslokal ist Absicht: Nach einem Neustart wird jeder weiterhin kaputte Kanal einmal erneut
+gemeldet, und das ist die günstigere Fehlrichtung.
+
+**Der Auth-Pfad wird weiterhin nicht kanonisiert** (Entscheidung 2 des Plans, hier nur bekräftigt,
+weil die neue Regel das Gegenteil nahelegen könnte): `SevenTvEditorService` liefert Grants als
+Autorisierungs-Input, und Autorisierung darf nicht von der Erreichbarkeit eines zweiten
+Fremdsystems abhängen. Die ID-Auflösung sitzt im Anzeigepfad (`MyChannelsService`), nicht dort.
+Aus demselben Grund bleibt `MyChannelsService.ResolveUntrackedGrantsAsync` neben
+`LookupByLoginAsync` bestehen, obwohl beide App-Token plus `GetUsersAsync` kapseln: die eine fragt
+per **ID**, die andere per **Login**, und ihre Degradationsverträge sind unvereinbar — die eine
+fällt bei fehlendem Token still auf 7TV-Logins zurück und liefert trotzdem eine Liste, die andere
+**muss** `Unavailable` melden. Eine gemeinsame Helper-Extraktion würde genau diese Unterscheidung
+einebnen; das ist die Defektklasse aus #32/#37, die dieser Plan überhaupt erst behebt.
+
+**Zwei Dinge, die erst der echte Postgres gezeigt hat.** Erstens: Beim Merge übernimmt die
+Überlebende den Namen, den die Verlierer-Zeile im selben `SaveChangesAsync` noch hält. Tragend ist
+dabei **nicht** eine allgemeine „Deletes zuerst"-Regel, sondern eine bestimmte Kante im
+Kommandographen von EF Cores `CommandBatchPreparer`: ein Delete und ein Update auf **denselben Wert
+eines Unique-Index** werden delete-vor-update geordnet. Der Integrationstest gegen den echten
+`IX_Channels_ChannelName` belegt genau das, statt es anzunehmen — und die Grenze gehört dazu, damit
+niemand verallgemeinert: zwei *Updates*, die einen Unique-Wert tauschen, bekommen diese Kante nicht
+und brauchen weiterhin zwei Saves. Zweitens: Ein Duplikat-Paar wird in einem Durchlauf von **beiden
+Enden** erreicht — von der ID-Zeile, die den Namen will, und von der ID-losen Zeile, die ihn hält.
+Ohne eine Menge bereits erledigter Zeilen-IDs wurde derselbe verweigerte Merge zweimal gezählt und
+zweimal gewarnt; der Testfall hat genau das aufgedeckt.
+
+**Ein Fehlschlag kostet eine Zeile, nicht den Tick.** Jede Zeile wird einzeln committet, und ihr
+Rumpf fängt `DbUpdateException` ab: eine Warnung, `ChangeTracker.Clear()`, weiter mit der nächsten
+Zeile. Beide Hälften sind nötig. Der realistische Auslöser ist eine Race, die die Momentaufnahme
+nicht schließen kann — zwischen „ist der Zielname frei?" und dem Schreiben legt ein paralleler Join
+eine Zeile unter genau diesem Namen an —, und ohne den Catch blieben alle noch nicht besuchten
+Zeilen liegen und die Summary ginge verloren. Das `Clear()` ist dabei keine Kosmetik: EF lässt die
+gescheiterten Änderungen im Change Tracker stehen, der nächste `SaveChangesAsync` würde sie erneut
+schicken und identisch scheitern — eine kaputte Zeile risse sonst alle nachfolgenden mit.
+Schlägt dagegen der **Publish nach** dem Commit fehl, ist die Zeile bereits nachgeführt und der
+nächste Tick sieht Fall 1: LEAVE/JOIN werden über diesen Pfad nie wieder veröffentlicht. Das
+strandet den Worker aber nicht bis zum Neustart — `SevenTvPeriodicResyncWorker` liest die aktiven
+Kanalnamen jeden Tick (60 s) frisch aus der DB und joint/synct den neuen Namen unabhängig von
+diesem Publish; der alte Name bleibt zwar im IRC-Roster stehen, aber `RosterPrunePolicy` (Issue #41)
+räumt ihn ab, sobald er zwei aufeinanderfolgende Ticks nicht mehr in der aktiven Liste steht — in
+der Praxis binnen zwei bis drei Minuten, nicht bis zum Neustart. In dieser Übergangszeit zählt der
+Worker Chat weiterhin auf den alten Namen; reparieren lässt sich dieser eine Publish-Fehler selbst
+nicht, deshalb ist die laute Warnung die ganze Behandlung an dieser Stelle.
+
+**Ausdrücklich nicht gebaut:** kein automatisches Leave/Purge für Kanäle, deren Konto Twitch nicht
+mehr kennt (ein Bann kann aufgehoben werden — eine destruktive Entscheidung auf ein möglicherweise
+transientes Signal); kein generischer `UsageStat`-Merge; kein Admin-Badge „Login tot seit …", das
+eine persistierte Spalte samt Migration bräuchte.
+
+**Und ein Randfall, der bewusst offen bleibt: der Login-Tausch.** Tauschen zwei *getrackte* Kanäle
+ihre Namen — A hält `id1`/„a", B hält `id2`/„b", danach heißt A „b" und B „a" —, landen beide Zeilen
+dauerhaft im Blocked-Zweig: jede will den Namen, den die andere noch hält, und keine der beiden
+Umbenennungen kann als erste durchgehen. Bis jemand von Hand eingreift, zählt der Worker den Chat
+des jeweils anderen Kanals auf die falsche Zeile. Das ist sehr selten und ausdrücklich **keine
+Regression** — vorher passierte exakt dasselbe, nur ohne jede Warnung. Aufgelöst würde es einen
+zweistufigen Schreibvorgang über einen Zwischennamen brauchen (zwei *Updates* auf denselben
+Unique-Wert bekommen die oben beschriebene EF-Kante gerade nicht), und das für einen Fall, der
+bisher nie beobachtet wurde; die deduplizierte Warnung ist die ganze Behandlung.
+
+---
+
+### 2026-09-02 — Der Join löst die Twitch-Identität vorab auf und lehnt tote Logins ab
+
+**Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelService.cs`, `src/EmotePurge.Api/Endpoints/ChannelEndpoints.cs`, `src/EmotePurge.Api/Validation/ApiErrorCodes.cs`, `web/src/app/core/i18n/api-error.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`, `tests/EmotePurge.Infrastructure.Tests/Integration/ChannelServiceTests.cs`
+
+Der Eintrag oben macht die Twitch-ID zur Identität eines Kanals, führt sie aber erst *nachträglich*
+im Stundentakt nach. Dieser hier schließt die Lücke am Eingang: `JoinAsync` fragt vor dem ersten
+Schreibzugriff `IChannelIdentityService.LookupByLoginAsync` — der einzige Moment, in dem ein Mensch
+ohnehin auf eine Antwort wartet — und behandelt die drei Zustände als drei verschiedene Aufgaben.
+
+**`NotFound` lehnt den Join ab — aber nur, wenn er eine neue Zeile anlegen würde.** Bis hierher
+wurde jeder syntaktisch gültige Name angenommen; ein Tippfehler erzeugte damit eine Zeile, die nie
+synchronisiert und nie gezählt wird und die niemand bemerkt, bis jemand seine Statistik sucht. Genau
+dagegen richtet sich die Ablehnung, und **weiter reicht sie nicht**: Führen wir den Namen bereits,
+läuft der Join durch wie eh und je — Reaktivierung, `TrackingResumedAt`, `channel.join`,
+`JOIN:`-Publish —, ohne Rename (es gibt nichts, worauf umbenannt werden könnte) und ohne die
+gespeicherte `TwitchChannelId` anzurühren; eine Logzeile hält den Zustand fest.
+
+Der Grund für diese Unterscheidung ist derselbe, aus dem der Eintrag oben **kein** automatisches
+Leave oder Purge für unbekannte Konten baut: **Helix hält „gesperrt" und „gelöscht" nicht
+auseinander** — beides ist `200` mit leerem `data` —, und ein Bann kann aufgehoben werden. Eine
+pauschale Ablehnung hätte also ein möglicherweise transientes Signal benutzt, um einem Moderator das
+Wieder-Beitreten zu einem Kanal zu verwehren, dessen gesamte Historie wir halten.
+
+**Am 2026-09-02 gemessen statt angenommen** (App-Token, `GET /helix/users`), weil genau diese
+Fremd-API-Annahme den Zweig trägt und dieselbe Klasse von Fehlschluss schon zweimal durchgerutscht
+ist (Issues #33 und #37, wo Code und Mock sich die Annahme teilten):
+
+| Abfrage | Antwort |
+|---|---|
+| `login=lwon` (auf Twitch gesperrt) | `200` · `{"data":[]}` |
+| `login=<frei erfundener Name>` | `200` · `{"data":[]}` |
+| `login=handofblood` (lebend) | `200` · vollständiger Datensatz |
+
+Die beiden ersten Antworten sind zeichengleich. Ein gesperrter Kanal ist über diesen Endpunkt
+**nicht** von einem nie existierenden zu unterscheiden — es gibt kein Feld, an dem man es
+nachträglich festmachen könnte. Der Zweig ist damit nicht bloß vorsorglich, sondern die einzige
+Möglichkeit, den Bann-Fall überhaupt zu überleben. Beide Einträge
+sagen damit dasselbe: Auf „Twitch kennt dieses Konto gerade nicht" wird nichts Bestehendes
+zerstört und nichts Bestehendes blockiert — nur nichts Neues angelegt.
+
+Wo abgelehnt wird, antwortet der Endpunkt `404` mit dem neuen, sprachneutralen Code
+`channel_not_on_twitch` — bewusst kein `400` (der Name ist wohlgeformt, er benennt nur niemanden)
+und bewusst getrennt von `channel_not_found` (das heißt „wir tracken diesen Kanal nicht", nicht
+„Twitch kennt ihn nicht"). Weil `JoinAsync` bislang direkt `Channel` lieferte, gibt es dafür jetzt
+`ChannelJoinResult` (`Joined | ChannelNotOnTwitch`) statt eines zweiten Fehlerkanals.
+
+**`Unavailable` ändert dagegen gar nichts** — exakt der bisherige Namenspfad, Zeile ohne ID, die
+Reconciliation trägt sie später nach. Verfügbarkeit schlägt Strenge: ein Ausfall auf unserer Seite
+ist keine Aussage über den Kanal, und die beiden Zustände dürfen an keiner Stelle zusammenfallen.
+Dass `NotFound` und `Unavailable` sich für eine **bestehende** Zeile inzwischen gleich verhalten,
+ist deshalb kein Anlass, die Zweige zusammenzulegen: Nur einer von beiden darf einen Join überhaupt
+ablehnen, und diese Unterscheidung ist der Kern des dreiwertigen Lookups.
+
+**`Found` sucht zuerst per ID, nicht per Name.** Trifft das eine Zeile mit anderem Namen, ist der
+Join zugleich die Rename-Nachführung: Umbenennung auf den kanonischen Helix-Login,
+`TrackingResumedAt`, Audit-Eintrag `channel.rename`, danach `LEAVE:<alt>` vor `JOIN:<neu>` — dieselbe
+Reihenfolge und dieselbe Begründung wie beim periodischen Abgleich. Zwei Unterschiede zu jenem sind
+Absicht: Der Actor ist der **echte angemeldete Nutzer** statt `AuditActor.System` (der Join geht von
+einem Menschen aus), und der Pfad greift auch für **inaktive** Zeilen — die überspringt die
+Reconciliation bewusst, womit ein verlassener, seither umbenannter Kanal sonst für immer unter
+seinem toten Namen läge. Eine neu angelegte Zeile bekommt die ID sofort mit; eine bestehende Zeile
+ohne ID bekommt sie still nachgetragen (kein Audit, kein `TrackingResumedAt` — es hat sich nichts
+geändert, wir haben nur aufgeschrieben, was immer schon galt).
+
+**Hält bereits eine andere Zeile den kanonischen Namen, wird nicht umbenannt.** Das ist das
+Duplikat, das ein Rename hinterlässt; die Umbenennung liefe in `IX_Channels_ChannelName` und machte
+aus einem Join eine 500. Zusammengeführt wird hier nichts — das ist die Aufgabe der Reconciliation,
+die den emote-losen Normalfall **automatisch** zusammenführt und nur die beiden Ausnahmen verweigert
+(die Verlierer-Zeile hat noch Emotes, oder die belegende Zeile trägt eine eigene, abweichende
+Twitch-ID). Der Join läuft stattdessen auf die vorhandene Zeile wie vor dieser Änderung, mit einer
+Warnung im Log. Denselben Weg nimmt der Spiegelfall, in dem gar keine Zeile die gemeldete ID hält,
+die Zeile unter dem Namen aber eine abweichende trägt: nichts wird geschrieben, eine
+`LogInformation` macht den Zustand sichtbar, bis der nächste Tick ihn auflöst.
+
+**Ein Publish-Fehler nach dem Commit lässt sich auch hier an dieser Stelle nicht reparieren** —
+dieselbe Lage, die der Eintrag oben für den Worker-Pfad beschreibt, und aus demselben Grund
+unbehandelt: Die Zeile ist bereits umbenannt, ein zweiter Join findet folglich keinen Rename mehr
+(`renamedFrom == null`) und publiziert nur noch `JOIN:<neu>`. Das ausgefallene `LEAVE:<alt>` wird
+über diesen Pfad nie nachgeholt — aber wie beim Worker-Pfad oben schließt der periodische
+7TV-Resync (`SevenTvPeriodicResyncWorker` + `RosterPrunePolicy`, Issue #41) die Lücke von selbst
+binnen zwei bis drei Minuten, nicht erst bei einem Neustart: der neue Name wird im nächsten Tick
+gejoint/gesynct, der alte fällt nach zwei stale Ticks aus dem Roster samt EventAPI-Abo. Anders als
+beim Worker-Pfad merkt es der Nutzer immerhin sofort, weil sein Join in derselben Sekunde mit einem
+Fehler endet.
+
+**Kosten:** ein Helix-Request pro Join, über das gecachte App-Token. Der Join ist eine seltene,
+bewusste Aktion hinter `ChannelManagementAuthorizationFilter` und dem Bookkeeping-Rate-Limit — kein
+Pfad, auf dem sich das summiert.
+
+---
+
 ### 2026-09-01 — SSH auf den VPS läuft über den Host-Alias `vps`, nicht über `emotepurge.app`
 
 **Betrifft:** `CLAUDE.md`, `docs/Backup-und-Restore.md`

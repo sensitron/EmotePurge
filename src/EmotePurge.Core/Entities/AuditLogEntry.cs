@@ -19,6 +19,13 @@ public static class AuditActions
     public const string UserRevokeSessions = "user.revokeSessions";
     public const string ChannelResync = "channel.resync";
     public const string UserInvalidateRoleCache = "user.invalidateRoleCache";
+
+    // The two identity-reconciliation actions. Unlike every constant above them these are written
+    // by the worker under AuditActor.System rather than by a user's request — the audit log is the
+    // only place a rename or a merge becomes visible after the fact, since both rewrite the very
+    // name every other view addresses the channel by.
+    public const string ChannelRename = "channel.rename";
+    public const string ChannelMerge = "channel.merge";
 }
 
 /// <summary>

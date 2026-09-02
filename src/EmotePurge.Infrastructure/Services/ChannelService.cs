@@ -3,44 +3,154 @@ using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace EmotePurge.Infrastructure.Services;
 
-public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : IChannelService
+public class ChannelService(
+    AppDbContext db,
+    IRedisPublisher redisPublisher,
+    IChannelIdentityService channelIdentityService,
+    ILogger<ChannelService> logger) : IChannelService
 {
-    public async Task<Channel> JoinAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
+    public async Task<ChannelJoinResult> JoinAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
-        var channel = await db.LoadChannelAsync(channelName, cancellationToken);
-        if (channel is null)
+        // Asked before anything is written, and the only place in the join path that talks to
+        // Twitch. The three answers are three different jobs: reject, follow the id, or carry on.
+        var lookup = await channelIdentityService.LookupByLoginAsync(normalized, cancellationToken);
+        if (lookup.Status == TwitchUserLookupStatus.NotFound)
         {
-            channel = new Channel { ChannelName = normalized, IsBotActive = true };
-            db.Channels.Add(channel);
-        }
-        else
-        {
-            // Only a join that actually reactivates the channel restarts the tracking clock. A join
-            // on an already-active channel is a no-op for coverage — it publishes a JOIN command,
-            // but nothing was ever missed, so moving the marker would falsely shorten the history
-            // we claim to have.
-            if (!channel.IsBotActive)
+            // Twitch was reachable and knows no account under this login — but only a join that
+            // would *create* a row is refused for it. That is what the rejection was for: a typo
+            // becoming a permanent, never-syncing row. On a channel we already track it would buy
+            // nothing and cost something real, because Helix answers the same way for a deleted
+            // account and for a banned one, and a ban can be lifted. Refusing here would let a
+            // temporary state block a moderator from rejoining a channel whose whole history we
+            // hold — the same restraint that keeps the reconciliation from ever leaving or purging
+            // a channel Twitch stopped knowing.
+            //
+            // Deliberately not folded into the Unavailable path below even though the two now agree
+            // in this one case: the whole point of the three-state lookup is that "no such account"
+            // and "we could not ask" stay distinct, and only one of them can refuse a join at all.
+            //
+            // The lookup is by name, and that is not a shortcut: this branch has no identity, so
+            // there is no id to look up by.
+            var knownChannel = await db.LoadChannelAsync(normalized, cancellationToken);
+            if (knownChannel is null)
             {
-                channel.TrackingResumedAt = DateTime.UtcNow;
+                // Nothing is written — not even an audit entry, because nothing happened.
+                logger.LogInformation(
+                    "Join für {ChannelName} abgelehnt: Twitch kennt diesen Login nicht und wir führen keine Zeile dazu.",
+                    normalized);
+                return new ChannelJoinResult(ChannelJoinStatus.ChannelNotOnTwitch, null);
             }
 
-            channel.IsBotActive = true;
+            // No rename: there is nothing to rename onto. The stored TwitchChannelId stays exactly
+            // as it is — it remains the best information we have about this channel, and clearing it
+            // would throw away the one field that survives a login change.
+            logger.LogInformation(
+                "Twitch kennt den Login {ChannelName} gerade nicht (gesperrt oder gelöscht) — Join läuft auf die bestehende Zeile weiter, die gespeicherte Twitch-ID bleibt unverändert.",
+                normalized);
+            return await CompleteJoinAsync(knownChannel, actor, isNewRow: false, renamedFrom: null, cancellationToken);
         }
 
-        // Audited unconditionally, including the "already active" case: every join publishes a JOIN
-        // command and makes the worker (re)enter the channel, so something did happen even when the
-        // row itself is unchanged. This is the one place the no-op rule does not apply.
-        db.AddAuditEntry(actor, AuditActions.ChannelJoin, channelName: normalized);
+        // Null for Unavailable, and that is the whole contract of that status: without an identity
+        // every branch below falls through to the name path this method has always run, so an outage
+        // on our side costs nothing but the id — which the periodic reconciliation backfills.
+        var identity = lookup.User;
+        // Derived from Helix's answer rather than reused from `normalized`, although the two are
+        // provably equal at this point: LookupByLoginAsync reports Found only when the normalized
+        // logins match, so this cannot canonicalize anything the caller typed. It is written this
+        // way because the stored name belongs to the identity that was resolved, not to the request
+        // — should that matching rule ever loosen, this is the line that keeps the row on Helix's
+        // spelling instead of silently storing the caller's.
+        var targetName = identity is null ? normalized : ChannelName.Normalize(identity.Login);
 
-        await db.SaveChangesAsync(cancellationToken);
-        await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.JoinPrefix}{normalized}", cancellationToken);
+        Channel? channel = null;
+        string? renamedFrom = null;
 
-        return channel;
+        if (identity is not null)
+        {
+            // Twitch ids are opaque digit strings — never normalized, always compared ordinally.
+            var rowWithId = await db.LoadChannelByTwitchIdAsync(identity.Id, cancellationToken);
+            if (rowWithId is not null)
+            {
+                channel = rowWithId;
+            }
+
+            if (rowWithId is not null && !string.Equals(rowWithId.ChannelName, targetName, StringComparison.Ordinal))
+            {
+                var occupant = await db.LoadChannelAsync(targetName, cancellationToken);
+                if (occupant is null)
+                {
+                    // The channel was renamed on Twitch since we last looked, and this join is the
+                    // moment we find out. Also the only route for an *inactive* row: the periodic
+                    // reconciliation scans active channels only, so nothing else would ever bring it
+                    // back under its real name.
+                    renamedFrom = rowWithId.ChannelName;
+                    rowWithId.ChannelName = targetName;
+                    // The rename is its own tracking gap — the IRC join pointed at a name that no
+                    // longer answered — independent of whether the row was also inactive.
+                    rowWithId.TrackingResumedAt = DateTime.UtcNow;
+                    db.AddAuditEntry(
+                        actor,
+                        AuditActions.ChannelRename,
+                        channelName: targetName,
+                        details: new { twitchChannelId = identity.Id, oldLogin = renamedFrom, newLogin = targetName });
+                }
+                else
+                {
+                    // A second row already sits on the new name — the duplicate a rename leaves
+                    // behind. Renaming into it would violate IX_Channels_ChannelName and turn this
+                    // join into a 500; merging the two is the reconciliation's job, which refuses
+                    // rather than guesses when emote histories are involved. So the join proceeds on
+                    // the occupant, exactly as it did before identities were resolved here.
+                    logger.LogWarning(
+                        "Kanal {ChannelName} (Twitch-ID {TwitchChannelId}) heißt auf Twitch jetzt {NewChannelName}, aber dieser Name gehört bereits einer anderen Zeile — Join läuft auf die bestehende Zeile, die Zusammenführung übernimmt der periodische Abgleich.",
+                        rowWithId.ChannelName, identity.Id, targetName);
+                    channel = occupant;
+                }
+            }
+        }
+
+        var isNewRow = false;
+        if (channel is null)
+        {
+            channel = await db.LoadChannelAsync(targetName, cancellationToken);
+            if (channel is null)
+            {
+                // A new row gets the id straight away, so this channel's first rename is already
+                // followable — that is the point of asking Helix before writing.
+                channel = new Channel { ChannelName = targetName, TwitchChannelId = identity?.Id, IsBotActive = true };
+                db.Channels.Add(channel);
+                isNewRow = true;
+            }
+            else if (identity is not null && channel.TwitchChannelId is null)
+            {
+                // Free backfill on a row that predates this: reached only when no row holds the id,
+                // so the unique index on TwitchChannelId cannot object. Not audited and no
+                // TrackingResumedAt — nothing about the channel changed, we merely wrote down what it
+                // always was.
+                channel.TwitchChannelId = identity.Id;
+            }
+            else if (identity is not null
+                     && !string.Equals(channel.TwitchChannelId, identity.Id, StringComparison.Ordinal))
+            {
+                // The row under this name claims a different Twitch id than Helix does — the mirror
+                // image of the occupant case above, reached when the id's own row does not exist (or
+                // no longer does). Nothing is written: overwriting the stored id would fuse two
+                // genuinely different channels, and the periodic reconciliation resolves the pair
+                // from its own side. Logged only so the state is diagnosable while it lasts; it is
+                // not an error, and a join in this state behaves exactly as it did before.
+                logger.LogInformation(
+                    "Kanal {ChannelName} trägt die Twitch-ID {StoredTwitchChannelId}, Helix nennt für diesen Login aber {TwitchChannelId} — Join läuft unverändert auf der bestehenden Zeile, die Auflösung übernimmt der periodische Abgleich.",
+                    channel.ChannelName, channel.TwitchChannelId, identity.Id);
+            }
+        }
+
+        return await CompleteJoinAsync(channel, actor, isNewRow, renamedFrom, cancellationToken);
     }
 
     public async Task<bool> LeaveAsync(string channelName, AuditActor actor, CancellationToken cancellationToken = default)
@@ -149,5 +259,50 @@ public class ChannelService(AppDbContext db, IRedisPublisher redisPublisher) : I
         await redisPublisher.PublishAsync(BotCommands.Channel, $"{BotCommands.ResyncPrefix}{normalized}", cancellationToken);
 
         return ChannelResyncResult.Triggered;
+    }
+
+    /// <summary>
+    /// The half of a join every path shares once the row to join has been decided: reactivate,
+    /// audit, commit, publish. A method rather than a fall-through, so the branch that joins a
+    /// channel Twitch has stopped knowing can reach it without being merged into the identity logic
+    /// it deliberately has none of.
+    /// </summary>
+    private async Task<ChannelJoinResult> CompleteJoinAsync(
+        Channel channel, AuditActor actor, bool isNewRow, string? renamedFrom, CancellationToken cancellationToken)
+    {
+        if (!isNewRow)
+        {
+            // Only a join that actually reactivates the channel restarts the tracking clock. A join
+            // on an already-active channel is a no-op for coverage — it publishes a JOIN command,
+            // but nothing was ever missed, so moving the marker would falsely shorten the history
+            // we claim to have.
+            if (!channel.IsBotActive)
+            {
+                channel.TrackingResumedAt = DateTime.UtcNow;
+            }
+
+            channel.IsBotActive = true;
+        }
+
+        // Audited unconditionally, including the "already active" case: every join publishes a JOIN
+        // command and makes the worker (re)enter the channel, so something did happen even when the
+        // row itself is unchanged. This is the one place the no-op rule does not apply.
+        db.AddAuditEntry(actor, AuditActions.ChannelJoin, channelName: channel.ChannelName);
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (renamedFrom is not null)
+        {
+            // LEAVE before JOIN, both after the commit — the same handover order the reconciliation
+            // publishes: the worker resolves the row by name when it handles the JOIN, and the LEAVE
+            // is what drops the old name's match cache and its 7TV EventAPI subscription.
+            await redisPublisher.PublishAsync(
+                BotCommands.Channel, $"{BotCommands.LeavePrefix}{renamedFrom}", cancellationToken);
+        }
+
+        await redisPublisher.PublishAsync(
+            BotCommands.Channel, $"{BotCommands.JoinPrefix}{channel.ChannelName}", cancellationToken);
+
+        return new ChannelJoinResult(ChannelJoinStatus.Joined, channel);
     }
 }

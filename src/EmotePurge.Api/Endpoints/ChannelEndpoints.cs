@@ -144,7 +144,20 @@ public static class ChannelEndpoints
                 return Results.Unauthorized();
             }
 
-            var channel = await channelService.JoinAsync(channelName, actor, ct);
+            var result = await channelService.JoinAsync(channelName, actor, ct);
+            if (result.Status == ChannelJoinStatus.ChannelNotOnTwitch || result.Channel is null)
+            {
+                // 404 on the channel the caller asked to join: Twitch answered that no account holds
+                // this login. Deliberately not a 400 — the name is well-formed, it just names nobody,
+                // and the caller cannot fix it by spelling it differently.
+                return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotOnTwitch });
+            }
+
+            var channel = result.Channel;
+            // The stored login, which is always the one that was asked for: LookupByLoginAsync only
+            // reports Found on a normalized name match, so even in the rename case the caller typed
+            // the new name and the row now carries it. Returned anyway rather than echoing the raw
+            // input, because the normalized form is what every route and cache key downstream uses.
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
