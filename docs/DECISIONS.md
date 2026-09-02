@@ -162,9 +162,14 @@ Zeilen liegen und die Summary ginge verloren. Das `Clear()` ist dabei keine Kosm
 gescheiterten Änderungen im Change Tracker stehen, der nächste `SaveChangesAsync` würde sie erneut
 schicken und identisch scheitern — eine kaputte Zeile risse sonst alle nachfolgenden mit.
 Schlägt dagegen der **Publish nach** dem Commit fehl, ist die Zeile bereits nachgeführt und der
-nächste Tick sieht Fall 1: LEAVE/JOIN werden nie wieder veröffentlicht, der Worker bleibt bis zum
-Neustart im alten Kanal. Reparieren lässt sich das hier nicht, deshalb ist die laute Warnung die
-ganze Behandlung.
+nächste Tick sieht Fall 1: LEAVE/JOIN werden über diesen Pfad nie wieder veröffentlicht. Das
+strandet den Worker aber nicht bis zum Neustart — `SevenTvPeriodicResyncWorker` liest die aktiven
+Kanalnamen jeden Tick (60 s) frisch aus der DB und joint/synct den neuen Namen unabhängig von
+diesem Publish; der alte Name bleibt zwar im IRC-Roster stehen, aber `RosterPrunePolicy` (Issue #41)
+räumt ihn ab, sobald er zwei aufeinanderfolgende Ticks nicht mehr in der aktiven Liste steht — in
+der Praxis binnen zwei bis drei Minuten, nicht bis zum Neustart. In dieser Übergangszeit zählt der
+Worker Chat weiterhin auf den alten Namen; reparieren lässt sich dieser eine Publish-Fehler selbst
+nicht, deshalb ist die laute Warnung die ganze Behandlung an dieser Stelle.
 
 **Ausdrücklich nicht gebaut:** kein automatisches Leave/Purge für Kanäle, deren Konto Twitch nicht
 mehr kennt (ein Bann kann aufgehoben werden — eine destruktive Entscheidung auf ein möglicherweise
@@ -257,13 +262,16 @@ Warnung im Log. Denselben Weg nimmt der Spiegelfall, in dem gar keine Zeile die 
 die Zeile unter dem Namen aber eine abweichende trägt: nichts wird geschrieben, eine
 `LogInformation` macht den Zustand sichtbar, bis der nächste Tick ihn auflöst.
 
-**Ein Publish-Fehler nach dem Commit ist auch hier eine Sackgasse** — dieselbe Lage, die der
-Eintrag oben für den Worker-Pfad beschreibt, und aus demselben Grund unbehandelt: Die Zeile ist
-bereits umbenannt, ein zweiter Join findet folglich keinen Rename mehr (`renamedFrom == null`) und
-publiziert nur noch `JOIN:<neu>`. Das ausgefallene `LEAVE:<alt>` wird nie nachgeholt, der Worker
-bleibt bis zu einem Neustart im alten IRC-Kanal und behält dessen EventAPI-Abo. Reparieren lässt
-sich das an dieser Stelle nicht; anders als beim Worker-Pfad merkt es der Nutzer immerhin, weil sein
-Join in derselben Sekunde mit einem Fehler endet.
+**Ein Publish-Fehler nach dem Commit lässt sich auch hier an dieser Stelle nicht reparieren** —
+dieselbe Lage, die der Eintrag oben für den Worker-Pfad beschreibt, und aus demselben Grund
+unbehandelt: Die Zeile ist bereits umbenannt, ein zweiter Join findet folglich keinen Rename mehr
+(`renamedFrom == null`) und publiziert nur noch `JOIN:<neu>`. Das ausgefallene `LEAVE:<alt>` wird
+über diesen Pfad nie nachgeholt — aber wie beim Worker-Pfad oben schließt der periodische
+7TV-Resync (`SevenTvPeriodicResyncWorker` + `RosterPrunePolicy`, Issue #41) die Lücke von selbst
+binnen zwei bis drei Minuten, nicht erst bei einem Neustart: der neue Name wird im nächsten Tick
+gejoint/gesynct, der alte fällt nach zwei stale Ticks aus dem Roster samt EventAPI-Abo. Anders als
+beim Worker-Pfad merkt es der Nutzer immerhin sofort, weil sein Join in derselben Sekunde mit einem
+Fehler endet.
 
 **Kosten:** ein Helix-Request pro Join, über das gecachte App-Token. Der Join ist eine seltene,
 bewusste Aktion hinter `ChannelManagementAuthorizationFilter` und dem Bookkeeping-Rate-Limit — kein

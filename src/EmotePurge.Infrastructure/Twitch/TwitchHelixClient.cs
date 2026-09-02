@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using EmotePurge.Core.Twitch;
 using Microsoft.Extensions.Logging;
 
@@ -220,7 +221,12 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
 
             return identities;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // JoinAsync and the periodic identity reconciliation both treat a null result as
+        // "Helix unavailable, carry on as before" — a status on our side that costs nothing but the
+        // resolved id. A malformed or truncated 200 body (JsonException) and a 200 answer with the
+        // wrong content type, e.g. an HTML error page from an intermediary (NotSupportedException),
+        // are exactly that kind of outage and must land here too, not bubble up as an unhandled 500.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             logger.LogWarning(ex, "Twitch Get Users (Identities) fehlgeschlagen.");
             return null;

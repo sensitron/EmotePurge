@@ -507,13 +507,23 @@ public class ChannelIdentityService(
         {
             // The row is already committed, so letting this escape would only cost the rest of the
             // tick — it could not undo anything. It also cannot be retried later: the next pass sees
-            // case 1 (the stored name already matches Helix) and never publishes again, so the worker
-            // stays in the old channel until it restarts. Nothing here can repair that; saying so
-            // loudly enough to be acted on is the whole remedy, and it is why this is a warning
-            // rather than a swallowed exception.
+            // case 1 (the stored name already matches Helix) and never publishes again, so this LEAVE/
+            // JOIN pair is the only chance to push the rename to the worker directly.
+            //
+            // That does not strand the worker until a restart, though — SevenTvPeriodicResyncWorker's
+            // convergence net (issue #41) closes the gap on its own within a couple of its 60s ticks:
+            // ListActiveChannelNamesAsync reads the already-committed new name straight from the
+            // database, so the very next tick's EnsureJoinedAsync/SyncChannelAsync join and sync
+            // {NewChannelName} regardless of this publish. The old name lingers in
+            // ITwitchChatManager's roster — still matching chat, still holding its 7TV subscription —
+            // until RosterPrunePolicy sees it missing from two *consecutive* active-channel snapshots
+            // and prunes it (RemoveChannel/Unsubscribe/LeaveChannelAsync). Net effect: roughly two to
+            // three minutes of chat counted under the old name, not an indefinite stall. Saying so
+            // loudly enough that the delay is noticed is the remedy here, which is why this is a
+            // warning rather than a swallowed exception.
             logger.LogWarning(
                 ex,
-                "Kanal {ChannelName} ist auf {NewChannelName} nachgeführt, aber LEAVE/JOIN konnten nicht veröffentlicht werden — der Worker bleibt bis zu einem Neustart im alten Kanal.",
+                "Kanal {ChannelName} ist auf {NewChannelName} nachgeführt, aber LEAVE/JOIN konnten nicht veröffentlicht werden — der Worker holt das über den periodischen 7TV-Resync (Konvergenznetz, Issue #41) innerhalb weniger Minuten von selbst nach, statt bis zu einem Neustart im alten Kanal zu bleiben.",
                 oldLogin, newLogin);
         }
     }
