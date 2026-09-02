@@ -144,7 +144,18 @@ public static class ChannelEndpoints
                 return Results.Unauthorized();
             }
 
-            var channel = await channelService.JoinAsync(channelName, actor, ct);
+            var result = await channelService.JoinAsync(channelName, actor, ct);
+            if (result.Status == ChannelJoinStatus.ChannelNotOnTwitch || result.Channel is null)
+            {
+                // 404 on the channel the caller asked to join: Twitch answered that no account holds
+                // this login. Deliberately not a 400 — the name is well-formed, it just names nobody,
+                // and the caller cannot fix it by spelling it differently.
+                return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotOnTwitch });
+            }
+
+            var channel = result.Channel;
+            // The canonical login, which in the rename case is not the name that was asked for — the
+            // client stores what comes back rather than what it sent.
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()

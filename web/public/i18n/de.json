@@ -925,6 +925,7 @@
       "emote_id_empty": "Kein Emote ausgewählt.",
       "invalid_vote_type": "Ungültiger Vote-Typ.",
       "channel_not_found": "Channel nicht gefunden.",
+      "channel_not_on_twitch": "Diesen Channel gibt es auf Twitch nicht (mehr). Bitte prüf die Schreibweise.",
       "vote_session_not_found": "Abstimmung nicht gefunden.",
       "vote_session_ended": "Diese Abstimmung ist bereits beendet.",
       "emote_not_eligible": "Dieses Emote ist nicht mehr abstimmbar.",

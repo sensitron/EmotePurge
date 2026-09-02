@@ -26,6 +26,10 @@ internal static class ApiErrorCodes
     public const string EmoteIdEmpty = "emote_id_empty";
     public const string InvalidVoteType = "invalid_vote_type";
     public const string ChannelNotFound = "channel_not_found";
+    // 404 from the join endpoint, and distinct from ChannelNotFound above: that one means "we do not
+    // track this channel", this one means Twitch itself knows no account under that login. Only a
+    // definite Helix answer produces it — an unreachable Helix lets the join through unchanged.
+    public const string ChannelNotOnTwitch = "channel_not_on_twitch";
     // 429 with a body, unlike the rate limiter's bare 429: the client can tell the two apart and
     // say "already running, try again shortly" instead of a generic throttling message.
     public const string ResyncCooldownActive = "resync_cooldown_active";

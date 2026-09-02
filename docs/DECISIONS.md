@@ -155,6 +155,79 @@ schreibt.
 
 ---
 
+### 2026-09-02 — Der Join löst die Twitch-Identität vorab auf und lehnt tote Logins ab
+
+**Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelService.cs`, `src/EmotePurge.Api/Endpoints/ChannelEndpoints.cs`, `src/EmotePurge.Api/Validation/ApiErrorCodes.cs`, `web/src/app/core/i18n/api-error.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`, `tests/EmotePurge.Infrastructure.Tests/Integration/ChannelServiceTests.cs`
+
+Der Eintrag oben macht die Twitch-ID zur Identität eines Kanals, führt sie aber erst *nachträglich*
+im Stundentakt nach. Dieser hier schließt die Lücke am Eingang: `JoinAsync` fragt vor dem ersten
+Schreibzugriff `IChannelIdentityService.LookupByLoginAsync` — der einzige Moment, in dem ein Mensch
+ohnehin auf eine Antwort wartet — und behandelt die drei Zustände als drei verschiedene Aufgaben.
+
+**`NotFound` lehnt den Join ab — aber nur, wenn er eine neue Zeile anlegen würde.** Bis hierher
+wurde jeder syntaktisch gültige Name angenommen; ein Tippfehler erzeugte damit eine Zeile, die nie
+synchronisiert und nie gezählt wird und die niemand bemerkt, bis jemand seine Statistik sucht. Genau
+dagegen richtet sich die Ablehnung, und **weiter reicht sie nicht**: Führen wir den Namen bereits,
+läuft der Join durch wie eh und je — Reaktivierung, `TrackingResumedAt`, `channel.join`,
+`JOIN:`-Publish —, ohne Rename (es gibt nichts, worauf umbenannt werden könnte) und ohne die
+gespeicherte `TwitchChannelId` anzurühren; eine Logzeile hält den Zustand fest.
+
+Der Grund für diese Unterscheidung ist derselbe, aus dem der Eintrag oben **kein** automatisches
+Leave oder Purge für unbekannte Konten baut: **Helix hält „gesperrt" und „gelöscht" nicht
+auseinander** — beides ist `200` mit leerem `data` —, und ein Bann kann aufgehoben werden. Eine
+pauschale Ablehnung hätte also ein möglicherweise transientes Signal benutzt, um einem Moderator das
+Wieder-Beitreten zu einem Kanal zu verwehren, dessen gesamte Historie wir halten. Beide Einträge
+sagen damit dasselbe: Auf „Twitch kennt dieses Konto gerade nicht" wird nichts Bestehendes
+zerstört und nichts Bestehendes blockiert — nur nichts Neues angelegt.
+
+Wo abgelehnt wird, antwortet der Endpunkt `404` mit dem neuen, sprachneutralen Code
+`channel_not_on_twitch` — bewusst kein `400` (der Name ist wohlgeformt, er benennt nur niemanden)
+und bewusst getrennt von `channel_not_found` (das heißt „wir tracken diesen Kanal nicht", nicht
+„Twitch kennt ihn nicht"). Weil `JoinAsync` bislang direkt `Channel` lieferte, gibt es dafür jetzt
+`ChannelJoinResult` (`Joined | ChannelNotOnTwitch`) statt eines zweiten Fehlerkanals.
+
+**`Unavailable` ändert dagegen gar nichts** — exakt der bisherige Namenspfad, Zeile ohne ID, die
+Reconciliation trägt sie später nach. Verfügbarkeit schlägt Strenge: ein Ausfall auf unserer Seite
+ist keine Aussage über den Kanal, und die beiden Zustände dürfen an keiner Stelle zusammenfallen.
+Dass `NotFound` und `Unavailable` sich für eine **bestehende** Zeile inzwischen gleich verhalten,
+ist deshalb kein Anlass, die Zweige zusammenzulegen: Nur einer von beiden darf einen Join überhaupt
+ablehnen, und diese Unterscheidung ist der Kern des dreiwertigen Lookups.
+
+**`Found` sucht zuerst per ID, nicht per Name.** Trifft das eine Zeile mit anderem Namen, ist der
+Join zugleich die Rename-Nachführung: Umbenennung auf den kanonischen Helix-Login,
+`TrackingResumedAt`, Audit-Eintrag `channel.rename`, danach `LEAVE:<alt>` vor `JOIN:<neu>` — dieselbe
+Reihenfolge und dieselbe Begründung wie beim periodischen Abgleich. Zwei Unterschiede zu jenem sind
+Absicht: Der Actor ist der **echte angemeldete Nutzer** statt `AuditActor.System` (der Join geht von
+einem Menschen aus), und der Pfad greift auch für **inaktive** Zeilen — die überspringt die
+Reconciliation bewusst, womit ein verlassener, seither umbenannter Kanal sonst für immer unter
+seinem toten Namen läge. Eine neu angelegte Zeile bekommt die ID sofort mit; eine bestehende Zeile
+ohne ID bekommt sie still nachgetragen (kein Audit, kein `TrackingResumedAt` — es hat sich nichts
+geändert, wir haben nur aufgeschrieben, was immer schon galt).
+
+**Hält bereits eine andere Zeile den kanonischen Namen, wird nicht umbenannt.** Das ist das
+Duplikat, das ein Rename hinterlässt; die Umbenennung liefe in `IX_Channels_ChannelName` und machte
+aus einem Join eine 500. Zusammengeführt wird hier nichts — das ist die Aufgabe der Reconciliation,
+die den emote-losen Normalfall **automatisch** zusammenführt und nur die beiden Ausnahmen verweigert
+(die Verlierer-Zeile hat noch Emotes, oder die belegende Zeile trägt eine eigene, abweichende
+Twitch-ID). Der Join läuft stattdessen auf die vorhandene Zeile wie vor dieser Änderung, mit einer
+Warnung im Log. Denselben Weg nimmt der Spiegelfall, in dem gar keine Zeile die gemeldete ID hält,
+die Zeile unter dem Namen aber eine abweichende trägt: nichts wird geschrieben, eine
+`LogInformation` macht den Zustand sichtbar, bis der nächste Tick ihn auflöst.
+
+**Ein Publish-Fehler nach dem Commit ist auch hier eine Sackgasse** — dieselbe Lage, die der
+Eintrag oben für den Worker-Pfad beschreibt, und aus demselben Grund unbehandelt: Die Zeile ist
+bereits umbenannt, ein zweiter Join findet folglich keinen Rename mehr (`renamedFrom == null`) und
+publiziert nur noch `JOIN:<neu>`. Das ausgefallene `LEAVE:<alt>` wird nie nachgeholt, der Worker
+bleibt bis zu einem Neustart im alten IRC-Kanal und behält dessen EventAPI-Abo. Reparieren lässt
+sich das an dieser Stelle nicht; anders als beim Worker-Pfad merkt es der Nutzer immerhin, weil sein
+Join in derselben Sekunde mit einem Fehler endet.
+
+**Kosten:** ein Helix-Request pro Join, über das gecachte App-Token. Der Join ist eine seltene,
+bewusste Aktion hinter `ChannelManagementAuthorizationFilter` und dem Bookkeeping-Rate-Limit — kein
+Pfad, auf dem sich das summiert.
+
+---
+
 ### 2026-09-01 — SSH auf den VPS läuft über den Host-Alias `vps`, nicht über `emotepurge.app`
 
 **Betrifft:** `CLAUDE.md`, `docs/Backup-und-Restore.md`
