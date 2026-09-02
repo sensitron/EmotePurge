@@ -47,4 +47,10 @@ public sealed class ChannelIdentityWarningState
     // Usually resolved by the next tick, but if the blocking row is itself unreconcilable the pair
     // never converges — and then this is the same hourly flood as a dead login.
     public static string BlockedKey(string channelId) => $"blocked:{channelId}";
+
+    // Fourth key space: a merge refused because the row to be dissolved still has emotes. Keyed on
+    // the loser row, which is the thing a human has to deal with, and which both ends of the
+    // duplicate pair agree on. Unlike the blocked case this one is *never* self-resolving — it waits
+    // for a person — so undeduplicated it would warn hourly for as long as the process lives.
+    public static string RefusedKey(string loserChannelId) => $"refused:{loserChannelId}";
 }

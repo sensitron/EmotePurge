@@ -23,6 +23,13 @@ public record TwitchUserLookup(TwitchUserLookupStatus Status, TwitchUserIdentity
 /// What one reconcile pass did, for the worker's log line. Every counter is a write except
 /// <see cref="Checked"/> (rows examined) and <see cref="LoginsMissing"/> (rows Twitch no longer
 /// knows, under either their login or their id — deliberately counted but never acted on).
+/// <para>
+/// <see cref="LoginsMissing"/> deliberately stays *one* number over both of those shapes — an
+/// id-less row whose login Helix does not know, and a row whose stored id resolves to nothing. They
+/// are the same fact for the reader ("Twitch does not know this channel any more") and neither is
+/// acted on, so splitting the field would only invite a caller to treat them differently. What must
+/// not happen instead is a log line that names only one of the two; the log line spells out both.
+/// </para>
 /// </summary>
 public record ChannelIdentityReconcileSummary(
     int Checked,

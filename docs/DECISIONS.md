@@ -12,7 +12,7 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ### 2026-09-02 — Kanal-Identität ist die Twitch-ID; der Name ist nur die Adresse
 
-**Betrifft:** `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Core/Services/AuditActor.cs`, `src/EmotePurge.Core/Entities/AuditLogEntry.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityWarningState.cs`, `src/EmotePurge.Infrastructure/Persistence/ChannelQueries.cs`, `src/EmotePurge.Infrastructure/ServiceCollectionExtensions.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/ChannelIdentityServiceTests.cs`
+**Betrifft:** `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Core/Services/AuditActor.cs`, `src/EmotePurge.Core/Entities/AuditLogEntry.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityWarningState.cs`, `src/EmotePurge.Infrastructure/Persistence/ChannelQueries.cs`, `src/EmotePurge.Infrastructure/ServiceCollectionExtensions.cs`, `src/EmotePurge.Worker/TwitchIdentityReconcileWorker.cs`, `src/EmotePurge.Worker/Program.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/ChannelIdentityServiceTests.cs`
 
 **Die Regel, die dieser Eintrag festschreibt:** Wo eine Operation die *Identität* eines Kanals
 meint — Join, Identitätsabgleich, Berechtigung —, wird per `TwitchChannelId` gesucht, sobald eine
@@ -34,6 +34,17 @@ Fall existiert weder unter dem alten noch unter dem neuen Login eine Zeile. Dies
 repariert also **nichts Bestehendes**; sie ist die Prävention, die greift, sobald ein *getrackter*
 Kanal umbenannt wird. Das ist der Grund, warum sie sich Zeit lassen darf (60-Minuten-Takt) und
 warum sie im Zweifel lieber nichts tut, als zu raten.
+
+**Gefahren wird der Abgleich von `TwitchIdentityReconcileWorker`, dem neunten Hosted Service des
+Workers** — Takt `Twitch:IdentityReconcileIntervalMinutes`, Default 60 Minuten, weil ein Tick einen
+Helix-Request pro 100 Kanälen kostet und Umbenennungen selten genug sind. Er wartet auf
+`BootRecoveryGate`, anders als `TwitchLivePollWorker`, der nur Abdeckungszeilen schreibt, die sonst
+niemand anfasst: dieser hier kann genau die `Channel`-Zeilen umbenennen oder zusammenführen, die
+die Boot-Recovery selbst liest und schreibt — die beiden dürfen sich nicht überlappen. Der erste
+Lauf kommt dann **sofort** und nicht erst nach dem ersten Intervall, denn er ist zugleich der
+Prod-Backfill für alle Zeilen, die älter sind als die Twitch-ID-Spalte; eine Stunde Wartezeit dafür
+wäre nur Wartezeit. Ohne `Auth:Twitch:ClientId`/`ClientSecret` meldet er sich einmal ab, statt
+stündlich am Token-Abruf zu scheitern.
 
 **Helix `GET /helix/users` ist die Signalquelle, und die Alternativen scheitern jeweils an einer
 Eigenschaft, nicht an Aufwand.** Der 7TV-Sync kennt nur 7TVs Kopie des Twitch-Logins — Dritthand
@@ -96,12 +107,22 @@ routet. Die Reihenfolge ist im Test festgenagelt, nicht bloß im Kommentar.
 Repos, hinter dem kein Nutzer steht. Das Audit-Log ist hier nicht Beiwerk: Beide Aktionen
 überschreiben genau den Namen, unter dem jede andere Ansicht den Kanal adressiert, und ein Merge
 löscht zusätzlich eine Zeile. Ohne Eintrag wäre nachträglich nicht feststellbar, dass der Kanal
-früher anders hieß. Der Actor ist ein Snapshot-String und nie ein Fremdschlüssel auf `User`
+früher anders hieß (alter und neuer Login stehen vorerst allerdings nur im Worker-Log:
+`AuditLogQueryService.ProjectDetail` reicht nur die Kinds `emoteCount`/`removedEntries`/`title`
+durch, im Admin-Log steht also bloß „Kanal umbenannt". Backlog-Idee B7 behebt das **nicht** —
+sie bringt Filter und CSV-Export über `DetailsJson`, lässt die Kind-Allowlist aber unangetastet;
+sichtbar würden die Logins erst durch zwei zusätzliche Kinds plus ihre `DETAIL_KEYS`-Einträge). Der Actor ist ein Snapshot-String und nie ein Fremdschlüssel auf `User`
 (s. `AuditLogEntry`), deshalb genügt das Literal `system` ohne Sonderfall im Frontend.
 
 **Die Warn-Deduplizierung liegt in einem Singleton, nicht im Service.** Für tote Logins und tote
-IDs (Fall 5/6) wird nur beim Zustandswechsel gewarnt — die Messlatte ist „keine Warnungsflut im
-Stundentakt, aber mindestens eine Warnung pro Prozesslauf". Der Service selbst ist scoped wie alles
+IDs (Fall 5/6), für eine durch eine fremde Zeile blockierte Umbenennung und für eine verweigerte
+Zusammenführung wird nur beim Zustandswechsel gewarnt — die Messlatte ist „keine Warnungsflut im
+Stundentakt, aber mindestens eine Warnung pro Prozesslauf". Vier Schlüsselräume in einem Set,
+per Präfix getrennt, weil ein toter Login und eine tote ID verschiedene Tatsachen über denselben
+Kanal sind und einander nicht stummschalten dürfen. Die verweigerte Zusammenführung hat dabei den
+stärksten Anspruch auf Deduplizierung: Sie wartet per Definition auf einen Menschen, löst sich also
+**nie** von selbst auf. Verloren geht dadurch nichts — `MergesRefused >= 1` lässt die Summary von
+der Null-Summary abweichen, und die Summary-Zeile wird jeden Tick geloggt, sobald sie das tut. Der Service selbst ist scoped wie alles
 mit `AppDbContext`, und der Worker öffnet pro Tick einen eigenen Scope; ein Set auf dem Service wäre
 jeden Tick leer gewesen und hätte nichts dedupliziert. `ChannelIdentityWarningState` ist deshalb ein
 Singleton daneben — dasselbe Muster wie `ChannelSyncGate`, `TwitchTokenRefreshGate` und
@@ -148,10 +169,17 @@ ganze Behandlung.
 **Ausdrücklich nicht gebaut:** kein automatisches Leave/Purge für Kanäle, deren Konto Twitch nicht
 mehr kennt (ein Bann kann aufgehoben werden — eine destruktive Entscheidung auf ein möglicherweise
 transientes Signal); kein generischer `UsageStat`-Merge; kein Admin-Badge „Login tot seit …", das
-eine persistierte Spalte samt Migration bräuchte. **Offener Folgeschritt:** die beiden neuen
-Audit-Aktionen haben noch keinen Eintrag in `web/src/app/shared/audit/audit-actions.ts` und in den
-beiden Locale-Dateien — sichtbar wird das erst, sobald der Worker aus Task 6 den ersten Eintrag
-schreibt.
+eine persistierte Spalte samt Migration bräuchte.
+
+**Und ein Randfall, der bewusst offen bleibt: der Login-Tausch.** Tauschen zwei *getrackte* Kanäle
+ihre Namen — A hält `id1`/„a", B hält `id2`/„b", danach heißt A „b" und B „a" —, landen beide Zeilen
+dauerhaft im Blocked-Zweig: jede will den Namen, den die andere noch hält, und keine der beiden
+Umbenennungen kann als erste durchgehen. Bis jemand von Hand eingreift, zählt der Worker den Chat
+des jeweils anderen Kanals auf die falsche Zeile. Das ist sehr selten und ausdrücklich **keine
+Regression** — vorher passierte exakt dasselbe, nur ohne jede Warnung. Aufgelöst würde es einen
+zweistufigen Schreibvorgang über einen Zwischennamen brauchen (zwei *Updates* auf denselben
+Unique-Wert bekommen die oben beschriebene EF-Kante gerade nicht), und das für einen Fall, der
+bisher nie beobachtet wurde; die deduplizierte Warnung ist die ganze Behandlung.
 
 ---
 
@@ -176,7 +204,22 @@ Der Grund für diese Unterscheidung ist derselbe, aus dem der Eintrag oben **kei
 Leave oder Purge für unbekannte Konten baut: **Helix hält „gesperrt" und „gelöscht" nicht
 auseinander** — beides ist `200` mit leerem `data` —, und ein Bann kann aufgehoben werden. Eine
 pauschale Ablehnung hätte also ein möglicherweise transientes Signal benutzt, um einem Moderator das
-Wieder-Beitreten zu einem Kanal zu verwehren, dessen gesamte Historie wir halten. Beide Einträge
+Wieder-Beitreten zu einem Kanal zu verwehren, dessen gesamte Historie wir halten.
+
+**Am 2026-09-02 gemessen statt angenommen** (App-Token, `GET /helix/users`), weil genau diese
+Fremd-API-Annahme den Zweig trägt und dieselbe Klasse von Fehlschluss schon zweimal durchgerutscht
+ist (Issues #33 und #37, wo Code und Mock sich die Annahme teilten):
+
+| Abfrage | Antwort |
+|---|---|
+| `login=lwon` (auf Twitch gesperrt) | `200` · `{"data":[]}` |
+| `login=<frei erfundener Name>` | `200` · `{"data":[]}` |
+| `login=handofblood` (lebend) | `200` · vollständiger Datensatz |
+
+Die beiden ersten Antworten sind zeichengleich. Ein gesperrter Kanal ist über diesen Endpunkt
+**nicht** von einem nie existierenden zu unterscheiden — es gibt kein Feld, an dem man es
+nachträglich festmachen könnte. Der Zweig ist damit nicht bloß vorsorglich, sondern die einzige
+Möglichkeit, den Bann-Fall überhaupt zu überleben. Beide Einträge
 sagen damit dasselbe: Auf „Twitch kennt dieses Konto gerade nicht" wird nichts Bestehendes
 zerstört und nichts Bestehendes blockiert — nur nichts Neues angelegt.
 

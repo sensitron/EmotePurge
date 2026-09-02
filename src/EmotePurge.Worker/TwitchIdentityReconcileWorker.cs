@@ -57,13 +57,25 @@ public class TwitchIdentityReconcileWorker(
 
             // null means the tick was skipped (no app token, Helix unreachable) — deliberately
             // not the empty summary, and not worth a log line either: the next tick retries.
+            //
+            // The EmptySummary check is *not* a no-op filter, and reads like one: Checked carries
+            // rows.Count, so equality holds only when there is not a single active channel. With
+            // 13 tracked channels in production that means one INFO line per hour even when the
+            // pass changed nothing — wanted, not tolerated: it is the only proof that this worker
+            // is alive and past the boot gate, and it is what the first production run (the
+            // backfill) will be read from. The suppressed case is the genuinely empty deployment,
+            // where an hourly "0 geprüft" would say nothing at all.
             if (summary is null || summary == EmptySummary)
             {
                 return;
             }
 
+            // LoginsMissing sums two cases, so the wording must not name only one of them: a row
+            // without an id whose login Helix does not know (case 5), and a row *with* an id that
+            // resolves to nothing (case 6). Saying "Logins" alone sends the first production
+            // investigation looking for an id-less row that may not exist.
             logger.LogInformation(
-                "Identity-Reconcile: {Checked} geprüft, {IdsBackfilled} IDs nachgetragen, {Renamed} umbenannt, {Merged} zusammengeführt, {MergesRefused} Zusammenführungen abgelehnt, {LoginsMissing} Logins nicht mehr bei Twitch bekannt.",
+                "Identity-Reconcile: {Checked} geprüft, {IdsBackfilled} IDs nachgetragen, {Renamed} umbenannt, {Merged} zusammengeführt, {MergesRefused} Zusammenführungen abgelehnt, {LoginsMissing} Kanäle bei Twitch nicht mehr auffindbar (Login oder ID unbekannt).",
                 summary.Checked, summary.IdsBackfilled, summary.Renamed, summary.Merged, summary.MergesRefused, summary.LoginsMissing);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

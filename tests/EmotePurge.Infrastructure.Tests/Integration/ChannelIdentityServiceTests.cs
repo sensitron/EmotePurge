@@ -296,6 +296,49 @@ public class ChannelIdentityServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task ReconcileActiveChannelsAsync_WhenAMergeStaysRefused_WarnsOncePerProcessRun()
+    {
+        // The refusal is the one state in this service that *cannot* resolve by itself — it waits
+        // for a person to move or delete the loser's emotes. Undeduplicated it would therefore warn
+        // every tick forever, which is exactly what the blocked case is deduplicated against.
+        await using var db = fixture.CreateDbContext();
+        var survivor = await SeedChannelAsync(db, "identityrefusededupold", "10011");
+        var loser = await SeedChannelAsync(db, "identityrefusededupnew", twitchChannelId: null);
+        db.Emotes.Add(new Emote { ChannelId = loser.Id, SevenTvEmoteId = "aaaaaaaaaaaaaaaaaaaaaab1", Name = "identityRefuseDedup" });
+        await db.SaveChangesAsync();
+        var warningState = new ChannelIdentityWarningState();
+        var harness = CreateHarness(db, [new TwitchUserIdentity("10011", "IdentityRefuseDedupNew")], warningState: warningState);
+
+        var first = await harness.Service.ReconcileActiveChannelsAsync();
+        var second = await harness.Service.ReconcileActiveChannelsAsync();
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        // The counter keeps reporting on every tick — that is what keeps the state visible in the
+        // worker's summary line once the individual warning has fallen silent.
+        Assert.Equal(1, first.MergesRefused);
+        Assert.Equal(1, second.MergesRefused);
+        Assert.Single(
+            harness.Logger.Entries,
+            e => e.Level == LogLevel.Warning && e.Message.Contains(loser.Id));
+
+        // Same second half as the dead-login and dead-id cases: a fresh process reports the still
+        // unresolved pair once more rather than inheriting the silence.
+        var restarted = CreateHarness(
+            db,
+            [new TwitchUserIdentity("10011", "IdentityRefuseDedupNew")],
+            warningState: new ChannelIdentityWarningState());
+        await restarted.Service.ReconcileActiveChannelsAsync();
+        Assert.Single(
+            restarted.Logger.Entries,
+            e => e.Level == LogLevel.Warning && e.Message.Contains(loser.Id));
+
+        await using var verify = fixture.CreateDbContext();
+        Assert.Equal("identityrefusededupold", (await verify.Channels.AsNoTracking().SingleAsync(c => c.Id == survivor.Id)).ChannelName);
+        Assert.Equal(1, await verify.Emotes.AsNoTracking().CountAsync(e => e.ChannelId == loser.Id));
+    }
+
+    [Fact]
     public async Task ReconcileActiveChannelsAsync_WithoutAnAppToken_SkipsTheTickWithoutAskingHelix()
     {
         await using var db = fixture.CreateDbContext();

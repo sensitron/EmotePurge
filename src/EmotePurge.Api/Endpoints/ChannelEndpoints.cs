@@ -154,8 +154,10 @@ public static class ChannelEndpoints
             }
 
             var channel = result.Channel;
-            // The canonical login, which in the rename case is not the name that was asked for — the
-            // client stores what comes back rather than what it sent.
+            // The stored login, which is always the one that was asked for: LookupByLoginAsync only
+            // reports Found on a normalized name match, so even in the rename case the caller typed
+            // the new name and the row now carries it. Returned anyway rather than echoing the raw
+            // input, because the normalized form is what every route and cache key downstream uses.
             return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()

@@ -383,9 +383,20 @@ public class ChannelIdentityService(
             // the other side, and neither of them has anything else to do this pass.
             settledChannelIds.Add(loser.Id);
             settledChannelIds.Add(survivor.Id);
-            logger.LogWarning(
-                "Zusammenführung von Kanal {LoserChannelName} ({LoserChannelId}) in {SurvivorChannelName} ({SurvivorChannelId}) verweigert: die aufzulösende Zeile hat noch Emotes.",
-                loser.ChannelName, loser.Id, survivor.ChannelName, survivor.Id);
+            // Deduplicated like cases 3, 5 and 6, and with the strongest claim of the four: a refusal
+            // is by definition never self-resolving — it waits for a person to move or delete the
+            // emotes — so an undeduplicated warning repeats every tick for as long as the process
+            // lives. Nothing is lost by warning once: MergesRefused >= 1 makes the summary differ
+            // from the empty one, and the worker logs the summary on every tick that does, so the
+            // state stays visible hourly; only the second, third and thousandth copy of the same
+            // sentence disappear.
+            if (warningState.ShouldWarn(ChannelIdentityWarningState.RefusedKey(loser.Id)))
+            {
+                logger.LogWarning(
+                    "Zusammenführung von Kanal {LoserChannelName} ({LoserChannelId}) in {SurvivorChannelName} ({SurvivorChannelId}) verweigert: die aufzulösende Zeile hat noch Emotes.",
+                    loser.ChannelName, loser.Id, survivor.ChannelName, survivor.Id);
+            }
+
             return;
         }
 
@@ -465,6 +476,10 @@ public class ChannelIdentityService(
 
         settledChannelIds.Add(loser.Id);
         settledChannelIds.Add(survivor.Id);
+        // The one way a refusal ends: someone cleared the loser's emotes and the merge went through.
+        // Forgetting it here means a *later* refusal on a row that reuses this id is reported again
+        // rather than silently.
+        warningState.Clear(ChannelIdentityWarningState.RefusedKey(loser.Id));
         counters.Merged++;
 
         logger.LogInformation(
