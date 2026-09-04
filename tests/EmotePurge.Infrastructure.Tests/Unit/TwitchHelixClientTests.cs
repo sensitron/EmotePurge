@@ -51,6 +51,66 @@ public class TwitchHelixClientTests
         Assert.Null(result);
     }
 
+    // Issue #53: GetUsersAsync got the JsonException/NotSupportedException catch above during
+    // #44's arbitration, but its four sibling methods share the exact same ReadFromJsonAsync call
+    // and were left with the old HttpRequestException/TaskCanceledException-only catch — a
+    // malformed body still threw straight through them. These four pin the fix for each.
+    [Fact]
+    public async Task GetUserInfoAsync_WithMalformedJsonBody_ReturnsNull_InsteadOfThrowing()
+    {
+        var client = CreateClient(HttpStatusCode.OK, "{not valid json", "application/json");
+
+        var result = await client.GetUserInfoAsync("user-token");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetModeratedChannelsAsync_WithMalformedJsonBody_ReturnsNull_InsteadOfThrowing()
+    {
+        var client = CreateClient(HttpStatusCode.OK, "{not valid json", "application/json");
+
+        var result = await client.GetModeratedChannelsAsync("user-token", "12345");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetModeratedChannelsAsync_WithMalformedSecondPage_ReturnsNull_InsteadOfThrowing()
+    {
+        // The whole call must fail, not just the broken page: a partial list here would be cached
+        // and every moderated channel past the cut would silently read as "not moderated".
+        var handler = new SequencedStubHandler(
+            (HttpStatusCode.OK, "{\"data\":[{\"broadcaster_login\":\"foo\",\"broadcaster_id\":\"1\"}],\"pagination\":{\"cursor\":\"abc\"}}", "application/json"),
+            (HttpStatusCode.OK, "{not valid json", "application/json"));
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://api.twitch.tv/helix/") };
+        var client = new TwitchHelixClient(httpClient, new RecordingLogger<TwitchHelixClient>());
+
+        var result = await client.GetModeratedChannelsAsync("user-token", "12345");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetUserSubscriptionStatusAsync_WithMalformedJsonBody_ReturnsNull_InsteadOfThrowing()
+    {
+        var client = CreateClient(HttpStatusCode.OK, "{not valid json", "application/json");
+
+        var result = await client.GetUserSubscriptionStatusAsync("user-token", "1", "2");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLiveStreamsByLoginsAsync_WithMalformedJsonBody_ReturnsNull_InsteadOfThrowing()
+    {
+        var client = CreateClient(HttpStatusCode.OK, "{not valid json", "application/json");
+
+        var result = await client.GetLiveStreamsByLoginsAsync(["foo"], "app-token");
+
+        Assert.Null(result);
+    }
+
     private static TwitchHelixClient CreateClient(HttpStatusCode statusCode, string body, string contentType)
     {
         var handler = new StubHandler(statusCode, body, contentType);
@@ -62,6 +122,25 @@ public class TwitchHelixClientTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            var response = new HttpResponseMessage(statusCode)
+            {
+                Content = new StringContent(body, Encoding.UTF8, contentType),
+            };
+            return Task.FromResult(response);
+        }
+    }
+
+    // Returns one queued response per call, in order, then repeats the last one — used to drive a
+    // paginating method through a good first page followed by a broken one.
+    private sealed class SequencedStubHandler(params (HttpStatusCode StatusCode, string Body, string ContentType)[] responses) : HttpMessageHandler
+    {
+        private int _callCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var (statusCode, body, contentType) = responses[Math.Min(_callCount, responses.Length - 1)];
+            _callCount++;
+
             var response = new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(body, Encoding.UTF8, contentType),

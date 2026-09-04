@@ -31,7 +31,11 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
             var user = dto?.Data.FirstOrDefault();
             return user is null ? null : new TwitchUserInfo(user.Id, user.Login, user.DisplayName, user.ProfileImageUrl);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // See GetUsersAsync below: a malformed/truncated 200 body (JsonException) or a 200 answer
+        // with the wrong content type (NotSupportedException) is the same kind of "Helix
+        // unavailable" outage as a transport failure and must land here too, not bubble up as an
+        // unhandled 500.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             logger.LogWarning(ex, "Twitch Get Users fehlgeschlagen.");
             return null;
@@ -98,7 +102,11 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
 
             return channels;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // See GetUsersAsync below for why JsonException/NotSupportedException join the transport
+        // exceptions here. The whole loop sits inside this one try, so a broken page anywhere in
+        // the pagination — not just the first — fails the entire call instead of returning a
+        // truncated list silently mistaken for a complete one.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             logger.LogWarning(ex, "Twitch Get Moderated Channels fehlgeschlagen für User {UserId}.", twitchUserId);
             return null;
@@ -128,7 +136,9 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
             var dto = await response.Content.ReadFromJsonAsync<TwitchGetUserSubscriptionResponseDto>(TwitchJsonOptions.Value, cancellationToken);
             return dto?.Data.Count > 0;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // See GetUsersAsync below for why JsonException/NotSupportedException join the transport
+        // exceptions here.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             logger.LogWarning(ex, "Twitch Get User Subscription fehlgeschlagen für User {UserId}/Broadcaster {BroadcasterId}.", userTwitchId, broadcasterTwitchId);
             return null;
@@ -170,7 +180,10 @@ public class TwitchHelixClient(HttpClient httpClient, ILogger<TwitchHelixClient>
 
             return streams;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // See GetUsersAsync below for why JsonException/NotSupportedException join the transport
+        // exceptions here. The whole batch loop sits inside this one try, so a broken batch
+        // anywhere fails the entire call instead of returning a truncated live-stream list.
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             logger.LogWarning(ex, "Twitch Get Streams fehlgeschlagen.");
             return null;

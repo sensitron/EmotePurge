@@ -33,7 +33,13 @@ public class TwitchIdentityReconcileWorker(
             return;
         }
 
-        await bootRecoveryGate.Completed.WaitAsync(stoppingToken);
+        // Two signals, not one. Boot recovery has to be over because this worker renames and merges
+        // the very rows boot recovery reads and writes (see the class comment). And the command
+        // channel has to be subscribed because a rename or merge publishes the LEAVE/JOIN handover
+        // pair — Redis Pub/Sub drops a message nobody is listening for, and this worker's *first*
+        // pass runs immediately, so without this wait it races the subscribe (issue #54).
+        await Task.WhenAll(bootRecoveryGate.Completed, bootRecoveryGate.CommandChannelSubscribed)
+            .WaitAsync(stoppingToken);
 
         // First run happens immediately, before the timer: this is the production backfill for
         // channel rows that predate the immutable-id migration (Entscheidung 6), not just the

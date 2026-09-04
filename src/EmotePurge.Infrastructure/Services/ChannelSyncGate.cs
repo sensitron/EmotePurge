@@ -2,21 +2,67 @@ using System.Collections.Concurrent;
 
 namespace EmotePurge.Infrastructure.Services;
 
-// Serialises SyncChannelAsync per channel across the whole process. The periodic resync worker and
-// a JOIN command arriving over Redis can otherwise reconcile the same channel at the same time from
-// two different AppDbContext instances, inserting the same (ChannelId, SevenTvEmoteId) rows; the
-// loser gets a DbUpdateException, which in the boot path used to take the whole host down.
+// Serialises SyncChannelAsync across the whole process. The periodic resync worker and a JOIN
+// command arriving over Redis can otherwise reconcile the same channel at the same time from two
+// different AppDbContext instances, inserting the same (ChannelId, SevenTvEmoteId) rows; the loser
+// gets a DbUpdateException, which in the boot path used to take the whole host down.
+//
+// Two key spaces, and both are needed (issue #54). The channel *name* is what a caller has in hand
+// before it has touched the database, so it is the only thing the entry gate can key on. But a name
+// is not the channel: during a rename handover the old and the new login denote the same
+// Channel.Id, and two syncs holding the two different name gates then reconcile the very same row.
+// The row gate closes that; the two are acquired in a fixed order (name, then id) so no pair of
+// callers can hold one and wait for the other's.
 //
 // Deliberately a plain singleton class, not an interface: no external dependency, no alternative
-// implementation to swap in. One SemaphoreSlim per channel name is kept for the process lifetime —
-// bounded by the number of distinct tracked channels, so not worth evicting.
+// implementation to swap in. One SemaphoreSlim per key is kept for the process lifetime — bounded
+// by the number of distinct tracked channels, so not worth evicting.
 public sealed class ChannelSyncGate
 {
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<IDisposable> AcquireAsync(string channelName, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Test seam, and deliberately the narrowest one that does the job: invoked synchronously on the
+    /// calling thread with the <c>Channel.Id</c> it is about to wait for, immediately before it waits.
+    /// <para>
+    /// A test that wants a caller parked *inside* the row gate has nothing else to observe — the
+    /// waiting call has, by definition, produced no result yet — and sleeping instead only guesses
+    /// how long the row load takes on the runner. Firing here rather than after the wait is what
+    /// makes the signal usable: it says "the row is loaded and the gate is the only thing left",
+    /// which is exactly the state a handover test needs to commit its rename in.
+    /// </para>
+    /// <para>
+    /// Internal, unset in production (one null check per row-gate acquisition), and only on the row
+    /// gate: the name gate is taken before anything has been read, so being parked there says
+    /// nothing worth synchronising on.
+    /// </para>
+    /// </summary>
+    internal Action<string>? RowGateWaitStarting { get; set; }
+
+    /// <summary>
+    /// Entry gate, keyed on the normalized channel name. Always taken first; see the row gate for
+    /// why it is not sufficient on its own.
+    /// </summary>
+    public Task<IDisposable> AcquireByNameAsync(string channelName, CancellationToken cancellationToken = default) =>
+        AcquireAsync($"name:{channelName}", cancellationToken);
+
+    /// <summary>
+    /// Row gate, keyed on <c>Channel.Id</c>. Taken after the name gate and only once the row has
+    /// actually been loaded — which is the whole point: only then is it known *which* row two
+    /// differently named callers are about to reconcile.
+    /// </summary>
+    public Task<IDisposable> AcquireByChannelIdAsync(string channelId, CancellationToken cancellationToken = default)
     {
-        var gate = _gates.GetOrAdd(channelName, _ => new SemaphoreSlim(1, 1));
+        RowGateWaitStarting?.Invoke(channelId);
+        return AcquireAsync($"id:{channelId}", cancellationToken);
+    }
+
+    // Prefixed keys rather than two dictionaries: a Twitch login can never contain a colon, so the
+    // two spaces cannot collide, and one dictionary keeps the lease type and the lifetime rule in
+    // a single place.
+    private async Task<IDisposable> AcquireAsync(string key, CancellationToken cancellationToken)
+    {
+        var gate = _gates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
         return new Lease(gate);
     }

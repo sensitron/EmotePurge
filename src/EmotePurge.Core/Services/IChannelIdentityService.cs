@@ -16,8 +16,61 @@ public enum TwitchUserLookupStatus
     Unavailable
 }
 
-/// <summary><see cref="User"/> is non-null exactly for <see cref="TwitchUserLookupStatus.Found"/>.</summary>
-public record TwitchUserLookup(TwitchUserLookupStatus Status, TwitchUserIdentity? User);
+/// <summary>
+/// <see cref="User"/> is non-null if and only if <see cref="Status"/> is
+/// <see cref="TwitchUserLookupStatus.Found"/>, and the two factories below are the only way to build
+/// one at all — so that invariant cannot be broken at a call site, not even by accident.
+/// <para>
+/// A sealed class with a private constructor rather than a record, for the same reason as
+/// <see cref="ChannelJoinResult"/>: a record's public positional constructor and <c>with</c> would
+/// leave <c>Failed(TwitchUserLookupStatus.Found)</c> and <c>lookup with { User = null }</c> open, and
+/// a "found" lookup without an identity is exactly the value every caller of this type assumes
+/// cannot exist.
+/// </para>
+/// </summary>
+public sealed class TwitchUserLookup
+{
+    private TwitchUserLookup(TwitchUserLookupStatus status, TwitchUserIdentity? user)
+    {
+        Status = status;
+        User = user;
+    }
+
+    public TwitchUserLookupStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="TwitchUserLookupStatus.Found"/>.</summary>
+    public TwitchUserIdentity? User { get; }
+
+    public static TwitchUserLookup Found(TwitchUserIdentity user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        return new TwitchUserLookup(TwitchUserLookupStatus.Found, user);
+    }
+
+    /// <summary>
+    /// Builds a lookup that produced no identity. Rejects a success status outright — see
+    /// <see cref="ChannelJoinResult.Failed"/> for the reasoning; a future success status has to be
+    /// added to the guard below in the same commit that adds it to the enum.
+    /// </summary>
+    public static TwitchUserLookup Failed(TwitchUserLookupStatus status)
+    {
+        if (status == TwitchUserLookupStatus.Found)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status),
+                status,
+                "TwitchUserLookup.Failed() kann keinen Erfolgsstatus tragen — für Found ist TwitchUserLookup.Found(user) zuständig.");
+        }
+
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status), status, "Unbekannter TwitchUserLookupStatus.");
+        }
+
+        return new TwitchUserLookup(status, null);
+    }
+}
 
 /// <summary>
 /// What one reconcile pass did, for the worker's log line. Every counter is a write except
