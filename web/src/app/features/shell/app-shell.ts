@@ -78,9 +78,32 @@ import { HealthMarker } from '../../shared/ui/health-marker';
                  restarted Api or a dropped proxy connection puts every stream through 'closed' on
                  the way back up, and a warning that flashes on every deploy is one people learn to
                  ignore (§4.3). LiveQuotaService confirms the cause with the server before this can
-                 appear at all. -->
+                 appear at all.
+
+                 The label is short for a reason the header enforces rather than prefers: this row
+                 holds the wordmark, "Abstimmungen" and the 44px account trigger at 360px, and a
+                 badge does not wrap. "Live-Updates pausiert" is the same length as the worker
+                 marker beside it, which is the one length proven to fit. What does not fit is the
+                 cause ("zu viele offene Tabs") — see the decision log; it needs a surface that is
+                 not this row.
+
+                 The visible badge is aria-hidden and the announcement comes from the live region
+                 above it: this state appears *after* load, so without a region that already exists
+                 at that moment a screen reader is told nothing at all — which would leave exactly
+                 the group this feature is for with today's silence. sr-only rather than a wrapper
+                 around the badge, so the region can be permanent without adding an empty flex child
+                 (and its gap) to the row. -->
+            <span class="sr-only" aria-live="polite">
+              @if (liveQuotaExhausted()) {
+                {{ 'shell.liveStatus.paused' | transloco }}
+              }
+            </span>
             @if (liveQuotaExhausted()) {
-              <app-health-marker tone="warning" [label]="'shell.liveStatus.paused' | transloco" />
+              <app-health-marker
+                aria-hidden="true"
+                tone="warning"
+                [label]="'shell.liveStatus.paused' | transloco"
+              />
             }
           </div>
 

@@ -61,6 +61,18 @@ aus denen ein Stream abgelehnt wird. Ohne die Ausnahme würde die Sonde jeden fa
 einen sofortigen Redirect auf `/login` verwandeln — ein Verhalten, das es vor der Sonde nicht gab.
 Eine abgelaufene Sitzung fällt weiterhin beim nächsten echten Request auf, wie bisher.
 
+**Was das Codex-Review zum Branch noch abgeräumt hat, alles drei im Neucode:** (1) Eine Sonde, die
+noch unterwegs ist, während die Sichtbarkeits-Wiederholung den Stream wieder aufmacht, hätte ihre
+Antwort *nach* dem Aufräumen abgeliefert — und weil `status` dann `open` bleibt, hätte sie niemand
+mehr weggeräumt: eine Warnung über Live-Updates auf einer Seite, deren Live-Updates funktionieren.
+Behoben über einen Generationszähler, der beim Öffnen hochgezählt wird; eine Antwort aus einer alten
+Generation wird verworfen. (2) Die Beschriftung nennt jetzt nur noch die Folge. Die Ursache („zu
+viele offene Tabs") passt nicht in eine Kopfzeile, die bei 360 px schon Wortmarke, „Abstimmungen"
+und den 44-px-Kontotrigger trägt — eine Pille bricht nicht um. **Damit fehlt die Ursache in der
+Oberfläche; wer sie sichtbar haben will, braucht eine andere Fläche als diese Zeile.** (3) Die
+Meldung erscheint nach dem Laden, also hätte ein Screenreader gar nichts erfahren — sie hat jetzt
+eine dauerhaft vorhandene `sr-only`-Live-Region neben der `aria-hidden`-Pille.
+
 **Unangetastet, ausdrücklich:** die `_redisSubscribed`-Sperrklinke. Dass ein warmer Prozess während
 eines Redis-Ausfalls weiter 200 liefert, ist Absicht (Eintrag vom 2026-09-01) — der Fan-out heilt
 sich nach dem Reconnect selbst, und ein „ehrlicher" 503 würde offene Tabs totlegen. Hier geht es

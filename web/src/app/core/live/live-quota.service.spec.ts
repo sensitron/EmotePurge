@@ -97,6 +97,23 @@ describe('LiveQuotaService', () => {
     expect(service.perSubscriberLimitReached()).toBe(false);
   });
 
+  it('drops a probe answer that arrives after the stream is back', () => {
+    // The visibility retry can reopen a stream while the probe explaining the previous close is
+    // still in flight. Without the generation check the late "your budget was full" lands after the
+    // clear and sticks forever — status stays 'open', so nothing clears it again, and the header
+    // warns about live updates on a page whose live updates work. Found by the Codex review.
+    fatalCloseCount.set(1);
+    TestBed.tick();
+    const inFlight = httpMock.expectOne('/api/live/status');
+
+    status.set('open');
+    TestBed.tick();
+
+    inFlight.flush({ openConnections: 6, maxPerSubscriber: 6, perSubscriberLimitReached: true });
+
+    expect(service.perSubscriberLimitReached()).toBe(false);
+  });
+
   it('asks again on a second refusal', () => {
     // A counter rather than a boolean on LiveUpdateService exists for exactly this: the second
     // failure after the first was cleared is still an event worth reacting to.

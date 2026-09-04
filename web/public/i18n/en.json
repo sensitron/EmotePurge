@@ -22,7 +22,7 @@
       "stale": "Chat is not being counted"
     },
     "liveStatus": {
-      "paused": "Live updates paused — too many open tabs"
+      "paused": "Live updates paused"
     },
     "admin": "Admin",
     "myVotings": "My votes",

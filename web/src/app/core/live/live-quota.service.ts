@@ -37,6 +37,18 @@ export class LiveQuotaService {
   private readonly limitReachedSignal = signal(false);
 
   /**
+   * Bumped whenever anything invalidates an answer that is still on its way — today only a stream
+   * reopening. A probe whose generation no longer matches is dropped on arrival.
+   *
+   * Needed because the two are genuinely concurrent: the visibility retry can reopen a stream while
+   * the probe explaining the *previous* close is still in flight, and a late "your budget was full"
+   * would then land after the clear and stick — `status` stays `open`, so nothing would ever clear
+   * it again. The result is the one failure this feature must not have: a warning about live updates
+   * on a page whose live updates work.
+   */
+  private probeGeneration = 0;
+
+  /**
    * Whether this login's own live-stream budget was full the last time we asked. False until a
    * stream has actually been refused — this is never a preflight check, only an explanation after
    * the fact.
@@ -58,17 +70,25 @@ export class LiveQuotaService {
     // reaching 'open' is proof there was room for it.
     effect(() => {
       if (this.liveUpdate.status() === 'open') {
+        this.probeGeneration++;
         this.limitReachedSignal.set(false);
       }
     });
   }
 
   private probe(): void {
+    const generation = this.probeGeneration;
     this.http.get<LiveStreamStatus>('/api/live/status').subscribe({
-      next: (status) => this.limitReachedSignal.set(status.perSubscriberLimitReached),
+      next: (status) => {
+        if (generation !== this.probeGeneration) {
+          return;
+        }
+        this.limitReachedSignal.set(status.perSubscriberLimitReached);
+      },
       // A hint that cannot be substantiated is not shown. The failure this whole path exists to
       // explain is itself a sign of a wobbly connection, and guessing "it was probably your tabs"
-      // would be the same unfounded claim as today's silence, only louder.
+      // would be the same unfounded claim as today's silence, only louder. No generation check on
+      // this side: the effect above has already set false, and setting it again is the same value.
       error: () => this.limitReachedSignal.set(false),
     });
   }
