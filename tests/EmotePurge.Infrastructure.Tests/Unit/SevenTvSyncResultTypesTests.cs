@@ -28,7 +28,17 @@ public class SevenTvSyncResultTypesTests
     {
         Assert.Throws<ArgumentNullException>(() => SevenTvSyncResult.Create(null!, "set", "7tv", hasChanges: true));
         Assert.Throws<ArgumentException>(() => SevenTvSyncResult.Create("  ", "set", "7tv", hasChanges: true));
-        Assert.Throws<ArgumentException>(() => SevenTvSyncResult.Create("chan", "  ", "7tv", hasChanges: true));
+    }
+
+    [Fact]
+    public void SyncResult_WithABlankSetId_IsAccepted()
+    {
+        // Deliberate, and the reason is a matter of timing rather than of taste: this factory runs
+        // after the sync has already committed its writes, so a guard here would leave those writes
+        // in place while the caller sees a failure and skips the subscription convergence and the
+        // channel.synced publish. Found by the Codex review of this branch.
+        Assert.Equal(string.Empty, SevenTvSyncResult.Create("chan", string.Empty, null, hasChanges: false).EmoteSetId);
+        Assert.Throws<ArgumentNullException>(() => SevenTvSyncResult.Create("chan", null!, null, hasChanges: false));
     }
 
     [Fact]

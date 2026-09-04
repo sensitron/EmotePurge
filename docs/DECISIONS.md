@@ -64,6 +64,24 @@ Korrelationsschlüssel.
 `normalized` gesetzt — machen je genau einen der beiden Handover-Fälle rot. Ohne Mutation sind sie
 grün.
 
+**Eine Prüfung, die bewusst *nicht* in der Factory steht, und warum das kein Versehen ist.** Der
+erste Anlauf ließ `SevenTvSyncResult.Create` auch einen leeren `emoteSetId` zurückweisen — analog zum
+Login. Das Codex-Review zum Branch hat das als P2 aufgedeckt: Die Factory läuft **nach**
+`SaveChangesAsync` und `RefreshMatchCacheAsync`. Antwortet 7TV mit einem `Ok`, dessen Set ohne `id`
+kommt (`SevenTvEmoteSetJsonDto.Id` fällt auf `string.Empty` zurück), hätte der `throw` die bereits
+committeten Schreibvorgänge stehen lassen, während der Aufrufer den Sync für gescheitert hält und
+Subscription-Konvergenz **und** `channel.synced` überspringt — also genau die Nachwirkungen, die
+dieser Eintrag geradezieht. Eine Prüfung so spät kauft nichts und kostet die Nachwirkungen; geblieben
+ist eine Null-Prüfung. Der Login behält seine Blank-Prüfung, weil er aus der eigenen `Channel`-Zeile
+stammt, die normalisiert und unique-indiziert ist.
+
+**Damit bleibt eine ältere Frage offen** (nicht in diesem Commit entschieden): Ein leerer Set-Id
+unter `Ok` ist eine kaputte 7TV-Antwort, und der Sync schreibt sie heute klaglos nach
+`Channel.ActiveEmoteSetId`. Richtig wäre vermutlich, sie **vor** der ersten Mutation abzulehnen —
+das verlangt aber eine Entscheidung darüber, als was sie protokolliert wird
+(`SevenTvSyncFailureReasons` kennt keinen Grund „Antwort unbrauchbar"), und das ist ein eigenes
+Vorhaben, kein Nebeneffekt der Login-Propagierung.
+
 ---
 
 ### 2026-09-04 — Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert
