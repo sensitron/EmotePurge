@@ -5,6 +5,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 
 import { AuthService } from '../../core/auth/auth.service';
 import { WorkerHealthService } from '../../core/health/worker-health.service';
+import { LiveQuotaService } from '../../core/live/live-quota.service';
 import { LOGO_SRC } from '../../shared/branding/logo';
 import { AccountMenu } from '../../shared/ui/account-menu';
 import { Button } from '../../shared/ui/button';
@@ -67,6 +68,20 @@ import { HealthMarker } from '../../shared/ui/health-marker';
             @if (workerStale()) {
               <app-health-marker tone="warning" [label]="'shell.workerStatus.stale' | transloco" />
             }
+            <!-- Same rule as the marker above, for the other thing that can quietly stop working:
+                 until now a page whose live stream was refused simply went still, and still is
+                 indistinguishable from "nothing is happening" — which is the whole complaint in
+                 issue #42. It belongs in the frame and not on a page (§4.4): every page updates
+                 itself from that stream, so the fact is app-wide, and app-wide facts are the
+                 header's alone.
+                 Only ever shown for a full *per-login* budget, never for a transient close: a
+                 restarted Api or a dropped proxy connection puts every stream through 'closed' on
+                 the way back up, and a warning that flashes on every deploy is one people learn to
+                 ignore (§4.3). LiveQuotaService confirms the cause with the server before this can
+                 appear at all. -->
+            @if (liveQuotaExhausted()) {
+              <app-health-marker tone="warning" [label]="'shell.liveStatus.paused' | transloco" />
+            }
           </div>
 
           <div class="flex items-center gap-3">
@@ -100,11 +115,13 @@ import { HealthMarker } from '../../shared/ui/health-marker';
 export class AppShell {
   private readonly authService = inject(AuthService);
   private readonly healthService = inject(WorkerHealthService);
+  private readonly liveQuotaService = inject(LiveQuotaService);
   private readonly router = inject(Router);
 
   protected readonly currentUser = this.authService.currentUser;
   protected readonly authResolved = this.authService.isResolved;
   protected readonly workerStale = computed(() => this.healthService.status() === 'stale');
+  protected readonly liveQuotaExhausted = this.liveQuotaService.perSubscriberLimitReached;
   protected readonly logoSrc = LOGO_SRC;
 
   constructor() {

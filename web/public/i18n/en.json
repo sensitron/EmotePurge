@@ -21,6 +21,9 @@
     "workerStatus": {
       "stale": "Chat is not being counted"
     },
+    "liveStatus": {
+      "paused": "Live updates paused — too many open tabs"
+    },
     "admin": "Admin",
     "myVotings": "My votes",
     "votings": "Votes",
