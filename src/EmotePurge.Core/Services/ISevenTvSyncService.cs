@@ -10,6 +10,12 @@ public interface ISevenTvSyncService
     /// or null if the channel has no 7TV account/emote set. <see cref="SevenTvSyncResult.HasChanges"/>
     /// tells the caller whether anything actually changed, so unattended callers can stay silent on
     /// a no-op resync.
+    /// <para>
+    /// Anything the caller keys on the channel afterwards — an EventAPI subscription, a
+    /// <c>channel.synced</c> publish — belongs on <see cref="SevenTvSyncResult.ChannelName"/> and not
+    /// on <paramref name="channelName"/>: the sync re-reads its row under the row gate, so a rename
+    /// committed while this call was queued means the two differ (issue #60).
+    /// </para>
     /// </summary>
     Task<SevenTvSyncResult?> SyncChannelAsync(string channelName, CancellationToken cancellationToken = default);
 
@@ -26,8 +32,13 @@ public interface ISevenTvSyncService
     /// returned only after a persisted write) — that is what makes the caller publish
     /// <c>channel.synced</c>; every other outcome wrote nothing.
     /// </para>
+    /// <para>
+    /// As with <see cref="SyncChannelAsync"/>, the follow-up belongs on
+    /// <see cref="SevenTvDeltaResult.ChannelName"/> rather than on <paramref name="channelName"/>
+    /// wherever that is non-null (issue #60).
+    /// </para>
     /// </summary>
-    Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
+    Task<SevenTvDeltaResult> ApplyEmoteSetUpdateAsync(
         string channelName,
         string emoteSetId,
         SevenTvEmoteSetDelta delta,

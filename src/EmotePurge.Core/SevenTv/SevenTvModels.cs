@@ -18,12 +18,61 @@ public record SevenTvEmoteSet(string Id, IReadOnlyList<SevenTvEmote> Emotes, int
 // be a third party (see GetEmoteSetOwnerIdAsync).
 public record SevenTvChannelState(string? SevenTvUserId, SevenTvEmoteSet EmoteSet);
 
-// What a full channel sync resolved. Callers use the set id for logging and the pair to keep an
-// EventAPI subscription registry converged after every sync. HasChanges reports whether the sync
-// actually altered the channel's emote inventory (added/archived/unarchived/renamed emote, or a
-// switched active set) — the unattended sync paths publish their channel.synced live event only
-// then, so a no-op resync stays silent.
-public record SevenTvSyncResult(string EmoteSetId, string? SevenTvUserId, bool HasChanges);
+/// <summary>
+/// What a full channel sync resolved. Callers use the set id for logging and the pair to keep an
+/// EventAPI subscription registry converged after every sync. <see cref="HasChanges"/> reports
+/// whether the sync actually altered the channel's emote inventory (added/archived/unarchived/renamed
+/// emote, or a switched active set) — the unattended sync paths publish their <c>channel.synced</c>
+/// live event only then, so a no-op resync stays silent.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="ChannelName"/> is the reason this type exists as more than a tuple. The sync re-reads
+/// its row under the row gate, so the login it finishes on is not necessarily the one the caller
+/// passed in: a rename committed while the call sat queued behind another sync of the same row
+/// retires the old login mid-flight. Before issue #60 only the service learned the new name, and the
+/// worker callers went on keying their two after-effects — the EventAPI subscription registry and
+/// the <c>channel.synced</c> publish — on the name they had handed in. Both then addressed a login
+/// nobody listens on any more, and the registry entry could even resurrect a subscription the
+/// handover's LEAVE had just torn down.
+/// </para>
+/// <para>
+/// A sealed class with a private constructor rather than a record, per the decision-log entry of
+/// 2026-09-04: the positional constructor and <c>with</c> would leave every caller free to build a
+/// result whose <see cref="ChannelName"/> is the stale one again, which is precisely the value this
+/// type now exists to carry correctly.
+/// </para>
+/// </remarks>
+public sealed class SevenTvSyncResult
+{
+    private SevenTvSyncResult(string channelName, string emoteSetId, string? sevenTvUserId, bool hasChanges)
+    {
+        ChannelName = channelName;
+        EmoteSetId = emoteSetId;
+        SevenTvUserId = sevenTvUserId;
+        HasChanges = hasChanges;
+    }
+
+    /// <summary>
+    /// The channel's normalized login <b>as of the row read under the row gate</b> — not necessarily
+    /// the one the caller passed to <c>SyncChannelAsync</c>. Anything a caller keys on the channel
+    /// after the sync belongs on this value.
+    /// </summary>
+    public string ChannelName { get; }
+
+    public string EmoteSetId { get; }
+
+    public string? SevenTvUserId { get; }
+
+    public bool HasChanges { get; }
+
+    public static SevenTvSyncResult Create(string channelName, string emoteSetId, string? sevenTvUserId, bool hasChanges)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(emoteSetId);
+        return new SevenTvSyncResult(channelName, emoteSetId, sevenTvUserId, hasChanges);
+    }
+}
 
 // One emote_set.update dispatch from the EventAPI, reduced to the three change kinds the wire
 // actually carries. Property names deliberately mirror the wire fields (pushed/pulled/updated):
@@ -51,6 +100,87 @@ public enum SevenTvDeltaOutcome
     ChannelUnknown,
     SetNotActive,
     ImplausibleSkipped
+}
+
+/// <summary>
+/// One applied delta plus the login the row actually carried while it was applied (issue #60) — see
+/// <see cref="SevenTvSyncResult.ChannelName"/> for why the caller's own name is not good enough.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <see cref="ChannelName"/> is non-null if and only if the row was read under the row gate, and the
+/// two factories encode which outcomes that is. <see cref="SevenTvDeltaOutcome.Applied"/>,
+/// <see cref="SevenTvDeltaOutcome.SetNotActive"/> and
+/// <see cref="SevenTvDeltaOutcome.ImplausibleSkipped"/> are only reachable after that read, so they
+/// always carry a name; <see cref="SevenTvDeltaOutcome.ChannelUnknown"/> means there is no row to
+/// take a name from and never carries one.
+/// </para>
+/// <para>
+/// <see cref="SevenTvDeltaOutcome.NoChange"/> is the one outcome on both sides, and deliberately so:
+/// an empty delta short-circuits before any database access (no name to give), while a delta that
+/// turned out to be a no-op against the stored rows has been through the gate (name known). Callers
+/// must not read that difference as meaningful — <c>NoChange</c> means "nothing was written" in both
+/// cases, and neither publishes anything.
+/// </para>
+/// </remarks>
+public sealed class SevenTvDeltaResult
+{
+    private SevenTvDeltaResult(SevenTvDeltaOutcome outcome, string? channelName)
+    {
+        Outcome = outcome;
+        ChannelName = channelName;
+    }
+
+    public SevenTvDeltaOutcome Outcome { get; }
+
+    /// <summary>
+    /// The channel's normalized login as of the row read under the row gate; null when the call
+    /// ended before that read. See the remarks on this type for which outcomes carry one.
+    /// </summary>
+    public string? ChannelName { get; }
+
+    /// <summary>Builds a result for a delta that got as far as reading its row under the row gate.</summary>
+    public static SevenTvDeltaResult ForChannel(SevenTvDeltaOutcome outcome, string channelName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
+        ThrowIfUndefined(outcome);
+        if (outcome == SevenTvDeltaOutcome.ChannelUnknown)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outcome),
+                outcome,
+                "ChannelUnknown heißt, dass keine Zeile gefunden wurde — dann gibt es auch keinen Login zu melden. SevenTvDeltaResult.WithoutChannel(outcome) ist dafür zuständig.");
+        }
+
+        return new SevenTvDeltaResult(outcome, channelName);
+    }
+
+    /// <summary>
+    /// Builds a result for a delta that ended before the row was read — an empty delta, or a channel
+    /// that is not in Postgres (any more).
+    /// </summary>
+    public static SevenTvDeltaResult WithoutChannel(SevenTvDeltaOutcome outcome)
+    {
+        ThrowIfUndefined(outcome);
+        if (outcome is SevenTvDeltaOutcome.Applied or SevenTvDeltaOutcome.SetNotActive or SevenTvDeltaOutcome.ImplausibleSkipped)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outcome),
+                outcome,
+                $"{outcome} ist erst erreichbar, nachdem die Zeile unter dem Zeilen-Gate gelesen wurde — der Login ist dort bekannt und gehört mitgegeben. SevenTvDeltaResult.ForChannel(outcome, channelName) ist dafür zuständig.");
+        }
+
+        return new SevenTvDeltaResult(outcome, null);
+    }
+
+    private static void ThrowIfUndefined(SevenTvDeltaOutcome outcome)
+    {
+        if (!Enum.IsDefined(outcome))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outcome), outcome, "Unbekanntes SevenTvDeltaOutcome.");
+        }
+    }
 }
 
 // A 7TV account's own identity plus its currently active Twitch-linked emote set, resolved together

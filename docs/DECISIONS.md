@@ -10,6 +10,62 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-05 — Der aktuelle Login verlässt den Sync als Rückgabewert, nicht nur als Seiteneffekt
+
+**Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvSyncService.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Worker/Worker.cs`, `src/EmotePurge.Worker/SevenTvPeriodicResyncWorker.cs`, `src/EmotePurge.Worker/SevenTv/SevenTvEventClient.cs`
+
+**Der Vertrag, den dieser Eintrag festschreibt:** Wer `ISevenTvSyncService` aufruft, keyt seine
+Nachwirkungen — EventAPI-Registrierung, `channel.synced` — auf **`result.ChannelName`**, nicht auf
+den Namen, den er hineingereicht hat. Der Sync liest seine Zeile unter dem Zeilen-Gate neu ein
+(Eintrag vom 2026-09-04 zum Rename-Handover), also können die beiden auseinanderfallen: ein Rename,
+das committet wird, während der Aufruf noch in der Warteschlange des Zeilen-Gates sitzt, zieht dem
+Aufrufer den Namen unter den Füßen weg.
+
+**Warum das mehr als Kosmetik ist.** Bis hierher erfuhr nur der Service selbst den neuen Namen — der
+Match-Cache und der Duplikat-Tracker folgten dem Rename korrekt, die Aufrufer nicht. Zwei sichtbare
+Folgen, beide vom Codex-Review zu #54 als P2 gemeldet (Issue #60): Die EventAPI-Registry wurde unter
+dem **alten** Login neu registriert — und weil `SevenTvSubscriptionRegistry` auf dem normalisierten
+Namen keyt, legt das einen **zweiten** Eintrag an, statt den vorhandenen zu verschieben; steht der
+Handover-`LEAVE` schon dahinter, weckt der Sync die gerade abgeräumte Subscription wieder auf. Und
+das `channel.synced` ging an den alten Namen, auf dem der SSE-Stream des umbenannten Kanals nicht
+mehr lauscht. Kein Rückschritt gegenüber dem Zustand vor #54 (dort arbeitete der ganze Sync mit dem
+alten Namen), aber ein unvollständiger Fix.
+
+**Zwei Typen, zwei Formen.** `SevenTvSyncResult` bekommt `ChannelName` als Pflichtfeld; es ist immer
+bekannt, weil der Typ nur nach dem Reload gebaut wird. Der Delta-Pfad gab bisher das blanke Enum
+`SevenTvDeltaOutcome` zurück, das keinen Namen tragen kann — er bekommt deshalb den Umschlag
+`SevenTvDeltaResult` (Outcome + optionaler Login). Das Enum bleibt unverändert bestehen; der einzige
+`switch` im Repo wird zu `switch (result.Outcome)`. Beide Typen sind nach dem Eintrag vom 2026-09-04
+`sealed class` mit privatem Konstruktor und Factories, keine offenen `record`s.
+
+**Die Nullbarkeit von `SevenTvDeltaResult.ChannelName` ist selbst eine Invariante** und von den
+Factories erzwungen: `ForChannel` weist `ChannelUnknown` zurück (keine Zeile, also kein Login),
+`WithoutChannel` weist `Applied`/`SetNotActive`/`ImplausibleSkipped` zurück (die sind erst nach dem
+Lesen der Zeile erreichbar). `NoChange` steht bewusst auf **beiden** Seiten: ein leeres Delta bricht
+ab, bevor die Datenbank überhaupt angefasst wird, ein wirkungsloses Delta war dagegen durch das
+Gate. Aufrufer dürfen diesen Unterschied nicht als Bedeutung lesen — „nichts geschrieben" heißt er
+in beiden Fällen.
+
+**Ein Nebenbefund im selben Zug behoben:** `SyncChannelAsync` fragte 7TV mit
+`ResolveTwitchUserIdAsync(normalized, …)` — also mit dem Namen des Aufrufers — obwohl der Aufruf
+**nach** dem Reload steht. Ein Rename hätte dort einen bereits zurückgezogenen Login an einen
+Fremdanbieter geschickt. Läuft jetzt über `channel.ChannelName`. Gleiche Fehlerklasse, gleiche
+Zeile im Ablauf, deshalb hier und nicht in einem eigenen Issue.
+
+**Was bewusst *nicht* passiert:** Der alte Registry-Eintrag wird beim erkannten Rename nicht aktiv
+entfernt. Das Konvergenznetz räumt ihn ohnehin ab (`PruneStaleChannelsAsync` ruft `Unsubscribe` für
+jeden Channel, der aus der aktiven Liste gefallen ist, und der alte Name ist dort nicht mehr
+enthalten), und ein aktives Entfernen wäre falsch, sobald Twitch den freigewordenen Login an einen
+anderen Kanal vergibt, der ihn bereits registriert hat. Ebenso bleiben die Log-Zeilen auf
+`normalized`: dort ist der Name, unter dem der Dispatch bzw. der Aufruf **ankam**, der nützlichere
+Korrelationsschlüssel.
+
+**Gemessen, nicht behauptet:** Zwei Mutationen — `currentName` bzw. der Sync-Rückgabewert wieder auf
+`normalized` gesetzt — machen je genau einen der beiden Handover-Fälle rot. Ohne Mutation sind sie
+grün.
+
+---
+
 ### 2026-09-04 — Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert
 
 **Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj`

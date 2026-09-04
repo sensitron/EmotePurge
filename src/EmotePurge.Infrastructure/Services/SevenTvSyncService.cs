@@ -43,7 +43,10 @@ public class SevenTvSyncService(
         var twitchUserId = channel.TwitchChannelId;
         if (twitchUserId is null)
         {
-            var resolved = await sevenTvApiClient.ResolveTwitchUserIdAsync(normalized, cancellationToken);
+            // channel.ChannelName, not `normalized`: this runs after the row gate re-read the row,
+            // so asking 7TV about the caller's name would ask about a login the rename has already
+            // retired. Same root cause as the propagation issue #60 fixes for the callers.
+            var resolved = await sevenTvApiClient.ResolveTwitchUserIdAsync(channel.ChannelName, cancellationToken);
             if (resolved.Status != SevenTvLookupStatus.Ok || resolved.TwitchUserId is null)
             {
                 await RecordFailedAttemptAsync(channel, resolved.Status, cancellationToken);
@@ -92,7 +95,8 @@ public class SevenTvSyncService(
                 logger.LogWarning(
                     "7TV meldet 0 aktive Emotes für {Channel}, obwohl bisher {Count} bekannt waren — Sync übersprungen.",
                     normalized, knownActiveEmotes);
-                return new SevenTvSyncResult(emoteSet.Id, channelState.State.SevenTvUserId, HasChanges: false);
+                return SevenTvSyncResult.Create(
+                    channel.ChannelName, emoteSet.Id, channelState.State.SevenTvUserId, hasChanges: false);
             }
         }
 
@@ -127,10 +131,16 @@ public class SevenTvSyncService(
         await db.SaveChangesAsync(cancellationToken);
         await RefreshMatchCacheAsync(channel, cancellationToken);
 
-        return new SevenTvSyncResult(emoteSet.Id, channelState.State.SevenTvUserId, emoteSetSwitched || inventoryChanged);
+        // channel.ChannelName, not the caller's `normalized`: the row gate re-read the row, so this
+        // is the login the sync actually finished on. See SevenTvSyncResult.ChannelName (issue #60).
+        return SevenTvSyncResult.Create(
+            channel.ChannelName,
+            emoteSet.Id,
+            channelState.State.SevenTvUserId,
+            emoteSetSwitched || inventoryChanged);
     }
 
-    public async Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
+    public async Task<SevenTvDeltaResult> ApplyEmoteSetUpdateAsync(
         string channelName,
         string emoteSetId,
         SevenTvEmoteSetDelta delta,
@@ -138,7 +148,8 @@ public class SevenTvSyncService(
     {
         if (delta.IsEmpty)
         {
-            return SevenTvDeltaOutcome.NoChange;
+            // The one NoChange that never sees a row, and therefore never learns a login.
+            return SevenTvDeltaResult.WithoutChannel(SevenTvDeltaOutcome.NoChange);
         }
 
         var normalized = ChannelName.Normalize(channelName);
@@ -148,7 +159,7 @@ public class SevenTvSyncService(
         if (channel is null)
         {
             logger.LogWarning("ApplyEmoteSetUpdateAsync: {Channel} nicht in Postgres gefunden.", normalized);
-            return SevenTvDeltaOutcome.ChannelUnknown;
+            return SevenTvDeltaResult.WithoutChannel(SevenTvDeltaOutcome.ChannelUnknown);
         }
 
         // Same two-step gate as the full sync, and for the same reason: the name this dispatch
@@ -159,15 +170,19 @@ public class SevenTvSyncService(
             logger.LogInformation(
                 "ApplyEmoteSetUpdateAsync: Zeile von {Channel} ({ChannelId}) ist zwischenzeitlich verschwunden (vermutlich zusammengeführt) — Dispatch verworfen.",
                 normalized, channel.Id);
-            return SevenTvDeltaOutcome.ChannelUnknown;
+            return SevenTvDeltaResult.WithoutChannel(SevenTvDeltaOutcome.ChannelUnknown);
         }
+
+        // Past the row gate the row has been re-read, so this — not the name the dispatch arrived
+        // under — is the login every outcome below reports back (issue #60).
+        var currentName = channel.ChannelName;
 
         if (channel.ActiveEmoteSetId != emoteSetId)
         {
             logger.LogInformation(
                 "7TV-Dispatch für Set {SetId} ignoriert — {Channel} hat inzwischen Set {ActiveSetId} aktiv.",
                 emoteSetId, normalized, channel.ActiveEmoteSetId);
-            return SevenTvDeltaOutcome.SetNotActive;
+            return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.SetNotActive, currentName);
         }
 
         var existing = await db.Emotes
@@ -198,7 +213,7 @@ public class SevenTvSyncService(
             logger.LogWarning(
                 "7TV-Dispatch würde alle {Count} aktiven Emotes von {Channel} entfernen — als unplausibel übersprungen.",
                 activeBefore, normalized);
-            return SevenTvDeltaOutcome.ImplausibleSkipped;
+            return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.ImplausibleSkipped, currentName);
         }
 
         foreach (var emote in delta.Pushed)
@@ -225,7 +240,7 @@ public class SevenTvSyncService(
 
         if (!db.ChangeTracker.HasChanges())
         {
-            return SevenTvDeltaOutcome.NoChange;
+            return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.NoChange, currentName);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -234,7 +249,7 @@ public class SevenTvSyncService(
         logger.LogInformation(
             "7TV-Dispatch auf {Channel} angewendet: {Pushed} hinzugefügt, {Updated} aktualisiert, {Pulled} entfernt.",
             normalized, delta.Pushed.Count, delta.Updated.Count, delta.PulledIds.Count);
-        return SevenTvDeltaOutcome.Applied;
+        return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.Applied, currentName);
     }
 
     /// <summary>
