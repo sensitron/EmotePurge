@@ -16,8 +16,17 @@ public enum TwitchUserLookupStatus
     Unavailable
 }
 
-/// <summary><see cref="User"/> is non-null exactly for <see cref="TwitchUserLookupStatus.Found"/>.</summary>
-public record TwitchUserLookup(TwitchUserLookupStatus Status, TwitchUserIdentity? User);
+/// <summary>
+/// <see cref="User"/> is non-null if and only if <see cref="Status"/> is
+/// <see cref="TwitchUserLookupStatus.Found"/>; the two factories below are the only supported way to
+/// build one, so that invariant cannot be broken at a call site.
+/// </summary>
+public record TwitchUserLookup(TwitchUserLookupStatus Status, TwitchUserIdentity? User)
+{
+    public static TwitchUserLookup Found(TwitchUserIdentity user) => new(TwitchUserLookupStatus.Found, user);
+
+    public static TwitchUserLookup Failed(TwitchUserLookupStatus status) => new(status, null);
+}
 
 /// <summary>
 /// What one reconcile pass did, for the worker's log line. Every counter is a write except

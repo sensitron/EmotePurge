@@ -145,20 +145,37 @@ public static class ChannelEndpoints
             }
 
             var result = await channelService.JoinAsync(channelName, actor, ct);
-            if (result.Status == ChannelJoinStatus.ChannelNotOnTwitch || result.Channel is null)
+            // A switch over every status rather than an `is null` check on Channel: a future third
+            // status (e.g. "channel suspended") would otherwise silently fall through the old
+            // two-way check and be reported as ChannelNotOnTwitch. This way the compiler flags a
+            // missing arm (CS8509) the moment ChannelJoinStatus grows a member.
+            //
+            // CS8524 is the other half of that check and is silenced on purpose: it fires for
+            // undefined casts like (ChannelJoinStatus)2, which no caller can produce here, and it
+            // would do so on every build rather than only when the enum actually grows. Silencing
+            // it keeps CS8509 — the signal this switch exists for — audible.
+#pragma warning disable CS8524
+            return result.Status switch
             {
                 // 404 on the channel the caller asked to join: Twitch answered that no account holds
                 // this login. Deliberately not a 400 — the name is well-formed, it just names nobody,
                 // and the caller cannot fix it by spelling it differently.
-                return Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotOnTwitch });
-            }
+                ChannelJoinStatus.ChannelNotOnTwitch =>
+                    Results.NotFound(new { errorCode = ApiErrorCodes.ChannelNotOnTwitch }),
 
-            var channel = result.Channel;
-            // The stored login, which is always the one that was asked for: LookupByLoginAsync only
-            // reports Found on a normalized name match, so even in the rename case the caller typed
-            // the new name and the row now carries it. Returned anyway rather than echoing the raw
-            // input, because the normalized form is what every route and cache key downstream uses.
-            return Results.Ok(new { channelId = channel.Id, channelName = channel.ChannelName, channel.IsBotActive });
+                // The stored login, which is always the one that was asked for: LookupByLoginAsync
+                // only reports Found on a normalized name match, so even in the rename case the
+                // caller typed the new name and the row now carries it. Returned anyway rather than
+                // echoing the raw input, because the normalized form is what every route and cache
+                // key downstream uses.
+                ChannelJoinStatus.Joined => Results.Ok(new
+                {
+                    channelId = result.Channel!.Id,
+                    channelName = result.Channel.ChannelName,
+                    result.Channel.IsBotActive
+                }),
+            };
+#pragma warning restore CS8524
         })
         .AddEndpointFilter<ChannelManagementAuthorizationFilter>()
         // Bookkeeping, not a read budget: by the time this runs the caller has already made the bot a

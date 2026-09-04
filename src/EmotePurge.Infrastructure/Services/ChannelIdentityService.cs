@@ -143,7 +143,7 @@ public class ChannelIdentityService(
         {
             logger.LogInformation(
                 "Kein App-Token verfügbar — Twitch-Identität für {ChannelName} nicht auflösbar.", normalized);
-            return new TwitchUserLookup(TwitchUserLookupStatus.Unavailable, null);
+            return TwitchUserLookup.Failed(TwitchUserLookupStatus.Unavailable);
         }
 
         var identities = await helixClient.GetUsersAsync([], [normalized], appToken, ct);
@@ -151,7 +151,7 @@ public class ChannelIdentityService(
         {
             logger.LogInformation(
                 "Helix nicht erreichbar — Twitch-Identität für {ChannelName} nicht auflösbar.", normalized);
-            return new TwitchUserLookup(TwitchUserLookupStatus.Unavailable, null);
+            return TwitchUserLookup.Failed(TwitchUserLookupStatus.Unavailable);
         }
 
         // Matched rather than taken blindly: an empty array is Helix's way of saying the login does
@@ -160,8 +160,8 @@ public class ChannelIdentityService(
             identity => string.Equals(ChannelName.Normalize(identity.Login), normalized, StringComparison.Ordinal));
 
         return match is null
-            ? new TwitchUserLookup(TwitchUserLookupStatus.NotFound, null)
-            : new TwitchUserLookup(TwitchUserLookupStatus.Found, match);
+            ? TwitchUserLookup.Failed(TwitchUserLookupStatus.NotFound)
+            : TwitchUserLookup.Found(match);
     }
 
     private async Task ReconcileKnownIdRowAsync(

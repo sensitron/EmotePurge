@@ -242,7 +242,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = CreateService(
-            db, redisPublisher, IdentityLookup(new TwitchUserLookup(TwitchUserLookupStatus.NotFound, null)));
+            db, redisPublisher, IdentityLookup(TwitchUserLookup.Failed(TwitchUserLookupStatus.NotFound)));
 
         var result = await service.JoinAsync("channelservicenosuchlogin", Actor);
 
@@ -264,7 +264,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var seeded = await SeedChannelAsync(db, "channelservicebanned8", "770008");
         var service = CreateService(
-            db, redisPublisher, IdentityLookup(new TwitchUserLookup(TwitchUserLookupStatus.NotFound, null)));
+            db, redisPublisher, IdentityLookup(TwitchUserLookup.Failed(TwitchUserLookupStatus.NotFound)));
 
         var result = await service.JoinAsync("ChannelServiceBanned8", Actor);
 
@@ -297,7 +297,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var seeded = await SeedChannelAsync(db, "channelservicebanned9", "770009", isBotActive: false);
         var service = CreateService(
-            db, redisPublisher, IdentityLookup(new TwitchUserLookup(TwitchUserLookupStatus.NotFound, null)));
+            db, redisPublisher, IdentityLookup(TwitchUserLookup.Failed(TwitchUserLookupStatus.NotFound)));
 
         var result = await service.JoinAsync("channelservicebanned9", Actor);
 
@@ -325,7 +325,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var redisPublisher = Substitute.For<IRedisPublisher>();
         var service = CreateService(
-            db, redisPublisher, IdentityLookup(new TwitchUserLookup(TwitchUserLookupStatus.Unavailable, null)));
+            db, redisPublisher, IdentityLookup(TwitchUserLookup.Failed(TwitchUserLookupStatus.Unavailable)));
 
         var result = await service.JoinAsync("ChannelSvcIdUnavail4", Actor);
 
@@ -657,7 +657,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
         return new ChannelService(
             db,
             redisPublisher ?? Substitute.For<IRedisPublisher>(),
-            identityService ?? IdentityLookup(new TwitchUserLookup(TwitchUserLookupStatus.Unavailable, null)),
+            identityService ?? IdentityLookup(TwitchUserLookup.Failed(TwitchUserLookupStatus.Unavailable)),
             logger ?? NullLogger<ChannelService>.Instance);
     }
 
@@ -669,7 +669,7 @@ public class ChannelServiceTests(PostgresFixture fixture)
     }
 
     private static IChannelIdentityService IdentityFound(string twitchChannelId, string login) =>
-        IdentityLookup(new TwitchUserLookup(TwitchUserLookupStatus.Found, new TwitchUserIdentity(twitchChannelId, login)));
+        IdentityLookup(TwitchUserLookup.Found(new TwitchUserIdentity(twitchChannelId, login)));
 
     /// <summary>
     /// Joins and unwraps, so the assertions of every pre-existing test keep reading as before while

@@ -44,7 +44,7 @@ public class ChannelService(
                 logger.LogInformation(
                     "Join für {ChannelName} abgelehnt: Twitch kennt diesen Login nicht und wir führen keine Zeile dazu.",
                     normalized);
-                return new ChannelJoinResult(ChannelJoinStatus.ChannelNotOnTwitch, null);
+                return ChannelJoinResult.Failed(ChannelJoinStatus.ChannelNotOnTwitch);
             }
 
             // No rename: there is nothing to rename onto. The stored TwitchChannelId stays exactly
@@ -303,6 +303,6 @@ public class ChannelService(
         await redisPublisher.PublishAsync(
             BotCommands.Channel, $"{BotCommands.JoinPrefix}{channel.ChannelName}", cancellationToken);
 
-        return new ChannelJoinResult(ChannelJoinStatus.Joined, channel);
+        return ChannelJoinResult.Joined(channel);
     }
 }

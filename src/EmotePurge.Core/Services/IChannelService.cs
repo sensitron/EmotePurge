@@ -20,8 +20,17 @@ public enum ChannelJoinStatus
     ChannelNotOnTwitch,
 }
 
-/// <summary><see cref="Channel"/> is non-null exactly for <see cref="ChannelJoinStatus.Joined"/>.</summary>
-public record ChannelJoinResult(ChannelJoinStatus Status, Channel? Channel);
+/// <summary>
+/// <see cref="Channel"/> is non-null if and only if <see cref="Status"/> is
+/// <see cref="ChannelJoinStatus.Joined"/>; the two factories below are the only supported way to
+/// build one, so that invariant cannot be broken at a call site.
+/// </summary>
+public record ChannelJoinResult(ChannelJoinStatus Status, Channel? Channel)
+{
+    public static ChannelJoinResult Joined(Channel channel) => new(ChannelJoinStatus.Joined, channel);
+
+    public static ChannelJoinResult Failed(ChannelJoinStatus status) => new(status, null);
+}
 
 public interface IChannelService
 {
