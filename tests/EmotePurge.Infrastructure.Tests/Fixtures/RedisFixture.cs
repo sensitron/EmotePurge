@@ -8,8 +8,7 @@ namespace EmotePurge.Infrastructure.Tests.Fixtures;
 // tests in the "Redis" collection.
 public sealed class RedisFixture : IAsyncLifetime
 {
-    private readonly RedisContainer _container = new RedisBuilder()
-        .WithImage("redis:7.2-alpine")
+    private readonly RedisContainer _container = new RedisBuilder("redis:7.2-alpine")
         .Build();
 
     private IConnectionMultiplexer? _connection;

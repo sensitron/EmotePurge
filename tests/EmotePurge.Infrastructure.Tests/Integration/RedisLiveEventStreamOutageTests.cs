@@ -122,8 +122,7 @@ public class RedisLiveEventStreamOutageTests
         const int maxAttempts = 5;
         for (var attempt = 1; ; attempt++)
         {
-            var container = new RedisBuilder()
-                .WithImage("redis:7.2-alpine")
+            var container = new RedisBuilder("redis:7.2-alpine")
                 .WithPortBinding(FreeTcpPort(), 6379)
                 .Build();
 

@@ -12,8 +12,7 @@ namespace EmotePurge.Infrastructure.Tests.Fixtures;
 // Npgsql translation failure (see the comment in UsageStatQueryService.GetUsageTotalsAsync).
 public sealed class PostgresFixture : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:16-alpine")
         .WithDatabase("emotepurge")
         .WithUsername("emotepurge")
         .WithPassword("emotepurge-test")
