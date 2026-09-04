@@ -10,6 +10,64 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-05 — Das volle Verbindungslimit wird sichtbar: `GET /api/live/status` statt eines Umbaus auf fetch-SSE
+
+**Betrifft:** `src/EmotePurge.Core/Messaging/ILiveEventStream.cs`, `src/EmotePurge.Infrastructure/Redis/RedisLiveEventStream.cs`, `src/EmotePurge.Api/Endpoints/LiveEndpoints.cs`, `web/src/app/core/live/live-update.service.ts`, `web/src/app/core/live/live-quota.service.ts`, `web/src/app/core/http/api-auth.interceptor.ts`, `web/src/app/features/shell/app-shell.ts`
+
+Stufe 2 von Issue #42. Stufe 1 hat den Backend-Split gebracht (429 mit
+`live_stream_quota_exhausted` gegen 503 mit `live_stream_unavailable`); der Nutzer sieht davon aber
+nichts, weil die Seite bei einem abgelehnten Stream einfach verstummt — und Stille ist von „gerade
+passiert nichts" nicht zu unterscheiden. Genau das hat beim Live-Test am 2026-08-31 eine halbe
+Stunde Fehlersuche gekostet.
+
+**Der neue Vertrag:** `GET /api/live/status` (authentifiziert, ohne Rate-Limit-Policy) antwortet mit
+`{ openConnections, maxPerSubscriber, perSubscriberLimitReached }`. Kein Fehlercode, kein Stream —
+eine Auskunft.
+
+**Warum eine Nachfrage-Route und nicht der fetch-SSE-Umbau.** Die Stufe-1-Notiz nannte beide Wege.
+`EventSource.onerror` reicht weder Statuscode noch Body durch — die ganze Mühe, die Stufe 1 in
+Body und `Retry-After` gesteckt hat, ist vom Browser aus schlicht unerreichbar. Ein fetch-basierter
+SSE-Reader käme an beides heran, aber der Preis wäre, das gesamte Reconnect-Verhalten, das heute der
+Browser erledigt, in eigenen Code zu holen — für einen Hinweis. Die Route kostet einen Request pro
+fatalem Close und lässt `LiveUpdateService` so schlank, wie der Eintrag zu seiner Einführung es
+begründet hat.
+
+**Und warum eine eigene Route statt eines zweiten GET auf die Stream-URL.** Der naheliegende Trick
+wäre, die SSE-URL noch einmal per `HttpClient` zu holen: gleiche Herkunft, gleiches Cookie, und ein
+429 käme mitsamt Body an. Er ist eine Falle. Antwortet die URL nämlich **200**, öffnet dieser zweite
+Aufruf einen echten Stream — und belegt einen der sechs Slots, um herauszufinden, ob die Slots voll
+sind. Bei `MaxPerSubscriber = 6` ist das kein theoretisches Problem.
+
+**`LiveStreamQuota` trennt, was `LiveEventSubscribeStatus` zusammenfasst.** Prozessweites und
+Per-Login-Limit teilen sich weiterhin `QuotaExhausted`, weil ein *Aufrufer* beide identisch
+behandelt. Sobald ein *Mensch* am anderen Ende steht, ist der Unterschied entscheidend: „Schließ ein
+paar Tabs" ist bei vollem Per-Login-Budget der richtige Rat und bei vollem Prozess-Limit schlicht
+falsch — die Tabs gehören dann jemand anderem. Der Hinweis erscheint deshalb ausschließlich bei
+`perSubscriberLimitReached`.
+
+**Die Oberfläche: ein `HealthMarker` im Kopfbereich, kein Banner auf der Seite.** Die
+Designsprache §4.4 ist da eindeutig — „Ein Banner ist für das, was *diese Seite* betrifft; alles
+App-weite trägt der Kopfbereich, und zwar allein." Jede Seite aktualisiert sich aus diesem Stream,
+die Tatsache ist also app-weit. Der Marker steht neben dem `workerStatus.stale`-Marker, folgt
+derselben Regel („Der Text nennt die Folge, nicht das Subsystem") und schweigt im Normalfall ganz.
+
+**Ein transienter Close darf nichts anzeigen** (§4.3). Ein Api-Neustart schickt jeden Stream durch
+`closed`, und eine Warnung, die bei jedem Deploy aufblitzt, bringt man Leuten bei zu übersehen. Der
+Hinweis erscheint deshalb erst, wenn der Server die Ursache **bestätigt** hat, und verschwindet
+wieder, sobald irgendein Stream `open` erreicht — was beweist, dass wieder Platz war.
+
+**`/api/live/status` steht in `EXPECTED_401_PATHS`.** Ein widerrufenes Login ist einer der Gründe,
+aus denen ein Stream abgelehnt wird. Ohne die Ausnahme würde die Sonde jeden fatalen SSE-Close in
+einen sofortigen Redirect auf `/login` verwandeln — ein Verhalten, das es vor der Sonde nicht gab.
+Eine abgelaufene Sitzung fällt weiterhin beim nächsten echten Request auf, wie bisher.
+
+**Unangetastet, ausdrücklich:** die `_redisSubscribed`-Sperrklinke. Dass ein warmer Prozess während
+eines Redis-Ausfalls weiter 200 liefert, ist Absicht (Eintrag vom 2026-09-01) — der Fan-out heilt
+sich nach dem Reconnect selbst, und ein „ehrlicher" 503 würde offene Tabs totlegen. Hier geht es
+allein darum, die beiden heute ununterscheidbaren Ablehnungen auseinanderzuziehen.
+
+---
+
 ### 2026-09-04 — Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert
 
 **Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj`

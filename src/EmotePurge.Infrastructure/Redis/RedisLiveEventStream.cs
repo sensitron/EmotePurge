@@ -116,6 +116,31 @@ public sealed class RedisLiveEventStream(
     }
 
     /// <summary>
+    /// Counted under the same lock <see cref="SubscribeAsync"/> uses, so the number cannot be read
+    /// halfway through another connection being admitted. Deliberately not cached: the count changes
+    /// on every tab open and close, and this runs only when a browser asks after a refused stream.
+    /// </summary>
+    public LiveStreamQuota GetQuota(string subscriberKey)
+    {
+        lock (_limitLock)
+        {
+            var openConnections = 0;
+            foreach (var open in _subscriptions.Values)
+            {
+                if (string.Equals(open.SubscriberKey, subscriberKey, StringComparison.Ordinal))
+                {
+                    openConnections++;
+                }
+            }
+
+            return new LiveStreamQuota(
+                openConnections,
+                _options.MaxPerSubscriber,
+                _subscriptions.Count >= _options.MaxSubscriptions);
+        }
+    }
+
+    /// <summary>
     /// Returns whether the process is (now, or already) subscribed. On a Redis failure
     /// <see cref="_redisSubscribed"/> is deliberately left <c>false</c> — never set optimistically
     /// before the call succeeds — so the flag can never get "burned": the next caller, once Redis is

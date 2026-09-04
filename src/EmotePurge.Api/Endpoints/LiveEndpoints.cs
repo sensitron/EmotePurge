@@ -76,6 +76,33 @@ public static class LiveEndpoints
                 liveEvent => string.Equals(liveEvent.Type, LiveEvents.LiveChanged, StringComparison.Ordinal),
                 ct))
         .RequireAuthorization();
+
+        // The answer to a question the browser cannot ask any other way (issue #42, stage 2).
+        // EventSource surfaces neither status code nor body to onerror — a refused tab sees only
+        // readyState CLOSED — so "the infrastructure is away" and "you have six streams open" are
+        // indistinguishable at exactly the moment the page goes quiet. This route lets the client ask
+        // afterwards, and it is the smaller of the two options the stage-1 write-up named: the
+        // alternative was replacing EventSource with a fetch-based SSE reader, which would have put
+        // the whole reconnect behaviour — the browser's job today — into our own code for the sake of
+        // one hint.
+        //
+        // Not itself a stream and not rate-limited: it is called at most once per fatal close, costs
+        // an in-memory count over at most MaxSubscriptions entries, and putting it behind a policy
+        // would risk 429-ing the very request that exists to explain a 429.
+        app.MapGet("/api/live/status", (HttpContext httpContext, ILiveEventStream liveEventStream) =>
+        {
+            var quota = liveEventStream.GetQuota(SubscriberKeyOf(httpContext));
+            return Results.Ok(new
+            {
+                openConnections = quota.OpenConnections,
+                maxPerSubscriber = quota.MaxPerSubscriber,
+                // The client renders "close a few tabs" only for this one. A refusal while the
+                // per-login budget still has room was the process ceiling or Redis, and neither is
+                // anything the user can act on — see LiveStreamQuota.ProcessLimitReached.
+                perSubscriberLimitReached = quota.PerSubscriberLimitReached,
+            });
+        })
+        .RequireAuthorization();
     }
 
     /// <summary>
@@ -94,11 +121,7 @@ public static class LiveEndpoints
         Func<LiveEvent, bool> filter,
         CancellationToken ct)
     {
-        // Per login, not per connection: the limit is meant to bound how many streams one account
-        // can pin, and every one of these endpoints requires authentication.
-        var subscriberKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";
-
-        var result = await liveEventStream.SubscribeAsync(subscriberKey, filter, ct);
+        var result = await liveEventStream.SubscribeAsync(SubscriberKeyOf(httpContext), filter, ct);
         if (result.Status != LiveEventSubscribeStatus.Ok)
         {
             // Before a single byte of the body: once an SSE response has started there is no status
@@ -139,6 +162,14 @@ public static class LiveEndpoints
 
         return TypedResults.ServerSentEvents(StreamAsync(subscription, lifetime, lifetime.Token));
     }
+
+    /// <summary>
+    /// Per login, not per connection: the limit is meant to bound how many streams one account can
+    /// pin, and every route that uses this requires authentication. Shared by the subscribe path and
+    /// the status probe so the two can never count against different keys.
+    /// </summary>
+    private static string SubscriberKeyOf(HttpContext httpContext) =>
+        httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";
 
     /// <summary>
     /// The 429 for an exhausted live-stream quota — process-wide or per-login, collapsed onto one

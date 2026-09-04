@@ -127,6 +127,67 @@ public class RedisLiveEventStreamTests(RedisFixture fixture)
     }
 
     [Fact]
+    public async Task GetQuota_ReportsWhatTheSubscriberHolds_AndNotWhatOthersHold()
+    {
+        // Issue #42 stage 2: the number a refused browser tab has no other way of learning, because
+        // EventSource.onerror carries neither status code nor body.
+        var stream = CreateStream(new LiveEventStreamOptions { MaxPerSubscriber = 2 });
+
+        Assert.Equal(
+            new LiveStreamQuota(0, 2, ProcessLimitReached: false),
+            stream.GetQuota("user-quota"));
+
+        await using var first = RequireOk(await stream.SubscribeAsync("user-quota", _ => true));
+        // A second identity's stream must not count against this one — the same separation
+        // SubscribeAsync enforces, asserted from the reading side.
+        await using var foreign = RequireOk(await stream.SubscribeAsync("user-quota-other", _ => true));
+
+        var afterOne = stream.GetQuota("user-quota");
+        Assert.Equal(1, afterOne.OpenConnections);
+        Assert.False(afterOne.PerSubscriberLimitReached);
+
+        await using var second = RequireOk(await stream.SubscribeAsync("user-quota", _ => true));
+
+        var afterTwo = stream.GetQuota("user-quota");
+        Assert.Equal(2, afterTwo.OpenConnections);
+        Assert.True(afterTwo.PerSubscriberLimitReached);
+    }
+
+    [Fact]
+    public async Task GetQuota_AfterADisposedStream_ReportsTheFreedSlot()
+    {
+        // The case that made the 429 look like a broken restart during the 2026-08-31 live test: the
+        // budget frees itself as tabs close, so a hint built on this number has to go away again on
+        // its own.
+        var stream = CreateStream(new LiveEventStreamOptions { MaxPerSubscriber = 1 });
+
+        var only = RequireOk(await stream.SubscribeAsync("user-quota-freed", _ => true));
+        Assert.True(stream.GetQuota("user-quota-freed").PerSubscriberLimitReached);
+
+        await only.DisposeAsync();
+
+        var afterClose = stream.GetQuota("user-quota-freed");
+        Assert.Equal(0, afterClose.OpenConnections);
+        Assert.False(afterClose.PerSubscriberLimitReached);
+    }
+
+    [Fact]
+    public async Task GetQuota_ReportsTheProcessCeilingSeparatelyFromThePerLoginOne()
+    {
+        // Collapsed onto one status by SubscribeAsync (a caller acts identically on both), kept apart
+        // here on purpose: "close a few tabs" is sound advice for a full per-login budget and wrong
+        // for a full process, where the tabs belong to somebody else.
+        var stream = CreateStream(new LiveEventStreamOptions { MaxSubscriptions = 1, MaxPerSubscriber = 5 });
+
+        await using var other = RequireOk(await stream.SubscribeAsync("user-quota-proc-other", _ => true));
+
+        var quota = stream.GetQuota("user-quota-proc");
+        Assert.True(quota.ProcessLimitReached);
+        Assert.Equal(0, quota.OpenConnections);
+        Assert.False(quota.PerSubscriberLimitReached);
+    }
+
+    [Fact]
     public async Task MalformedPayload_IsDropped_WithoutTearingDownTheSubscription()
     {
         var stream = CreateStream();

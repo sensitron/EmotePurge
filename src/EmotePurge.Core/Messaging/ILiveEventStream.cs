@@ -21,6 +21,41 @@ public interface ILiveEventStream
         string subscriberKey,
         Func<LiveEvent, bool> filter,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// How much of the connection budget <paramref name="subscriberKey"/> is holding right now, and
+    /// what the two ceilings are. Answers the one question a browser cannot answer for itself:
+    /// <c>EventSource.onerror</c> exposes neither status code nor body, so a tab that was refused
+    /// knows only that its stream is closed — never whether that was a 503 (infrastructure) or a 429
+    /// (budget full), which is the difference between "wait" and "close a tab" (issue #42, stage 2).
+    /// <para>
+    /// A snapshot, not a reservation: a slot may free or fill between this call and the next
+    /// subscribe. That is acceptable because the only consumer is a hint, never a gate — every
+    /// enforcement decision stays inside <see cref="SubscribeAsync"/>, where it is made under a lock.
+    /// </para>
+    /// </summary>
+    LiveStreamQuota GetQuota(string subscriberKey);
+}
+
+/// <summary>
+/// A snapshot of the live-stream connection budget as one subscriber sees it.
+/// </summary>
+/// <param name="OpenConnections">Streams this subscriber currently holds, across all tabs and devices.</param>
+/// <param name="MaxPerSubscriber">The per-login ceiling those are counted against.</param>
+/// <param name="ProcessLimitReached">
+/// Whether the process-wide ceiling is exhausted as well. Reported separately from the per-login
+/// count although <see cref="LiveEventSubscribeStatus.QuotaExhausted"/> collapses the two, and for a
+/// reason that only appears once there is a human on the other end: "close a few tabs" is sound
+/// advice for a full per-login budget and outright wrong for a full process — the tabs are then
+/// someone else's. A consumer that cannot act on the difference should keep collapsing them.
+/// </param>
+public record LiveStreamQuota(int OpenConnections, int MaxPerSubscriber, bool ProcessLimitReached)
+{
+    /// <summary>
+    /// Whether this subscriber's own budget is full — the condition that makes a refused stream the
+    /// user's own doing, and the only one worth telling them about.
+    /// </summary>
+    public bool PerSubscriberLimitReached => OpenConnections >= MaxPerSubscriber;
 }
 
 /// <summary>
