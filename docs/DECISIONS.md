@@ -10,28 +10,19 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
-### 2026-09-05 — `active-set` trägt die Namenskollisionen mit; der zweite Request bleibt vorerst trotzdem
+### 2026-09-05 — Entscheidung 4 des Rate-Limit-Plans (`duplicate-names` in `active-set` falten): geprüft und so nicht umsetzbar
 
-**Betrifft:** `src/EmotePurge.Core/Services/IEmoteSetStatusService.cs`, `src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs`
+**Betrifft:** `src/EmotePurge.Api/Endpoints/EmoteEndpoints.cs`, `src/EmotePurge.Core/Services/IEmoteSetStatusService.cs`, `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/usage-stats/usage-stats-page.ts`
 
-**Vertragsänderung, additiv:** `GET /api/channels/{c}/emotes/active-set` liefert zusätzlich
-`duplicateNames` — dieselbe Liste, die `GET .../emotes/duplicate-names` als eigene Route serviert.
-Damit folgt die Route der Linie, die die Einträge vom 2026-08-… zu `trackedSince` und zum
-Slot-Budget schon zweimal gezogen haben: Was derselbe Personenkreis auf derselben Seite braucht,
-reist in derselben Antwort mit, statt einen eigenen Request zu kosten. Die Liste ist nie `null` —
-„keine Kollision" ist die leere Liste — und sie steht hinter demselben Gate wie `occupiedSlots` und
-`botsExcludedSince`: solange `ActiveEmoteSetId` leer ist, wird gar nicht gefragt, weil genau dieses
-Fenster die Usage-Seite in einer Schleife pollt.
+**Kein Code geändert.** Dieser Eintrag hält fest, warum — damit die Option nicht ein drittes Mal als
+„das wäre doch schnell gemacht" aufgegriffen wird.
 
-**Die Kollisionsermittlung ist delegiert, nicht kopiert.** `EmoteSetStatusService` ruft
-`IDuplicateEmoteNameQueryService` auf, statt aus den ohnehin geladenen Zeilen selbst zu gruppieren.
-Das kostet einen zusätzlichen indizierten Channel-Lookup und spart eine zweite Kopie der Regel, dass
-die Gruppierung ordinal und case-sensitive sein muss (Eintrag zu 7TVs eigener Vergleichssemantik) —
-und genau solche zweiten Kopien driften.
-
-**Die eigene Route bleibt, und der Frontend-Umbau unterbleibt bewusst.** Issue #45 wollte damit
-„ein Permit pro Öffnung" sparen. Die Bestandsaufnahme zeigt, dass die Rechnung so nicht aufgeht,
-weil die beiden Nutzlasten **verschiedene Konsumenten** haben:
+Issue #45 greift Entscheidung 4 aus
+[`docs/superpowers/plans/2026-08-29-rate-limit-requests-und-beobachtbarkeit.md`](superpowers/plans/2026-08-29-rate-limit-requests-und-beobachtbarkeit.md)
+auf: `duplicate-names` in die `active-set`-Antwort zusammenlegen, „damit fällt ein Permit pro
+Öffnung weg, ohne neuen Cache-Zustand". Die Umsetzung wurde begonnen und wieder verworfen. Der Grund
+ist eine Annahme im Plan, die nicht zutrifft: er behandelt die beiden Nutzlasten, als hätte sie
+**derselbe** Konsument. Sie haben verschiedene:
 
 - `duplicate-names` holt genau **eine** Stelle: das `ChannelWorkspaceLayout` — also die Klammer um
   *alle* Kanal-Tabs.
@@ -44,16 +35,32 @@ einen anderen — auf dem Usage-Tab macht die Runde laut `RateLimitPolicyBudgetT
 Aktivitäts-Tab wäre es sogar **teurer**: dort holt heute niemand `active-set`, das Layout aber sehr
 wohl die Kollisionen. Der Umbau würde die Last dort also erhöhen statt senken.
 
-**Damit steht eine Produktfrage offen, die dieser Commit nicht beantwortet:** Der eingesparte
-Request ist zu haben, wenn das Kollisions-Banner von der Layout-Klammer in die Usage-Seite wandert —
-die ruft `active-set` ohnehin. Preis: Das Banner verschwindet auf den beiden anderen Tabs. Die
-Alternative, das Layout zum Besitzer der zusammengelegten Antwort zu machen und die Usage-Seite
-daran zu hängen, kollidiert mit deren `requestedSetStatusFor`-Einmal-pro-Kanal-Logik, der
-Sync-Warteschleife und den beiden Panels — und braucht genau den geteilten Cache-Zustand, den
-Entscheidung 4 des Rate-Limit-Plans zu vermeiden versprach.
+**Warum auch die Backend-Hälfte allein nicht stehenbleibt.** Naheliegend wäre, das Feld schon einmal
+zu liefern und den Frontend-Umbau später nachzuziehen. Genau das war der erste Anlauf, und das
+Codex-Review hat die Rechnung aufgemacht: `EmoteSetStatusService` müsste je Aufruf die aktiven
+Emote-Zeilen vollständig materialisieren (bei einem 900er-Set wie HandOfBlood mit Name und
+Bild-URL), und `active-set` wird **zweimal pro Workspace-Öffnung** gelesen, dazu nach jedem
+`channel.synced` erneut. Solange niemand das Feld liest und der zweite Request bleibt, ist das
+zusätzliche O(Set-Größe)-Datenbankarbeit **ohne jede Ersparnis** — und die Kollisionssuche liefe auf
+dem Usage-Tab dann sogar doppelt. Ein Feld ohne Konsument ist hier also nicht bloß unbenutzt,
+sondern teuer.
 
-Das Feld ist die Hälfte ohne Entscheidungsbedarf: gebaut, getestet, und der Umbau ist danach eine
-reine Frontend-Änderung. Bis dahin ist es bewusst ungenutzt.
+**Wenn der Punkt wieder aufgegriffen wird, ist die erste Frage keine technische:** *Braucht das
+Kollisions-Banner die Vote-Sessions- und Aktivitäts-Tabs?*
+
+- **Nein** → Banner in die Usage-Seite verschieben, die `active-set` ohnehin ruft; `duplicate-names`
+  fällt dort ersatzlos weg. Das ist der versprochene eingesparte Request, und dann lohnt auch das
+  Feld. Der E2E-Fall „a burst of sync events costs one duplicate-names refetch, not one per event"
+  (Regressionsschutz aus #35, 22 von 38 gemessenen 429ern) muss dabei auf den ersetzenden Endpunkt
+  umgehängt werden, nicht gelöscht.
+- **Ja** → Das Layout müsste Besitzer der zusammengelegten Antwort werden und die Usage-Seite daran
+  hängen. Das kollidiert mit deren `requestedSetStatusFor`-Einmal-pro-Kanal-Logik, der
+  Sync-Warteschleife, dem 60-s-Recheck und den beiden 7TV-Panels — und braucht genau den geteilten
+  Cache-Zustand, den Entscheidung 4 zu vermeiden versprach. Dann ist der Plan-Eintrag schlicht die
+  falsche Option und sollte gestrichen werden.
+
+**Priorität unverändert niedrig.** Das Issue selbst sagt: relevant erst, wenn in Produktion 429er
+beim Navigieren auftreten. Bis dahin ist die richtige Menge Code für diesen Punkt: keiner.
 
 ---
 

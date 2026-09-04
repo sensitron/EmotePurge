@@ -5,9 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EmotePurge.Infrastructure.Services;
 
-public class EmoteSetStatusService(
-    AppDbContext db,
-    IDuplicateEmoteNameQueryService duplicateEmoteNameQueryService) : IEmoteSetStatusService
+public class EmoteSetStatusService(AppDbContext db) : IEmoteSetStatusService
 {
     public async Task<EmoteSetStatusDto?> GetAsync(string channelName, CancellationToken cancellationToken = default)
     {
@@ -19,17 +17,14 @@ public class EmoteSetStatusService(
 
         // Skipped entirely while no set is known: that is exactly the window the usage-stats page
         // polls this endpoint in a loop waiting for the first sync, and counting rows that cannot
-        // exist yet would put a query behind every one of those polls for three guaranteed empties —
-        // occupiedSlots, botsExcludedSince and the collision list share this one gate, not three
-        // copies of it.
+        // exist yet would put a query behind every one of those polls for two guaranteed nulls —
+        // occupiedSlots and botsExcludedSince share this one gate, not two copies of it.
         int occupiedSlots;
         DateOnly? botsExcludedSince;
-        IReadOnlyList<DuplicateEmoteNameDto> duplicateNames;
         if (channel.ActiveEmoteSetId.Length == 0)
         {
             occupiedSlots = 0;
             botsExcludedSince = null;
-            duplicateNames = [];
         }
         else
         {
@@ -52,14 +47,6 @@ public class EmoteSetStatusService(
                 .Where(u => emoteIds.Contains(u.EmoteId) && u.BotUseCount > 0)
                 .Select(u => (DateOnly?)u.Date)
                 .MinAsync(cancellationToken);
-
-            // Delegated rather than reimplemented from the rows already loaded above: the grouping
-            // has to be ordinal case-sensitive to mirror chat matching, and a second copy of that
-            // rule is exactly the kind that drifts. The cost is one extra indexed channel lookup
-            // inside the query service — cheap next to the round trip this field exists to save.
-            // `?? []` is unreachable in practice (the channel was found a moment ago) and means the
-            // same thing either way: nothing to report.
-            duplicateNames = await duplicateEmoteNameQueryService.GetAsync(channelName, cancellationToken) ?? [];
         }
 
         return new EmoteSetStatusDto(
@@ -69,7 +56,6 @@ public class EmoteSetStatusService(
             channel.TrackingResumedAt ?? channel.CreatedAt,
             channel.LastSyncFailureReason,
             channel.LastSyncAttemptAtUtc,
-            botsExcludedSince,
-            duplicateNames);
+            botsExcludedSince);
     }
 }
