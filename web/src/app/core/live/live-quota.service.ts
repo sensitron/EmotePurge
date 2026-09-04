@@ -97,7 +97,7 @@ export class LiveQuotaService {
       // explain is itself a sign of a wobbly connection, and guessing "it was probably your tabs"
       // would be the same unfounded claim as today's silence, only louder. No generation check on
       // this side: the effect above has already set false, and setting it again is the same value.
-      error: () => this.limitReachedSignal.set(false),
+      error: () => this.quotaSignal.set(null),
     });
   }
 }
