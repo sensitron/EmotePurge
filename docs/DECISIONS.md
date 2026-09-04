@@ -10,6 +10,60 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-04 — Der Rename-Handover bekommt zwei Sperren: ein zweites Boot-Signal und ein Gate auf `Channel.Id`
+
+**Betrifft:** `src/EmotePurge.Worker/BootRecoveryGate.cs`, `src/EmotePurge.Worker/Worker.cs`, `src/EmotePurge.Worker/TwitchIdentityReconcileWorker.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`
+
+**Die Regeln, die dieser Eintrag festschreibt.** Erstens: Wer ein Redis-Kommando publiziert, das
+der Worker selbst ausführen muss, wartet auf `BootRecoveryGate.CommandChannelSubscribed` — nicht
+nur auf `Completed`. Zweitens: Wer eine `Channel`-Zeile schreibt, hält neben dem Namens-Gate auch
+das Zeilen-Gate auf `Channel.Id` (`ChannelSyncGate.AcquireByChannelIdAsync`), in der festen
+Reihenfolge Name → Id, und liest die Zeile darunter neu ein.
+
+**Warum zwei Sperren für denselben Moment.** Beides sind Nebenläufigkeitsfenster um denselben
+Vorgang: die Übergabe eines Kanals vom alten auf den neuen Login (Issue #54, aus dem
+Codex-Review zu #44). Beide sind selbstheilend — das Konvergenznetz aus #41 schließt sie in
+höchstens drei Minuten —, und genau deshalb standen sie zur Wahl. Umgesetzt sind sie trotzdem,
+weil die Prävention in beiden Fällen billiger ist als der Zustand, den sie verhindert, und weil
+die Klasse „Nebenläufigkeit über Prozessgrenzen" in diesem Repo mehrfach durch Reviews gerutscht
+ist.
+
+**Das erste Fenster: publizieren, bevor jemand zuhört.** `Worker.ExecuteAsync` hat
+`RunBootRecoveryAsync` — mit `MarkCompleted()` im `finally` — **vor**
+`redisSubscriber.SubscribeAsync` aufgerufen. Die TCS läuft mit `RunContinuationsAsynchronously`,
+der Sofort-Lauf des `TwitchIdentityReconcileWorker` startete also echt parallel zum Subscribe.
+Erkennt dieser erste Lauf einen Rename oder Merge, publiziert er das `LEAVE`/`JOIN`-Paar, während
+noch kein Subscriber am Kanal hängt — und Redis Pub/Sub kennt kein Store-and-Forward:
+`PublishAsync` liefert die Empfängerzahl, keinen Fehler, und verwirft die Nachricht wortlos.
+Gewählt wurde ein **zweites, unabhängiges Signal** am selben Gate statt einer umgestellten
+Reihenfolge. Der Grund ist, dass beide naheliegenden Alternativen etwas kaputt machen:
+`SubscribeAsync` vor die Boot-Recovery zu ziehen öffnet ein neues Fenster (ein `LEAVE` würde einen
+Kanal treffen, den die Boot-Recovery gleich danach wieder joint), und `MarkCompleted()` einfach
+hinter den Subscribe zu schieben nimmt dem `finally` seine Zusage, dass eine gescheiterte
+Boot-Recovery den Konvergenzpfad nie dauerhaft blockiert. Mit zwei Signalen bleibt `Completed`
+wortgleich das, was es war — auch für `SevenTvPeriodicResyncWorker`, `SevenTvEventWorker` und das
+`bootRecoveryCompleted`-Feld im Worker-Roster —, und nur der eine Wartende, der wirklich
+publiziert, wartet auf mehr.
+
+**Das zweite Fenster: das Sync-Gate kannte nur Namen.** `ChannelSyncGate` war nach Channel-*Name*
+gekeyt, und `SyncChannelAsync` erwarb es **vor** `LoadChannelAsync`. Ein Name ist aber nicht der
+Kanal: Während des Handovers bezeichnen alter und neuer Login dieselbe `Channel.Id`, zwei Syncs
+halten zwei verschiedene Semaphoren und reconcilen dieselbe Zeile — mit einem Rennen auf dem
+Unique-Index `(ChannelId, SevenTvEmoteId)` und einem Match-Cache-Eintrag unter einem Login, den
+Twitch nicht mehr routet. Das Namens-Gate bleibt, weil es das Einzige ist, was ein Aufrufer in der
+Hand hat, bevor er die Datenbank angefasst hat; das Zeilen-Gate kommt dahinter, sobald die Id
+bekannt ist. Die feste Reihenfolge Name → Id ist es, die dabei kein Deadlock-Paar entstehen lässt.
+Das Neu-Einlesen unter dem Zeilen-Gate ist kein Beiwerk: Es ist der einzige Grund, warum
+`RefreshMatchCacheAsync` nach dem Warten den *aktuellen* Namen schreibt — und es erkennt die
+Zeile, die eine Zusammenführung inzwischen gelöscht hat, bevor der Sync mit einer
+`DbUpdateConcurrencyException` oder einer FK-Verletzung darauf aufläuft.
+
+**Was ungedeckt bleibt.** Die Api ist ein anderer Prozess; ein `JOIN`, das sie publiziert, während
+der Worker noch bootet, geht weiterhin verloren. Das ist nicht dasselbe Fenster — es lässt sich
+prozessübergreifend nicht durch eine Wartebedingung schließen — und es heilt über denselben
+periodischen Resync.
+
+
 ### 2026-09-04 — `Microsoft.OpenApi` bleibt auf der 2.x-Linie, bis .NET 11 kommt
 
 **Betrifft:** `.github/dependabot.yml`, `src/EmotePurge.Api/EmotePurge.Api.csproj`

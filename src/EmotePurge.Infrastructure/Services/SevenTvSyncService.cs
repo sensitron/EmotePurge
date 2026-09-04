@@ -22,12 +22,21 @@ public class SevenTvSyncService(
 
         // Two concurrent syncs of the same channel collide on the (ChannelId, SevenTvEmoteId)
         // unique index — see ChannelSyncGate.
-        using var gate = await channelSyncGate.AcquireAsync(normalized, cancellationToken);
+        using var nameGate = await channelSyncGate.AcquireByNameAsync(normalized, cancellationToken);
 
         var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             logger.LogWarning("SyncChannelAsync: {Channel} nicht in Postgres gefunden.", normalized);
+            return null;
+        }
+
+        using var rowGate = await AcquireRowGateAsync(channel, cancellationToken);
+        if (rowGate is null)
+        {
+            logger.LogInformation(
+                "SyncChannelAsync: Zeile von {Channel} ({ChannelId}) ist zwischenzeitlich verschwunden (vermutlich zusammengeführt) — Sync übersprungen.",
+                normalized, channel.Id);
             return null;
         }
 
@@ -133,12 +142,23 @@ public class SevenTvSyncService(
         }
 
         var normalized = ChannelName.Normalize(channelName);
-        using var gate = await channelSyncGate.AcquireAsync(normalized, cancellationToken);
+        using var nameGate = await channelSyncGate.AcquireByNameAsync(normalized, cancellationToken);
 
         var channel = await db.LoadChannelAsync(channelName, cancellationToken);
         if (channel is null)
         {
             logger.LogWarning("ApplyEmoteSetUpdateAsync: {Channel} nicht in Postgres gefunden.", normalized);
+            return SevenTvDeltaOutcome.ChannelUnknown;
+        }
+
+        // Same two-step gate as the full sync, and for the same reason: the name this dispatch
+        // arrived under says nothing about which row it will end up writing.
+        using var rowGate = await AcquireRowGateAsync(channel, cancellationToken);
+        if (rowGate is null)
+        {
+            logger.LogInformation(
+                "ApplyEmoteSetUpdateAsync: Zeile von {Channel} ({ChannelId}) ist zwischenzeitlich verschwunden (vermutlich zusammengeführt) — Dispatch verworfen.",
+                normalized, channel.Id);
             return SevenTvDeltaOutcome.ChannelUnknown;
         }
 
@@ -215,6 +235,41 @@ public class SevenTvSyncService(
             "7TV-Dispatch auf {Channel} angewendet: {Pushed} hinzugefügt, {Updated} aktualisiert, {Pulled} entfernt.",
             normalized, delta.Pushed.Count, delta.Updated.Count, delta.PulledIds.Count);
         return SevenTvDeltaOutcome.Applied;
+    }
+
+    /// <summary>
+    /// Takes the row gate for a channel that was just looked up by name, and re-reads the row under
+    /// it. Returns null when the row is gone, in which case the gate is already released and the
+    /// caller must not write anything.
+    /// </summary>
+    private async Task<IDisposable?> AcquireRowGateAsync(Channel channel, CancellationToken cancellationToken)
+    {
+        var gate = await channelSyncGate.AcquireByChannelIdAsync(channel.Id, cancellationToken);
+        try
+        {
+            // The row was read *without* the row gate — it had to be, since the id is what the gate
+            // keys on. A rename handover is the case that makes that matter: while this call sat
+            // queued behind the sync running under the channel's other login, the row may have been
+            // renamed out from under it, or merged away entirely. Re-reading here is what keeps
+            // ChannelName — the key the match cache and the duplicate-name tracker are written
+            // under — from being the one the handover just retired.
+            await db.Entry(channel).ReloadAsync(cancellationToken);
+            if (db.Entry(channel).State == EntityState.Detached)
+            {
+                // Reload detaches an entity whose row has disappeared. Writing on from here would
+                // mean a DbUpdateConcurrencyException on the channel update, or a foreign-key
+                // violation on freshly inserted emote rows.
+                gate.Dispose();
+                return null;
+            }
+
+            return gate;
+        }
+        catch
+        {
+            gate.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

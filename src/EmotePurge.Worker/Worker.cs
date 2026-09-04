@@ -56,6 +56,13 @@ public class Worker(
             }
         }, stoppingToken);
 
+        // Only now may anything publish a command the worker has to act on. SubscribeAsync has
+        // returned, which means Redis acknowledged the SUBSCRIBE and the ChannelMessageQueue is
+        // buffering — a message published from here on is delivered even if OnMessage's first
+        // callback has not run yet. Before this point Redis would have thrown the message away
+        // without an error (issue #54).
+        bootRecoveryGate.MarkCommandChannelSubscribed();
+
         // Ab hier passiert alle Arbeit in Event-Handlern; ExecuteAsync bleibt nur am Leben,
         // bis der Host das Shutdown-Token feuert.
         await Task.Delay(Timeout.Infinite, stoppingToken);

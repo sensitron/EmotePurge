@@ -1,0 +1,134 @@
+using EmotePurge.Core.Messaging;
+using EmotePurge.Core.Services;
+using EmotePurge.Worker.SevenTv;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
+using Xunit;
+using WorkerService = EmotePurge.Worker.Worker;
+
+namespace EmotePurge.Worker.Tests;
+
+// The boot ordering half of issue #54, asserted at the two real call sites rather than on the gate
+// alone. The gate's own test only proves that two signals are independent; it cannot show that
+// Worker arms the second one at the right moment, nor that the one worker which publishes
+// commands actually waits for it — and that pair *is* the bug: Redis Pub/Sub silently discards a
+// message published to a channel nobody is subscribed to.
+//
+// Container-free on purpose: everything that touches Redis or Postgres here is a transport, and
+// what is under test is the order in which this process reaches them.
+public class WorkerBootSequenceTests
+{
+    [Fact]
+    public async Task Worker_ArmsTheCommandChannelSignalOnlyAfterBootRecoveryAndTheSubscribe()
+    {
+        var gate = new BootRecoveryGate();
+
+        var channelService = Substitute.For<IChannelService>();
+        channelService.ListActiveChannelNamesAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<string> { "handofblood" });
+
+        var chatManager = Substitute.For<ITwitchChatManager>();
+        var joins = 0;
+        chatManager.When(x => x.JoinChannelAsync(Arg.Any<string>())).Do(_ => joins++);
+
+        // Everything the subscribe moment is supposed to look like, captured inside the subscribe
+        // itself — after the fact these are indistinguishable from each other.
+        var signalArmedDuringSubscribe = true;
+        var bootRecoveryDoneDuringSubscribe = false;
+        var joinsBeforeSubscribe = 0;
+        var subscriber = Substitute.For<IRedisSubscriber>();
+        subscriber.When(x => x.SubscribeAsync(Arg.Any<string>(), Arg.Any<Func<string, string, Task>>(), Arg.Any<CancellationToken>()))
+            .Do(_ =>
+            {
+                signalArmedDuringSubscribe = gate.CommandChannelSubscribed.IsCompleted;
+                bootRecoveryDoneDuringSubscribe = gate.Completed.IsCompleted;
+                joinsBeforeSubscribe = joins;
+            });
+
+        var worker = new WorkerService(
+            NullLogger<WorkerService>.Instance,
+            chatManager,
+            subscriber,
+            Substitute.For<IRedisPublisher>(),
+            Substitute.For<IEmoteMatchCache>(),
+            gate,
+            Substitute.For<ISevenTvEventClient>(),
+            CreateScopeFactory(channelService));
+
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            await gate.CommandChannelSubscribed.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        Assert.False(signalArmedDuringSubscribe);
+        Assert.True(bootRecoveryDoneDuringSubscribe);
+        Assert.Equal(1, joinsBeforeSubscribe);
+        await subscriber.Received(1).SubscribeAsync(
+            BotCommands.Channel, Arg.Any<Func<string, string, Task>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task TwitchIdentityReconcileWorker_DoesNotRunItsFirstPassOnBootRecoveryAlone()
+    {
+        var gate = new BootRecoveryGate();
+        var reconciled = new TaskCompletionSource();
+        var identityService = Substitute.For<IChannelIdentityService>();
+        identityService.ReconcileActiveChannelsAsync(Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                reconciled.TrySetResult();
+                // null = tick skipped; the worker's own behaviour after the pass is not under test.
+                return (ChannelIdentityReconcileSummary?)null;
+            });
+
+        var worker = new TwitchIdentityReconcileWorker(
+            NullLogger<TwitchIdentityReconcileWorker>.Instance,
+            gate,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Auth:Twitch:ClientId"] = "client-id",
+                ["Auth:Twitch:ClientSecret"] = "client-secret"
+            }).Build(),
+            CreateScopeFactory(identityService));
+
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            // This is the state the old code released on: boot recovery over, command channel still
+            // deaf. A pass here would publish its LEAVE/JOIN handover into the void.
+            gate.MarkCompleted();
+            await Task.Delay(250);
+            Assert.False(reconciled.Task.IsCompleted);
+
+            gate.MarkCommandChannelSubscribed();
+            await reconciled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static IServiceScopeFactory CreateScopeFactory(IChannelService channelService)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(channelService);
+        // Returns null for every channel, so SyncSevenTvAsync stops right after the call.
+        services.AddSingleton(Substitute.For<ISevenTvSyncService>());
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
+    private static IServiceScopeFactory CreateScopeFactory(IChannelIdentityService identityService)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(identityService);
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+}
