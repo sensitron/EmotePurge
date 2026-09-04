@@ -22,14 +22,63 @@ public enum ChannelJoinStatus
 
 /// <summary>
 /// <see cref="Channel"/> is non-null if and only if <see cref="Status"/> is
-/// <see cref="ChannelJoinStatus.Joined"/>; the two factories below are the only supported way to
-/// build one, so that invariant cannot be broken at a call site.
+/// <see cref="ChannelJoinStatus.Joined"/>, and the two factories below are the only way to build one
+/// at all — so that invariant cannot be broken at a call site, not even by accident.
+/// <para>
+/// A sealed class with a private constructor rather than a record, because a record cannot keep that
+/// promise: its positional constructor is public, and <c>with</c> stays open on top of it, so
+/// <c>Failed(ChannelJoinStatus.Joined)</c> or <c>result with { Channel = null }</c> would hand the
+/// join endpoint a "joined" result with nothing to dereference. Value equality — the one thing that
+/// would argue for a record — is of no use here: the payload is a mutable EF entity that compares by
+/// reference anyway, so record equality would only look like a guarantee it never gave.
+/// </para>
 /// </summary>
-public record ChannelJoinResult(ChannelJoinStatus Status, Channel? Channel)
+public sealed class ChannelJoinResult
 {
-    public static ChannelJoinResult Joined(Channel channel) => new(ChannelJoinStatus.Joined, channel);
+    private ChannelJoinResult(ChannelJoinStatus status, Channel? channel)
+    {
+        Status = status;
+        Channel = channel;
+    }
 
-    public static ChannelJoinResult Failed(ChannelJoinStatus status) => new(status, null);
+    public ChannelJoinStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="ChannelJoinStatus.Joined"/>.</summary>
+    public Channel? Channel { get; }
+
+    public static ChannelJoinResult Joined(Channel channel)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        return new ChannelJoinResult(ChannelJoinStatus.Joined, channel);
+    }
+
+    /// <summary>
+    /// Builds a rejected join. Rejects a success status outright: a caller that passes one is asking
+    /// for the exact value this type exists to make impossible, and failing loudly at the source
+    /// beats a NullReferenceException in the endpoint. A future success status has to be added to the
+    /// guard below — and to <see cref="Joined"/>'s side of the type — in the same commit that adds it
+    /// to the enum.
+    /// </summary>
+    public static ChannelJoinResult Failed(ChannelJoinStatus status)
+    {
+        if (status == ChannelJoinStatus.Joined)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status),
+                status,
+                "ChannelJoinResult.Failed() kann keinen Erfolgsstatus tragen — für Joined ist ChannelJoinResult.Joined(channel) zuständig.");
+        }
+
+        // Keeps an undefined cast like (ChannelJoinStatus)7 out of the type, which is what the join
+        // endpoint's switch would otherwise fall through unmatched.
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status), status, "Unbekannter ChannelJoinStatus.");
+        }
+
+        return new ChannelJoinResult(status, null);
+    }
 }
 
 public interface IChannelService

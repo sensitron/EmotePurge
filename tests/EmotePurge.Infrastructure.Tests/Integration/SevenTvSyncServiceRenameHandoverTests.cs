@@ -17,6 +17,14 @@ namespace EmotePurge.Infrastructure.Tests.Integration;
 // The blocked caller is produced by taking the row gate in the test itself rather than by racing two
 // syncs — the effect under test is "a second caller cannot enter the row's critical section", and
 // who is holding it is irrelevant to that.
+//
+// Every case here waits for ChannelSyncGate.RowGateWaitStarting instead of sleeping. The signal is
+// what makes the cases mean anything: it fires only after the sync has loaded the row and only
+// immediately before it waits for the gate this test is holding, so the handover below provably
+// lands between the load and the ReloadAsync that has to notice it. A timed sleep proves neither
+// half — too short on a loaded runner and the sync is still in the row query, in which case the
+// rename makes the *load* miss and the case fails for the wrong reason; and a sync that never got
+// that far would let the deletion cases pass without ReloadAsync ever running.
 [Collection("Postgres")]
 public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
 {
@@ -34,8 +42,9 @@ public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
         // Stands in for the sync that is already reconciling this row under the channel's other
         // login. The name gate for "handover_old" is free, so only the row gate can hold this back.
         var rowLease = await gate.AcquireByChannelIdAsync(channel.Id);
+        var reachedRowGate = WatchForRowGate(gate, channel.Id);
         var syncTask = service.SyncChannelAsync("handover_old");
-        await Task.Delay(300);
+        await reachedRowGate.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.False(syncTask.IsCompleted);
 
         // The handover commits while the sync sits in the queue — the case that made the old
@@ -65,8 +74,10 @@ public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
         var service = CreateService(db, cache, gate, channel.TwitchChannelId!, LiveEmote("7tv-b", "Beta"));
 
         var rowLease = await gate.AcquireByChannelIdAsync(channel.Id);
+        var reachedRowGate = WatchForRowGate(gate, channel.Id);
         var syncTask = service.SyncChannelAsync("handover_merged");
-        await Task.Delay(300);
+        await reachedRowGate.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.False(syncTask.IsCompleted);
 
         // What a merge does to the losing row. Writing on from here would mean a
         // DbUpdateConcurrencyException on the channel update, or a foreign-key violation on the
@@ -91,9 +102,10 @@ public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
         var service = CreateService(db, new EmoteMatchCache(), gate, channel.TwitchChannelId!);
 
         var rowLease = await gate.AcquireByChannelIdAsync(channel.Id);
+        var reachedRowGate = WatchForRowGate(gate, channel.Id);
         var deltaTask = service.ApplyEmoteSetUpdateAsync(
             "handover_delta", SetId, new SevenTvEmoteSetDelta([LiveEmote("7tv-c", "Gamma")], [], []));
-        await Task.Delay(300);
+        await reachedRowGate.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.False(deltaTask.IsCompleted);
 
         await using (var merger = fixture.CreateDbContext())
@@ -104,6 +116,26 @@ public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
         rowLease.Dispose();
 
         Assert.Equal(SevenTvDeltaOutcome.ChannelUnknown, await deltaTask.WaitAsync(TimeSpan.FromSeconds(30)));
+    }
+
+    /// <summary>
+    /// Completes once the channel under test is parked at the row gate — row loaded, gate not yet
+    /// entered. Registered before the sync starts, so the signal cannot be missed.
+    /// </summary>
+    private static Task WatchForRowGate(ChannelSyncGate gate, string channelId)
+    {
+        // RunContinuationsAsynchronously: the hook runs on the sync's own thread, and a synchronous
+        // continuation would carry the rest of the test onto it instead of letting it proceed into
+        // the wait.
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        gate.RowGateWaitStarting = waitingFor =>
+        {
+            if (waitingFor == channelId)
+            {
+                reached.TrySetResult();
+            }
+        };
+        return reached.Task;
     }
 
     private static SevenTvEmote LiveEmote(string sevenTvId, string name) =>

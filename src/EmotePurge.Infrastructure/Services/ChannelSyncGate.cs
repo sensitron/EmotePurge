@@ -22,6 +22,24 @@ public sealed class ChannelSyncGate
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Test seam, and deliberately the narrowest one that does the job: invoked synchronously on the
+    /// calling thread with the <c>Channel.Id</c> it is about to wait for, immediately before it waits.
+    /// <para>
+    /// A test that wants a caller parked *inside* the row gate has nothing else to observe — the
+    /// waiting call has, by definition, produced no result yet — and sleeping instead only guesses
+    /// how long the row load takes on the runner. Firing here rather than after the wait is what
+    /// makes the signal usable: it says "the row is loaded and the gate is the only thing left",
+    /// which is exactly the state a handover test needs to commit its rename in.
+    /// </para>
+    /// <para>
+    /// Internal, unset in production (one null check per row-gate acquisition), and only on the row
+    /// gate: the name gate is taken before anything has been read, so being parked there says
+    /// nothing worth synchronising on.
+    /// </para>
+    /// </summary>
+    internal Action<string>? RowGateWaitStarting { get; set; }
+
+    /// <summary>
     /// Entry gate, keyed on the normalized channel name. Always taken first; see the row gate for
     /// why it is not sufficient on its own.
     /// </summary>
@@ -33,8 +51,11 @@ public sealed class ChannelSyncGate
     /// actually been loaded — which is the whole point: only then is it known *which* row two
     /// differently named callers are about to reconcile.
     /// </summary>
-    public Task<IDisposable> AcquireByChannelIdAsync(string channelId, CancellationToken cancellationToken = default) =>
-        AcquireAsync($"id:{channelId}", cancellationToken);
+    public Task<IDisposable> AcquireByChannelIdAsync(string channelId, CancellationToken cancellationToken = default)
+    {
+        RowGateWaitStarting?.Invoke(channelId);
+        return AcquireAsync($"id:{channelId}", cancellationToken);
+    }
 
     // Prefixed keys rather than two dictionaries: a Twitch login can never contain a colon, so the
     // two spaces cannot collide, and one dictionary keeps the lease type and the lifetime rule in

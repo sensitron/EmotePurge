@@ -10,6 +10,46 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-04 — Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert
+
+**Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj`
+
+**Die Regel, die dieser Eintrag festschreibt:** Ein Ergebnistyp, dessen Nutzlast nur bei bestimmten
+Status non-null ist, wird als `sealed class` mit **privatem** Konstruktor gebaut, und die Factories
+sind der einzige Weg hinein. Sie weisen einen Erfolgsstatus im `Failed(...)`-Pfad ebenso zurück wie
+einen undefinierten Enum-Wert (`Enum.IsDefined`) und eine null-Nutzlast im Erfolgspfad — mit
+`throw`, nicht mit einem Kommentar.
+
+**Warum `record` das nicht kann.** Issue #55 verlangte, die Invariante unmöglich falsch machbar zu
+machen; der erste Anlauf ergänzte nur Factories nach dem Vorbild der `SevenTv`-Typen und ließ den
+positionalen Konstruktor offen. Das Codex-Review zum Branch zeigte die Lücke am konkreten Aufruf:
+`ChannelJoinResult.Failed(ChannelJoinStatus.Joined)` erzeugt einen „Erfolg" ohne Channel, und der
+`switch` im Join-Endpoint dereferenziert ihn dann. Bei einem `record` ist der positionale
+Konstruktor öffentlich und `with` sitzt obendrauf — beide Türen bleiben offen, solange der Typ ein
+`record` ist. Dass dabei die Wertegleichheit verlorengeht, ist kein Verlust, sondern ehrlicher:
+`ChannelJoinResult` trägt eine veränderliche EF-Entität, die ohnehin über die Referenz vergleicht,
+und die Record-Gleichheit hätte eine Zusage vorgetäuscht, die sie nie gegeben hat.
+
+**Beide Türen sind gemessen, nicht behauptet.** Eine Wegwerf-Probe, die Konstruktor und `with`
+aufruft, erzeugt genau vier Compilerfehler (`CS1729`, `CS8858` je Typ). Damit das so bleibt, halten
+Reflection-Tests fest, dass es keinen öffentlichen Instanzkonstruktor und kein
+compilergeneriertes `<Clone>$` gibt — wer den Typ zurück in einen `record` verwandelt, macht sie
+rot, statt das Loch still wieder zu öffnen.
+
+**Noch nicht umgestellt:** Fünf Typen der `SevenTv`-Familie haben dieselbe Bauform und dieselbe
+Lücke. Sie in denselben Commit zu ziehen, hätte das Diff unlesbar gemacht; sie stehen als eigenes
+Vorhaben aus.
+
+**Zweitens, im selben Zug: `Infrastructure` bekommt `InternalsVisibleTo` für seine Testassembly.**
+Der Rename-Handover-Test synchronisierte über ein `Task.Delay(300)` — auf einem langsamen Läufer
+weder verlässlich grün noch verlässlich rot. Statt der Wartezeit meldet `ChannelSyncGate` jetzt über
+einen `internal Action<string>?` unmittelbar vor dem Warten am Zeilen-Gate, dass es dort ankommt;
+der Test hängt daran eine `TaskCompletionSource` und weiß damit **beweisbar**, dass die Zeile
+geladen und der Sync geparkt ist. Kosten im Produktivbetrieb: eine Null-Prüfung je Erwerb. Die
+Naht sitzt bewusst nur am Zeilen-Gate — am Namens-Gate wartet der Aufrufer, bevor irgendetwas
+gelesen wurde, dort bewiese das Parken nichts. `EmotePurge.Api` nutzt dieselbe Mechanik bereits.
+
+
 ### 2026-09-04 — Der Rename-Handover bekommt zwei Sperren: ein zweites Boot-Signal und ein Gate auf `Channel.Id`
 
 **Betrifft:** `src/EmotePurge.Worker/BootRecoveryGate.cs`, `src/EmotePurge.Worker/Worker.cs`, `src/EmotePurge.Worker/TwitchIdentityReconcileWorker.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`
