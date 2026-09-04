@@ -38,14 +38,14 @@
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.1.12",
-    "angular-eslint": "^22.1.0",
+    "angular-eslint": "^22.2.0",
     "eslint": "^10.9.1",
     "jsdom": "^30.0.1",
     "postcss": "^8.5.26",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.1.12",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.68.0",
+    "typescript-eslint": "^8.69.0",
     "vitest": "^4.1.11"
   }
 }
