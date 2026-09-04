@@ -10,6 +10,31 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-04 — `Microsoft.OpenApi` bleibt auf der 2.x-Linie, bis .NET 11 kommt
+
+**Betrifft:** `.github/dependabot.yml`, `src/EmotePurge.Api/EmotePurge.Api.csproj`
+
+**Die Regel, die dieser Eintrag festschreibt:** Major-Updates von `Microsoft.OpenApi` werden in
+`dependabot.yml` ignoriert, solange `Microsoft.AspNetCore.OpenApi` in der 10.x-Reihe steht. Der
+Sprung auf 3.x gehört zum .NET-11-Wechsel und wird dort mitgezogen, nicht vorher einzeln.
+
+**Warum das keine Bequemlichkeit ist, sondern eine harte Bindung.** `Microsoft.AspNetCore.OpenApi`
+10.x ist an die 2.x-Linie gebunden: Der Quellcode, den ASP.NET Core 10 für `AddOpenApi()`
+generiert, schreibt in `IOpenApiMediaType.Example`, und genau diese Property ist in 3.x read-only
+geworden. Der Build bricht deshalb **auch ohne eigene Document-, Operation- oder
+Schema-Transformer** — `Program.cs` ruft nur `AddOpenApi()` und `MapOpenApi()` auf, und das genügt
+bereits. Microsofts eigene Empfehlung im zugehörigen Issue (`dotnet/aspnetcore#67505`, Duplikat
+`#67940`) lautet wörtlich, auf 2.x zu pinnen, bis 3.x-Unterstützung nachgeliefert ist; der
+Breaking-Change-Artikel auf Microsoft Learn führt den Wechsel ausdrücklich unter `aspnetcore-11.0`.
+
+**Warum die Ignore-Regel und nicht nur ein geschlossener PR.** Dependabot hatte den Bump als
+PR #47 vorgeschlagen; dessen CI war rot, was den Defekt zwar sichtbar machte, aber jede Woche neu
+Aufmerksamkeit gekostet hätte — der Vorschlag kommt wieder, sobald 3.x eine neue Version
+veröffentlicht. Die Regel greift bewusst nur auf `version-update:semver-major`: Updates innerhalb
+der 2.x-Linie sollen weiterlaufen, und genau das ist im selben Arbeitspaket auch passiert
+(2.11.0 → 2.12.2 über die `minor-and-patch`-Gruppe).
+
+
 ### 2026-09-02 — Kanal-Identität ist die Twitch-ID; der Name ist nur die Adresse
 
 **Betrifft:** `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Core/Services/AuditActor.cs`, `src/EmotePurge.Core/Entities/AuditLogEntry.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelIdentityWarningState.cs`, `src/EmotePurge.Infrastructure/Persistence/ChannelQueries.cs`, `src/EmotePurge.Infrastructure/ServiceCollectionExtensions.cs`, `src/EmotePurge.Worker/TwitchIdentityReconcileWorker.cs`, `src/EmotePurge.Worker/Program.cs`, `tests/EmotePurge.Infrastructure.Tests/Integration/ChannelIdentityServiceTests.cs`

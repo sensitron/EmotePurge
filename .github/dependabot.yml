@@ -32,3 +32,10 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
     open-pull-requests-limit: 5
+    # Microsoft.AspNetCore.OpenApi 10.x is pinned to the Microsoft.OpenApi 2.x line: the code that
+    # ASP.NET Core 10 generates for AddOpenApi() assigns to IOpenApiMediaType.Example, which 3.x
+    # made read-only, so a 3.x bump breaks the build even without our own transformers
+    # (dotnet/aspnetcore#67505). The 3.x move belongs to the .NET 11 upgrade, which brings it along.
+    ignore:
+      - dependency-name: "Microsoft.OpenApi"
+        update-types: ["version-update:semver-major"]
