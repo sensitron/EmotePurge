@@ -31,14 +31,15 @@ public class SevenTvSyncResultTypesTests
     }
 
     [Fact]
-    public void SyncResult_WithABlankSetId_IsAccepted()
+    public void SyncResult_WithABlankSetId_Throws()
     {
-        // Deliberate, and the reason is a matter of timing rather than of taste: this factory runs
-        // after the sync has already committed its writes, so a guard here would leave those writes
-        // in place while the caller sees a failure and skips the subscription convergence and the
-        // channel.synced publish. Found by the Codex review of this branch.
-        Assert.Equal(string.Empty, SevenTvSyncResult.Create("chan", string.Empty, null, hasChanges: false).EmoteSetId);
+        // Safe only because SevenTvSyncService rejects an unusable 7TV answer before it writes
+        // anything (SyncChannel_OkWithABlankSetId_IsRejectedBeforeAnythingIsWritten). This factory
+        // runs after SaveChangesAsync, so the guard is allowed to state an impossibility and must
+        // never be the place a real case first shows up — the Codex review of this branch caught it
+        // being exactly that, and the fix was the early rejection, not a weaker guard here.
         Assert.Throws<ArgumentNullException>(() => SevenTvSyncResult.Create("chan", null!, null, hasChanges: false));
+        Assert.Throws<ArgumentException>(() => SevenTvSyncResult.Create("chan", "  ", null, hasChanges: false));
     }
 
     [Fact]

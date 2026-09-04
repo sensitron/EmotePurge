@@ -735,6 +735,36 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SyncChannel_OkWithABlankSetId_IsRejectedBeforeAnythingIsWritten()
+    {
+        // 7TV can answer Ok with a set whose id field is missing; its DTO defaults that to an empty
+        // string, so no lookup status catches it — the response parsed, it is just unusable. The
+        // assertion that matters is not the reason but the *absence of writes*: carrying on used to
+        // stamp the empty string onto ActiveEmoteSetId, which the delta path then compares against
+        // every incoming dispatch and the usage page reads as "the first sync is still running".
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_blank_setid", ("e1", "stable", false));
+        var service = CreateRestService(db, cache, channel, string.Empty, LiveEmote("e2", "fresh"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(result);
+
+        var row = await db.Channels.Where(c => c.Id == channel.Id)
+            .Select(c => new { c.LastSyncFailureReason, c.LastSyncAttemptAtUtc, c.LastSyncedAtUtc, c.ActiveEmoteSetId })
+            .SingleAsync();
+        Assert.Equal("seventv_response_unusable", row.LastSyncFailureReason);
+        Assert.NotNull(row.LastSyncAttemptAtUtc);
+        // Nothing moved: the known set id survives, the success stamp is not advanced, the emote the
+        // unusable answer offered was never inserted, and the match cache was never rebuilt.
+        Assert.Equal(SetId, row.ActiveEmoteSetId);
+        Assert.Null(row.LastSyncedAtUtc);
+        Assert.Equal(1, await db.Emotes.CountAsync(e => e.ChannelId == channel.Id));
+        Assert.Empty(cache.GetChannelEmotes(channel.ChannelName));
+    }
+
+    [Fact]
     public async Task SyncChannel_FailedAttempt_LeavesTheKnownSetAndItsEmotesAlone()
     {
         // The asymmetry that governs this whole area: a 7TV outage must not take the mass-delete

@@ -79,6 +79,18 @@ public class SevenTvSyncService(
 
         var emoteSet = channelState.State.EmoteSet;
 
+        // Before the first write, which is the whole point of standing here rather than further
+        // down: 7TV can answer Ok with a set whose id is missing, and its DTO defaults that field to
+        // an empty string, so nothing further up notices. Carrying on would stamp the empty string
+        // onto Channel.ActiveEmoteSetId — a value the delta path then compares against every
+        // incoming dispatch, and the usage page reads as "the first sync is still running". Rejected
+        // here with a reason of its own instead, so the UI can say what happened.
+        if (string.IsNullOrWhiteSpace(emoteSet.Id))
+        {
+            await RecordFailedAttemptAsync(channel, SevenTvSyncFailureReasons.ResponseUnusable, cancellationToken);
+            return null;
+        }
+
         // A successful response with an empty emote list is indistinguishable from a real set wipe,
         // but the consequences are wildly asymmetric: ReconcileAsync would archive every emote of
         // the channel and RefreshMatchCacheAsync would install an empty dictionary, so chat
@@ -293,9 +305,15 @@ public class SevenTvSyncService(
     /// 7TV outage must not take the mass-delete panel away or archive a whole set, and
     /// <c>LastSyncedAtUtc</c> keeps meaning "last *successful* sync".
     /// </summary>
-    private async Task RecordFailedAttemptAsync(Channel channel, SevenTvLookupStatus status, CancellationToken cancellationToken)
+    private Task RecordFailedAttemptAsync(Channel channel, SevenTvLookupStatus status, CancellationToken cancellationToken) =>
+        RecordFailedAttemptAsync(channel, SevenTvSyncFailureReasons.FromStatus(status), cancellationToken);
+
+    /// <summary>
+    /// The reason-taking half, for the one failure that has no <see cref="SevenTvLookupStatus"/>
+    /// behind it (see <see cref="SevenTvSyncFailureReasons.ResponseUnusable"/>).
+    /// </summary>
+    private async Task RecordFailedAttemptAsync(Channel channel, string? reason, CancellationToken cancellationToken)
     {
-        var reason = SevenTvSyncFailureReasons.FromStatus(status);
         // Logged only when the reason changes: the periodic resync runs this for every broken
         // channel every 60 seconds, and an unconditional line would bury everything else in the log.
         // The stored value is what the UI reads, so nothing is lost by staying quiet.

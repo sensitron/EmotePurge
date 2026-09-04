@@ -684,6 +684,11 @@
         "title": "7TV war beim letzten Versuch nicht erreichbar.",
         "hint": "Das ist meist vorübergehend und liegt nicht an diesem Channel. Der Bot versucht es jede Minute erneut; die Seite aktualisiert sich von selbst, sobald es geklappt hat.",
         "short": "7TV war beim letzten Versuch nicht erreichbar."
+      },
+      "seventv_response_unusable": {
+        "title": "7TVs Antwort für diesen Channel war unvollständig.",
+        "hint": "7TV hat geantwortet, aber ohne die Kennung des aktiven Emote-Sets — damit lässt sich nichts abgleichen. Bisherige Daten bleiben unangetastet. Das ist meist vorübergehend; der Bot versucht es jede Minute erneut.",
+        "short": "7TV: unvollständige Antwort."
       }
     }
   },

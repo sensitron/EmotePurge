@@ -10,6 +10,44 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
+
+**Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
+
+**Vertragserweiterung:** neuer Wire-Code `seventv_response_unusable` in
+`SevenTvSyncFailureReasons`, samt Spiegel in `seven-tv-sync-failure.ts` und `title`/`hint`/`short`
+in beiden Locales (Regel 7).
+
+**Der Fall.** 7TV kann mit `Ok` antworten und ein aktives Set liefern, dessen `id` fehlt;
+`SevenTvEmoteSetJsonDto.Id` fällt dann auf `string.Empty` zurück. Kein Lookup-Status fängt das ab —
+die Antwort ist geparst, sie ist nur unbrauchbar. Bisher lief der Sync damit weiter und stempelte den
+Leerstring auf `Channel.ActiveEmoteSetId`: ein Wert, den der Delta-Pfad anschließend gegen jeden
+eingehenden Dispatch vergleicht und den die Usage-Seite als „der erste Sync läuft noch" liest.
+
+**Der Grund hat bewusst keinen `SevenTvLookupStatus` hinter sich.** Die Statuswerte beschreiben, was
+ein *Lookup* ergeben hat; dieser hier beschreibt eine Nutzlast, die alle diese Prüfungen bestanden
+hat und trotzdem nicht verwendbar ist. Ein Enum-Mitglied dafür würde jeden Lookup im Repo zwingen,
+einen Fall zu behandeln, den nur der Sync erkennen kann. `FromStatus` bleibt deshalb erschöpfend über
+das Enum und gibt diesen Wert nie zurück; `SevenTvSyncService` benutzt ihn direkt, an der einzigen
+Stelle, die den Defekt sieht. Dafür hat `RecordFailedAttemptAsync` eine zweite Überladung bekommen,
+die den Grund statt des Status nimmt.
+
+**Die Stelle ist der eigentliche Inhalt dieser Entscheidung, nicht der Code.** Der Guard steht
+unmittelbar hinter `var emoteSet = channelState.State.EmoteSet;` — vor der ersten Mutation. Damit
+darf `SevenTvSyncResult.Create` wieder auf `ThrowIfNullOrWhiteSpace` prüfen (der Eintrag darüber
+hatte das auf eine Null-Prüfung zurückgenommen): Die Factory läuft nach `SaveChangesAsync`, und eine
+Prüfung an so später Stelle darf nur noch eine Unmöglichkeit feststellen, niemals der Ort sein, an
+dem ein echter Fall auffällt.
+
+**Gemessen, nicht behauptet.** Ersetzt man die Guard-Bedingung durch `false`, scheitert
+`SyncChannel_OkWithABlankSetId_IsRejectedBeforeAnythingIsWritten` mit genau der vorhergesagten
+Ursache — `System.ArgumentException … (Parameter 'emoteSetId')` aus der Factory, also *nach* den
+Schreibvorgängen. Der Test prüft entsprechend nicht den Grund, sondern die **Abwesenheit von
+Schreibzugriffen**: bekannter Set-Id überlebt, `LastSyncedAtUtc` bleibt null, die angebotene
+Emote-Zeile wird nicht eingefügt, der Match-Cache nicht neu gebaut.
+
+---
+
 ### 2026-09-05 — Der aktuelle Login verlässt den Sync als Rückgabewert, nicht nur als Seiteneffekt
 
 **Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvSyncService.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Worker/Worker.cs`, `src/EmotePurge.Worker/SevenTvPeriodicResyncWorker.cs`, `src/EmotePurge.Worker/SevenTv/SevenTvEventClient.cs`
@@ -75,12 +113,10 @@ dieser Eintrag geradezieht. Eine Prüfung so spät kauft nichts und kostet die N
 ist eine Null-Prüfung. Der Login behält seine Blank-Prüfung, weil er aus der eigenen `Channel`-Zeile
 stammt, die normalisiert und unique-indiziert ist.
 
-**Damit bleibt eine ältere Frage offen** (nicht in diesem Commit entschieden): Ein leerer Set-Id
-unter `Ok` ist eine kaputte 7TV-Antwort, und der Sync schreibt sie heute klaglos nach
-`Channel.ActiveEmoteSetId`. Richtig wäre vermutlich, sie **vor** der ersten Mutation abzulehnen —
-das verlangt aber eine Entscheidung darüber, als was sie protokolliert wird
-(`SevenTvSyncFailureReasons` kennt keinen Grund „Antwort unbrauchbar"), und das ist ein eigenes
-Vorhaben, kein Nebeneffekt der Login-Propagierung.
+**Nachtrag, entschieden am selben Tag:** Die damit offen gebliebene Frage — was bei einer
+`Ok`-Antwort mit leerem `emoteSet.Id` passieren soll — ist beantwortet und im Eintrag darunter
+umgesetzt. Die Prüfung in `SevenTvSyncResult.Create` steht seither wieder auf
+`ThrowIfNullOrWhiteSpace`, weil der Fall den Typ gar nicht mehr erreicht.
 
 ---
 

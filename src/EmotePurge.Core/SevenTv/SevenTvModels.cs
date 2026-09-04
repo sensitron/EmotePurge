@@ -69,23 +69,21 @@ public sealed class SevenTvSyncResult
     /// <summary>
     /// Builds the result of a completed sync.
     /// <para>
-    /// <paramref name="channelName"/> is guarded against blank because it is the value this type
-    /// exists to carry, and it comes from our own <c>Channel</c> row — normalized on the way in and
-    /// unique-indexed, so blank is not a shape the database can hold. <paramref name="emoteSetId"/>
-    /// deliberately gets only a null check, even though 7TV can in principle answer <c>Ok</c> with a
-    /// blank set id (its DTO defaults the field to an empty string). By the time this runs, the sync
-    /// has already written the row, reconciled the emotes and refreshed the match cache — so a throw
-    /// here would leave that work committed while the caller sees a failure and skips the
-    /// subscription convergence and the <c>channel.synced</c> publish. Guarding a value that late
-    /// buys nothing and costs the after-effects. Whether a blank set id should abort the sync before
-    /// it writes anything is a real question, but an older one than this type: see the decision-log
-    /// entry of 2026-09-05.
+    /// <paramref name="channelName"/> comes from our own <c>Channel</c> row — normalized on the way
+    /// in and unique-indexed, so blank is not a shape the database can hold.
+    /// <paramref name="emoteSetId"/> can be blank in 7TV's answer (its DTO defaults the field to an
+    /// empty string), and this guard is only safe because <c>SevenTvSyncService</c> rejects that
+    /// answer <em>before</em> it writes anything. The order matters and is not cosmetic: this
+    /// factory runs after the row has been saved and the match cache refreshed, so a throw here
+    /// would leave that work committed while the caller treats the sync as failed and skips the
+    /// subscription convergence and the <c>channel.synced</c> publish. A guard that late is only
+    /// allowed to state an impossibility, never to be the one catching a real case.
     /// </para>
     /// </summary>
     public static SevenTvSyncResult Create(string channelName, string emoteSetId, string? sevenTvUserId, bool hasChanges)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
-        ArgumentNullException.ThrowIfNull(emoteSetId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(emoteSetId);
         return new SevenTvSyncResult(channelName, emoteSetId, sevenTvUserId, hasChanges);
     }
 }

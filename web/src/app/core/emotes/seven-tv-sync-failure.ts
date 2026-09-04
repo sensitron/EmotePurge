@@ -8,12 +8,16 @@
  * same gap `api-error.ts` documents.
  */
 export type SevenTvSyncFailureReason =
-  'no_seventv_account' | 'no_active_emote_set' | 'seventv_unavailable';
+  | 'no_seventv_account'
+  | 'no_active_emote_set'
+  | 'seventv_unavailable'
+  | 'seventv_response_unusable';
 
 export const SEVEN_TV_SYNC_FAILURE_REASONS: readonly SevenTvSyncFailureReason[] = [
   'no_seventv_account',
   'no_active_emote_set',
   'seventv_unavailable',
+  'seventv_response_unusable',
 ];
 
 /**
