@@ -1,10 +1,10 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 
 import { LiveUpdateService } from './live-update.service';
 
 /** Answer of `GET /api/live/status` — see LiveEndpoints. */
-interface LiveStreamStatus {
+export interface LiveStreamStatus {
   openConnections: number;
   maxPerSubscriber: number;
   perSubscriberLimitReached: boolean;
@@ -34,7 +34,7 @@ export class LiveQuotaService {
   private readonly http = inject(HttpClient);
   private readonly liveUpdate = inject(LiveUpdateService);
 
-  private readonly limitReachedSignal = signal(false);
+  private readonly quotaSignal = signal<LiveStreamStatus | null>(null);
 
   /**
    * Bumped whenever anything invalidates an answer that is still on its way — today only a stream
@@ -49,11 +49,19 @@ export class LiveQuotaService {
   private probeGeneration = 0;
 
   /**
+   * The last answer, or null while none applies — either nothing has been refused yet, or a stream
+   * has since opened and made the old answer obsolete.
+   */
+  readonly quota = this.quotaSignal.asReadonly();
+
+  /**
    * Whether this login's own live-stream budget was full the last time we asked. False until a
    * stream has actually been refused — this is never a preflight check, only an explanation after
    * the fact.
    */
-  readonly perSubscriberLimitReached = this.limitReachedSignal.asReadonly();
+  readonly perSubscriberLimitReached = computed(
+    () => this.quotaSignal()?.perSubscriberLimitReached ?? false,
+  );
 
   constructor() {
     // One probe per fatal close, and only after one: asking before anything failed would spend a
@@ -71,7 +79,7 @@ export class LiveQuotaService {
     effect(() => {
       if (this.liveUpdate.status() === 'open') {
         this.probeGeneration++;
-        this.limitReachedSignal.set(false);
+        this.quotaSignal.set(null);
       }
     });
   }
@@ -83,7 +91,7 @@ export class LiveQuotaService {
         if (generation !== this.probeGeneration) {
           return;
         }
-        this.limitReachedSignal.set(status.perSubscriberLimitReached);
+        this.quotaSignal.set(status);
       },
       // A hint that cannot be substantiated is not shown. The failure this whole path exists to
       // explain is itself a sign of a wobbly connection, and guessing "it was probably your tabs"

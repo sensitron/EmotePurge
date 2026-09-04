@@ -22,7 +22,8 @@
       "stale": "Chat wird nicht gezählt"
     },
     "liveStatus": {
-      "paused": "Live-Updates pausiert"
+      "paused": "Live-Updates pausiert",
+      "explanation": "Du hast {{open}} von {{max}} möglichen Live-Verbindungen offen. Sie zählen über alle Tabs und Geräte zusammen — schließ eine andere EmotePurge-Ansicht, dann laufen die Updates hier weiter."
     },
     "admin": "Admin",
     "myVotings": "Meine Abstimmungen",

@@ -1,5 +1,5 @@
 import { NgOptimizedImage } from '@angular/common';
-import { Component, computed, effect, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
@@ -10,6 +10,7 @@ import { LOGO_SRC } from '../../shared/branding/logo';
 import { AccountMenu } from '../../shared/ui/account-menu';
 import { Button } from '../../shared/ui/button';
 import { HealthMarker } from '../../shared/ui/health-marker';
+import { Popover } from '../../shared/ui/popover';
 
 @Component({
   selector: 'app-shell',
@@ -18,6 +19,7 @@ import { HealthMarker } from '../../shared/ui/health-marker';
     Button,
     HealthMarker,
     NgOptimizedImage,
+    Popover,
     RouterLink,
     RouterOutlet,
     TranslocoPipe,
@@ -98,12 +100,46 @@ import { HealthMarker } from '../../shared/ui/health-marker';
                 {{ 'shell.liveStatus.paused' | transloco }}
               }
             </span>
-            @if (liveQuotaExhausted()) {
-              <app-health-marker
-                aria-hidden="true"
-                tone="warning"
-                [label]="'shell.liveStatus.paused' | transloco"
-              />
+            @if (liveQuota(); as quota) {
+              @if (quota.perSubscriberLimitReached) {
+                <div class="relative" data-popover-anchor>
+                  <!-- The badge is the trigger, so it also supplies the button's accessible name —
+                       hence no aria-label here and no aria-hidden on the marker. -->
+                  <button
+                    type="button"
+                    class="inline-flex items-center rounded-md transition hover:opacity-80"
+                    aria-haspopup="dialog"
+                    [attr.aria-expanded]="liveHintOpen()"
+                    (click)="liveHintOpen.set(!liveHintOpen())"
+                  >
+                    <app-health-marker
+                      tone="warning"
+                      [label]="'shell.liveStatus.paused' | transloco"
+                    />
+                  </button>
+                  @if (liveHintOpen()) {
+                    <!-- align="end": the trigger sits in the left group, but the panel is wide and
+                         a start-aligned one runs past the right edge at 360px. -->
+                    <app-popover
+                      align="end"
+                      width="w-72"
+                      [ariaLabel]="'shell.liveStatus.paused' | transloco"
+                      (closed)="liveHintOpen.set(false)"
+                    >
+                      <p class="px-4 py-3 text-sm text-fg-muted">
+                        {{
+                          'shell.liveStatus.explanation'
+                            | transloco
+                              : {
+                                  open: quota.openConnections,
+                                  max: quota.maxPerSubscriber,
+                                }
+                        }}
+                      </p>
+                    </app-popover>
+                  }
+                </div>
+              }
             }
           </div>
 
@@ -145,6 +181,8 @@ export class AppShell {
   protected readonly authResolved = this.authService.isResolved;
   protected readonly workerStale = computed(() => this.healthService.status() === 'stale');
   protected readonly liveQuotaExhausted = this.liveQuotaService.perSubscriberLimitReached;
+  protected readonly liveQuota = this.liveQuotaService.quota;
+  protected readonly liveHintOpen = signal(false);
   protected readonly logoSrc = LOGO_SRC;
 
   constructor() {

@@ -68,8 +68,11 @@ mehr weggeräumt: eine Warnung über Live-Updates auf einer Seite, deren Live-Up
 Behoben über einen Generationszähler, der beim Öffnen hochgezählt wird; eine Antwort aus einer alten
 Generation wird verworfen. (2) Die Beschriftung nennt jetzt nur noch die Folge. Die Ursache („zu
 viele offene Tabs") passt nicht in eine Kopfzeile, die bei 360 px schon Wortmarke, „Abstimmungen"
-und den 44-px-Kontotrigger trägt — eine Pille bricht nicht um. **Damit fehlt die Ursache in der
-Oberfläche; wer sie sichtbar haben will, braucht eine andere Fläche als diese Zeile.** (3) Die
+und den 44-px-Kontotrigger trägt — eine Pille bricht nicht um. Die Ursache ist deshalb **einen Klick
+tief**: Der Marker ist der Auslöser eines `app-popover`, das sie ausschreibt und dabei die Zahlen
+nennt („Du hast 6 von 6 möglichen Live-Verbindungen offen"). Deshalb trägt
+`LiveQuotaService` die ganze Antwort und nicht nur den Boolean. Ein `title`-Tooltip wäre billiger
+gewesen und auf dem Handy unsichtbar — genau dort, wo „zu viele Tabs" am ehesten zutrifft. (3) Die
 Meldung erscheint nach dem Laden, also hätte ein Screenreader gar nichts erfahren — sie hat jetzt
 eine dauerhaft vorhandene `sr-only`-Live-Region neben der `aria-hidden`-Pille.
 

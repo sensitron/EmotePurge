@@ -55,6 +55,13 @@ describe('LiveQuotaService', () => {
     req.flush({ openConnections: 6, maxPerSubscriber: 6, perSubscriberLimitReached: true });
 
     expect(service.perSubscriberLimitReached()).toBe(true);
+    // The numbers travel too, because the header's popover names them ("6 of 6") rather than
+    // describing the state in the abstract.
+    expect(service.quota()).toEqual({
+      openConnections: 6,
+      maxPerSubscriber: 6,
+      perSubscriberLimitReached: true,
+    });
   });
 
   it('stays quiet when the budget still had room — that refusal was not the user to blame', () => {
@@ -95,6 +102,8 @@ describe('LiveQuotaService', () => {
     TestBed.tick();
 
     expect(service.perSubscriberLimitReached()).toBe(false);
+    // Null, not a stale snapshot: the popover would otherwise still have numbers to render.
+    expect(service.quota()).toBeNull();
   });
 
   it('drops a probe answer that arrives after the stream is back', () => {
