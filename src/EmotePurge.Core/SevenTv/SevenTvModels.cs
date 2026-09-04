@@ -74,54 +74,203 @@ public enum SevenTvLookupStatus
     Unavailable
 }
 
-// The channel state plus why it is absent. State is non-null if and only if Status is Ok; the two
-// factories are the only supported way to build one, so that invariant cannot be broken at a call
-// site.
-public record SevenTvChannelStateResult(SevenTvLookupStatus Status, SevenTvChannelState? State)
+/// <summary>
+/// Rejects a <see cref="SevenTvLookupStatus"/> that no <c>Failed(...)</c> factory of this family may
+/// carry. Shared by all four result types below and by
+/// <see cref="EmotePurge.Core.Services.SevenTvEditorGrantsLookupResult"/>, so the guard exists once instead of five
+/// times.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Two rejections, for two different mistakes. <see cref="SevenTvLookupStatus.Ok"/> is the success
+/// status: a caller that hands it to a failure factory is asking for the one value this whole family
+/// exists to make impossible — a "successful" result with no payload — and failing loudly at the
+/// source beats a <see cref="NullReferenceException"/> in whichever service dereferences the
+/// payload behind an <c>Ok</c> check. An undefined cast like <c>(SevenTvLookupStatus)9</c> is
+/// rejected for the mirror reason: it matches no arm of any caller's switch, so it would travel as
+/// far as the default arm of something that never expected to have one.
+/// </para>
+/// <para>
+/// A success status added to <see cref="SevenTvLookupStatus"/> later has to be added here — and get
+/// its own success factory on every type of the family — in the same commit that adds it to the
+/// enum.
+/// </para>
+/// </remarks>
+internal static class SevenTvLookupStatusGuard
 {
-    public static SevenTvChannelStateResult Ok(SevenTvChannelState state) =>
-        new(SevenTvLookupStatus.Ok, state);
+    internal static void ThrowIfNotAFailure(SevenTvLookupStatus status, string typeName, string successFactory)
+    {
+        if (status == SevenTvLookupStatus.Ok)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status),
+                status,
+                $"{typeName}.Failed() kann keinen Erfolgsstatus tragen — für Ok ist {typeName}.{successFactory} zuständig.");
+        }
 
-    public static SevenTvChannelStateResult Failed(SevenTvLookupStatus status) =>
-        new(status, null);
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status), status, "Unbekannter SevenTvLookupStatus.");
+        }
+    }
 }
 
-// Same shape for the Twitch-id resolution, which can only ever end in Ok, NoSevenTvAccount (no 7TV
-// user carries that Twitch connection) or Unavailable. A separate record rather than a generic
-// envelope: the property name says what it holds, which a `Value` never would.
-public record SevenTvTwitchUserIdResult(SevenTvLookupStatus Status, string? TwitchUserId)
+/// <summary>
+/// The channel state plus why it is absent. <see cref="State"/> is non-null if and only if
+/// <see cref="Status"/> is <see cref="SevenTvLookupStatus.Ok"/>, and the two factories are the only
+/// way to build one at all — so that invariant cannot be broken at a call site, not even by accident.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Why this family is sealed classes and not records</b> — written once here for all five types
+/// (the four in this file and <see cref="EmotePurge.Core.Services.SevenTvEditorGrantsLookupResult"/>), which share
+/// one shape: a <see cref="SevenTvLookupStatus"/> plus a payload that only <c>Ok</c> carries.
+/// </para>
+/// <para>
+/// A record cannot keep the promise its own doc comment makes. Its positional constructor is public
+/// and <c>with</c> sits on top of that, so <c>new SevenTvChannelStateResult(SevenTvLookupStatus.Ok,
+/// null)</c> and <c>result with { State = null }</c> stay open however carefully the factories are
+/// written — and an <c>Ok</c> without a payload is exactly the value every caller of these types
+/// assumes cannot exist, because every one of them dereferences the payload behind an <c>Ok</c>
+/// check. Adding factories alone only adds a safe path; it does not remove the unsafe ones. That is
+/// the lesson of issue #55, where the first attempt copied this very family's shape and reproduced
+/// its gap instead of closing it — see the decision-log entry of 2026-09-04 and
+/// <see cref="EmotePurge.Core.Services.ChannelJoinResult"/>, which was closed first.
+/// </para>
+/// <para>
+/// Losing value equality costs nothing here: no call site compares two of these, and for the two
+/// types whose payload is a list or a mutable object, record equality would have looked like a
+/// guarantee it never gave.
+/// </para>
+/// </remarks>
+public sealed class SevenTvChannelStateResult
 {
-    public static SevenTvTwitchUserIdResult Ok(string twitchUserId) =>
-        new(SevenTvLookupStatus.Ok, twitchUserId);
+    private SevenTvChannelStateResult(SevenTvLookupStatus status, SevenTvChannelState? state)
+    {
+        Status = status;
+        State = state;
+    }
 
-    public static SevenTvTwitchUserIdResult Failed(SevenTvLookupStatus status) =>
-        new(status, null);
+    public SevenTvLookupStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="SevenTvLookupStatus.Ok"/>.</summary>
+    public SevenTvChannelState? State { get; }
+
+    public static SevenTvChannelStateResult Ok(SevenTvChannelState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return new SevenTvChannelStateResult(SevenTvLookupStatus.Ok, state);
+    }
+
+    public static SevenTvChannelStateResult Failed(SevenTvLookupStatus status)
+    {
+        SevenTvLookupStatusGuard.ThrowIfNotAFailure(status, nameof(SevenTvChannelStateResult), "Ok(state)");
+        return new SevenTvChannelStateResult(status, null);
+    }
 }
 
-// Same shape again for the 7TV identity resolution (issue #37): it used to collapse "no 7TV account
-// linked to this Twitch id" and "7TV unreachable" onto the same null, which made
-// MyChannelsService show the "7TV editor status could not be checked" warning to users who simply
-// have no 7TV account at all. Only Ok and NoSevenTvAccount/Unavailable are reachable in practice —
-// there is no active-emote-set concept at the identity level.
-public record SevenTvIdentityResult(SevenTvLookupStatus Status, SevenTvIdentity? Identity)
+/// <summary>
+/// Same shape for the Twitch-id resolution, which can only ever end in <c>Ok</c>,
+/// <see cref="SevenTvLookupStatus.NoSevenTvAccount"/> (no 7TV user carries that Twitch connection) or
+/// <see cref="SevenTvLookupStatus.Unavailable"/>. A separate type rather than a generic envelope: the
+/// property name says what it holds, which a <c>Value</c> never would. Built like
+/// <see cref="SevenTvChannelStateResult"/> and for the same reason.
+/// </summary>
+public sealed class SevenTvTwitchUserIdResult
 {
-    public static SevenTvIdentityResult Ok(SevenTvIdentity identity) =>
-        new(SevenTvLookupStatus.Ok, identity);
+    private SevenTvTwitchUserIdResult(SevenTvLookupStatus status, string? twitchUserId)
+    {
+        Status = status;
+        TwitchUserId = twitchUserId;
+    }
 
-    public static SevenTvIdentityResult Failed(SevenTvLookupStatus status) =>
-        new(status, null);
+    public SevenTvLookupStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="SevenTvLookupStatus.Ok"/>.</summary>
+    public string? TwitchUserId { get; }
+
+    public static SevenTvTwitchUserIdResult Ok(string twitchUserId)
+    {
+        ArgumentNullException.ThrowIfNull(twitchUserId);
+        return new SevenTvTwitchUserIdResult(SevenTvLookupStatus.Ok, twitchUserId);
+    }
+
+    public static SevenTvTwitchUserIdResult Failed(SevenTvLookupStatus status)
+    {
+        SevenTvLookupStatusGuard.ThrowIfNotAFailure(status, nameof(SevenTvTwitchUserIdResult), "Ok(twitchUserId)");
+        return new SevenTvTwitchUserIdResult(status, null);
+    }
 }
 
-// Same shape for the editor_of lookup (issue #37): the grant list defaults to an empty collection on
-// its own DTO, so a genuinely empty grant set already deserializes as Ok with an empty list — this
-// Status only ever turns Unavailable when the response itself is unusable (GraphQL error, or the
-// queried 7TV user id — already resolved as valid earlier in the same call chain — coming back
-// empty).
-public record SevenTvEditorGrantsResult(SevenTvLookupStatus Status, IReadOnlyList<SevenTvEditorGrant>? Grants)
+/// <summary>
+/// Same shape again for the 7TV identity resolution (issue #37): it used to collapse "no 7TV account
+/// linked to this Twitch id" and "7TV unreachable" onto the same null, which made
+/// <c>MyChannelsService</c> show the "7TV editor status could not be checked" warning to users who
+/// simply have no 7TV account at all. Only <c>Ok</c> and
+/// <see cref="SevenTvLookupStatus.NoSevenTvAccount"/>/<see cref="SevenTvLookupStatus.Unavailable"/>
+/// are reachable in practice — there is no active-emote-set concept at the identity level. Built like
+/// <see cref="SevenTvChannelStateResult"/> and for the same reason.
+/// </summary>
+public sealed class SevenTvIdentityResult
 {
-    public static SevenTvEditorGrantsResult Ok(IReadOnlyList<SevenTvEditorGrant> grants) =>
-        new(SevenTvLookupStatus.Ok, grants);
+    private SevenTvIdentityResult(SevenTvLookupStatus status, SevenTvIdentity? identity)
+    {
+        Status = status;
+        Identity = identity;
+    }
 
-    public static SevenTvEditorGrantsResult Failed(SevenTvLookupStatus status) =>
-        new(status, null);
+    public SevenTvLookupStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="SevenTvLookupStatus.Ok"/>.</summary>
+    public SevenTvIdentity? Identity { get; }
+
+    public static SevenTvIdentityResult Ok(SevenTvIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        return new SevenTvIdentityResult(SevenTvLookupStatus.Ok, identity);
+    }
+
+    public static SevenTvIdentityResult Failed(SevenTvLookupStatus status)
+    {
+        SevenTvLookupStatusGuard.ThrowIfNotAFailure(status, nameof(SevenTvIdentityResult), "Ok(identity)");
+        return new SevenTvIdentityResult(status, null);
+    }
+}
+
+/// <summary>
+/// Same shape for the editor_of lookup (issue #37): the grant list defaults to an empty collection on
+/// its own DTO, so a genuinely empty grant set already deserializes as <c>Ok</c> with an empty list —
+/// this <see cref="Status"/> only ever turns <see cref="SevenTvLookupStatus.Unavailable"/> when the
+/// response itself is unusable (GraphQL error, or the queried 7TV user id — already resolved as valid
+/// earlier in the same call chain — coming back empty). Built like
+/// <see cref="SevenTvChannelStateResult"/> and for the same reason.
+/// </summary>
+public sealed class SevenTvEditorGrantsResult
+{
+    private SevenTvEditorGrantsResult(SevenTvLookupStatus status, IReadOnlyList<SevenTvEditorGrant>? grants)
+    {
+        Status = status;
+        Grants = grants;
+    }
+
+    public SevenTvLookupStatus Status { get; }
+
+    /// <summary>
+    /// Non-null if and only if <see cref="Status"/> is <see cref="SevenTvLookupStatus.Ok"/>. An empty
+    /// list is a legitimate <c>Ok</c> — "answered: this user edits nothing" is not a failure.
+    /// </summary>
+    public IReadOnlyList<SevenTvEditorGrant>? Grants { get; }
+
+    public static SevenTvEditorGrantsResult Ok(IReadOnlyList<SevenTvEditorGrant> grants)
+    {
+        ArgumentNullException.ThrowIfNull(grants);
+        return new SevenTvEditorGrantsResult(SevenTvLookupStatus.Ok, grants);
+    }
+
+    public static SevenTvEditorGrantsResult Failed(SevenTvLookupStatus status)
+    {
+        SevenTvLookupStatusGuard.ThrowIfNotAFailure(status, nameof(SevenTvEditorGrantsResult), "Ok(grants)");
+        return new SevenTvEditorGrantsResult(status, null);
+    }
 }
