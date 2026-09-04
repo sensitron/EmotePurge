@@ -10,6 +10,53 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-05 — `active-set` trägt die Namenskollisionen mit; der zweite Request bleibt vorerst trotzdem
+
+**Betrifft:** `src/EmotePurge.Core/Services/IEmoteSetStatusService.cs`, `src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs`
+
+**Vertragsänderung, additiv:** `GET /api/channels/{c}/emotes/active-set` liefert zusätzlich
+`duplicateNames` — dieselbe Liste, die `GET .../emotes/duplicate-names` als eigene Route serviert.
+Damit folgt die Route der Linie, die die Einträge vom 2026-08-… zu `trackedSince` und zum
+Slot-Budget schon zweimal gezogen haben: Was derselbe Personenkreis auf derselben Seite braucht,
+reist in derselben Antwort mit, statt einen eigenen Request zu kosten. Die Liste ist nie `null` —
+„keine Kollision" ist die leere Liste — und sie steht hinter demselben Gate wie `occupiedSlots` und
+`botsExcludedSince`: solange `ActiveEmoteSetId` leer ist, wird gar nicht gefragt, weil genau dieses
+Fenster die Usage-Seite in einer Schleife pollt.
+
+**Die Kollisionsermittlung ist delegiert, nicht kopiert.** `EmoteSetStatusService` ruft
+`IDuplicateEmoteNameQueryService` auf, statt aus den ohnehin geladenen Zeilen selbst zu gruppieren.
+Das kostet einen zusätzlichen indizierten Channel-Lookup und spart eine zweite Kopie der Regel, dass
+die Gruppierung ordinal und case-sensitive sein muss (Eintrag zu 7TVs eigener Vergleichssemantik) —
+und genau solche zweiten Kopien driften.
+
+**Die eigene Route bleibt, und der Frontend-Umbau unterbleibt bewusst.** Issue #45 wollte damit
+„ein Permit pro Öffnung" sparen. Die Bestandsaufnahme zeigt, dass die Rechnung so nicht aufgeht,
+weil die beiden Nutzlasten **verschiedene Konsumenten** haben:
+
+- `duplicate-names` holt genau **eine** Stelle: das `ChannelWorkspaceLayout` — also die Klammer um
+  *alle* Kanal-Tabs.
+- `active-set` holt die Usage-Seite (vier Aufrufstellen: Erstladung, Refresh-Knopf, Sync-Warteschleife,
+  60-s-Recheck) sowie Mass-Delete- und Restore-Panel beim Öffnen ihres Dialogs.
+
+Würde das Layout künftig `active-set` statt `duplicate-names` rufen, tauschte es einen Request gegen
+einen anderen — auf dem Usage-Tab macht die Runde laut `RateLimitPolicyBudgetTests` ohnehin schon
+**zwei** `active-set`-Lesungen, es würde also schlicht eine dritte. Auf dem Vote-Sessions- und dem
+Aktivitäts-Tab wäre es sogar **teurer**: dort holt heute niemand `active-set`, das Layout aber sehr
+wohl die Kollisionen. Der Umbau würde die Last dort also erhöhen statt senken.
+
+**Damit steht eine Produktfrage offen, die dieser Commit nicht beantwortet:** Der eingesparte
+Request ist zu haben, wenn das Kollisions-Banner von der Layout-Klammer in die Usage-Seite wandert —
+die ruft `active-set` ohnehin. Preis: Das Banner verschwindet auf den beiden anderen Tabs. Die
+Alternative, das Layout zum Besitzer der zusammengelegten Antwort zu machen und die Usage-Seite
+daran zu hängen, kollidiert mit deren `requestedSetStatusFor`-Einmal-pro-Kanal-Logik, der
+Sync-Warteschleife und den beiden Panels — und braucht genau den geteilten Cache-Zustand, den
+Entscheidung 4 des Rate-Limit-Plans zu vermeiden versprach.
+
+Das Feld ist die Hälfte ohne Entscheidungsbedarf: gebaut, getestet, und der Umbau ist danach eine
+reine Frontend-Änderung. Bis dahin ist es bewusst ungenutzt.
+
+---
+
 ### 2026-09-04 — Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert
 
 **Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj`

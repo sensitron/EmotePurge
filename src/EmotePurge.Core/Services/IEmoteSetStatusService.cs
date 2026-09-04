@@ -40,6 +40,18 @@ namespace EmotePurge.Core.Services;
 /// never were. <c>null</c> means no bot has ever been seen here, in which case there is nothing
 /// to explain and a consumer should show nothing.
 /// </param>
+/// <param name="DuplicateNames">
+/// The same list <c>GET .../emotes/duplicate-names</c> serves, carried along here so a consumer that
+/// needs both does not have to spend a second request on it (issue #45). Always a list, never null:
+/// "no collisions" is an empty list, and there is no third state to report. Empty while the first
+/// sync is still pending, for the same reason <paramref name="OccupiedSlots"/> is 0 there — no emote
+/// rows can exist yet, so the query is skipped rather than run for a guaranteed empty answer.
+/// <para>
+/// The dedicated endpoint stays: as of this writing it is still the only consumer, because the
+/// duplicate banner and the slot budget live in different components. See the decision-log entry of
+/// 2026-09-05 for why folding the *request* away needs a decision this field does not make.
+/// </para>
+/// </param>
 public record EmoteSetStatusDto(
     string ActiveEmoteSetId,
     int? Capacity,
@@ -47,7 +59,8 @@ public record EmoteSetStatusDto(
     DateTime TrackedSince,
     string? SyncFailureReason,
     DateTime? LastSyncAttemptAtUtc,
-    DateOnly? BotsExcludedSince);
+    DateOnly? BotsExcludedSince,
+    IReadOnlyList<DuplicateEmoteNameDto> DuplicateNames);
 
 public interface IEmoteSetStatusService
 {

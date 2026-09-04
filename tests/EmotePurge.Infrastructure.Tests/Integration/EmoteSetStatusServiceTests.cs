@@ -22,7 +22,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         await SeedEmoteAsync(db, channel.Id, "Two");
         await SeedEmoteAsync(db, channel.Id, "AlreadyDeleted", isArchived: true);
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal(2, status.OccupiedSlots);
@@ -38,7 +38,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "slotstest2", capacity: null);
         await SeedEmoteAsync(db, channel.Id, "One");
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Null(status.Capacity);
@@ -56,7 +56,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         channel.TrackingResumedAt = new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal(new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc), status.TrackedSince);
@@ -70,7 +70,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         channel.CreatedAt = new DateTime(2026, 3, 5, 0, 0, 0, DateTimeKind.Utc);
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal(new DateTime(2026, 3, 5, 0, 0, 0, DateTimeKind.Utc), status.TrackedSince);
@@ -84,7 +84,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var channel = await SeedChannelAsync(db, "slotstest5", capacity: null, activeEmoteSetId: "");
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal(string.Empty, status.ActiveEmoteSetId);
@@ -103,7 +103,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         channel.LastSyncAttemptAtUtc = new DateTime(2026, 8, 29, 10, 0, 0, DateTimeKind.Utc);
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal("no_active_emote_set", status.SyncFailureReason);
@@ -118,7 +118,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var channel = await SeedChannelAsync(db, "slotstest8", capacity: null, activeEmoteSetId: "");
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Null(status.SyncFailureReason);
@@ -132,7 +132,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "slotstest6", capacity: 600);
         await SeedEmoteAsync(db, channel.Id, "One");
 
-        var status = await new EmoteSetStatusService(db).GetAsync("  SlotsTest6 ");
+        var status = await CreateService(db).GetAsync("  SlotsTest6 ");
 
         Assert.NotNull(status);
         Assert.Equal(1, status.OccupiedSlots);
@@ -143,7 +143,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
     {
         await using var db = fixture.CreateDbContext();
 
-        var status = await new EmoteSetStatusService(db).GetAsync("slotstest_missing");
+        var status = await CreateService(db).GetAsync("slotstest_missing");
 
         Assert.Null(status);
     }
@@ -163,7 +163,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
             new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 20), UseCount = 1, BotUseCount = 1 });
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal(new DateOnly(2026, 8, 15), status.BotsExcludedSince);
@@ -178,7 +178,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10, BotUseCount = 0 });
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Null(status.BotsExcludedSince);
@@ -197,7 +197,7 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 0, BotUseCount = 5 });
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Null(status.BotsExcludedSince);
@@ -214,11 +214,77 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         db.UsageStats.Add(new UsageStat { EmoteId = archived.Id, Date = new DateOnly(2026, 8, 5), UseCount = 0, BotUseCount = 4 });
         await db.SaveChangesAsync();
 
-        var status = await new EmoteSetStatusService(db).GetAsync(channel.ChannelName);
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
 
         Assert.NotNull(status);
         Assert.Equal(new DateOnly(2026, 8, 5), status.BotsExcludedSince);
     }
+
+    // The real DuplicateEmoteNameQueryService rather than a substitute: it is the collaborator whose
+    // *answer* is part of this DTO now (issue #45), and against real Postgres a fake would only
+    // assert that the field is wired, not that it carries the collisions the same query service
+    // serves on its own route.
+    [Fact]
+    public async Task GetAsync_CarriesTheSameCollisionsTheDuplicateNamesRouteServes()
+    {
+        // Issue #45: the collision list rides along here so a consumer that needs both does not
+        // spend a second request on it. Asserted against the dedicated query service rather than
+        // against a hand-written expectation, because "the same answer" is the actual contract —
+        // a second, drifting copy of the ordinal grouping is what this delegation exists to prevent.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest13", capacity: 1000);
+        await SeedEmoteAsync(db, channel.Id, "Collide");
+        await SeedEmoteAsync(db, channel.Id, "Collide");
+        await SeedEmoteAsync(db, channel.Id, "Unique");
+        // Casing variants are distinct chat tokens, so this one must not join the group.
+        await SeedEmoteAsync(db, channel.Id, "collide");
+
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        var duplicate = Assert.Single(status.DuplicateNames);
+        Assert.Equal("Collide", duplicate.Name);
+        Assert.Equal(2, duplicate.Emotes.Count);
+
+        var fromTheRoute = await new DuplicateEmoteNameQueryService(db).GetAsync(channel.ChannelName);
+        Assert.Equivalent(fromTheRoute, status.DuplicateNames, strict: true);
+    }
+
+    [Fact]
+    public async Task GetAsync_NoCollisions_ReportsAnEmptyList()
+    {
+        // Never null: "no collisions" and "we did not look" must not become the same value on the
+        // wire, and there is no third state to report.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest14", capacity: 1000);
+        await SeedEmoteAsync(db, channel.Id, "One");
+
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Empty(status.DuplicateNames);
+    }
+
+    [Fact]
+    public async Task GetAsync_BeforeTheFirstSync_SkipsTheCollisionQueryEntirely()
+    {
+        // Same gate as occupiedSlots and botsExcludedSince: this is the state the usage page polls
+        // in a loop, and no emote row can exist yet. Colliding rows seeded directly (which the
+        // normal flow could never produce for an unsynced channel) prove the skip happened —
+        // nothing else could produce an empty list here.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest15", capacity: null, activeEmoteSetId: "");
+        await SeedEmoteAsync(db, channel.Id, "Collide");
+        await SeedEmoteAsync(db, channel.Id, "Collide");
+
+        var status = await CreateService(db).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Empty(status.DuplicateNames);
+    }
+
+    private static EmoteSetStatusService CreateService(AppDbContext db) =>
+        new(db, new DuplicateEmoteNameQueryService(db));
 
     private static async Task<Channel> SeedChannelAsync(
         AppDbContext db, string channelName, int? capacity, string activeEmoteSetId = "64c9e0f0aa1234567890abcd")
