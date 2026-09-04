@@ -117,10 +117,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_pushed", ("e1", "existing", false));
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(pushed: [new SevenTvEmote("e2", "catJAM", "https://cdn/e2.webp")]));
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
         var row = await db.Emotes.SingleAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2");
         Assert.Equal("catJAM", row.Name);
         Assert.False(row.IsArchived);
@@ -135,9 +135,9 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_pulled", ("e1", "keepme", false), ("e2", "removeme", false));
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(channel.ChannelName, SetId, Delta(pulledIds: ["e2"]));
+        var result = await service.ApplyEmoteSetUpdateAsync(channel.ChannelName, SetId, Delta(pulledIds: ["e2"]));
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
         var row = await db.Emotes.SingleAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2");
         Assert.True(row.IsArchived);
         var cached = cache.GetChannelEmotes(channel.ChannelName);
@@ -153,10 +153,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_unarchive", ("e1", "phoenix", true));
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(pushed: [new SevenTvEmote("e1", "phoenix", "https://cdn/e1.webp")]));
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
         var row = await db.Emotes.SingleAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1");
         Assert.False(row.IsArchived);
         Assert.True(cache.GetChannelEmotes(channel.ChannelName).ContainsKey("phoenix"));
@@ -170,10 +170,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_rename", ("e1", "oldname", false));
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(updated: [new SevenTvEmote("e1", "newname", "https://cdn/e1.webp")]));
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
         var row = await db.Emotes.SingleAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1");
         Assert.Equal("newname", row.Name);
         var cached = cache.GetChannelEmotes(channel.ChannelName);
@@ -193,10 +193,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var service = CreateService(db, cache);
         cache.ReplaceChannel(channel.ChannelName, new Dictionary<string, string> { ["one"] = "x" });
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(pulledIds: ["e1", "e2", "e3"]));
 
-        Assert.Equal(SevenTvDeltaOutcome.ImplausibleSkipped, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.ImplausibleSkipped, result.Outcome);
         Assert.Equal(0, await db.Emotes.CountAsync(e => e.ChannelId == channel.Id && e.IsArchived));
         Assert.True(cache.GetChannelEmotes(channel.ChannelName).ContainsKey("one"));
     }
@@ -209,9 +209,9 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_empty");
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(channel.ChannelName, SetId, Delta(pulledIds: ["unknown"]));
+        var result = await service.ApplyEmoteSetUpdateAsync(channel.ChannelName, SetId, Delta(pulledIds: ["unknown"]));
 
-        Assert.Equal(SevenTvDeltaOutcome.NoChange, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.NoChange, result.Outcome);
     }
 
     [Fact]
@@ -225,10 +225,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         await db.SaveChangesAsync();
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(pushed: [new SevenTvEmote("e9", "ghost", "https://cdn/e9.webp")]));
 
-        Assert.Equal(SevenTvDeltaOutcome.SetNotActive, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.SetNotActive, result.Outcome);
         Assert.False(await db.Emotes.AnyAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e9"));
     }
 
@@ -238,10 +238,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         await using var db = fixture.CreateDbContext();
         var service = CreateService(db, new EmoteMatchCache());
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             "wstest_missing", SetId, Delta(pulledIds: ["e1"]));
 
-        Assert.Equal(SevenTvDeltaOutcome.ChannelUnknown, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.ChannelUnknown, result.Outcome);
     }
 
     [Fact]
@@ -256,8 +256,8 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var service = CreateService(db, cache);
         var delta = Delta(pushed: [new SevenTvEmote("e7", "sharedjam", "https://cdn/e7.webp")]);
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, await service.ApplyEmoteSetUpdateAsync(channelA.ChannelName, SetId, delta));
-        Assert.Equal(SevenTvDeltaOutcome.Applied, await service.ApplyEmoteSetUpdateAsync(channelB.ChannelName, SetId, delta));
+        Assert.Equal(SevenTvDeltaOutcome.Applied, (await service.ApplyEmoteSetUpdateAsync(channelA.ChannelName, SetId, delta)).Outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, (await service.ApplyEmoteSetUpdateAsync(channelB.ChannelName, SetId, delta)).Outcome);
 
         Assert.Equal(2, await db.Emotes.CountAsync(e => e.SevenTvEmoteId == "e7"));
         Assert.True(cache.GetChannelEmotes(channelA.ChannelName).ContainsKey("sharedjam"));
@@ -273,10 +273,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_imageurl", ("e1", "pic", false));
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(updated: [new SevenTvEmote("e1", "pic_renamed", "")]));
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
         var row = await db.Emotes.SingleAsync(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1");
         Assert.Equal("pic_renamed", row.Name);
         Assert.Equal("https://cdn.7tv.app/emote/e1/2x.webp", row.ImageUrl);
@@ -587,10 +587,10 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var service = CreateService(db, cache);
         var before = DateTime.UtcNow.AddSeconds(-1);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName, SetId, Delta(pushed: [LiveEmote("e2", "fresh")]));
 
-        Assert.Equal(SevenTvDeltaOutcome.Applied, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
         var firstSeen = await db.Emotes
             .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e2")
             .Select(e => e.FirstSeenAt).SingleAsync();
@@ -609,12 +609,12 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         var channel = await SeedChannelAsync(db, "wstest_firstseen_dispatch", ("e1", "stable", false));
         var service = CreateService(db, cache);
 
-        var outcome = await service.ApplyEmoteSetUpdateAsync(
+        var result = await service.ApplyEmoteSetUpdateAsync(
             channel.ChannelName,
             SetId,
             Delta(updated: [new SevenTvEmote("e1", "stable", SeededImageUrl("e1"), new DateTime(2026, 2, 3, 17, 0, 0, DateTimeKind.Utc))]));
 
-        Assert.Equal(SevenTvDeltaOutcome.NoChange, outcome);
+        Assert.Equal(SevenTvDeltaOutcome.NoChange, result.Outcome);
         Assert.Null(await db.Emotes
             .Where(e => e.ChannelId == channel.Id && e.SevenTvEmoteId == "e1")
             .Select(e => e.FirstSeenAt).SingleAsync());

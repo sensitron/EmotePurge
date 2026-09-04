@@ -368,25 +368,32 @@ public class SevenTvEventClient(
         // sequential keeps this loop free of any parallel-writer questions.
         foreach (var channelName in channels)
         {
-            SevenTvDeltaOutcome outcome;
+            SevenTvDeltaResult result;
             using (var scope = scopeFactory.CreateScope())
             {
                 var syncService = scope.ServiceProvider.GetRequiredService<ISevenTvSyncService>();
-                outcome = await syncService.ApplyEmoteSetUpdateAsync(channelName, emoteSetId, delta, ct);
+                result = await syncService.ApplyEmoteSetUpdateAsync(channelName, emoteSetId, delta, ct);
             }
 
-            switch (outcome)
+            // The registry keyed this dispatch under channelName, but the row may have been renamed
+            // out from under it while the call sat at the row gate — every follow-up that addresses
+            // the *channel* therefore goes to result.ChannelName (issue #60). The one exception is
+            // the ChannelUnknown arm below, which removes a registry entry and so has to name the
+            // key the registry actually holds.
+            var currentName = result.ChannelName ?? channelName;
+
+            switch (result.Outcome)
             {
                 case SevenTvDeltaOutcome.Applied:
                     // The one outcome that persisted a write — everything else changed nothing and
                     // must stay silent (open pages would refetch for nothing).
-                    await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
+                    await redisPublisher.PublishChannelSyncedAsync(logger, currentName, ct);
                     break;
 
                 case SevenTvDeltaOutcome.SetNotActive:
                 case SevenTvDeltaOutcome.ImplausibleSkipped:
                     // Outside the gate by design — see the interface remark on ApplyEmoteSetUpdateAsync.
-                    await ResyncChannelAsync(channelName, adoptResult: true, ct);
+                    await ResyncChannelAsync(currentName, adoptResult: true, ct);
                     break;
 
                 case SevenTvDeltaOutcome.ChannelUnknown:
@@ -443,14 +450,18 @@ public class SevenTvEventClient(
             using var scope = scopeFactory.CreateScope();
             var syncService = scope.ServiceProvider.GetRequiredService<ISevenTvSyncService>();
             var result = await syncService.SyncChannelAsync(channelName, ct);
+            // result.ChannelName, not the name this method was called with: the sync re-reads its
+            // row under the row gate, so a rename committed in between would otherwise re-register
+            // the retired login in the registry — possibly after the handover's LEAVE already tore
+            // that subscription down — and publish channel.synced where nobody listens (issue #60).
             if (adoptResult && result is not null)
             {
-                EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
+                EnsureSubscribed(result.ChannelName, result.EmoteSetId, result.SevenTvUserId);
             }
 
             if (result is { HasChanges: true })
             {
-                await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
+                await redisPublisher.PublishChannelSyncedAsync(logger, result.ChannelName, ct);
             }
 
             return result;
