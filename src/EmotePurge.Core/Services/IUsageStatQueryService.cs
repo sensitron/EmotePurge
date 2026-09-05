@@ -111,6 +111,32 @@ public record ChannelUsageSeriesDto(
     IReadOnlyList<int> LiveDays,
     IReadOnlyList<EmoteSeriesEntryDto> Emotes);
 
+/// <summary>
+/// One emote's lifetime bounds for the chat-log backfill harness (issue #69). Not a usage context —
+/// it carries no counts, only what "did this emote exist on day X" needs to judge a historical
+/// UsageStat row against.
+/// </summary>
+/// <param name="IsArchived">Whether the emote is currently archived (gone from 7TV).</param>
+/// <param name="FirstSeenAt">
+/// Same "null means unknown, never guessed" convention as <see cref="EmoteUsageContextDto.FirstSeenAt"/>.
+/// </param>
+/// <param name="ArchivedAt">
+/// When the emote was (last) archived. Null on an archived emote means "archived before this
+/// column existed, date unknown" — see the field's own comment on <c>Emote</c>.
+/// </param>
+/// <param name="LastSyncedAt">
+/// When the emote row was last touched by a sync (rename, restore, dispatch-REMOVE) — not stamped
+/// by REST-reconcile archiving, so it alone cannot prove "stable since". The harness combines it
+/// with <paramref name="ArchivedAt"/> to build its own stable-subset rule; this method does not
+/// judge that itself.
+/// </param>
+public record EmoteLifetimeDto(string Id, string Name, bool IsArchived, DateTime? FirstSeenAt, DateTime? ArchivedAt, DateTime LastSyncedAt);
+
+/// <summary>
+/// One raw <c>UsageStat</c> row, unfiltered, for the chat-log backfill harness (issue #69).
+/// </summary>
+public record UsageStatRowDto(string EmoteId, DateOnly Date, int UseCount, int BotUseCount);
+
 public interface IUsageStatQueryService
 {
     Task<IReadOnlyList<EmoteUsageDto>> GetUsageStatsAsync(string channelName, CancellationToken cancellationToken = default);
@@ -147,5 +173,36 @@ public interface IUsageStatQueryService
     /// session's ballot) may hold twenty emotes out of a thousand.
     /// </summary>
     Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(
+        IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The earliest day across all of the channel's emotes — including archived ones — with a
+    /// <c>UsageStat</c> row that has <c>BotUseCount &gt; 0</c>, or <c>null</c> if no bot has ever
+    /// been seen here. See <see cref="EmoteSetStatusDto.BotsExcludedSince"/> for what "seen" means
+    /// here (first sighting, not the deploy day the separation itself started). Consumed by
+    /// <c>EmoteSetStatusService</c> and by the chat-log backfill harness (issue #69), which both
+    /// need the same cutover day rather than two copies of this rule.
+    /// </summary>
+    Task<DateOnly?> GetEarliestBotUsageDateAsync(string channelId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every emote of the channel — including archived ones — sorted by <see cref="EmoteLifetimeDto.Id"/>
+    /// (ordinal). Consumed by the chat-log backfill harness (issue #69), which needs a deterministic
+    /// order to hash the returned list as part of its input fingerprint (Task 6). Unlike
+    /// <see cref="GetUsageContextAsync"/>, archived emotes are deliberately not excluded: the
+    /// harness needs their lifetime bounds to judge historical usage, not to offer them up as
+    /// deletion candidates.
+    /// </summary>
+    Task<IReadOnlyList<EmoteLifetimeDto>> GetEmoteLifetimesAsync(string channelId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Raw <c>UsageStat</c> rows for the given emote ids within an inclusive date range, sorted by
+    /// <c>(EmoteId, Date)</c>. Consumed by the chat-log backfill harness (issue #69) to compute both
+    /// its human-only and its bot-inclusive total for the window. Unlike every other query in this
+    /// interface, this deliberately does not filter on <c>UseCount &gt; 0</c>: a bot-only row
+    /// (<c>UseCount = 0</c>, <c>BotUseCount &gt; 0</c>) is exactly what the harness's bot-inclusive
+    /// total needs and the human-only total is expected to exclude on its own.
+    /// </summary>
+    Task<IReadOnlyList<UsageStatRowDto>> GetRowsAsync(
         IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
 }
