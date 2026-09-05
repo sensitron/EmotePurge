@@ -356,7 +356,7 @@ Tracker-Logik; `ChannelName.cs` als Vorbild für eine statische Regel in `Core`;
   Live-Cache die unspezifizierte Reihenfolge einer Query ohne `OrderBy`, was der Harness
   ausweist statt zu reparieren. `**Betrifft:**` nennt die vier Dateien dieses Tasks.
 
-- [ ] **Step 1 (Tests zuerst, `EmoteNameMatchingTests`, container-frei):** `MatchEmoteIds`: leerer
+- [x] **Step 1 (Tests zuerst, `EmoteNameMatchingTests`, container-frei):** `MatchEmoteIds`: leerer
   Text ⇒ leer; nur Whitespace ⇒ leer; Emote am Anfang, in der Mitte, am Ende; dasselbe Emote
   dreimal ⇒ genau eine Id; zwei Namen auf dieselbe Id ⇒ eine Id; Doppel-Leerzeichen zwischen
   Tokens (leeres Token trifft nichts); Tab oder geschütztes Leerzeichen trennt **nicht** (Token
@@ -365,9 +365,9 @@ Tracker-Logik; `ChannelName.cs` als Vorbild für eine statische Regel in `Core`;
   Map ⇒ leer ohne Allokation (Referenzgleichheit der leeren Instanz). `Coalesce`: eindeutige
   Namen ⇒ keine Mehrdeutigkeit; doppelter Name ⇒ erster gewinnt, Name in `AmbiguousNames`;
   dreifacher Name ⇒ einmal in der Menge; leere Eingabe ⇒ leere Map.
-- [ ] **Step 2: rot laufen lassen.** Filter `EmoteNameMatchingTests`; Expected: Compilerfehler.
-- [ ] **Step 3: implementieren**, beide Aufrufer umstellen, `CoreAssemblyReferenceTests` im Blick.
-- [ ] **Step 4: grün laufen lassen.** Filter `EmoteNameMatchingTests`, `EmoteMatchCacheTests`,
+- [x] **Step 2: rot laufen lassen.** Filter `EmoteNameMatchingTests`; Expected: Compilerfehler.
+- [x] **Step 3: implementieren**, beide Aufrufer umstellen, `CoreAssemblyReferenceTests` im Blick.
+- [x] **Step 4: grün laufen lassen.** Filter `EmoteNameMatchingTests`, `EmoteMatchCacheTests`,
   `CoreAssemblyReferenceTests`; dann `dotnet build EmotePurge.slnx` und
   `dotnet test EmotePurge.slnx` (die `SevenTvSyncServiceTests` decken die Koaleszenz über den
   Tracker mit).
@@ -382,7 +382,7 @@ Tracker-Logik; `ChannelName.cs` als Vorbild für eine statische Regel in `Core`;
   Da die Live-Nachrichten in beiden Läufen unterschiedlich sind, ist der eigentliche Beleg der
   **Replay** desselben Mitschnitts durch alten und neuen Code, nicht der Zählerstand zweier
   Zeitfenster; der PR nennt Kanäle, Minuten, Nachrichtenzahl und „0 Differenzen".
-- [ ] **Step 6:** DECISIONS-Eintrag schreiben, `dotnet format`, Nutzer fragen, Commit
+- [x] **Step 6:** DECISIONS-Eintrag schreiben, `dotnet format`, Nutzer fragen, Commit
   `refactor(matching): share the emote name matching rule between chat and match cache`.
 
 **Fertig-Bedingung:** Backend-Suite grün; `git diff` von `TwitchChatManager.cs` zeigt nur die
@@ -1036,10 +1036,10 @@ Harness-Lauf (oder sein sauberer Exit-3-Pfad) mit Zahlen belegt; Prod-Befehle ü
 
 Kein Code. Nach dem Merge, vor dem ersten Lauf auf Prod.
 
-- [ ] **Step 1:** Den T8-Bericht (Abschnitt „T8-Live-Proben 2026-09-05" des Design-Docs) als
+- [x] **Step 1:** Den T8-Bericht (Abschnitt „T8-Live-Proben 2026-09-05" des Design-Docs) als
   Kommentar nach #69 stellen, falls noch nicht geschehen (das Design-Doc verweist darauf, der
   Kommentar existiert laut Auftrag noch nicht).
-- [ ] **Step 2:** Die Präregistrierung als Kommentar nach #69: Gesamtabweichung ≤ 10 % über die
+- [x] **Step 2:** Die Präregistrierung als Kommentar nach #69: Gesamtabweichung ≤ 10 % über die
   volle Population und gewertete Tage, Top-20-Recall ≥ 0,9, unteres-Quartil-Precision ≥ 0,8,
   mindestens zwei Kanäle mit je mindestens 20 gewerteten Tagen, Fensterlänge 30; Diagnostik nicht
   bindend (Median, p90, Spearman der stabilen Teilmenge mit N, M; log-only/live-only-Anteile;

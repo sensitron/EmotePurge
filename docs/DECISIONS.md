@@ -10,6 +10,66 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-05 — Eine Matching-Regel für Live-Pfad, Match-Cache und Harness
+
+**Betrifft:** `src/EmotePurge.Core/Matching/EmoteNameMatching.cs`,
+`src/EmotePurge.Worker/TwitchChatManager.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`,
+`tests/EmotePurge.Infrastructure.Tests/Unit/EmoteNameMatchingTests.cs`
+
+**Der Fall.** Drei Stellen kannten bisher je eine eigene Kopie derselben Chat-Matching-Idee:
+`TwitchChatManager.OnMessageReceived` splittete Nachrichten an Leerzeichen und schlug jedes Token
+ordinal in der Channel-Emote-Map nach, dedupliziert je Nachricht; `SevenTvSyncService.RefreshMatchCacheAsync`
+koaleszierte gleichnamige aktive Emotes beim Aufbau dieser Map auf die zuerst geladene Id; der
+geplante Chat-Log-Backfill-Harness (#69) braucht exakt beide Regeln ein drittes Mal, um zu messen,
+ob ein Import die Live-Zählung reproduziert. Beide Regeln sind jetzt in eine gemeinsame,
+TwitchLib-freie Klasse `EmoteNameMatching` in `EmotePurge.Core.Matching` gewandert:
+`MatchEmoteIds(message, nameToId)` für den Trefferpfad, `Coalesce(emotesInLoadOrder)` für den
+Map-Aufbau.
+
+**Geteilt statt kopiert, weil die Dedup-Regel eine Metrik-Definition ist, kein
+Implementierungsdetail.** `MatchEmoteIds` liefert „Nachrichten mit diesem Emote", nicht
+„Vorkommen" — das ist genau die Zahl, die `UsageStat.UseCount` seit Modul A bedeutet. Ein Harness,
+der stattdessen Vorkommen zählt oder anders koalesziert, vergliche zwei verschiedene Metriken und
+hielte den Unterschied für Log-Ungenauigkeit statt für eine falsche Nachbildung der eigenen
+Zähldefinition. Wer die Regel künftig ändert (Trimmen, Case-Folding, Twitch-Emote-Tags statt
+Namens-Matching), ändert sie damit zwangsläufig für alle drei Aufrufer gleichzeitig — das ist
+beabsichtigt, nicht ein Nebeneffekt der Extraktion.
+
+**Warum `Core` und nicht `Worker`.** `SevenTvSyncService` liegt in `Infrastructure`, das nach der
+Schichtentreue-Tabelle nur auf `Core` verweisen darf, nie auf `Worker`. Eine gemeinsame Klasse für
+Worker- und Infrastructure-Aufrufer kann also nur in `Core` stehen — `CoreAssemblyReferenceTests`
+erzwingt das (BCL-only, keine Projektreferenz). Präzedenzfall ist `ChannelName`: eine statische,
+zustandslose Regel ohne eigenes Interface (Regel 5, Design D1).
+
+**Die Regel ist absichtlich naiv.** Split an einzelnen Leerzeichen (kein `RemoveEmptyEntries`, kein
+Trim, kein Unicode-Whitespace), ordinaler Lookup, keine Twitch-Emote-Tags. Das ist keine
+Verbesserungsgelegenheit — der Harness misst die Übereinstimmung mit dem Bestand, nicht die
+Korrektheit der Regel selbst, und jede Korrektur hier würde beide Seiten des Vergleichs zugleich
+verschieben.
+
+**Der Gewinner von `Coalesce` ist die Ladereihenfolge des Aufrufers**, nicht irgendeine kanonische
+Ordnung. Für den Live-Match-Cache ist das die unspezifizierte Reihenfolge einer Postgres-Query ohne
+`OrderBy` (`RefreshMatchCacheAsync`, unverändert) — der Harness weist das als Diagnostikzahl aus,
+statt es zu reparieren; ein `OrderBy` einzuführen wäre eine Verhaltensänderung des Live-Pfads, die
+dieser Task nicht vornimmt.
+
+**Nachtrag (Fixrunde 1, selbes Datum):** `MatchEmoteIds` hat jetzt zwei Überladungen statt einer.
+Der gebundene Vertrag mit Rückgabetyp `IReadOnlySet<string>` bleibt für Task 5/6 wörtlich bestehen,
+bekommt aber eine Zwillingsüberladung `MatchEmoteIds(message, nameToId, HashSet<string> into)`, die
+nur befüllt statt zurückzugeben. Grund: Ein `foreach` über den interface-typisierten Rückgabewert
+boxt `HashSet<string>`s Struct-Enumerator, weil es dann über `IEnumerable<T>.GetEnumerator()` statt
+über die konkrete Methode läuft — für Task 5/6 ein einmaliger, vernachlässigbarer Kostenpunkt, für
+den Chat-Hot-Path (jede eingehende Nachricht) aber genau die zusätzliche Allokation, die dieser
+Eintrag oben ausdrücklich ausschließt. `TwitchChatManager.OnMessageReceived` alloziert wie vor der
+ursprünglichen Extraktion genau ein `HashSet<string>` je Nachricht, ruft die Drei-Parameter-Überladung
+und iteriert die Menge über ihren konkreten Typ — kein Boxing. Die beiden geteilten leeren Instanzen
+(`EmptyMatches`, `EmptyAmbiguousNames`) sind außerdem von einem als `IReadOnlySet<string>` getarnten,
+aber tatsächlich veränderlichen `HashSet<string>` auf `FrozenSet<string>.Empty` umgestellt — ein
+Rückcast auf `HashSet<string>` hätte die geteilte Instanz sonst für alle Aufrufer gleichzeitig
+verändern können.
+
+---
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
