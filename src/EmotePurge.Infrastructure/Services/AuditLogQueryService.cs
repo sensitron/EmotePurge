@@ -15,6 +15,12 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
     /// </summary>
     private const int MaxDetailTextLength = 200;
 
+    // Property names in emotes.syncImported's DetailsJson payload. Deliberately not in
+    // AuditLogDetail.Kinds: "sourceKind" is only the discriminator that picks between the two import
+    // Kinds, never a Kind itself, and "sourceChannelName" feeds the Text of whichever is chosen.
+    private const string SourceKindProperty = "sourceKind";
+    private const string SourceChannelNameProperty = "sourceChannelName";
+
     public async Task<PagedResult<AuditLogEntryDto>> ListAsync(int page, int pageSize, AuditLogFilter? filter = null, CancellationToken cancellationToken = default)
     {
         var query = ApplyFilter(db.AuditLogEntries.AsNoTracking(), filter);
@@ -123,6 +129,39 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
         if (root.ValueKind != JsonValueKind.Object)
         {
             return null;
+        }
+
+        // Checked ahead of the bare EmoteCount case below, and that order is load-bearing: an
+        // emotes.syncImported payload carries emoteCount too, and if EmoteCount matched first it
+        // would win the precedence and silently drop the one thing that row can't be reconstructed
+        // from otherwise — where the emotes came from (R1 in the #71 import plan). Degrades to the
+        // branches below (rather than returning null outright) when sourceKind is present but
+        // unrecognized, or when emoteCount itself is missing or non-numeric.
+        if (root.TryGetProperty(SourceKindProperty, out var sourceKindElement)
+            && sourceKindElement.ValueKind == JsonValueKind.String)
+        {
+            var isKnownSourceKind = sourceKindElement.GetString() is "channel" or "file";
+
+            if (isKnownSourceKind && TryReadCount(root, AuditLogDetail.Kinds.EmoteCount, out var importedCount))
+            {
+                string? source = null;
+                if (root.TryGetProperty(SourceChannelNameProperty, out var sourceChannelNameElement)
+                    && sourceChannelNameElement.ValueKind == JsonValueKind.String
+                    && sourceChannelNameElement.GetString() is { Length: > 0 } sourceChannelName)
+                {
+                    source = sourceChannelName.Length > MaxDetailTextLength
+                        ? sourceChannelName[..MaxDetailTextLength]
+                        : sourceChannelName;
+                }
+
+                // The name decides the Kind, not sourceKind alone: the channel variant's translation
+                // interpolates the source, so a row claiming a channel origin without one would
+                // render "N emotes from ". The endpoint already rejects that combination; this keeps
+                // the reader honest for anything that got in before it did, or around it.
+                return source is null
+                    ? new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromFile, importedCount, null)
+                    : new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromChannel, importedCount, source);
+            }
         }
 
         if (TryReadCount(root, AuditLogDetail.Kinds.EmoteCount, out var emoteCount))

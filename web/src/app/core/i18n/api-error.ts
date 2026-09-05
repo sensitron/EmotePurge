@@ -25,6 +25,7 @@ export const KNOWN_API_ERROR_CODES = new Set([
   'channel_not_joined',
   'emote_id_empty',
   'invalid_vote_type',
+  'invalid_source_kind',
   'channel_not_found',
   'channel_not_on_twitch',
   'vote_session_not_found',

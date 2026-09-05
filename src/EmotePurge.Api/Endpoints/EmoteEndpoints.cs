@@ -113,6 +113,62 @@ public static class EmoteEndpoints
         // costs the paper trail and leaves the database stale until the next sync.
         .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
+        // The import dialog's after-the-fact bookkeeping call. Unlike its two neighbors it never
+        // touches an Emote row: an import creates and un-archives nothing here, the target channel's
+        // own resync does that once it runs next (the design's "Nachlauf-Gate"). Its only reason to
+        // exist is the emotes.syncImported audit entry — without it, an import would look like an
+        // anonymous channel.resync in the log, or nothing at all under the resync cooldown.
+        group.MapPost("/sync-imported", async (
+            string channelName,
+            SyncImportedRequest request,
+            HttpContext httpContext,
+            IEmoteService emoteService,
+            CancellationToken ct) =>
+        {
+            if (request.SevenTvEmoteIds is null || request.SevenTvEmoteIds.Count == 0)
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty });
+            }
+
+            // Ordinal and strictly lower-case (F3, import plan): the only caller is our own
+            // frontend, so a silent case-insensitive fallback would hide a frontend bug rather than
+            // surfacing it.
+            if (request.SourceKind is not ("channel" or "file"))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidSourceKind });
+            }
+
+            // SourceChannelName is attacker-controlled free text that ends up in jsonb forever
+            // (R6, import plan) — validated like every other inbound channel name, but only when the
+            // caller actually set one; a file import may legitimately omit it.
+            if (request.SourceChannelName is not null && !ChannelNameValidation.IsValid(request.SourceChannelName))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+            }
+
+            // "channel" without a name is rejected rather than stored: the audit entry would claim a
+            // channel origin it cannot name, and audit rows are write-once and kept forever, so a
+            // malformed one stays malformed. A file import is the case that legitimately has no
+            // source channel — that is what "file" is for.
+            if (request.SourceKind == "channel" && string.IsNullOrWhiteSpace(request.SourceChannelName))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+            }
+
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var written = await emoteService.MarkImportedAsync(
+                channelName, request.SevenTvEmoteIds, request.SourceChannelName, request.SourceKind, actor, ct);
+            return written ? Results.NoContent() : Results.NotFound();
+        })
+        // Same reasoning as its two neighbors above: the emotes were already imported on 7TV by the
+        // time this call runs, so a 429 here would only cost the paper trail, not correctness.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
+
         group.MapGet("/set-warning", async (
             string channelName,
             HttpContext httpContext,
@@ -191,3 +247,5 @@ public static class EmoteEndpoints
 internal sealed record SyncDeletedRequest(IReadOnlyList<string> EmoteIds);
 
 internal sealed record SyncRestoredRequest(IReadOnlyList<string> EmoteIds);
+
+internal sealed record SyncImportedRequest(IReadOnlyList<string> SevenTvEmoteIds, string? SourceChannelName, string SourceKind);

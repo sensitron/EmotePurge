@@ -23,6 +23,19 @@ export interface EmoteSetWarning {
   otherModeratedChannelsSharingSet: string[];
 }
 
+/** Request body of syncImported — same shape the server's `SyncImportedRequest` binds. */
+export interface SyncImportedBody {
+  sevenTvEmoteIds: string[];
+  sourceChannelName: string | null;
+  sourceKind: 'channel' | 'file';
+}
+
+/** Wire shape of GET .../emotes — wrapped in an object like the admin channel list, not a bare
+ *  array, so the endpoint stays extensible without a contract break. Unwrapped by listEmotes(). */
+interface EmoteListResponse {
+  emotes: EmoteListItem[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class EmoteAdminService {
   private readonly http = inject(HttpClient);
@@ -65,5 +78,20 @@ export class EmoteAdminService {
     return this.http.get<DuplicateEmoteName[]>(
       `/api/channels/${channelName}/emotes/duplicate-names`,
     );
+  }
+
+  /** The import dialog's own picture of the target set — no time range, no usage numbers — so it
+   *  can answer "already there?" and "name collision?" without pulling in the full usage grid.
+   *  Fetched once per dialog open, not cached: the server has already reduced it to ~50 KB. */
+  listEmotes(channelName: string): Observable<EmoteListItem[]> {
+    return this.http
+      .get<EmoteListResponse>(`/api/channels/${channelName}/emotes`)
+      .pipe(map((response) => response.emotes));
+  }
+
+  /** The import's only server-side effect: one audit entry at the target channel. It never touches
+   *  Emote rows itself — the resync the import triggers afterwards is what actually adds them. */
+  syncImported(channelName: string, body: SyncImportedBody): Observable<void> {
+    return this.http.post<void>(`/api/channels/${channelName}/emotes/sync-imported`, body);
   }
 }

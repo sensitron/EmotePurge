@@ -933,6 +933,7 @@
       "channel_not_joined": "Der Bot ist diesem Channel nicht beigetreten.",
       "emote_id_empty": "Kein Emote ausgewählt.",
       "invalid_vote_type": "Ungültiger Vote-Typ.",
+      "invalid_source_kind": "Ungültige Import-Quelle.",
       "channel_not_found": "Channel nicht gefunden.",
       "channel_not_on_twitch": "Diesen Channel gibt es auf Twitch nicht (mehr). Bitte prüf die Schreibweise.",
       "vote_session_not_found": "Abstimmung nicht gefunden.",

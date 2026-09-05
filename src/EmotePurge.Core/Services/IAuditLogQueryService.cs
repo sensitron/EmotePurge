@@ -22,6 +22,11 @@ public record AuditLogDetail(string Kind, long? Count, string? Text)
         public const string EmoteCount = "emoteCount";
         public const string RemovedEntries = "removedEntries";
         public const string Title = "title";
+        // The two emotes.syncImported shapes: same payload (an emote count plus the source), but
+        // "where from" only renders when there is somewhere to point to. Count and Text are both
+        // set for ImportedFromChannel; ImportedFromFile carries only Count.
+        public const string ImportedFromChannel = "importedFromChannel";
+        public const string ImportedFromFile = "importedFromFile";
     }
 }
 

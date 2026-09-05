@@ -161,6 +161,107 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task ListAsync_ProjectsAnImportFromAChannel_OnBothCountAndSource()
+    {
+        // The precedence pin (R1): the payload also carries emoteCount, which would win and drop the
+        // provenance if the sourceKind check did not run first.
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-import-channel";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 17, 0, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncImported,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 5, "sourceChannelName": "otherchannel", "sourceKind": "channel"}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromChannel, 5, "otherchannel"), dto.Detail);
+    }
+
+    [Fact]
+    public async Task ListAsync_ProjectsAnImportFromAFile_WithNoSource()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-import-file";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 17, 30, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncImported,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 3, "sourceChannelName": null, "sourceKind": "file"}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromFile, 3, null), dto.Detail);
+    }
+
+    [Fact]
+    public async Task ListAsync_FallsBackToTheFileKind_WhenAChannelSourceCarriesNoName()
+    {
+        // The endpoint rejects this combination, so it should never reach the column. If it ever
+        // does, the reader still has to degrade sensibly: the channel kind's translation
+        // interpolates the source name, and claiming a channel origin without one would render
+        // "3 emotes from ". Belt and braces, on a column that is written by ten call sites.
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-imp-noname";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 17, 45, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncImported,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 3, "sourceChannelName": null, "sourceKind": "channel"}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromFile, 3, null), dto.Detail);
+    }
+
+    [Fact]
+    public async Task ListAsync_LeavesABareEmoteCountProjectionUnchanged_WhenThereIsNoSourceKind()
+    {
+        // The gegenprobe for the precedence change: an unrelated action that also carries a bare
+        // emoteCount (e.g. emotes.syncRestored) must not be caught by the new sourceKind check.
+        await using var db = fixture.CreateDbContext();
+        // "gegenprobe" was one character over the ChannelName column's 25-char limit; kept short.
+        var channel = $"{ChannelPrefix}-import-bare";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 18, 0, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncRestored,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 9}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.EmoteCount, 9, null), dto.Detail);
+    }
+
+    [Fact]
     public async Task ListAsync_TruncatesDetailText_BecauseTitlesAreUserInput()
     {
         await using var db = fixture.CreateDbContext();

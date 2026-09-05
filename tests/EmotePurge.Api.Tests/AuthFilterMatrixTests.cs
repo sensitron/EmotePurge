@@ -57,9 +57,11 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     [InlineData("GET", "/api/channels/testchannel/permissions")]
     [InlineData("GET", "/api/channels/mine")]
     [InlineData("GET", "/api/channels/testchannel/usage-stats")]
+    [InlineData("GET", "/api/channels/testchannel/emotes")]
     [InlineData("GET", "/api/channels/testchannel/emotes/set-warning")]
     [InlineData("GET", "/api/channels/testchannel/emotes/duplicate-names")]
     [InlineData("POST", "/api/channels/testchannel/emotes/sync-restored")]
+    [InlineData("POST", "/api/channels/testchannel/emotes/sync-imported")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions")]
     [InlineData("GET", "/api/channels/testchannel/vote-sessions/1/results")]
     [InlineData("POST", "/api/channels/testchannel/vote-sessions/1/votes")]
@@ -347,6 +349,64 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(ApiErrorCodes.EmoteIdsEmpty, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers403_ForACallerWithoutUsageStatsAccess()
+    {
+        // Same audience and same filter as sync-restored — a caller who fails the wider check must
+        // never reach the handler and leave an audit row behind.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_WhenTheBodyCarriesNoEmoteIds()
+    {
+        // The empty-body check must sit before any service work — this is also what keeps the case
+        // runnable without a database behind the test factory.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.EmoteIdsEmpty, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_ForAnUnrecognizedSourceKind()
+    {
+        // Strictly lower-case and ordinal (F3 in the import plan): the only caller is our own
+        // frontend, so a silent case-insensitive fallback would hide a frontend bug instead of
+        // showing it.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": null, "sourceKind": "x"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidSourceKind, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_ForAChannelSourceWithoutAName()
+    {
+        // An audit row is write-once and kept forever, so a "came from a channel" entry that cannot
+        // name the channel would stay broken. "file" is the kind that legitimately has no source.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": null, "sourceKind": "channel"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidChannelName, await ReadErrorCodeAsync(response));
     }
 
     [Fact]

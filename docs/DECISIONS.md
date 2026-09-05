@@ -364,6 +364,38 @@ diese Liste im Frontend läuft, ist aber ordinal (wie beim Chat-Matching und in
 Materialisieren. Ein Test mit einem Namenspaar, das ordinal anders sortiert als locale-bewusst,
 hält das fest — sonst fällt der Unterschied erst bei echten Emote-Namen auf.
 
+**`POST …/emotes/sync-imported` un-archiviert nichts und ist deshalb kein Spiegel von
+`sync-restored`.** Es schreibt genau einen Audit-Eintrag (`emotes.syncImported`) am **Ziel**kanal
+und rührt keine `Emote`-Zeile an. Der Grund ist der Unterschied der beiden Vorgänge:
+`sync-restored` nimmt interne Guids und hebt die Archivierung bestehender Zeilen auf — nach einem
+Import existieren im Zielkanal aber noch gar keine Zeilen. Die legt allein der Resync an. Der
+Endpunkt nimmt darum 7TV-IDs statt Guids und läuft unter `Bookkeeping` wie seine beiden Nachbarn:
+das 7TV-Schreiben ist zu diesem Zeitpunkt schon passiert, ein 429 kostet nur den Papierweg.
+
+**Die Herkunft ist im Audit-Log sichtbar, und dafür musste die Detail-Projektion aufgemacht
+werden.** `ProjectDetail` reduziert `DetailsJson` auf **genau ein** `AuditLogDetail` — der Record
+trägt aber `Count` **und** `Text`, es ist nur der `Kind`, der einmalig ist. Ein Import bekommt
+deshalb zwei eigene Kinds (`importedFromChannel`, `importedFromFile`), die Anzahl und Quellkanal
+gemeinsam tragen; im Frontend reicht `renderDetail` beide Parameter bedingt durch statt
+entweder-oder. Ohne das zeigte die Zeile „N Emotes" und verschwiege das Einzige, was aus ihr sonst
+nicht rekonstruierbar ist. **Die Prüfreihenfolge ist dabei tragend:** die Import-Prüfung steht
+**vor** der `emoteCount`-Prüfung, denn der Import-Payload enthält `emoteCount` ebenfalls und würde
+sonst von der allgemeineren Regel geschluckt.
+
+**„Aus einem Kanal" ohne Kanalnamen wird abgelehnt, nicht gespeichert.** `sourceKind: "channel"`
+ohne `sourceChannelName` ergäbe eine Audit-Zeile, die eine Kanal-Herkunft behauptet, die sie nicht
+benennen kann — und Audit-Einträge sind write-once und werden unbegrenzt aufbewahrt, eine kaputte
+Zeile bleibt kaputt. Der Endpunkt antwortet darauf mit `400`; zusätzlich fällt `ProjectDetail` auf
+die Datei-Variante zurück, falls je etwas daran vorbeikommt (die Spalte wird von zehn Stellen
+beschrieben). `sourceKind` selbst wird ordinal und streng kleingeschrieben geprüft — der einzige
+Aufrufer ist unser eigenes Frontend, ein Groß-/Kleinschreibungs-Fallback würde einen Frontend-Fehler
+verdecken statt ihn zu zeigen. Neuer sprachneutraler Code dafür: `invalid_source_kind`; für die
+leere ID-Liste genügt das bestehende `emote_ids_empty`.
+
+**Kein Upload-Endpunkt.** Die Datei als Transportweg bleibt vollständig im Browser
+(`web/src/app/shared/export/file-download.ts`): ein Download darf nicht mehr sehen als die Seite,
+und das 7TV-Schreiben läuft mit dem Nutzer-Token. Ein `IFormFile`-Upload bräche dieses Modell.
+
 ---
 
 ### 2026-09-04 — Die fünf `SevenTv`-Ergebnistypen sind nachgezogen; die Statusprüfung steht jetzt einmal

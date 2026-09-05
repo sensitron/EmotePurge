@@ -103,4 +103,33 @@ public class EmoteService(AppDbContext db) : IEmoteService
 
         return new SyncRestoredResultDto(emotes.Count, notFoundIds, newlyRestored.Count);
     }
+
+    public async Task<bool> MarkImportedAsync(string channelName, IReadOnlyList<string> sevenTvEmoteIds, string? sourceChannelName, string sourceKind, AuditActor actor, CancellationToken cancellationToken = default)
+    {
+        var normalized = ChannelName.Normalize(channelName);
+
+        var channel = await db.LoadChannelReadOnlyAsync(channelName, cancellationToken);
+        if (channel is null)
+        {
+            return false;
+        }
+
+        // No db.Emotes query here on purpose (R10/R9 in the import plan): an import creates or
+        // un-archives nothing, so there is nothing to match the reported ids against — the target
+        // channel's own resync populates the rows afterwards.
+        var normalizedSourceChannelName = sourceChannelName is null ? null : ChannelName.Normalize(sourceChannelName);
+        // Deduplicated ordinally, the same comparison the import's name-collision check uses (R4):
+        // a client that reported the same 7TV id twice did not import it twice.
+        var emoteCount = sevenTvEmoteIds.Distinct(StringComparer.Ordinal).Count();
+
+        db.AddAuditEntry(
+            actor,
+            AuditActions.EmotesSyncImported,
+            channelName: normalized,
+            details: new { emoteCount, sourceChannelName = normalizedSourceChannelName, sourceKind });
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        return true;
+    }
 }

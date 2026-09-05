@@ -16,6 +16,7 @@ public static class AuditActions
     public const string VoteSessionDelete = "voteSession.delete";
     public const string EmotesSyncDeleted = "emotes.syncDeleted";
     public const string EmotesSyncRestored = "emotes.syncRestored";
+    public const string EmotesSyncImported = "emotes.syncImported";
     public const string UserRevokeSessions = "user.revokeSessions";
     public const string ChannelResync = "channel.resync";
     public const string UserInvalidateRoleCache = "user.invalidateRoleCache";
