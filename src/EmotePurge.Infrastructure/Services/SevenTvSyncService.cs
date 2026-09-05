@@ -43,7 +43,10 @@ public class SevenTvSyncService(
         var twitchUserId = channel.TwitchChannelId;
         if (twitchUserId is null)
         {
-            var resolved = await sevenTvApiClient.ResolveTwitchUserIdAsync(normalized, cancellationToken);
+            // channel.ChannelName, not `normalized`: this runs after the row gate re-read the row,
+            // so asking 7TV about the caller's name would ask about a login the rename has already
+            // retired. Same root cause as the propagation issue #60 fixes for the callers.
+            var resolved = await sevenTvApiClient.ResolveTwitchUserIdAsync(channel.ChannelName, cancellationToken);
             if (resolved.Status != SevenTvLookupStatus.Ok || resolved.TwitchUserId is null)
             {
                 await RecordFailedAttemptAsync(channel, resolved.Status, cancellationToken);
@@ -76,6 +79,18 @@ public class SevenTvSyncService(
 
         var emoteSet = channelState.State.EmoteSet;
 
+        // Before the first write, which is the whole point of standing here rather than further
+        // down: 7TV can answer Ok with a set whose id is missing, and its DTO defaults that field to
+        // an empty string, so nothing further up notices. Carrying on would stamp the empty string
+        // onto Channel.ActiveEmoteSetId — a value the delta path then compares against every
+        // incoming dispatch, and the usage page reads as "the first sync is still running". Rejected
+        // here with a reason of its own instead, so the UI can say what happened.
+        if (string.IsNullOrWhiteSpace(emoteSet.Id))
+        {
+            await RecordFailedAttemptAsync(channel, SevenTvSyncFailureReasons.ResponseUnusable, cancellationToken);
+            return null;
+        }
+
         // A successful response with an empty emote list is indistinguishable from a real set wipe,
         // but the consequences are wildly asymmetric: ReconcileAsync would archive every emote of
         // the channel and RefreshMatchCacheAsync would install an empty dictionary, so chat
@@ -92,7 +107,8 @@ public class SevenTvSyncService(
                 logger.LogWarning(
                     "7TV meldet 0 aktive Emotes für {Channel}, obwohl bisher {Count} bekannt waren — Sync übersprungen.",
                     normalized, knownActiveEmotes);
-                return new SevenTvSyncResult(emoteSet.Id, channelState.State.SevenTvUserId, HasChanges: false);
+                return SevenTvSyncResult.Create(
+                    channel.ChannelName, emoteSet.Id, channelState.State.SevenTvUserId, hasChanges: false);
             }
         }
 
@@ -127,10 +143,16 @@ public class SevenTvSyncService(
         await db.SaveChangesAsync(cancellationToken);
         await RefreshMatchCacheAsync(channel, cancellationToken);
 
-        return new SevenTvSyncResult(emoteSet.Id, channelState.State.SevenTvUserId, emoteSetSwitched || inventoryChanged);
+        // channel.ChannelName, not the caller's `normalized`: the row gate re-read the row, so this
+        // is the login the sync actually finished on. See SevenTvSyncResult.ChannelName (issue #60).
+        return SevenTvSyncResult.Create(
+            channel.ChannelName,
+            emoteSet.Id,
+            channelState.State.SevenTvUserId,
+            emoteSetSwitched || inventoryChanged);
     }
 
-    public async Task<SevenTvDeltaOutcome> ApplyEmoteSetUpdateAsync(
+    public async Task<SevenTvDeltaResult> ApplyEmoteSetUpdateAsync(
         string channelName,
         string emoteSetId,
         SevenTvEmoteSetDelta delta,
@@ -138,7 +160,8 @@ public class SevenTvSyncService(
     {
         if (delta.IsEmpty)
         {
-            return SevenTvDeltaOutcome.NoChange;
+            // The one NoChange that never sees a row, and therefore never learns a login.
+            return SevenTvDeltaResult.WithoutChannel(SevenTvDeltaOutcome.NoChange);
         }
 
         var normalized = ChannelName.Normalize(channelName);
@@ -148,7 +171,7 @@ public class SevenTvSyncService(
         if (channel is null)
         {
             logger.LogWarning("ApplyEmoteSetUpdateAsync: {Channel} nicht in Postgres gefunden.", normalized);
-            return SevenTvDeltaOutcome.ChannelUnknown;
+            return SevenTvDeltaResult.WithoutChannel(SevenTvDeltaOutcome.ChannelUnknown);
         }
 
         // Same two-step gate as the full sync, and for the same reason: the name this dispatch
@@ -159,15 +182,19 @@ public class SevenTvSyncService(
             logger.LogInformation(
                 "ApplyEmoteSetUpdateAsync: Zeile von {Channel} ({ChannelId}) ist zwischenzeitlich verschwunden (vermutlich zusammengeführt) — Dispatch verworfen.",
                 normalized, channel.Id);
-            return SevenTvDeltaOutcome.ChannelUnknown;
+            return SevenTvDeltaResult.WithoutChannel(SevenTvDeltaOutcome.ChannelUnknown);
         }
+
+        // Past the row gate the row has been re-read, so this — not the name the dispatch arrived
+        // under — is the login every outcome below reports back (issue #60).
+        var currentName = channel.ChannelName;
 
         if (channel.ActiveEmoteSetId != emoteSetId)
         {
             logger.LogInformation(
                 "7TV-Dispatch für Set {SetId} ignoriert — {Channel} hat inzwischen Set {ActiveSetId} aktiv.",
                 emoteSetId, normalized, channel.ActiveEmoteSetId);
-            return SevenTvDeltaOutcome.SetNotActive;
+            return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.SetNotActive, currentName);
         }
 
         var existing = await db.Emotes
@@ -198,7 +225,7 @@ public class SevenTvSyncService(
             logger.LogWarning(
                 "7TV-Dispatch würde alle {Count} aktiven Emotes von {Channel} entfernen — als unplausibel übersprungen.",
                 activeBefore, normalized);
-            return SevenTvDeltaOutcome.ImplausibleSkipped;
+            return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.ImplausibleSkipped, currentName);
         }
 
         foreach (var emote in delta.Pushed)
@@ -225,7 +252,7 @@ public class SevenTvSyncService(
 
         if (!db.ChangeTracker.HasChanges())
         {
-            return SevenTvDeltaOutcome.NoChange;
+            return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.NoChange, currentName);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -234,7 +261,7 @@ public class SevenTvSyncService(
         logger.LogInformation(
             "7TV-Dispatch auf {Channel} angewendet: {Pushed} hinzugefügt, {Updated} aktualisiert, {Pulled} entfernt.",
             normalized, delta.Pushed.Count, delta.Updated.Count, delta.PulledIds.Count);
-        return SevenTvDeltaOutcome.Applied;
+        return SevenTvDeltaResult.ForChannel(SevenTvDeltaOutcome.Applied, currentName);
     }
 
     /// <summary>
@@ -278,9 +305,15 @@ public class SevenTvSyncService(
     /// 7TV outage must not take the mass-delete panel away or archive a whole set, and
     /// <c>LastSyncedAtUtc</c> keeps meaning "last *successful* sync".
     /// </summary>
-    private async Task RecordFailedAttemptAsync(Channel channel, SevenTvLookupStatus status, CancellationToken cancellationToken)
+    private Task RecordFailedAttemptAsync(Channel channel, SevenTvLookupStatus status, CancellationToken cancellationToken) =>
+        RecordFailedAttemptAsync(channel, SevenTvSyncFailureReasons.FromStatus(status), cancellationToken);
+
+    /// <summary>
+    /// The reason-taking half, for the one failure that has no <see cref="SevenTvLookupStatus"/>
+    /// behind it (see <see cref="SevenTvSyncFailureReasons.ResponseUnusable"/>).
+    /// </summary>
+    private async Task RecordFailedAttemptAsync(Channel channel, string? reason, CancellationToken cancellationToken)
     {
-        var reason = SevenTvSyncFailureReasons.FromStatus(status);
         // Logged only when the reason changes: the periodic resync runs this for every broken
         // channel every 60 seconds, and an unconditional line would bury everything else in the log.
         // The stored value is what the UI reads, so nothing is lost by staying quiet.

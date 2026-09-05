@@ -684,6 +684,11 @@
         "title": "7TV could not be reached on the last attempt.",
         "hint": "This is usually temporary and not caused by this channel. The bot retries every minute; this page updates itself as soon as it works.",
         "short": "7TV was unreachable on the last attempt."
+      },
+      "seventv_response_unusable": {
+        "title": "7TV's answer for this channel was incomplete.",
+        "hint": "7TV replied, but without the id of the active emote set — there is nothing to reconcile against. Existing data is left untouched. This is usually temporary; the bot retries every minute.",
+        "short": "7TV: incomplete answer."
       }
     }
   },

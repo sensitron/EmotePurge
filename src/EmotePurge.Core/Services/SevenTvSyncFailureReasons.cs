@@ -28,6 +28,21 @@ public static class SevenTvSyncFailureReasons
     public const string Unavailable = "seventv_unavailable";
 
     /// <summary>
+    /// 7TV answered, and the answer parsed, but it does not carry what the sync needs — today only
+    /// one shape: an active set without an id. Deliberately distinct from <see cref="Unavailable"/>,
+    /// which means "we never got an answer": here we did, and it was wrong.
+    /// <para>
+    /// The one reason with no <see cref="SevenTvLookupStatus"/> behind it, and that is the point.
+    /// The statuses describe what a *lookup* concluded; this describes a payload that passed every
+    /// one of those checks and still cannot be used. Giving the enum a member for it would mean
+    /// every lookup in the codebase suddenly has to consider a case that only the sync can detect.
+    /// So <see cref="FromStatus"/> stays exhaustive over the enum and never returns this value —
+    /// <c>SevenTvSyncService</c> uses it directly, at the one place that can see the defect.
+    /// </para>
+    /// </summary>
+    public const string ResponseUnusable = "seventv_response_unusable";
+
+    /// <summary>
     /// The single mapping point between the internal control flow and the wire contract.
     /// Returns <c>null</c> for <see cref="SevenTvLookupStatus.Ok"/>: a success has no reason, and
     /// that absence is what the persisted column uses to mean "the last attempt worked".

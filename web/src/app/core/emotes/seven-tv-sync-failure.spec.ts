@@ -59,10 +59,17 @@ describe('7TV sync failure reasons', () => {
     );
   });
 
-  it('accepts exactly the three codes the API can send', () => {
+  it('accepts exactly the four codes the API can send', () => {
     // Compile-time proof that the union and the runtime list cannot drift: the array is typed as
     // the union, and this assignment fails to compile if the union grows without the array.
+    // Spelled out rather than derived, so adding a code on the C# side and forgetting this file
+    // fails here — that step is the one the tooling cannot see (see the file's own doc comment).
     const all: readonly SevenTvSyncFailureReason[] = SEVEN_TV_SYNC_FAILURE_REASONS;
-    expect(all).toEqual(['no_seventv_account', 'no_active_emote_set', 'seventv_unavailable']);
+    expect(all).toEqual([
+      'no_seventv_account',
+      'no_active_emote_set',
+      'seventv_unavailable',
+      'seventv_response_unusable',
+    ]);
   });
 });

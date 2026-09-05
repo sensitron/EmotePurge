@@ -75,17 +75,23 @@ public class SevenTvPeriodicResyncWorker(
                     var result = await syncService.SyncChannelAsync(channelName, ct);
                     if (result is not null)
                     {
+                        // result.ChannelName, not the loop variable: activeChannels is a snapshot
+                        // taken before this loop, and the sync re-reads its row under the row gate —
+                        // so a rename committed in between makes the two differ, and both
+                        // after-effects below have to land on the login the row actually carries
+                        // now (issue #60).
+                        //
                         // Convergence net for the EventAPI subscriptions, analogous to
                         // EnsureJoinedAsync above: idempotent, and the only path that picks up
                         // set/account switches the event stream missed.
-                        sevenTvEventClient.EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
+                        sevenTvEventClient.EnsureSubscribed(result.ChannelName, result.EmoteSetId, result.SevenTvUserId);
 
                         // Only on a real change: this loop runs every minute for every channel, so
                         // an unconditional publish would refetch every open page on a timer. What
                         // it does catch is everything the EventAPI missed (no resume/replay).
                         if (result.HasChanges)
                         {
-                            await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
+                            await redisPublisher.PublishChannelSyncedAsync(logger, result.ChannelName, ct);
                         }
                     }
                 }

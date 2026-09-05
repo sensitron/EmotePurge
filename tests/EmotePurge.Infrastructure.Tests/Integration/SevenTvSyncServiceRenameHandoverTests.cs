@@ -62,6 +62,44 @@ public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
         Assert.NotNull(result);
         Assert.True(cache.GetChannelEmotes("handover_new").ContainsKey("Alpha"));
         Assert.Empty(cache.GetChannelEmotes("handover_old"));
+
+        // Issue #60: the cache assertions above only prove the *service* followed the rename. Until
+        // the new login also travelled out with the result, every worker caller went on keying its
+        // EventAPI registration and its channel.synced publish on "handover_old".
+        Assert.Equal("handover_new", result.ChannelName);
+    }
+
+    [Fact]
+    public async Task ApplyEmoteSetUpdate_RowRenamedWhileWaitingOnTheRowGate_ReportsTheNewLogin()
+    {
+        // The delta path's half of the same propagation gap (issue #60). Its caller
+        // (SevenTvEventClient) takes the channel name straight out of the subscription registry, so
+        // it is the *most* likely of the three to be holding a login the handover has already
+        // retired.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "handover_delta_old");
+        var gate = new ChannelSyncGate();
+        var service = CreateService(db, new EmoteMatchCache(), gate, channel.TwitchChannelId!);
+
+        var rowLease = await gate.AcquireByChannelIdAsync(channel.Id);
+        var reachedRowGate = WatchForRowGate(gate, channel.Id);
+        var deltaTask = service.ApplyEmoteSetUpdateAsync(
+            "handover_delta_old", SetId, new SevenTvEmoteSetDelta([LiveEmote("7tv-d", "Delta")], [], []));
+        await reachedRowGate.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.False(deltaTask.IsCompleted);
+
+        await using (var renamer = fixture.CreateDbContext())
+        {
+            var row = await renamer.Channels.SingleAsync(c => c.Id == channel.Id);
+            row.ChannelName = "handover_delta_new";
+            await renamer.SaveChangesAsync();
+        }
+
+        rowLease.Dispose();
+        var result = await deltaTask.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(SevenTvDeltaOutcome.Applied, result.Outcome);
+        Assert.Equal("handover_delta_new", result.ChannelName);
     }
 
     [Fact]
@@ -115,7 +153,12 @@ public class SevenTvSyncServiceRenameHandoverTests(PostgresFixture fixture)
 
         rowLease.Dispose();
 
-        Assert.Equal(SevenTvDeltaOutcome.ChannelUnknown, await deltaTask.WaitAsync(TimeSpan.FromSeconds(30)));
+        var result = await deltaTask.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(SevenTvDeltaOutcome.ChannelUnknown, result.Outcome);
+        // The one outcome that provably has no login to report: there is no row left to read one
+        // from, so the caller keeps addressing the registry key it already holds.
+        Assert.Null(result.ChannelName);
     }
 
     /// <summary>

@@ -10,6 +10,113 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
+
+**Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
+
+**Vertragserweiterung:** neuer Wire-Code `seventv_response_unusable` in
+`SevenTvSyncFailureReasons`, samt Spiegel in `seven-tv-sync-failure.ts` und `title`/`hint`/`short`
+in beiden Locales (Regel 7).
+
+**Der Fall.** 7TV kann mit `Ok` antworten und ein aktives Set liefern, dessen `id` fehlt;
+`SevenTvEmoteSetJsonDto.Id` fällt dann auf `string.Empty` zurück. Kein Lookup-Status fängt das ab —
+die Antwort ist geparst, sie ist nur unbrauchbar. Bisher lief der Sync damit weiter und stempelte den
+Leerstring auf `Channel.ActiveEmoteSetId`: ein Wert, den der Delta-Pfad anschließend gegen jeden
+eingehenden Dispatch vergleicht und den die Usage-Seite als „der erste Sync läuft noch" liest.
+
+**Der Grund hat bewusst keinen `SevenTvLookupStatus` hinter sich.** Die Statuswerte beschreiben, was
+ein *Lookup* ergeben hat; dieser hier beschreibt eine Nutzlast, die alle diese Prüfungen bestanden
+hat und trotzdem nicht verwendbar ist. Ein Enum-Mitglied dafür würde jeden Lookup im Repo zwingen,
+einen Fall zu behandeln, den nur der Sync erkennen kann. `FromStatus` bleibt deshalb erschöpfend über
+das Enum und gibt diesen Wert nie zurück; `SevenTvSyncService` benutzt ihn direkt, an der einzigen
+Stelle, die den Defekt sieht. Dafür hat `RecordFailedAttemptAsync` eine zweite Überladung bekommen,
+die den Grund statt des Status nimmt.
+
+**Die Stelle ist der eigentliche Inhalt dieser Entscheidung, nicht der Code.** Der Guard steht
+unmittelbar hinter `var emoteSet = channelState.State.EmoteSet;` — vor der ersten Mutation. Damit
+darf `SevenTvSyncResult.Create` wieder auf `ThrowIfNullOrWhiteSpace` prüfen (der Eintrag darüber
+hatte das auf eine Null-Prüfung zurückgenommen): Die Factory läuft nach `SaveChangesAsync`, und eine
+Prüfung an so später Stelle darf nur noch eine Unmöglichkeit feststellen, niemals der Ort sein, an
+dem ein echter Fall auffällt.
+
+**Gemessen, nicht behauptet.** Ersetzt man die Guard-Bedingung durch `false`, scheitert
+`SyncChannel_OkWithABlankSetId_IsRejectedBeforeAnythingIsWritten` mit genau der vorhergesagten
+Ursache — `System.ArgumentException … (Parameter 'emoteSetId')` aus der Factory, also *nach* den
+Schreibvorgängen. Der Test prüft entsprechend nicht den Grund, sondern die **Abwesenheit von
+Schreibzugriffen**: bekannter Set-Id überlebt, `LastSyncedAtUtc` bleibt null, die angebotene
+Emote-Zeile wird nicht eingefügt, der Match-Cache nicht neu gebaut.
+
+---
+
+### 2026-09-05 — Der aktuelle Login verlässt den Sync als Rückgabewert, nicht nur als Seiteneffekt
+
+**Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvSyncService.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Worker/Worker.cs`, `src/EmotePurge.Worker/SevenTvPeriodicResyncWorker.cs`, `src/EmotePurge.Worker/SevenTv/SevenTvEventClient.cs`
+
+**Der Vertrag, den dieser Eintrag festschreibt:** Wer `ISevenTvSyncService` aufruft, keyt seine
+Nachwirkungen — EventAPI-Registrierung, `channel.synced` — auf **`result.ChannelName`**, nicht auf
+den Namen, den er hineingereicht hat. Der Sync liest seine Zeile unter dem Zeilen-Gate neu ein
+(Eintrag vom 2026-09-04 zum Rename-Handover), also können die beiden auseinanderfallen: ein Rename,
+das committet wird, während der Aufruf noch in der Warteschlange des Zeilen-Gates sitzt, zieht dem
+Aufrufer den Namen unter den Füßen weg.
+
+**Warum das mehr als Kosmetik ist.** Bis hierher erfuhr nur der Service selbst den neuen Namen — der
+Match-Cache und der Duplikat-Tracker folgten dem Rename korrekt, die Aufrufer nicht. Zwei sichtbare
+Folgen, beide vom Codex-Review zu #54 als P2 gemeldet (Issue #60): Die EventAPI-Registry wurde unter
+dem **alten** Login neu registriert — und weil `SevenTvSubscriptionRegistry` auf dem normalisierten
+Namen keyt, legt das einen **zweiten** Eintrag an, statt den vorhandenen zu verschieben; steht der
+Handover-`LEAVE` schon dahinter, weckt der Sync die gerade abgeräumte Subscription wieder auf. Und
+das `channel.synced` ging an den alten Namen, auf dem der SSE-Stream des umbenannten Kanals nicht
+mehr lauscht. Kein Rückschritt gegenüber dem Zustand vor #54 (dort arbeitete der ganze Sync mit dem
+alten Namen), aber ein unvollständiger Fix.
+
+**Zwei Typen, zwei Formen.** `SevenTvSyncResult` bekommt `ChannelName` als Pflichtfeld; es ist immer
+bekannt, weil der Typ nur nach dem Reload gebaut wird. Der Delta-Pfad gab bisher das blanke Enum
+`SevenTvDeltaOutcome` zurück, das keinen Namen tragen kann — er bekommt deshalb den Umschlag
+`SevenTvDeltaResult` (Outcome + optionaler Login). Das Enum bleibt unverändert bestehen; der einzige
+`switch` im Repo wird zu `switch (result.Outcome)`. Beide Typen sind nach dem Eintrag vom 2026-09-04
+`sealed class` mit privatem Konstruktor und Factories, keine offenen `record`s.
+
+**Die Nullbarkeit von `SevenTvDeltaResult.ChannelName` ist selbst eine Invariante** und von den
+Factories erzwungen: `ForChannel` weist `ChannelUnknown` zurück (keine Zeile, also kein Login),
+`WithoutChannel` weist `Applied`/`SetNotActive`/`ImplausibleSkipped` zurück (die sind erst nach dem
+Lesen der Zeile erreichbar). `NoChange` steht bewusst auf **beiden** Seiten: ein leeres Delta bricht
+ab, bevor die Datenbank überhaupt angefasst wird, ein wirkungsloses Delta war dagegen durch das
+Gate. Aufrufer dürfen diesen Unterschied nicht als Bedeutung lesen — „nichts geschrieben" heißt er
+in beiden Fällen.
+
+**Ein Nebenbefund im selben Zug behoben:** `SyncChannelAsync` fragte 7TV mit
+`ResolveTwitchUserIdAsync(normalized, …)` — also mit dem Namen des Aufrufers — obwohl der Aufruf
+**nach** dem Reload steht. Ein Rename hätte dort einen bereits zurückgezogenen Login an einen
+Fremdanbieter geschickt. Läuft jetzt über `channel.ChannelName`. Gleiche Fehlerklasse, gleiche
+Zeile im Ablauf, deshalb hier und nicht in einem eigenen Issue.
+
+**Was bewusst *nicht* passiert:** Der alte Registry-Eintrag wird beim erkannten Rename nicht aktiv
+entfernt. Das Konvergenznetz räumt ihn ohnehin ab (`PruneStaleChannelsAsync` ruft `Unsubscribe` für
+jeden Channel, der aus der aktiven Liste gefallen ist, und der alte Name ist dort nicht mehr
+enthalten), und ein aktives Entfernen wäre falsch, sobald Twitch den freigewordenen Login an einen
+anderen Kanal vergibt, der ihn bereits registriert hat. Ebenso bleiben die Log-Zeilen auf
+`normalized`: dort ist der Name, unter dem der Dispatch bzw. der Aufruf **ankam**, der nützlichere
+Korrelationsschlüssel.
+
+**Gemessen, nicht behauptet:** Zwei Mutationen — `currentName` bzw. der Sync-Rückgabewert wieder auf
+`normalized` gesetzt — machen je genau einen der beiden Handover-Fälle rot. Ohne Mutation sind sie
+grün.
+
+**Eine Prüfung, die bewusst *nicht* in der Factory steht, und warum das kein Versehen ist.** Der
+erste Anlauf ließ `SevenTvSyncResult.Create` auch einen leeren `emoteSetId` zurückweisen — analog zum
+Login. Das Codex-Review zum Branch hat das als P2 aufgedeckt: Die Factory läuft **nach**
+`SaveChangesAsync` und `RefreshMatchCacheAsync`. Antwortet 7TV mit einem `Ok`, dessen Set ohne `id`
+kommt (`SevenTvEmoteSetJsonDto.Id` fällt auf `string.Empty` zurück), hätte der `throw` die bereits
+committeten Schreibvorgänge stehen lassen, während der Aufrufer den Sync für gescheitert hält und
+Subscription-Konvergenz **und** `channel.synced` überspringt — also genau die Nachwirkungen, die
+dieser Eintrag geradezieht. Eine Prüfung so spät kauft nichts und kostet die Nachwirkungen; geblieben
+ist eine Null-Prüfung. Der Login behält seine Blank-Prüfung, weil er aus der eigenen `Channel`-Zeile
+stammt, die normalisiert und unique-indiziert ist.
+
+**Nachtrag, entschieden am selben Tag:** Die damit offen gebliebene Frage — was bei einer
+`Ok`-Antwort mit leerem `emoteSet.Id` passieren soll — ist beantwortet und im Eintrag darunter
+umgesetzt. Die Prüfung in `SevenTvSyncResult.Create` steht seither wieder auf
+`ThrowIfNullOrWhiteSpace`, weil der Fall den Typ gar nicht mehr erreicht.
 ### 2026-09-04 — Die fünf `SevenTv`-Ergebnistypen sind nachgezogen; die Statusprüfung steht jetzt einmal
 
 **Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvEditorService.cs`

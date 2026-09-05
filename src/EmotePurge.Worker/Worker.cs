@@ -123,15 +123,18 @@ public class Worker(
         var result = await syncService.SyncChannelAsync(channelName, ct);
         if (result is not null)
         {
-            logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert.", result.EmoteSetId, channelName);
+            // result.ChannelName everywhere below, not the name this method was called with: the
+            // sync re-reads its row under the row gate, so a rename committed while this call was
+            // queued means the caller's name is already retired (issue #60).
+            logger.LogInformation("7TV-Set {SetId} für {Channel} synchronisiert.", result.EmoteSetId, result.ChannelName);
 
             // Desired-state first: safe even before the EventAPI session exists; the client
             // converges the socket towards the registry after every Hello.
-            sevenTvEventClient.EnsureSubscribed(channelName, result.EmoteSetId, result.SevenTvUserId);
+            sevenTvEventClient.EnsureSubscribed(result.ChannelName, result.EmoteSetId, result.SevenTvUserId);
 
             if (publishCompletion || result.HasChanges)
             {
-                await redisPublisher.PublishChannelSyncedAsync(logger, channelName, ct);
+                await redisPublisher.PublishChannelSyncedAsync(logger, result.ChannelName, ct);
             }
         }
     }
