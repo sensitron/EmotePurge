@@ -53,6 +53,21 @@ Ordnung. Für den Live-Match-Cache ist das die unspezifizierte Reihenfolge einer
 statt es zu reparieren; ein `OrderBy` einzuführen wäre eine Verhaltensänderung des Live-Pfads, die
 dieser Task nicht vornimmt.
 
+**Nachtrag (Fixrunde 1, selbes Datum):** `MatchEmoteIds` hat jetzt zwei Überladungen statt einer.
+Der gebundene Vertrag mit Rückgabetyp `IReadOnlySet<string>` bleibt für Task 5/6 wörtlich bestehen,
+bekommt aber eine Zwillingsüberladung `MatchEmoteIds(message, nameToId, HashSet<string> into)`, die
+nur befüllt statt zurückzugeben. Grund: Ein `foreach` über den interface-typisierten Rückgabewert
+boxt `HashSet<string>`s Struct-Enumerator, weil es dann über `IEnumerable<T>.GetEnumerator()` statt
+über die konkrete Methode läuft — für Task 5/6 ein einmaliger, vernachlässigbarer Kostenpunkt, für
+den Chat-Hot-Path (jede eingehende Nachricht) aber genau die zusätzliche Allokation, die dieser
+Eintrag oben ausdrücklich ausschließt. `TwitchChatManager.OnMessageReceived` alloziert wie vor der
+ursprünglichen Extraktion genau ein `HashSet<string>` je Nachricht, ruft die Drei-Parameter-Überladung
+und iteriert die Menge über ihren konkreten Typ — kein Boxing. Die beiden geteilten leeren Instanzen
+(`EmptyMatches`, `EmptyAmbiguousNames`) sind außerdem von einem als `IReadOnlySet<string>` getarnten,
+aber tatsächlich veränderlichen `HashSet<string>` auf `FrozenSet<string>.Empty` umgestellt — ein
+Rückcast auf `HashSet<string>` hätte die geteilte Instanz sonst für alle Aufrufer gleichzeitig
+verändern können.
+
 ---
 
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt

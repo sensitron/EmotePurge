@@ -515,7 +515,13 @@ public class TwitchChatManager(
         // instead of re-classifying the same chatter per token.
         var isBot = botChatterDetector.IsBot(e.ChatMessage.UserId, e.ChatMessage.Badges);
 
-        foreach (var emoteId in EmoteNameMatching.MatchEmoteIds(e.ChatMessage.Message, channelEmotes))
+        // Owns the set and iterates it through its concrete type below, so the struct enumerator
+        // applies instead of the boxed one behind IReadOnlySet<string> — see the buffer-taking
+        // MatchEmoteIds overload's doc comment. Exactly one HashSet<string> allocated per message,
+        // same as before this class existed.
+        var matchedThisMessage = new HashSet<string>();
+        EmoteNameMatching.MatchEmoteIds(e.ChatMessage.Message, channelEmotes, matchedThisMessage);
+        foreach (var emoteId in matchedThisMessage)
         {
             usageCounter.Increment(emoteId, isBot);
         }

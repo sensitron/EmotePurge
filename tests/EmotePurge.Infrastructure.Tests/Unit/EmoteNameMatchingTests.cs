@@ -72,11 +72,25 @@ public class EmoteNameMatchingTests
     }
 
     [Fact]
-    public void MatchEmoteIds_DoubleSpaceBetweenTokens_EmptyTokenMatchesNothing()
+    public void MatchEmoteIds_DoubleSpaceBetweenTokens_SurroundingTokenStillMatches()
     {
         var result = EmoteNameMatching.MatchEmoteIds("hello  PogChamp", OneEmote);
 
         Assert.Equal(["emote-1"], result);
+    }
+
+    [Fact]
+    public void MatchEmoteIds_DoubleSpaceProducesEmptyToken_MatchesIfMapHasAnEmptyKey()
+    {
+        // Honest consequence of "no RemoveEmptyEntries": a double space produces an empty token
+        // like any other, and it matches if the map happens to have an entry for it. Nothing in
+        // this codebase creates an empty-named emote today, but the rule itself does not special-
+        // case it — this documents that instead of asserting a guarantee that does not exist.
+        var nameToId = new Dictionary<string, string> { [string.Empty] = "emote-empty" };
+
+        var result = EmoteNameMatching.MatchEmoteIds("hello  world", nameToId);
+
+        Assert.Equal(["emote-empty"], result);
     }
 
     [Fact]
@@ -155,6 +169,47 @@ public class EmoteNameMatchingTests
         var second = EmoteNameMatching.MatchEmoteIds(string.Empty, new Dictionary<string, string>());
 
         Assert.Same(first, second);
+    }
+
+    // ---- MatchEmoteIds: the buffer-taking overload agrees with the allocating one ----
+
+    [Fact]
+    public void MatchEmoteIds_BufferOverload_AgreesWithAllocatingOverload_WhenThereAreMatches()
+    {
+        var nameToId = new Dictionary<string, string> { ["PogChamp"] = "emote-1", ["Kappa"] = "emote-2" };
+        const string message = "PogChamp said Kappa PogChamp";
+
+        var expected = EmoteNameMatching.MatchEmoteIds(message, nameToId);
+        var actual = new HashSet<string>();
+        EmoteNameMatching.MatchEmoteIds(message, nameToId, actual);
+
+        // Set comparison, not sequence comparison: HashSet<T> enumeration order is unspecified,
+        // and both overloads are only contracted to agree on membership, not on order.
+        Assert.True(actual.SetEquals(expected));
+    }
+
+    [Fact]
+    public void MatchEmoteIds_BufferOverload_AgreesWithAllocatingOverload_WhenThereAreNoMatches()
+    {
+        const string message = "no emotes in this message at all";
+
+        var expected = EmoteNameMatching.MatchEmoteIds(message, OneEmote);
+        var actual = new HashSet<string>();
+        EmoteNameMatching.MatchEmoteIds(message, OneEmote, actual);
+
+        Assert.True(actual.SetEquals(expected));
+    }
+
+    [Fact]
+    public void MatchEmoteIds_BufferOverload_OnlyAdds_DoesNotClearExistingEntries()
+    {
+        var actual = new HashSet<string> { "emote-preexisting" };
+
+        EmoteNameMatching.MatchEmoteIds("PogChamp", OneEmote, actual);
+
+        Assert.Equal(2, actual.Count);
+        Assert.Contains("emote-preexisting", actual);
+        Assert.Contains("emote-1", actual);
     }
 
     // ---- Coalesce ----
