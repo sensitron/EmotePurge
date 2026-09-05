@@ -126,12 +126,18 @@ public sealed record ReplayDayRatio(DateOnly Day, long LogTotal, long LiveTotal,
 /// import population (every emote with live &gt; 0 or log &gt; 0, archived and renamed ones
 /// included — Codex-adversarial decision D1). The thresholds themselves live in the issue, never
 /// here: this record hands out the values, the human reads them against #69.
+/// <para>
+/// <c>HumanLogTotal</c> and <c>HumanLiveTotal</c> carry "human" in the name on purpose: they are
+/// the denominators of the gate and exclude bots on both sides (live is <c>UseCount</c> alone, log
+/// is the human hit count), whereas <see cref="ReplayPlausibility"/> right next to them in the
+/// report sums both sides <b>with</b> bots. The three numbers are not comparable.
+/// </para>
 /// </summary>
 public sealed record ReplayGateMetrics(
     int RatedDays,
     int PopulationSize,
-    long LogTotal,
-    long LiveTotal,
+    long HumanLogTotal,
+    long HumanLiveTotal,
     double? TotalDeviation,
     double? Top20Recall,
     int Top20Size,
@@ -154,6 +160,29 @@ public sealed record ReplayPlausibility(
 /// Everything that explains the gate numbers without binding anything: the stable-subset
 /// diagnostics of the original pre-registration, the shape of the population, the matching
 /// reasons, the message-level counters and the privacy figures.
+/// <para>
+/// Two day counts here are easy to confuse. <c>HumanOnlyDays</c> counts every day of the run at or
+/// after the bot-split cutover, <b>including days without a log</b> — it says how far the
+/// human-only comparison could reach at all. How many days metric (b) actually covers is
+/// <c>FlaggedIncludedDays</c> (has a log and is human-only) and, after the coverage and gap
+/// markers, <c>ReplayGateMetrics.RatedDays</c>.
+/// </para>
+/// <para>
+/// <c>DailyDeviation</c> and <c>DailyDeviationWithOneDayTolerance</c> are the secondary day diff.
+/// They exist because <c>UsageStat.Date</c> is the day of the <i>flush</i>, not of the message:
+/// the 30-second batch and its requeue rounds push usage around midnight onto the following day,
+/// which inflates the daily numbers without the window sums moving at all. The tolerant variant
+/// lets a log day be explained by the neighbouring live days; the gap between the two figures is
+/// the size of that artefact, and it is what tells a later reader whether a bad coverage ratio was
+/// a data problem or a day offset.
+/// </para>
+/// <para>
+/// <c>SignallessRatedDays</c> counts rated days on which neither side saw anything at all (a dead
+/// channel day: log total and live total both zero). Such a day passes every rating condition and
+/// raises <c>RatedDays</c> towards the pre-registered minimum of 20 without contributing a single
+/// comparison. The gate definition is published in #69 and stays as it is; this field exists so a
+/// reader can subtract those days instead of being quietly misled by the count.
+/// </para>
 /// </summary>
 public sealed record ReplayDiagnostics(
     int StableSubsetSize,
@@ -176,6 +205,8 @@ public sealed record ReplayDiagnostics(
     double? LiveOnlyShareOfLiveTotal,
     double? TotalDeviationIncludingFlaggedDays,
     int FlaggedIncludedDays,
+    double? DailyDeviation,
+    double? DailyDeviationWithOneDayTolerance,
     long UnknownNameHits,
     long AmbiguousNameHits,
     long BeforeFirstSeenHits,
@@ -196,6 +227,7 @@ public sealed record ReplayDiagnostics(
     int HumanOnlyDays,
     int LogDays,
     int NoLogDays,
+    int SignallessRatedDays,
     double? DayRatioMedian,
     ValueList<ReplayDayRatio> LiveGapDays,
     ValueList<ReplayDayRatio> CoverageQuestionableDays);

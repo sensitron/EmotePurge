@@ -394,6 +394,143 @@ public class ReplayFidelityCalculatorTests
         Assert.Equal(first.GetHashCode(), second.GetHashCode());
     }
 
+    [Fact]
+    public void Top20Recall_FallsWhenTheTwoRankingsDisagree()
+    {
+        // 30 emotes, live count i+1 per day, so the live top 20 is e10..e29. The log lifts e00, e01
+        // and e02 to the very top (100, 99, 98) and pushes e10..e14 to the bottom (1 each), which
+        // makes the log top 20 {e00, e01, e02} + {e15..e29} (15) + {e08, e09} (2). The intersection
+        // with the live top 20 is e15..e29, i.e. 15 of 20 -> recall 0.75.
+        // The number is deliberately neither 1.0 nor what the same code would produce off the wrong
+        // end of the rankings: the bottom-20 overlap of this scenario is 17, i.e. 0.85.
+        var emotes = new List<ReplayEmote>();
+        var live = new Dictionary<string, int>(StringComparer.Ordinal);
+        var log = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < 30; i++)
+        {
+            var id = $"e{i:00}";
+            emotes.Add(Emote(id));
+            live[id] = i + 1;
+            log[id] = i + 1;
+        }
+
+        log["e00"] = 100;
+        log["e01"] = 99;
+        log["e02"] = 98;
+        for (var i = 10; i <= 14; i++)
+        {
+            log[$"e{i:00}"] = 1;
+        }
+
+        var (days, rows) = Build(30, log, live);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(30, report.Gate.PopulationSize);
+        Assert.Equal(20, report.Gate.Top20Size);
+        Assert.Equal(0.75, report.Gate.Top20Recall!.Value, 6);
+    }
+
+    [Fact]
+    public void BottomQuartile_ReportsAPartialOverlap()
+    {
+        // Live counts 1..12, so the live bottom quartile (floor(12/4) = 3) is {e00, e01, e02}. The
+        // log lifts e02 to 20 and pushes e05 down to 3, so its bottom three are {e00, e01, e05}.
+        // Two of the three overlap -> precision 2/3 = 0.6667.
+        var emotes = new List<ReplayEmote>();
+        var live = new Dictionary<string, int>(StringComparer.Ordinal);
+        var log = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < 12; i++)
+        {
+            var id = $"e{i:00}";
+            emotes.Add(Emote(id));
+            live[id] = i + 1;
+            log[id] = i + 1;
+        }
+
+        log["e02"] = 20;
+        log["e05"] = 3;
+
+        var (days, rows) = Build(30, log, live);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(3, report.Gate.BottomQuartileSize);
+        Assert.Equal(0.6667, report.Gate.BottomQuartilePrecision!.Value, 6);
+    }
+
+    [Fact]
+    public void CoverageMedian_IsTakenOverTheLogDaysOnly()
+    {
+        // Pins the population of the coverage median (design D2). 14 intact log days at ratio 1 and
+        // 16 days that have live rows but no log at all. Over *every* day with a defined ratio the
+        // sorted ratios would be sixteen 0s followed by fourteen 1s, the nearest-rank median would
+        // be 0, and every intact day would then be flagged questionable (1 > 2 * 0) -- the gate
+        // would silently lose all of them. Over the log days alone the median is 1 and nothing is
+        // flagged. Do not "fix" the median back to the literal wording without breaking this first.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+        for (var i = 14; i < 30; i++)
+        {
+            days[i] = DayLine(From.AddDays(i), Empty, status: ReplayDayStatuses.NoLog);
+        }
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(1d, report.Diagnostics.DayRatioMedian!.Value, 6);
+        Assert.Empty(report.Diagnostics.CoverageQuestionableDays);
+        Assert.Equal(14, report.Gate.RatedDays);
+        Assert.Equal(16, report.Diagnostics.NoLogDays);
+    }
+
+    [Fact]
+    public void DayDiff_ForgivesUsageThatTheFlushMovedToTheNeighbouringDay()
+    {
+        // "x" is used ten times on each of three days, but its live rows carry nothing on the first
+        // day and twenty on the second -- the flush-day shift. Exact daily diff: 10 + 10 + 0 = 20
+        // over a live total of 330 (three days of "y" at 100 plus 30 of "x") = 0.0606. With the
+        // one-day tolerance the first day's ten hits settle against the second day's surplus and
+        // nothing is left over. The window sums are equal on both sides, so the gate deviation is 0
+        // -- which is exactly why the day diff is worth reporting next to it.
+        var emotes = new List<ReplayEmote> { Emote("x"), Emote("y") };
+        var days = new List<ReplayDayLine>();
+        var rows = new List<ReplayUsageRow>();
+        int[] liveX = [0, 20, 10];
+        for (var i = 0; i < 3; i++)
+        {
+            var day = From.AddDays(i);
+            days.Add(DayLine(day, Counts(("x", 10), ("y", 100))));
+            rows.Add(new ReplayUsageRow("x", day, liveX[i], 0));
+            rows.Add(new ReplayUsageRow("y", day, 100, 0));
+        }
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(3, report.Gate.RatedDays);
+        Assert.Equal(0d, report.Gate.TotalDeviation!.Value, 6);
+        Assert.Equal(0.0606, report.Diagnostics.DailyDeviation!.Value, 6);
+        Assert.Equal(0d, report.Diagnostics.DailyDeviationWithOneDayTolerance!.Value, 6);
+    }
+
+    [Fact]
+    public void RatedDayWithoutAnySignal_IsCountedSeparately()
+    {
+        // A complete log day on which neither side saw anything passes every rating condition and
+        // raises RatedDays towards the pre-registered minimum of 20 without contributing a single
+        // comparison. The gate definition stays as published; this count makes the day visible.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+        var deadDay = From.AddDays(29);
+        days[29] = DayLine(deadDay, Empty);
+        rows.RemoveAll(r => r.Date == deadDay);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(30, report.Gate.RatedDays);
+        Assert.Equal(1, report.Diagnostics.SignallessRatedDays);
+        Assert.Empty(report.Diagnostics.LiveGapDays);
+    }
+
     private static (List<ReplayEmote> Emotes, Dictionary<string, int> PerDay) BaseSet(int count = 32)
     {
         var emotes = new List<ReplayEmote>();

@@ -272,9 +272,11 @@ public static class ReplayFidelityCalculator
         double? dayRatioMedian)
     {
         var ratedDays = facts.Count(f => f.Rated);
+        var ratedDaySet = DaySet(facts, f => f.Rated);
         var minLiveUses = Math.Max(
             MinLiveUsesFloor,
             (int)Math.Ceiling((double)MinLiveUsesPerThirtyDays * ratedDays / RequiredWindowDays));
+        var (dailyDeviation, tolerantDailyDeviation) = DailyDeviations(days, liveRows, ratedDaySet);
 
         var stableIds = emotes
             .Where(e => IsStable(e, window.From, ambiguousNames))
@@ -323,6 +325,8 @@ public static class ReplayFidelityCalculator
             Round(liveTotal == 0 ? null : (double?)liveOnly.Sum(e => e.Live) / liveTotal),
             Round(Deviation(BuildPopulation(days, liveRows, humanOnlyLogDays))),
             humanOnlyLogDays.Count,
+            Round(dailyDeviation),
+            Round(tolerantDailyDeviation),
             Reason(days, UnmatchedReason.UnknownName),
             Reason(days, UnmatchedReason.AmbiguousName),
             Reason(days, UnmatchedReason.BeforeFirstSeen),
@@ -343,15 +347,131 @@ public static class ReplayFidelityCalculator
             facts.Count(f => f.HumanOnly),
             facts.Count(f => f.HasLog),
             facts.Count(f => !f.HasLog),
+            facts.Count(f => f is { Rated: true, LogTotal: 0, LiveTotal: 0 }),
             Round(dayRatioMedian),
             Ratios(facts, f => f.LiveGapSuspected),
             Ratios(facts, f => f.CoverageQuestionable));
     }
 
     /// <summary>
+    /// The secondary day diff over the rated days, human-only, per (emote, day) cell — once exact
+    /// and once with the ±1-day tolerance the design asks for, both divided by the same live total
+    /// as the window-sum deviation so the two are readable against each other.
+    /// <para>
+    /// The tolerance exists because <c>UsageStat.Date</c> is the day of the flush: usage around
+    /// midnight lands on the following live day while the log keeps it on its own. The tolerant
+    /// figure therefore first settles each day against itself, then lets whatever is left over be
+    /// explained by the <b>calendar</b> neighbours (yesterday before tomorrow, both only if they are
+    /// rated days themselves); what neither side can explain remains as the deviation. Days,
+    /// neighbours and emotes are all walked in a fixed order, so the result is deterministic.
+    /// </para>
+    /// </summary>
+    private static (double? Exact, double? Tolerant) DailyDeviations(
+        IReadOnlyList<ReplayDayLine> days,
+        IReadOnlyList<ReplayUsageRow> liveRows,
+        HashSet<DateOnly> ratedDays)
+    {
+        var orderedDays = ratedDays.Order().ToList();
+        var dayIndex = new Dictionary<DateOnly, int>();
+        for (var i = 0; i < orderedDays.Count; i++)
+        {
+            dayIndex[orderedDays[i]] = i;
+        }
+
+        var log = new Dictionary<string, long[]>(StringComparer.Ordinal);
+        foreach (var line in days)
+        {
+            if (!dayIndex.TryGetValue(line.Day, out var index))
+            {
+                continue;
+            }
+
+            foreach (var (emoteId, count) in line.HumanCounts)
+            {
+                Bucket(log, emoteId, orderedDays.Count)[index] += count;
+            }
+        }
+
+        var live = new Dictionary<string, long[]>(StringComparer.Ordinal);
+        foreach (var row in liveRows)
+        {
+            if (dayIndex.TryGetValue(row.Date, out var index))
+            {
+                Bucket(live, row.EmoteId, orderedDays.Count)[index] += row.UseCount;
+            }
+        }
+
+        var emoteIds = new HashSet<string>(log.Keys, StringComparer.Ordinal);
+        emoteIds.UnionWith(live.Keys);
+
+        long liveTotal = 0;
+        long exact = 0;
+        long tolerant = 0;
+        foreach (var emoteId in emoteIds.Order(StringComparer.Ordinal))
+        {
+            var logDays = log.GetValueOrDefault(emoteId) ?? new long[orderedDays.Count];
+            var liveDays = live.GetValueOrDefault(emoteId) ?? new long[orderedDays.Count];
+            var openLog = (long[])logDays.Clone();
+            var openLive = (long[])liveDays.Clone();
+
+            for (var i = 0; i < orderedDays.Count; i++)
+            {
+                liveTotal += liveDays[i];
+                exact += Math.Abs(logDays[i] - liveDays[i]);
+                Settle(openLog, openLive, i, i);
+            }
+
+            for (var i = 0; i < orderedDays.Count; i++)
+            {
+                if (dayIndex.TryGetValue(orderedDays[i].AddDays(-1), out var previous))
+                {
+                    Settle(openLog, openLive, i, previous);
+                }
+
+                if (dayIndex.TryGetValue(orderedDays[i].AddDays(1), out var next))
+                {
+                    Settle(openLog, openLive, i, next);
+                }
+            }
+
+            tolerant += openLog.Sum() + openLive.Sum();
+        }
+
+        return liveTotal == 0
+            ? (null, null)
+            : ((double?)exact / liveTotal, (double?)tolerant / liveTotal);
+    }
+
+    /// <summary>Books as many log hits of day <paramref name="from"/> against the live count of day <paramref name="against"/> as both sides still have open.</summary>
+    private static void Settle(long[] openLog, long[] openLive, int from, int against)
+    {
+        var settled = Math.Min(openLog[from], openLive[against]);
+        openLog[from] -= settled;
+        openLive[against] -= settled;
+    }
+
+    private static long[] Bucket(Dictionary<string, long[]> buckets, string emoteId, int length)
+    {
+        if (!buckets.TryGetValue(emoteId, out var bucket))
+        {
+            buckets[emoteId] = bucket = new long[length];
+        }
+
+        return bucket;
+    }
+
+    /// <summary>
     /// The stable subset: last synced before the window <b>and</b> either never archived or archived
     /// before the window (the REST resync archives without stamping <c>LastSyncedAt</c>, so the
     /// first condition alone would not do), and not carrying an ambiguous name.
+    /// <para>
+    /// "Ambiguous" is decided here over the <b>channel-wide</b> coalescence of every emote, not per
+    /// day: an emote whose name collided at any point in the channel's life is unstable for the
+    /// whole window. That is a different question from the per-hit
+    /// <see cref="UnmatchedReason.AmbiguousName"/> marker of <see cref="ReplayDayCounter"/>, which
+    /// asks whether the name was ambiguous <i>on that day's map</i> — a name can be ambiguous
+    /// channel-wide and unambiguous on a given day, and both readings are correct for their purpose.
+    /// </para>
     /// </summary>
     private static bool IsStable(ReplayEmote emote, DateOnly windowFrom, IReadOnlySet<string> ambiguousNames)
         => DateOnly.FromDateTime(emote.LastSyncedAt) < windowFrom
