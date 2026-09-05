@@ -10,6 +10,45 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-04 — Die fünf `SevenTv`-Ergebnistypen sind nachgezogen; die Statusprüfung steht jetzt einmal
+
+**Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvEditorService.cs`
+
+Der Eintrag von heute („Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert") ließ
+fünf Typen ausdrücklich offen, um das Diff reviewbar zu halten: `SevenTvChannelStateResult`,
+`SevenTvTwitchUserIdResult`, `SevenTvIdentityResult`, `SevenTvEditorGrantsResult` und
+`SevenTvEditorGrantsLookupResult`. Sie sind jetzt nach derselben Regel gebaut — `sealed class`,
+privater Konstruktor, Factories als einziger Weg hinein, `Failed(...)` weist Erfolgsstatus und
+undefinierte Enum-Werte zurück, die Erfolgsfactories weisen null-Nutzlast zurück. Damit ist die
+Regel im ganzen Repo durchgezogen und nicht mehr nur an zwei Typen belegt.
+
+**Ironie des Vorgangs, festgehalten damit sie nicht verlorengeht:** Diese Familie war das *Vorbild*,
+dem der erste Anlauf von #55 gefolgt ist — sie hatte Factories, aber einen offenen positionalen
+Konstruktor. Wer die Bauform des Nachbarn kopiert, erbt dessen Lücke mit.
+
+**Die Prüfung steht einmal, nicht fünfmal.** `SevenTvLookupStatusGuard.ThrowIfNotAFailure` in
+`SevenTvModels.cs` ist `internal` und trägt beide Zurückweisungen für alle fünf Typen. Der Grund ist
+nicht Zeilenersparnis, sondern der Zeitpunkt, zu dem `SevenTvLookupStatus` einmal einen zweiten
+Erfolgsstatus bekommt: fünf kopierte `if`-Blöcke werden dann zu vier Fundstellen, die jemand
+übersieht. Auch die Begründungspassage steht nur noch einmal — als `<remarks>` an
+`SevenTvChannelStateResult`, auf das die anderen vier verweisen, statt siebenmal kopiert im Repo zu
+stehen.
+
+**Beide Türen sind wieder gemessen, nicht behauptet.** Eine Wegwerf-Probe, die je Typ Konstruktor
+und `with` aufruft, erzeugt 15 Fehler: 5 × `CS8858` (kein gültiger Record als `with`-Empfänger),
+5 × `CS0200` (Property ist read-only) und 5 × `CS0122` (Konstruktor unzugänglich). Der letzte Code
+weicht vom Eintrag oben ab, wo `CS1729` stand: Dort passte die Argumentliste der Probe nicht zur
+privaten Signatur, hier passt sie exakt — der Compiler meldet dann „unzugänglich" statt „gibt es
+nicht". Beides heißt dasselbe. Festgehalten werden die Türen wie bei #55 durch Reflection-Tests
+(`SevenTvResultTypesTests`, als `[Theory]` über alle fünf Typen).
+
+**Nicht geändert:** Kein einziger Aufrufer musste angefasst werden. Eine Bestandsaufnahme über alle
+59 Fundstellen ergab, dass bereits jede Konstruktion über `Ok(...)`/`Failed(...)` lief und weder
+`with`, Dekonstruktion, positionale Muster noch Wertegleichheit irgendwo benutzt wurden — die
+Record-Form hatte also nichts getragen außer den beiden offenen Türen.
+
+---
+
 ### 2026-09-04 — Ergebnistypen mit Invariante werden geschlossen, nicht dokumentiert
 
 **Betrifft:** `src/EmotePurge.Core/Services/IChannelService.cs`, `src/EmotePurge.Core/Services/IChannelIdentityService.cs`, `src/EmotePurge.Infrastructure/Services/ChannelSyncGate.cs`, `src/EmotePurge.Infrastructure/EmotePurge.Infrastructure.csproj`

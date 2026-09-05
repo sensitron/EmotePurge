@@ -43,16 +43,34 @@ public record SevenTvEditorGrants(IReadOnlySet<string> ChannelLogins, IReadOnlyS
 /// <summary>
 /// The result of a grant lookup: <see cref="Grants"/> is populated if and only if <see cref="Status"/>
 /// is <see cref="SevenTvLookupStatus.Ok"/>. Ok always carries a (possibly empty) grant set — "answered:
-/// this user edits nothing" is Ok, not a failure status. The two factories are the only supported way
-/// to build one.
+/// this user edits nothing" is Ok, not a failure status. The two factories are the only way to build
+/// one at all; built like <see cref="SevenTvChannelStateResult"/>, whose remarks carry the reasoning
+/// for the whole family.
 /// </summary>
-public record SevenTvEditorGrantsLookupResult(SevenTvLookupStatus Status, SevenTvEditorGrants? Grants)
+public sealed class SevenTvEditorGrantsLookupResult
 {
-    public static SevenTvEditorGrantsLookupResult Ok(SevenTvEditorGrants grants) =>
-        new(SevenTvLookupStatus.Ok, grants);
+    private SevenTvEditorGrantsLookupResult(SevenTvLookupStatus status, SevenTvEditorGrants? grants)
+    {
+        Status = status;
+        Grants = grants;
+    }
 
-    public static SevenTvEditorGrantsLookupResult Failed(SevenTvLookupStatus status) =>
-        new(status, null);
+    public SevenTvLookupStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="SevenTvLookupStatus.Ok"/>.</summary>
+    public SevenTvEditorGrants? Grants { get; }
+
+    public static SevenTvEditorGrantsLookupResult Ok(SevenTvEditorGrants grants)
+    {
+        ArgumentNullException.ThrowIfNull(grants);
+        return new SevenTvEditorGrantsLookupResult(SevenTvLookupStatus.Ok, grants);
+    }
+
+    public static SevenTvEditorGrantsLookupResult Failed(SevenTvLookupStatus status)
+    {
+        SevenTvLookupStatusGuard.ThrowIfNotAFailure(status, nameof(SevenTvEditorGrantsLookupResult), "Ok(grants)");
+        return new SevenTvEditorGrantsLookupResult(status, null);
+    }
 }
 
 /// <summary>
