@@ -196,8 +196,9 @@ Opus-Review-Runden).
   Handgriff des Nutzers.
 - **Bericht als JSONL mit Lauf-Identität** (Eng-Review 3A + T3A): Zeile 1 ist ein Kopf
   mit Kanal-ID, **eingefrorenem** Fenster (Start und Ende beim ersten Lauf fixiert, nie
-  „heute minus 30" beim Wiederholen), Hash der Emote-Map, Bot-ID-Menge, Algorithmus-
-  Version und Konfigurations-Hash. Je fertigem Tag eine Zeile mit den Zählständen. Ein
+  „heute minus 30" beim Wiederholen, endet am letzten abgeschlossenen UTC-Tag), Hash der
+  Emote-Map, Bot-ID-Menge, Algorithmus-Version und Input-Hash über Emote- und
+  UsageStat-Zeilen (s. Codex-Adversarial). Je fertigem Tag eine Zeile mit den Zählständen. Ein
   neuer Lauf nimmt **nur** wieder auf, wenn sein Kopf byte-gleich ist; sonst neue Datei.
   Der Endbericht (Kennzahlen, Tabelle, Gültigkeitsstatus) entsteht in einem eigenen,
   atomaren Abschlussschritt aus den Tageszeilen und ist aus derselben Datei reproduzierbar.
@@ -366,6 +367,9 @@ erreicht wurde oder ersatzweise ein mittelgroßer Kanal unter der MB-Decke bleib
    Namensregel; Übereinstimmung beweist, dass ein Import die eigene Live-Messung
    reproduzieren würde, nicht, dass ein Name dem richtigen historischen Emote gehört. Die
    Zuordnungsfrage beantworten nur die Diagnostikzahlen daneben, und der Bericht sagt das.
+   - **Ersetzt am 2026-09-05 nach Codex-Adversarial, s. Abschnitt „Codex-Adversarial
+     2026-09-05: Ergebnisse", Präregistrierung.** Die folgende Fassung bleibt als
+     Diagnostik erhalten.
    - **Primärmetrik, vorab definiert:** Replay-Treue je Emote über die Fenstersumme
      human-only (`UseCount` gegen Log-Zählung ohne Bots, Tage ab dem kanalspezifischen
      Bot-Split-Stichtag), auf der stabilen Teilmenge (s. Constraints; nicht mehrdeutig
@@ -535,6 +539,7 @@ oben in Constraints, Approach und Success Criteria eingearbeitet; hier die Pflic
 
 ```
 docker compose run harness <kanal>
+        # (harness steht im entrypoint des Services, nicht im command)
         │
         ▼
 Program: Argument-Zweig ─── kein Hosted Service ─── DI wie im Worker
@@ -680,7 +685,7 @@ Claude Code or Codex; checkbox as you ship. Effort: human / CC.
   - Surfaced by: Code Quality 6A
   - Files: `src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs`, `src/EmotePurge.Core/Services/IUsageStatQueryService.cs`, `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs`
   - Verify: `EmoteSetStatusServiceTests` unverändert grün
-- [ ] **T3 (P1, ~1 Tag / ~30 min)** — Infrastructure/Http — Log-Archiv-Client: 1 Anfrage je Tag, `Task.Delay`, `ResponseHeadersRead` + `Utf8JsonReader` (oder `?raw`), Body-Timeout-CTS, 429 → Stop, MB-Decke; Unit-Tests mit Fake-Handler
+- [ ] **T3 (P1, ~1 Tag / ~30 min)** — Infrastructure/Http — Log-Archiv-Client: 1 Anfrage je Tag, `Task.Delay`, `ResponseHeadersRead` + `?raw` zeilenweise (T8: bestätigt), Body-Timeout-CTS, 429 → Stop, MB-Decke; Unit-Tests mit Fake-Handler
   - Surfaced by: Architecture 2A, Suchcheck [Layer 1/2]
   - Files: `src/EmotePurge.Core/Services/`, `src/EmotePurge.Infrastructure/Http/`, `tests/EmotePurge.Infrastructure.Tests/Unit/`
   - Verify: Tests 429, stockender Stream, 404, leerer Tag, Abbruch-Token; Live-Probe ein Tag
@@ -688,23 +693,23 @@ Claude Code or Codex; checkbox as you ship. Effort: human / CC.
   - Surfaced by: Step 0 D1, Performance 7A
   - Files: `src/EmotePurge.Core/Services/`, `src/EmotePurge.Infrastructure/Services/`, `tests/EmotePurge.Infrastructure.Tests/Integration/`
   - Verify: Integrationstests gegen Testcontainers
-- [ ] **T5 (P1, ~1 Tag / ~30 min)** — Worker — Pure Rechenlogik: Grenzen, stabile Teilmenge, Replay-Treue mit N/M, Spearman + Rangwechsel, nicht zuordenbar nach Grund, k=1 je Tag verworfen, Lücken mit/ohne
+- [ ] **T5 (P1, ~1 Tag / ~30 min)** — Worker — Pure Rechenlogik: Grenzen, stabile Teilmenge, Replay-Treue mit N/M, Spearman + Rangwechsel, nicht zuordenbar nach Grund, k=1 je Tag verworfen, Lücken mit/ohne; Gesamtabweichung über volle Population, Top-20-Recall, Quartil-Precision, Tagesverhältnis mit Abdeckungs-Markierung; stabile Teilmenge nur Diagnostik
   - Surfaced by: Test review, T2A, Präregistrierung
   - Files: `src/EmotePurge.Worker/`, `tests/EmotePurge.Worker.Tests/`
   - Verify: container-freie Tests je Zweig
-- [ ] **T6 (P1, ~1 Tag / ~30 min)** — Worker — Einstiegspunkt `harness <kanal>` ohne Hosted Service, Vorbedingungen, JSONL-Kopf mit Lauf-Identität, Tageszeilen, Resume nur bei gleichem Kopf, atomarer Abschluss
+- [ ] **T6 (P1, ~1 Tag / ~30 min)** — Worker — Einstiegspunkt `harness <kanal>` ohne Hosted Service, Vorbedingungen, JSONL-Kopf mit Lauf-Identität, Tageszeilen, Resume nur bei gleichem Kopf, atomarer Abschluss; strikte Argumentprüfung, unbekannte Argumente Exit ≠ 0; Test: kein Hosted Service startet; Fensterende = letzter abgeschlossener UTC-Tag; Input-Hash + Body-Digest je Tag
   - Surfaced by: Architecture 3A, 4A, T1A, T3A
   - Files: `src/EmotePurge.Worker/Program.cs`, `src/EmotePurge.Worker/`, `tests/EmotePurge.Worker.Tests/`
   - Verify: Tests Einstiegspunkt, Resume, Abschluss zweimal
-- [ ] **T7 (P2, ~1 h / ~10 min)** — Infra — Compose-Service `harness` (Profil oder `run`), Bind-Mount, `mem_limit`; VPS-Befehle für den Nutzer; DECISIONS-Eintrag im selben Commit
+- [ ] **T7 (P2, ~1 h / ~10 min)** — Infra — Compose-Service `harness` (Profil oder `run`), Bind-Mount, `mem_limit`; VPS-Befehle für den Nutzer; DECISIONS-Eintrag im selben Commit; `harness` im entrypoint, nicht im command
   - Surfaced by: T1A, Regel 3
   - Files: `docker-compose.prod.yml`, `docs/DECISIONS.md`
   - Verify: `docker compose config`; Handgriffe übergeben, nicht ausgeführt
-- [ ] **T8 (P2, ~2 h / ~20 min)** — Probe — Live-Proben vor T3: Wurzelform, `?raw`, Zeitzone, Badges/user-id, Zeilenformat gegen Live; Ergebnis nach #69
+- [x] **T8 (P2, ~2 h / ~20 min)** — Probe — Live-Proben vor T3: Wurzelform, `?raw`, Zeitzone, Badges/user-id, Zeilenformat gegen Live; Ergebnis nach #69 — erledigt 2026-09-05, s. Abschnitt T8-Live-Proben
   - Surfaced by: Doc Schritt 2, Lektion #33/#37
   - Files: keine (Kommentar in #69)
   - Verify: Kommentar mit Antworten liegt vor
-- [ ] **T9 (P2, ~30 min / ~5 min)** — Prozess — Schwellen in #69 festschreiben (N, M, Median, p90, Spearman, Schwanz) vor dem bindenden Lauf ≥ 30 human-only-Tage
+- [ ] **T9 (P2, ~30 min / ~5 min)** — Prozess — Schwellen in #69 festschreiben (Gesamtabweichung ≤ 10 %, Top-20-Recall ≥ 0,9, Quartil-Precision ≥ 0,8, zwei Kanäle) vor dem bindenden Lauf ≥ 30 human-only-Tage
   - Surfaced by: Codex „not preregistered"
   - Files: keine
   - Verify: Kommentar in #69 vor dem Lauf
@@ -730,18 +735,105 @@ _No new tasks from Performance beyond T4._
 - Parallelization: 4 lanes, 4 parallel / 2 sequential (T6, T7 danach)
 - Lake Score: 11/11 recommendations chose complete option
 
+## Codex-Adversarial 2026-09-05: Ergebnisse
+
+Codex Sol (`gpt-5.6-sol`) hat das Dokument adversarial geprüft, mit Fokus auf
+Einmal-Container, Metrik, JSONL-Identität und Log-Dienst-Annahme. Verdict needs-attention,
+3 High- und 1 Medium-Finding. Der Widerspruch zum Eng-Review wurde nach globaler Regel
+durch Fable als Schiedsrichter bewertet, zwei Punkte sind als Nutzer-Entscheidung (D1, D2)
+getroffen.
+
+- **Fail-open CLI (High, akzeptiert, Plan-Ebene).** Befund: `docker compose run harness
+  <kanal>` ersetzt das Service-`command`, nicht den Entrypoint. Steht `harness` nur im
+  `command`, erhält `Program` nur `<kanal>` und startet den normalen Host mit allen
+  Hosted Services neben dem Prod-Worker (doppelte IRC-Zählung über den additiven UPSERT).
+  Entscheidung: `harness` steht im `entrypoint` des Compose-Services; strikte
+  Argumentprüfung vor dem Host-Aufbau: keine Argumente = Worker, genau `harness <kanal>` =
+  Harness, alles andere endet mit Exit-Code ungleich null und einer Zeile auf stderr; ein
+  Test belegt, dass im Harness-Zweig kein `IHostedService.StartAsync` läuft.
+- **JSONL-Kopf identifiziert den Datensnapshot nicht (High, akzeptiert, Plan-Ebene).**
+  Befund: das Fenster durfte den offenen UTC-Tag enthalten, den der Live-Worker noch
+  beschreibt; der Kopf hatte nur Map-Hash und generischen Konfig-Hash. Entscheidung:
+  Fensterende ist der letzte vollständig abgeschlossene UTC-Tag (gestern oder früher,
+  bezogen auf den Prozessstart). Der Kopf enthält statt des Konfigurations-Hashes einen
+  kanonischen Input-Hash über die geladenen Emote-Zeilen (Id, Name, FirstSeenAt,
+  ArchivedAt, LastSyncedAt) und die verglichenen `UsageStat`-Zeilen (EmoteId, Date,
+  UseCount, BotUseCount) sowie die Bot-ID-Menge; je Tageszeile zusätzlich ein SHA-256 des
+  empfangenen Bodys. Resume nur bei identischem Kopf, sonst ein neuer Lauf in einer neuen
+  Datei.
+- **Metrik-Population (High, D1 = A).** Befund: Median, p90 und Spearman über die stabile
+  Teilmenge blenden `Live = 0, Log ≫ 0` aus, genau den Fall, der im importierten Raster
+  nach oben springt; das Gate gab damit Zahlen für das ganze Raster frei, die nur für
+  einen Ausschnitt geprüft waren. Entscheidung: bindend wird die Gesamtabweichung
+  `Σ|Log − Live| / ΣLive` über die volle Import-Population (alle Emotes, die im Fenster
+  auf mindestens einer Seite auftauchen, inklusive log-only und live-only, inklusive
+  umbenannter und archivierter), ergänzt um Precision und Recall der Top-20 und des
+  unteren Quartils (Rangliste nach Log gegen Rangliste nach Live). Median, p90 und
+  Spearman der stabilen Teilmenge bleiben als Diagnostik im Bericht. Alternativen (B: auf
+  die stabile Teilmenge beschränken; Gesamtheit als Diagnostik belassen) wurden verworfen,
+  weil B seinen Hauptnutzen (Emotes ohne Live-Historie) verlöre bzw. der Einwand offen
+  bliebe.
+- **Log-Abdeckung (Medium, D2 = A).** Befund: ein 200er-Tag belegt nicht, dass der
+  Log-Bot den ganzen Tag im Kanal war (Justlog-Opt-outs, Bot-Reconnects, keine Marker in
+  der Antwort). Codex' Recorder-Probe per IRC-Message-ID wäre ein neues Bauteil (unser
+  Worker speichert keine IDs) plus eine Datenschutzfrage. Entscheidung: der Bericht weist
+  je Tag `Σ Log / Σ Live` über alle Emotes aus; Tage, deren Verhältnis mehr als das
+  Doppelte vom Median der Tage abweicht, werden als „Abdeckung fraglich" markiert und aus
+  dem Gate genommen (bleiben in der Diagnostik); eine bindende Entscheidung über Feature B
+  braucht Läufe auf mindestens zwei Kanälen. Completeness 7/10, Upgrade-Trigger: scheitert
+  das Gate wegen als fraglich markierter Tage, wird die Recorder-Probe gebaut.
+  gstack-Decision-IDs: `b58bfd56` (Metrik), `4564f200` (Abdeckung).
+
+### Präregistrierung (ersetzt die Fassung im Abschnitt „Recommended Approach")
+
+Neue bindende Schwellen, als Vorschlag in Issue #69 präregistriert vor dem ersten Lauf
+(T9):
+
+- Gesamtabweichung `Σ|Log − Live| / ΣLive ≤ 10 %` über die volle Population, gerechnet
+  nur über Tage ohne Abdeckungs-Markierung.
+- Top-20-Recall `≥ 0,9` (mindestens 18 der 20 Live-Top-Emotes sind in den Log-Top-20) und
+  unteres-Quartil-Precision `≥ 0,8`.
+- Beides auf mindestens zwei Kanälen, je mindestens 20 gewertete Tage.
+- Dann (ii) Kennzeichnung im Raster, in der Kurve und im Manager-Kontext möglich; sonst
+  (i) nur getrennte Historie.
+- Diagnostik (nicht bindend): Median und p90 der Einzelabweichung sowie Spearman der
+  stabilen Teilmenge (N, M wie bisher), Anteil log-only- und live-only-Emotes an ΣLog
+  bzw. ΣLive, Tagesverhältnisse.
+
+### T8-Live-Proben 2026-09-05
+
+Kanal `brudivoeller_tv` (einziger Dev-Kanal im Archiv). `?json` liefert ein Objekt mit
+`messages`-Array, kein Root-Array. `?raw` existiert als `text/plain`, eine IRC-Zeile je
+Nachricht mit allen Tags (`user-id`, `badges`, `room-id`, `tmi-sent-ts`), rund 42 % der
+`?json`-Größe. `type` ist numerisch (1 PRIVMSG, 2 CLEARCHAT, 4 USERNOTICE, 13 CLEARMSG).
+`/channelid/{id}` ist byte-identisch zu `/channel/{name}`. Zeitstempel sind ISO 8601 UTC
+mit `Z`-Suffix, die Tagesgrenze ist der UTC-Kalendertag. Kein Log-Tag ist immer 404
+(`"Not found"` bei bekanntem Kanal, `"No channel logs found"` bei unbekanntem), nie 200
+mit leerem Array. 200er-Antworten kommen ohne `Content-Length`, gestreamt. Es gibt keine
+Rate-Limit- oder Retry-After-Header. `X-Source` zeigt einen Aggregator über mehrere
+Justlog-Instanzen (`logxx.dev`, `logs.twitchmetrics.xyz`). Rund 1,2 KB je Nachricht.
+`/channels` existiert mit rund 1 Mio Kanälen.
+
+**Konsequenz für T3:** Der Client liest `?raw` zeilenweise (`StreamReader.ReadLineAsync`
+über einen `ResponseHeadersRead`-Stream), keinen `Utf8JsonReader`. 404 ist der normale
+„kein Log-Tag"-Zustand. Shared-Chat-Nachrichten tragen `source-room-id` und werden, wenn
+`source-room-id` gesetzt und ungleich `room-id` ist, wie der Live-Worker behandelt (das
+heißt aktuell mitgezählt, s. offener Punkt Shared-Chat), im Bericht aber gezählt
+ausgewiesen. Annahmen des Dokuments, die nicht halten: keine. Der vollständige Bericht
+liegt als Kommentar in #69 (T8-Abschluss).
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Codex Review | `/codex review` | Independent 2nd opinion | 1 | issues_found (outside voice) | 15 Punkte, 3 als Tension entschieden, 1 Dissens dokumentiert |
+| Codex Review | `/codex review` | Independent 2nd opinion | 2 | issues_found (outside voice) | 2 Runden, Runde 2 adversarial: 3 High + 1 Medium, alle entschieden (2 Plan-Ebene, 2 Nutzer-Entscheidung D1/D2) |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 7 issues + 3 tensions, 0 critical gaps, 31 test gaps → T1–T6 |
 | Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | kein UI |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
 - **CODEX:** Outside voice (gpt-5.6-sol, plan review): Einmal-Container statt Prod-Worker-Klasse angenommen; Replay-Treue statt Fehlerrate angenommen; Lauf-Identität im JSONL-Kopf angenommen; Präregistrierung der Schwellen angenommen; Rechtsgrenze als Dissens dokumentiert, Entscheidung des Betreibers steht.
 - **CROSS-MODEL:** Claude-Review und Codex überlappen bei Resume-Semantik und Schwellen; Codex allein brachte Zirkularität, Prozessgrenze und Repräsentativität; Claude allein brachte Body-Timeout, `TwitchChannelId` null, DRY zu `EmoteSetStatusService`, Golden-Fixtures.
-- **VERDICT:** ENG CLEARED — ready to implement (nach T8-Proben und Codex adversarial-review auf dem Plan gemäß globaler Regel).
+- **VERDICT:** ENG CLEARED — ready to implement (T8 erledigt, Codex adversarial eingearbeitet, Plan als nächster Schritt).
 
 NO UNRESOLVED DECISIONS
