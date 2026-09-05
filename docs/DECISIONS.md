@@ -153,6 +153,57 @@ nicht". Beides heißt dasselbe. Festgehalten werden die Türen wie bei #55 durch
 59 Fundstellen ergab, dass bereits jede Konstruktion über `Ok(...)`/`Failed(...)` lief und weder
 `with`, Dekonstruktion, positionale Muster noch Wertegleichheit irgendwo benutzt wurden — die
 Record-Form hatte also nichts getragen außer den beiden offenen Türen.
+### 2026-09-05 — Entscheidung 4 des Rate-Limit-Plans (`duplicate-names` in `active-set` falten): geprüft und so nicht umsetzbar
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/EmoteEndpoints.cs`, `src/EmotePurge.Core/Services/IEmoteSetStatusService.cs`, `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, `web/src/app/features/usage-stats/usage-stats-page.ts`
+
+**Kein Code geändert.** Dieser Eintrag hält fest, warum — damit die Option nicht ein drittes Mal als
+„das wäre doch schnell gemacht" aufgegriffen wird.
+
+Issue #45 greift Entscheidung 4 aus
+[`docs/superpowers/plans/2026-08-29-rate-limit-requests-und-beobachtbarkeit.md`](superpowers/plans/2026-08-29-rate-limit-requests-und-beobachtbarkeit.md)
+auf: `duplicate-names` in die `active-set`-Antwort zusammenlegen, „damit fällt ein Permit pro
+Öffnung weg, ohne neuen Cache-Zustand". Die Umsetzung wurde begonnen und wieder verworfen. Der Grund
+ist eine Annahme im Plan, die nicht zutrifft: er behandelt die beiden Nutzlasten, als hätte sie
+**derselbe** Konsument. Sie haben verschiedene:
+
+- `duplicate-names` holt genau **eine** Stelle: das `ChannelWorkspaceLayout` — also die Klammer um
+  *alle* Kanal-Tabs.
+- `active-set` holt die Usage-Seite (vier Aufrufstellen: Erstladung, Refresh-Knopf, Sync-Warteschleife,
+  60-s-Recheck) sowie Mass-Delete- und Restore-Panel beim Öffnen ihres Dialogs.
+
+Würde das Layout künftig `active-set` statt `duplicate-names` rufen, tauschte es einen Request gegen
+einen anderen — auf dem Usage-Tab macht die Runde laut `RateLimitPolicyBudgetTests` ohnehin schon
+**zwei** `active-set`-Lesungen, es würde also schlicht eine dritte. Auf dem Vote-Sessions- und dem
+Aktivitäts-Tab wäre es sogar **teurer**: dort holt heute niemand `active-set`, das Layout aber sehr
+wohl die Kollisionen. Der Umbau würde die Last dort also erhöhen statt senken.
+
+**Warum auch die Backend-Hälfte allein nicht stehenbleibt.** Naheliegend wäre, das Feld schon einmal
+zu liefern und den Frontend-Umbau später nachzuziehen. Genau das war der erste Anlauf, und das
+Codex-Review hat die Rechnung aufgemacht: `EmoteSetStatusService` müsste je Aufruf die aktiven
+Emote-Zeilen vollständig materialisieren (bei einem 900er-Set wie HandOfBlood mit Name und
+Bild-URL), und `active-set` wird **zweimal pro Workspace-Öffnung** gelesen, dazu nach jedem
+`channel.synced` erneut. Solange niemand das Feld liest und der zweite Request bleibt, ist das
+zusätzliche O(Set-Größe)-Datenbankarbeit **ohne jede Ersparnis** — und die Kollisionssuche liefe auf
+dem Usage-Tab dann sogar doppelt. Ein Feld ohne Konsument ist hier also nicht bloß unbenutzt,
+sondern teuer.
+
+**Wenn der Punkt wieder aufgegriffen wird, ist die erste Frage keine technische:** *Braucht das
+Kollisions-Banner die Vote-Sessions- und Aktivitäts-Tabs?*
+
+- **Nein** → Banner in die Usage-Seite verschieben, die `active-set` ohnehin ruft; `duplicate-names`
+  fällt dort ersatzlos weg. Das ist der versprochene eingesparte Request, und dann lohnt auch das
+  Feld. Der E2E-Fall „a burst of sync events costs one duplicate-names refetch, not one per event"
+  (Regressionsschutz aus #35, 22 von 38 gemessenen 429ern) muss dabei auf den ersetzenden Endpunkt
+  umgehängt werden, nicht gelöscht.
+- **Ja** → Das Layout müsste Besitzer der zusammengelegten Antwort werden und die Usage-Seite daran
+  hängen. Das kollidiert mit deren `requestedSetStatusFor`-Einmal-pro-Kanal-Logik, der
+  Sync-Warteschleife, dem 60-s-Recheck und den beiden 7TV-Panels — und braucht genau den geteilten
+  Cache-Zustand, den Entscheidung 4 zu vermeiden versprach. Dann ist der Plan-Eintrag schlicht die
+  falsche Option und sollte gestrichen werden.
+
+**Priorität unverändert niedrig.** Das Issue selbst sagt: relevant erst, wenn in Produktion 429er
+beim Navigieren auftreten. Bis dahin ist die richtige Menge Code für diesen Punkt: keiner.
 
 ---
 
