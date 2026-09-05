@@ -340,6 +340,29 @@ prüften jeweils nur den eigenen Service. Sie prüfen jetzt zusätzlich (bzw. an
 Kein neuer i18n-Key, kein Hinweistext: die Buttons bleiben nur `disabled`, der laufende Fortschritt
 im selben Dock ist selbst der Hinweis (Betreiberentscheidung im Plan, Abschnitt 5).
 
+---
+
+### 2026-09-05 — Import-Backend: zwei Endpunkte, und `sync-imported` schreibt nur Papier (#71)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/EmoteEndpoints.cs`, `src/EmotePurge.Core/Services/IEmoteListQueryService.cs` (neu), `src/EmotePurge.Infrastructure/Services/EmoteListQueryService.cs` (neu), `src/EmotePurge.Core/Services/IEmoteService.cs`, `src/EmotePurge.Infrastructure/Services/EmoteService.cs`, `src/EmotePurge.Core/Entities/AuditLogEntry.cs`, `src/EmotePurge.Core/Services/IAuditLogQueryService.cs`, `src/EmotePurge.Infrastructure/Services/AuditLogQueryService.cs`, `src/EmotePurge.Api/Validation/ApiErrorCodes.cs`, `web/src/app/core/emotes/emote-admin.service.ts`, `web/src/app/core/emotes/emote-list-item.model.ts` (neu), `web/src/app/core/audit/audit.model.ts`, `web/src/app/shared/audit/audit-actions.ts`, `web/src/app/shared/audit/audit-row.ts`, `web/src/app/core/i18n/api-error.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
+
+Kind K2 des Emote-Import-Epics (#38), Plan `docs/plans/Plan-71-Import-Backend.md`.
+
+**`GET /api/channels/{channelName}/emotes` ist neu, weil es die Liste bisher nicht gab.** Der
+Import muss im Zielkanal zwei Fragen beantworten — „liegt dieses Emote schon im Set?" und „ist der
+Name vergeben?" — und beide brauchen `sevenTvEmoteId` plus `name` ohne Zeitraum.
+`usage-stats/totals` verlangt `from`/`to` und trägt die volle Payload, `GET …/usage-stats` hat gar
+keine `sevenTvEmoteId`. Die neue Route liegt auf der Gruppen-Wurzel (`group.MapGet("")`), erbt
+Policy und Filter der Gruppe und bleibt bewusst auf `InteractiveRead`: das ist ein gewöhnlicher
+Lesezugriff, kein Buchhaltungsruf. Keine Pagination — rund 40–50 KB beim größten bekannten Set,
+und `totals` ist unpaginiert und größer.
+
+**Sortiert wird im Speicher, nicht in SQL.** Postgres ordnet nach der Collation der Spalte, und EF
+Core kann `OrderBy(…, StringComparer.Ordinal)` überhaupt nicht übersetzen. Der Vergleich, gegen den
+diese Liste im Frontend läuft, ist aber ordinal (wie beim Chat-Matching und in
+`DuplicateEmoteNameQueryService`). Also: filtern und projizieren in SQL, sortieren nach dem
+Materialisieren. Ein Test mit einem Namenspaar, das ordinal anders sortiert als locale-bewusst,
+hält das fest — sonst fällt der Unterschied erst bei echten Emote-Namen auf.
 
 ---
 

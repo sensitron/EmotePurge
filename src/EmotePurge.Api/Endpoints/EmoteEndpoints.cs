@@ -18,14 +18,30 @@ public static class EmoteEndpoints
         // navigating, and this policy is the app's ordinary-navigation budget. UsageStatsAccessAuthorization-
         // Filter can reach 7TV for a caller who is neither admin, broadcaster nor mod — but that is a
         // cache miss on an authorization answer, not a per-request cost a request budget could bound
-        // (see the policy comments in Program.cs). The two sync-* bookkeeping endpoints override the
-        // group below, and that override is the point: they must survive a spent read budget.
+        // (see the policy comments in Program.cs). The three sync-* bookkeeping endpoints override
+        // the group below, and that override is the point: they must survive a spent read budget.
         var group = app.MapGroup("/api/channels/{channelName}/emotes")
             .RequireAuthorization()
             // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
             .AddEndpointFilter<ChannelNameValidationFilter>()
             .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
             .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
+
+        // The group root: a slim, unpaginated list of the channel's currently active emotes (7TV id
+        // and name only — no usage numbers, no time range, no Emote.Id, which is channel-scoped and
+        // meaningless across channels). The import dialog uses it to answer "already in the target
+        // set?" and "name collision?" against a source channel or file; both questions are cheap
+        // enough over the whole set (~900 emotes at most) that a page of results would only get in
+        // the way. Stays on the group's InteractiveRead policy: this is an ordinary navigation read,
+        // not a bookkeeping call like the two sync-* routes below it.
+        group.MapGet("", async (
+            string channelName,
+            IEmoteListQueryService emoteListQueryService,
+            CancellationToken ct) =>
+        {
+            var emotes = await emoteListQueryService.ListActiveAsync(channelName, ct);
+            return emotes is null ? Results.NotFound() : Results.Ok(new { emotes });
+        });
 
         group.MapPost("/sync-deleted", async (
             string channelName,

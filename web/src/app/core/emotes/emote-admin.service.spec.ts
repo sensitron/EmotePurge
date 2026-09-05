@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DuplicateEmoteName } from './duplicate-emote-name.model';
 import { EmoteAdminService } from './emote-admin.service';
+import { EmoteListItem } from './emote-list-item.model';
 import { EmoteSetStatus } from './emote-set-status.model';
 
 describe('EmoteAdminService', () => {

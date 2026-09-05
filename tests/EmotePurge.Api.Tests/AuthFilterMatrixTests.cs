@@ -292,6 +292,36 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task EmoteList_UsesTheUsageStatsFilter_NotJustSetWarning()
+    {
+        // The plain-list route (GET .../emotes, no sub-path) sits directly on the group and is easy
+        // to overlook when reasoning about "the filter guards the emote group" — it is the route the
+        // import dialog actually calls first, and it must not be reachable by someone who fails the
+        // wider check either.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var response = await SendAsync("GET", $"/api/channels/{Channel}/emotes", NewUserId());
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task EmoteList_ValidatesTheChannelName_BeforeAuthorizing()
+    {
+        // Belongs to the group root rather than to a sub-path, so it is worth pinning on its own:
+        // proves the root registration (group.MapGet("")) still inherits ChannelNameValidationFilter
+        // ahead of the authorization filter, the same ordering the sibling routes rely on.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var response = await SendAsync("GET", "/api/channels/bad-name/emotes", NewUserId());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidChannelName, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
     public async Task SyncRestored_Answers403_ForACallerWithoutUsageStatsAccess()
     {
         // The write path among the emote-group endpoints, same filter as set-warning above — worth
@@ -481,7 +511,7 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
         return JsonDocument.Parse(body).RootElement.GetProperty("errorCode").GetString();
     }
 
-    private async Task<HttpResponseMessage> SendAsync(string method, string path, string? userId, string? login = "someuser")
+    private async Task<HttpResponseMessage> SendAsync(string method, string path, string? userId, string? login = "someuser", string? body = null)
     {
         // AllowAutoRedirect off so a 302 would surface as a failed assertion rather than being
         // silently followed — the cookie handler's redirect-to-login events are overridden precisely
@@ -506,7 +536,7 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
 
         if (method is "POST" or "PUT")
         {
-            request.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            request.Content = new StringContent(body ?? "{}", Encoding.UTF8, "application/json");
         }
 
         return await client.SendAsync(request);
