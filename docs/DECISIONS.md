@@ -241,6 +241,79 @@ allein darum, die beiden heute ununterscheidbaren Ablehnungen auseinanderzuziehe
 
 ---
 
+### 2026-09-05 — Run-Engine: Zeilen-Key, Abbruch-Hook und Run-Arbiter (#70)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-run-engine.ts`, `seven-tv-run-engine.spec.ts`, `seven-tv-delete.service.ts`, `seven-tv-delete.service.spec.ts`, `seven-tv-restore.service.ts`, `seven-tv-restore.service.spec.ts`, `seven-tv-run-arbiter.ts` (neu), `seven-tv-run-arbiter.spec.ts` (neu), `web/src/app/shared/seven-tv/run-progress-panel.ts`, `mass-delete-panel.ts`, `restore-panel.ts`, `web/src/app/shared/export/purge-run-export.ts`, `purge-run-export.spec.ts`, `docs/UI-Designsprache.md`
+
+Kind K1 des Emote-Import-Epics (#38), Plan `docs/plans/Plan-70-Run-Engine.md`. Dieser Eintrag wächst
+über die drei Tasks des Plans (Zeilen-Key, Abbruch-Hook, Arbiter) um je einen Absatz.
+
+**Zeilen-Key statt `emoteId` als Queue-Identität.** `RunQueueEmote` bekommt ein Pflichtfeld `key:
+string` — was `setStatus` fortan matcht, und was `RunResult.doneKeys` zurückgibt. `emoteId` wird
+optional: ein Import-Lauf (K2/K3) queued Zeilen, für die es noch keinen internen Guid gibt (das
+Emote existiert vor dem Import nicht in unserer Datenbank), aber trotzdem eine Identität innerhalb
+des Laufs braucht. `RunResult.doneIds` bleibt bestehen und bleibt strikt die Guid-Teilmenge — eine
+Zeile ohne `emoteId` trägt nichts dazu bei, aber landet in `doneKeys`.
+
+**Warum der Eingabetyp der Services vom Engine-Typ abweicht.** `DeleteQueueEmote` war bisher ein
+Alias auf `RunQueueEmote`; jetzt ist es ein eigenständiges Interface mit weiterhin drei
+Pflichtfeldern (`emoteId`, `sevenTvEmoteId`, `name`) — ohne `key`, ohne die neue Optionalität von
+`emoteId`. `startDelete`/`startRestore` mappen intern auf `RunQueueEmote` mit `key = emoteId`. Ohne
+diese Trennung hätte jeder bestehende Aufrufer (beide Panels) plötzlich mit einem optionalen
+`emoteId` und einem fehlenden `key` hantieren müssen, obwohl Delete und Restore beides immer
+vollständig liefern.
+
+**Warum `buildPurgeRunProtocol` seine Zeilen am Parameter verlangt statt sie zu filtern.**
+`PurgeRunRow.emoteId` ist und bleibt ein Pflichtfeld — eine Zeile ohne `emoteId` (Import) darf nicht
+mit einem Leerstring ins Protokoll, das wäre ein stilles Loch in einer Datei, die als Restore-Liste
+wiederverwendet wird. Ein Filter *innerhalb* der Funktion wäre aber nur die leisere Variante
+desselben Lochs: der Aufrufer bekäme ein stillschweigend verkürztes Protokoll, und `meta.counts`
+— aus **allen** übergebenen Zeilen gerechnet — liefe gegen `rows` auseinander. Der Parameter
+verlangt deshalb `RunQueueItem & { emoteId: string }`. Ein Lauf, der sich nicht protokollieren
+lässt, ist damit ein Kompilierfehler an der Aufrufstelle statt eines kurzen Downloads.
+
+**Wo die Verengung stattdessen liegt.** In `MassDeletePanel.openProtocolExport` — dort, wo die
+Garantie tatsächlich bekannt ist: ein Delete-Lauf wird aus `DeleteQueueEmote` gebaut, das `emoteId`
+verlangt. Die generische `RunResult.items` der Engine verliert diese Information, also wird sie an
+der einen Stelle per Typ-Guard zurückgewonnen und **einmal** gefiltert weitergereicht, damit `counts`
+und `rows` aus derselben Liste stammen. Eine Invariante gehört dorthin, wo sie gilt, nicht in einen
+geteilten Helper, der sie für alle künftigen Aufrufer stillschweigend repariert.
+
+**Zwei weitere Dateien mussten trotz „nicht anfassen" einen mechanischen Tupfer bekommen:**
+`purge-run-export.spec.ts`s `ITEMS`-Fixture bekam das neue Pflichtfeld `key` und die verengte
+Typannotation (beides Kompilierfehler, keine Verhaltensänderung), und `restore-panel.ts` importiert
+jetzt `DeleteQueueEmote` statt `RunQueueEmote` für die Typisierung seiner rekonstruierten
+Restore-Liste (dieselbe Optionalitäts-Falle). Beide Änderungen sind rein typisierend, ohne
+Laufzeitwirkung — der Plan hatte in seiner Ist-Zustand-Prüfung nicht gesehen, dass ein neues
+*Pflichtfeld* auf einem breit wiederverwendeten Interface auch in explizit eingefrorene Dateien
+durchschlägt.
+
+**Der Abbruch-Hook nimmt Rohtext und Status, nicht eine Statusliste in der Engine.**
+`RunOperation.abortOn?({ message, httpStatus })` lässt den *Aufrufer* entscheiden, ob ein
+Zeilenfehler den ganzen Lauf beendet. Die Engine könnte das nicht: die Fälle, die abbrechen sollen
+(K3: „insufficient privileges"), stecken im GQL-Klartext von 7TV, den nur der Aufrufer sinnvoll
+matcht. Der Hook sieht deshalb bei GQL-Fehlern die **rohe** `gqlError.message`, nicht den
+übersetzten Anzeigetext, und bei Transport-Fehlern den echten HTTP-Status. Ohne ihn würde ein
+Import ohne Editorrecht 200 Zeilen à 275 ms Fehlerregen erzeugen, statt nach der ersten eine
+Meldung.
+
+**Warum der Abbruch nicht über den RxJS-Fehlerpfad läuft.** Der bestehende `error:`-Zweig ruft zwar
+`finish()`, lässt aber Restzeilen `pending`/`in-progress` zurück — bei `isRunning() === false` ein
+Protokoll, das lügt. Ein `abortOn === true` wirft deshalb eine interne Signalklasse, die ein
+`catchError` direkt hinter dem `concatMap` abfängt: dort werden die Restzeilen synchron `cancelled`
+gesetzt und `EMPTY` zurückgegeben. `EMPTY` ist ein normaler Abschluss, der Lauf verlässt die Kette
+also immer über `complete:` und damit über **genau einen** `finish()`-Aufruf — auch wenn die
+abbrechende Zeile die letzte der Queue war. Das ist der Fall, den ein Test eigens pinnt, weil eine
+doppelte `onComplete`-Auslösung sonst erst beim Nachlauf auffiele.
+
+**Zwei Randbedingungen des Hooks.** Die Token-Löschung bei 401/403 passiert weiterhin **vor** dem
+Hook und unabhängig von seinem Rückgabewert — ein Abbruch ändert nichts an der Bewertung „Token
+ungültig". Und ein werfender Hook gilt als `false` (weiterlaufen) und wird per `console.error`
+gemeldet, statt den Lauf in den Fehlerpfad mit nicht-terminalen Zeilen zu reißen.
+
+
+---
+
 ### 2026-09-04 — Die fünf `SevenTv`-Ergebnistypen sind nachgezogen; die Statusprüfung steht jetzt einmal
 
 **Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvEditorService.cs`

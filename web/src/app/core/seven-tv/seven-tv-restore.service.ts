@@ -6,6 +6,7 @@ import { retry, throwError, timer } from 'rxjs';
 import { ChannelService } from '../channels/channel.service';
 import { EmoteAdminService, SyncRestoredResult } from '../emotes/emote-admin.service';
 import {
+  DeleteQueueEmote,
   MAX_AUTOMATIC_SYNC_RETRIES,
   SYNC_RETRY_DELAY_MS,
   SyncReportState,
@@ -77,8 +78,10 @@ export class SevenTvRestoreService {
 
   readonly resyncTrigger = signal<ResyncTriggerState>('idle');
 
-  startRestore(setId: string, channelName: string, emotes: RunQueueEmote[]): void {
-    const started = this.engine.start(setId, emotes, ADD_OPERATION, (result) =>
+  startRestore(setId: string, channelName: string, emotes: DeleteQueueEmote[]): void {
+    // Same key-mirrors-emoteId reasoning as the delete service (see R3 in docs/DECISIONS.md).
+    const queueEmotes: RunQueueEmote[] = emotes.map((emote) => ({ ...emote, key: emote.emoteId }));
+    const started = this.engine.start(setId, queueEmotes, ADD_OPERATION, (result) =>
       this.onRunComplete(channelName, result),
     );
     if (!started) {

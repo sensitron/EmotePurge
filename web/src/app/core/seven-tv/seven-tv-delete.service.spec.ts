@@ -175,6 +175,18 @@ describe('SevenTvDeleteService', () => {
     expect(service.isRunning()).toBe(false);
   });
 
+  it('keys every queue row by its emoteId', () => {
+    service.startDelete('set-1', 'sensitron', EMOTES);
+
+    expect(service.queue().map((item) => item.key)).toEqual(['internal-1', 'internal-2']);
+
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(DELETE_DELAY_MS);
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(DELETE_DELAY_MS);
+    httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 2, notFoundIds: [] });
+  });
+
   it('deletes emotes sequentially with a delay, then syncs the archived ids', () => {
     service.startDelete('set-1', 'sensitron', EMOTES);
 

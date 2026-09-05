@@ -5,7 +5,8 @@ import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
 import { firstValueFrom } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RUN_DELAY_MS, RunQueueEmote } from './seven-tv-run-engine';
+import { DeleteQueueEmote } from './seven-tv-delete.service';
+import { RUN_DELAY_MS } from './seven-tv-run-engine';
 import { SevenTvRestoreService } from './seven-tv-restore.service';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
@@ -25,7 +26,7 @@ const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 const RESYNC_ENDPOINT = '/api/channels/sensitron/resync';
 const SYNC_RESTORED_ENDPOINT = '/api/channels/sensitron/emotes/sync-restored';
 
-const EMOTES: RunQueueEmote[] = [
+const EMOTES: DeleteQueueEmote[] = [
   { emoteId: 'internal-1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
   { emoteId: 'internal-2', sevenTvEmoteId: '7tv-2', name: 'KEKW' },
 ];
@@ -59,6 +60,19 @@ describe('SevenTvRestoreService', () => {
     httpMock.verify();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('keys every queue row by its emoteId', () => {
+    service.startRestore('set-1', 'sensitron', EMOTES);
+
+    expect(service.queue().map((item) => item.key)).toEqual(['internal-1', 'internal-2']);
+
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+    httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 2, notFoundIds: [] });
+    httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
   });
 
   it('sends the ADD mutation with set id, emote id and the alias to restore under', () => {

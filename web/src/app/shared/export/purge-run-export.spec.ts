@@ -9,10 +9,19 @@ import {
   purgeRunJson,
 } from './purge-run-export';
 
-const ITEMS: RunQueueItem[] = [
-  { emoteId: 'i1', sevenTvEmoteId: '7tv-1', name: 'PogU', status: 'done' },
-  { emoteId: 'i2', sevenTvEmoteId: '7tv-2', name: 'KEKW', status: 'failed', errorMessage: 'boom' },
-  { emoteId: 'i3', sevenTvEmoteId: '7tv-3', name: 'catJAM', status: 'cancelled' },
+// Narrowed like the production call site: a protocollable run always carries an internal emoteId
+// (see buildPurgeRunProtocol's signature).
+const ITEMS: (RunQueueItem & { emoteId: string })[] = [
+  { key: 'i1', emoteId: 'i1', sevenTvEmoteId: '7tv-1', name: 'PogU', status: 'done' },
+  {
+    key: 'i2',
+    emoteId: 'i2',
+    sevenTvEmoteId: '7tv-2',
+    name: 'KEKW',
+    status: 'failed',
+    errorMessage: 'boom',
+  },
+  { key: 'i3', emoteId: 'i3', sevenTvEmoteId: '7tv-3', name: 'catJAM', status: 'cancelled' },
 ];
 
 function protocol() {

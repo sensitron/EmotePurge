@@ -8,6 +8,7 @@ import {
   SevenTvDeleteService,
 } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
+import { RunQueueItem } from '../../core/seven-tv/seven-tv-run-engine';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { CSV_MIME } from '../export/csv';
 import { ExportDialogData, openExportDialog } from '../export/export-dialog';
@@ -208,10 +209,10 @@ export class MassDeletePanel {
         return;
       }
 
-      const doneIds = this.deleteService
-        .queue()
-        .filter((item) => item.status === 'done')
-        .map((item) => item.emoteId);
+      // RunResult.doneIds, not a re-derivation from the queue — it already excludes rows without
+      // an emoteId (none exist on a delete run), so no `?? ''` is needed to satisfy the string[]
+      // output.
+      const doneIds = this.deleteService.lastRun()?.result.doneIds ?? [];
       if (doneIds.length > 0) {
         this.deleted.emit(doneIds);
       }
@@ -255,12 +256,20 @@ export class MassDeletePanel {
     if (!run) {
       return;
     }
+    // The engine's RunResult is generic over rows that may lack an internal emoteId (an import
+    // run has none), but a delete run is built from DeleteQueueEmote, which requires it — so this
+    // narrowing is where that guarantee is actually known, rather than inside the shared export
+    // helper where a dropped row would become a silently short protocol. Filtered once and reused,
+    // so the envelope's counts and rows cannot drift apart.
+    const items = run.result.items.filter(
+      (item): item is RunQueueItem & { emoteId: string } => item.emoteId !== undefined,
+    );
     const protocol = buildPurgeRunProtocol({
       channelName: run.channelName,
       emoteSetId: run.setId,
       startedAt: run.result.startedAt,
       finishedAt: run.result.finishedAt,
-      items: run.result.items,
+      items,
     });
     const data: ExportDialogData = {
       rowCount: protocol.rows.length,
@@ -294,7 +303,12 @@ export class MassDeletePanel {
     if (!run || this.restoreService.isRunning()) {
       return;
     }
-    const doneItems = run.result.items.filter((item) => item.status === 'done');
+    // A delete run always sets emoteId on every row; the guard below narrows the type rather than
+    // papering over a hole that cannot occur here (see R3 in docs/DECISIONS.md).
+    const doneItems = run.result.items.filter(
+      (item): item is RunQueueItem & { emoteId: string } =>
+        item.status === 'done' && item.emoteId !== undefined,
+    );
     if (doneItems.length === 0) {
       return;
     }

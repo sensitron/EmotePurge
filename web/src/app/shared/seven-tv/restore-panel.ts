@@ -3,8 +3,8 @@ import { Component, ElementRef, inject, input, signal, viewChild } from '@angula
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+import { DeleteQueueEmote } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
-import { RunQueueEmote } from '../../core/seven-tv/seven-tv-run-engine';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { PurgeRunRow, parsePurgeRunProtocol } from '../export/purge-run-export';
 import { Button } from '../ui/button';
@@ -120,7 +120,7 @@ export class RestorePanel {
     };
     openRestoreConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
       if (confirmed) {
-        const emotes: RunQueueEmote[] = rows.map((row) => ({
+        const emotes: DeleteQueueEmote[] = rows.map((row) => ({
           emoteId: row.emoteId,
           sevenTvEmoteId: row.sevenTvEmoteId,
           name: row.name,
