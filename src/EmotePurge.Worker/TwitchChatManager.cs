@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using EmotePurge.Core.Matching;
 using EmotePurge.Core.Services;
 using TwitchLib.Client;
 using TwitchLib.Client.Enums;
@@ -514,13 +515,9 @@ public class TwitchChatManager(
         // instead of re-classifying the same chatter per token.
         var isBot = botChatterDetector.IsBot(e.ChatMessage.UserId, e.ChatMessage.Badges);
 
-        var matchedThisMessage = new HashSet<string>();
-        foreach (var token in e.ChatMessage.Message.Split(' '))
+        foreach (var emoteId in EmoteNameMatching.MatchEmoteIds(e.ChatMessage.Message, channelEmotes))
         {
-            if (channelEmotes.TryGetValue(token, out var emoteId) && matchedThisMessage.Add(emoteId))
-            {
-                usageCounter.Increment(emoteId, isBot);
-            }
+            usageCounter.Increment(emoteId, isBot);
         }
 
         return Task.CompletedTask;
