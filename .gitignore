@@ -53,3 +53,6 @@ src/EmotePurge.Api/wwwroot/
 # Sitzungs-Scratch — die dauerhafte Spur eines Plans sind seine Commits und die Plandatei
 # unter docs/superpowers/plans/.
 .superpowers/
+
+# Angular-CLI-Cache, wenn ng vom Repo-Root statt aus web/ läuft (web/.gitignore deckt nur web/.angular/cache).
+.angular/
