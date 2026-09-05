@@ -241,6 +241,170 @@ allein darum, die beiden heute ununterscheidbaren Ablehnungen auseinanderzuziehe
 
 ---
 
+### 2026-09-05 — Run-Engine: Zeilen-Key, Abbruch-Hook und Run-Arbiter (#70)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-run-engine.ts`, `seven-tv-run-engine.spec.ts`, `seven-tv-delete.service.ts`, `seven-tv-delete.service.spec.ts`, `seven-tv-restore.service.ts`, `seven-tv-restore.service.spec.ts`, `seven-tv-run-arbiter.ts` (neu), `seven-tv-run-arbiter.spec.ts` (neu), `web/src/app/shared/seven-tv/run-progress-panel.ts`, `mass-delete-panel.ts`, `restore-panel.ts`, `web/src/app/shared/export/purge-run-export.ts`, `purge-run-export.spec.ts`, `docs/UI-Designsprache.md`
+
+Kind K1 des Emote-Import-Epics (#38), Plan `docs/plans/Plan-70-Run-Engine.md`. Dieser Eintrag wächst
+über die drei Tasks des Plans (Zeilen-Key, Abbruch-Hook, Arbiter) um je einen Absatz.
+
+**Zeilen-Key statt `emoteId` als Queue-Identität.** `RunQueueEmote` bekommt ein Pflichtfeld `key:
+string` — was `setStatus` fortan matcht, und was `RunResult.doneKeys` zurückgibt. `emoteId` wird
+optional: ein Import-Lauf (K2/K3) queued Zeilen, für die es noch keinen internen Guid gibt (das
+Emote existiert vor dem Import nicht in unserer Datenbank), aber trotzdem eine Identität innerhalb
+des Laufs braucht. `RunResult.doneIds` bleibt bestehen und bleibt strikt die Guid-Teilmenge — eine
+Zeile ohne `emoteId` trägt nichts dazu bei, aber landet in `doneKeys`.
+
+**Warum der Eingabetyp der Services vom Engine-Typ abweicht.** `DeleteQueueEmote` war bisher ein
+Alias auf `RunQueueEmote`; jetzt ist es ein eigenständiges Interface mit weiterhin drei
+Pflichtfeldern (`emoteId`, `sevenTvEmoteId`, `name`) — ohne `key`, ohne die neue Optionalität von
+`emoteId`. `startDelete`/`startRestore` mappen intern auf `RunQueueEmote` mit `key = emoteId`. Ohne
+diese Trennung hätte jeder bestehende Aufrufer (beide Panels) plötzlich mit einem optionalen
+`emoteId` und einem fehlenden `key` hantieren müssen, obwohl Delete und Restore beides immer
+vollständig liefern.
+
+**Warum `buildPurgeRunProtocol` seine Zeilen am Parameter verlangt statt sie zu filtern.**
+`PurgeRunRow.emoteId` ist und bleibt ein Pflichtfeld — eine Zeile ohne `emoteId` (Import) darf nicht
+mit einem Leerstring ins Protokoll, das wäre ein stilles Loch in einer Datei, die als Restore-Liste
+wiederverwendet wird. Ein Filter *innerhalb* der Funktion wäre aber nur die leisere Variante
+desselben Lochs: der Aufrufer bekäme ein stillschweigend verkürztes Protokoll, und `meta.counts`
+— aus **allen** übergebenen Zeilen gerechnet — liefe gegen `rows` auseinander. Der Parameter
+verlangt deshalb `RunQueueItem & { emoteId: string }`. Ein Lauf, der sich nicht protokollieren
+lässt, ist damit ein Kompilierfehler an der Aufrufstelle statt eines kurzen Downloads.
+
+**Wo die Verengung stattdessen liegt.** In `MassDeletePanel.openProtocolExport` — dort, wo die
+Garantie tatsächlich bekannt ist: ein Delete-Lauf wird aus `DeleteQueueEmote` gebaut, das `emoteId`
+verlangt. Die generische `RunResult.items` der Engine verliert diese Information, also wird sie an
+der einen Stelle per Typ-Guard zurückgewonnen und **einmal** gefiltert weitergereicht, damit `counts`
+und `rows` aus derselben Liste stammen. Eine Invariante gehört dorthin, wo sie gilt, nicht in einen
+geteilten Helper, der sie für alle künftigen Aufrufer stillschweigend repariert.
+
+**Zwei weitere Dateien mussten trotz „nicht anfassen" einen mechanischen Tupfer bekommen:**
+`purge-run-export.spec.ts`s `ITEMS`-Fixture bekam das neue Pflichtfeld `key` und die verengte
+Typannotation (beides Kompilierfehler, keine Verhaltensänderung), und `restore-panel.ts` importiert
+jetzt `DeleteQueueEmote` statt `RunQueueEmote` für die Typisierung seiner rekonstruierten
+Restore-Liste (dieselbe Optionalitäts-Falle). Beide Änderungen sind rein typisierend, ohne
+Laufzeitwirkung — der Plan hatte in seiner Ist-Zustand-Prüfung nicht gesehen, dass ein neues
+*Pflichtfeld* auf einem breit wiederverwendeten Interface auch in explizit eingefrorene Dateien
+durchschlägt.
+
+**Der Abbruch-Hook nimmt Rohtext und Status, nicht eine Statusliste in der Engine.**
+`RunOperation.abortOn?({ message, httpStatus })` lässt den *Aufrufer* entscheiden, ob ein
+Zeilenfehler den ganzen Lauf beendet. Die Engine könnte das nicht: die Fälle, die abbrechen sollen
+(K3: „insufficient privileges"), stecken im GQL-Klartext von 7TV, den nur der Aufrufer sinnvoll
+matcht. Der Hook sieht deshalb bei GQL-Fehlern die **rohe** `gqlError.message`, nicht den
+übersetzten Anzeigetext, und bei Transport-Fehlern den echten HTTP-Status. Ohne ihn würde ein
+Import ohne Editorrecht 200 Zeilen à 275 ms Fehlerregen erzeugen, statt nach der ersten eine
+Meldung.
+
+**Warum der Abbruch nicht über den RxJS-Fehlerpfad läuft.** Der bestehende `error:`-Zweig ruft zwar
+`finish()`, lässt aber Restzeilen `pending`/`in-progress` zurück — bei `isRunning() === false` ein
+Protokoll, das lügt. Ein `abortOn === true` wirft deshalb eine interne Signalklasse, die ein
+`catchError` direkt hinter dem `concatMap` abfängt: dort werden die Restzeilen synchron `cancelled`
+gesetzt und `EMPTY` zurückgegeben. `EMPTY` ist ein normaler Abschluss, der Lauf verlässt die Kette
+also immer über `complete:` und damit über **genau einen** `finish()`-Aufruf — auch wenn die
+abbrechende Zeile die letzte der Queue war. Das ist der Fall, den ein Test eigens pinnt, weil eine
+doppelte `onComplete`-Auslösung sonst erst beim Nachlauf auffiele.
+
+**Zwei Randbedingungen des Hooks.** Die Token-Löschung bei 401/403 passiert weiterhin **vor** dem
+Hook und unabhängig von seinem Rückgabewert — ein Abbruch ändert nichts an der Bewertung „Token
+ungültig". Und ein werfender Hook gilt als `false` (weiterlaufen) und wird per `console.error`
+gemeldet, statt den Lauf in den Fehlerpfad mit nicht-terminalen Zeilen zu reißen.
+
+**Der Run-Arbiter liegt außerhalb der Engine.** Delete und Restore (und ab K3 Import) halten je eine
+*eigene* `SevenTvRunEngine`-Instanz, absichtlich (siehe die Engine-Klassendoku) — genau deshalb kann
+kein einzelnes `isRunning` für alle drei sprechen. Ein Panel, das jeden 7TV-schreibenden Button
+sperren will, sobald *irgendeiner* der drei läuft, braucht eine Stelle, die über alle hinwegsieht;
+in die Engine selbst gehört das nicht, weil die Engine nichts von ihren Geschwister-Instanzen weiß
+und auch nichts wissen soll.
+
+**Der Arbiter leitet ab, statt zu sperren.** Die Issue-Fassung von #70 hatte `tryAcquire`/`release`
+vorgesehen — Handbuchführung. Die Untersuchung (R1 im Plan) fand einen Verklemmungspfad, den eine
+Handbuchführung strukturell nicht ausschließen kann: `tryAcquire` gewinnt, der anschließende
+`engine.start()` lehnt trotzdem ab (z. B. weil ein 401 im *vorigen* Lauf schon das Token gelöscht
+hat), und der Lock bleibt gehalten, obwohl nichts mehr läuft — app-weit verklemmt bis zum Reload.
+`SevenTvRunEngine.start()` setzt sein `isRunning`-Signal synchron und **erst nachdem** alle drei
+Ablehnungsgründe (laufende Engine, leere Liste, fehlender Token) schon mit `false` zurückgekehrt
+sind; ein abgelehnter Start hinterlässt also gar keine Spur. `finish()` ist der einzige Weg zurück
+auf `isRunning() === false`, erreicht vom normalen Ende, von `cancel()` und vom RxJS-Fehlerpfad
+gleichermaßen. Ein zweiter, handgeführter Zustand könnte davon nur abweichen; ein `computed`, das
+`deleteService.isRunning()`/`restoreService.isRunning()` direkt liest, kann das strukturell nicht.
+`SevenTvRunArbiter.activeRun` hat deshalb kein `tryAcquire` und kein `release` — es gibt nichts zu
+halten und nichts zu vergessen freizugeben.
+
+**Die eine Verhaltensänderung.** Bis Task 4 sperrte ein laufender Restore keinen Delete-Start und
+umgekehrt — die vier Start-Stellen (`mass-delete-panel.ts`: Löschen-Button, der Restore-Button nach
+einem abgeschlossenen Delete-Lauf, `openRestoreConfirm()`; `restore-panel.ts`: der Datei-Import)
+prüften jeweils nur den eigenen Service. Sie prüfen jetzt zusätzlich (bzw. an zwei Stellen: statt)
+`arbiter.activeRun() !== null`, sodass genau ein 7TV-Lauf beliebiger Sorte gleichzeitig laufen kann.
+Kein neuer i18n-Key, kein Hinweistext: die Buttons bleiben nur `disabled`, der laufende Fortschritt
+im selben Dock ist selbst der Hinweis (Betreiberentscheidung im Plan, Abschnitt 5).
+
+---
+
+### 2026-09-05 — Import-Backend: zwei Endpunkte, und `sync-imported` schreibt nur Papier (#71)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/EmoteEndpoints.cs`, `src/EmotePurge.Core/Services/IEmoteListQueryService.cs` (neu), `src/EmotePurge.Infrastructure/Services/EmoteListQueryService.cs` (neu), `src/EmotePurge.Core/Services/IEmoteService.cs`, `src/EmotePurge.Infrastructure/Services/EmoteService.cs`, `src/EmotePurge.Core/Entities/AuditLogEntry.cs`, `src/EmotePurge.Core/Services/IAuditLogQueryService.cs`, `src/EmotePurge.Infrastructure/Services/AuditLogQueryService.cs`, `src/EmotePurge.Api/Validation/ApiErrorCodes.cs`, `web/src/app/core/emotes/emote-admin.service.ts`, `web/src/app/core/emotes/emote-list-item.model.ts` (neu), `web/src/app/core/audit/audit.model.ts`, `web/src/app/shared/audit/audit-actions.ts`, `web/src/app/shared/audit/audit-row.ts`, `web/src/app/core/i18n/api-error.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
+
+Kind K2 des Emote-Import-Epics (#38), Plan `docs/plans/Plan-71-Import-Backend.md`.
+
+**`GET /api/channels/{channelName}/emotes` ist neu, weil es die Liste bisher nicht gab.** Der
+Import muss im Zielkanal zwei Fragen beantworten — „liegt dieses Emote schon im Set?" und „ist der
+Name vergeben?" — und beide brauchen `sevenTvEmoteId` plus `name` ohne Zeitraum.
+`usage-stats/totals` verlangt `from`/`to` und trägt die volle Payload, `GET …/usage-stats` hat gar
+keine `sevenTvEmoteId`. Die neue Route liegt auf der Gruppen-Wurzel (`group.MapGet("")`), erbt
+Policy und Filter der Gruppe und bleibt bewusst auf `InteractiveRead`: das ist ein gewöhnlicher
+Lesezugriff, kein Buchhaltungsruf. Keine Pagination — rund 40–50 KB beim größten bekannten Set,
+und `totals` ist unpaginiert und größer.
+
+**Sortiert wird im Speicher, nicht in SQL.** Postgres ordnet nach der Collation der Spalte, und EF
+Core kann `OrderBy(…, StringComparer.Ordinal)` überhaupt nicht übersetzen. Der Vergleich, gegen den
+diese Liste im Frontend läuft, ist aber ordinal (wie beim Chat-Matching und in
+`DuplicateEmoteNameQueryService`). Also: filtern und projizieren in SQL, sortieren nach dem
+Materialisieren. Ein Test mit einem Namenspaar, das ordinal anders sortiert als locale-bewusst,
+hält das fest — sonst fällt der Unterschied erst bei echten Emote-Namen auf.
+
+**`POST …/emotes/sync-imported` un-archiviert nichts und ist deshalb kein Spiegel von
+`sync-restored`.** Es schreibt genau einen Audit-Eintrag (`emotes.syncImported`) am **Ziel**kanal
+und rührt keine `Emote`-Zeile an. Der Grund ist der Unterschied der beiden Vorgänge:
+`sync-restored` nimmt interne Guids und hebt die Archivierung bestehender Zeilen auf — nach einem
+Import existieren im Zielkanal aber noch gar keine Zeilen. Die legt allein der Resync an. Der
+Endpunkt nimmt darum 7TV-IDs statt Guids und läuft unter `Bookkeeping` wie seine beiden Nachbarn:
+das 7TV-Schreiben ist zu diesem Zeitpunkt schon passiert, ein 429 kostet nur den Papierweg.
+
+**Die Herkunft ist im Audit-Log sichtbar, und dafür musste die Detail-Projektion aufgemacht
+werden.** `ProjectDetail` reduziert `DetailsJson` auf **genau ein** `AuditLogDetail` — der Record
+trägt aber `Count` **und** `Text`, es ist nur der `Kind`, der einmalig ist. Ein Import bekommt
+deshalb zwei eigene Kinds (`importedFromChannel`, `importedFromFile`), die Anzahl und Quellkanal
+gemeinsam tragen; im Frontend reicht `renderDetail` beide Parameter bedingt durch statt
+entweder-oder. Ohne das zeigte die Zeile „N Emotes" und verschwiege das Einzige, was aus ihr sonst
+nicht rekonstruierbar ist. **Die Prüfreihenfolge ist dabei tragend:** die Import-Prüfung steht
+**vor** der `emoteCount`-Prüfung, denn der Import-Payload enthält `emoteCount` ebenfalls und würde
+sonst von der allgemeineren Regel geschluckt.
+
+**Sorte und Quellname müssen übereinstimmen, in beide Richtungen.** `sourceKind: "channel"` ohne
+`sourceChannelName` behauptet eine Kanal-Herkunft, die die Zeile nicht benennen kann;
+`sourceKind: "file"` **mit** einem Namen legt einen Datei-Import unter einer Kanal-Herkunft ab, die
+er nie hatte. Audit-Einträge sind write-once und werden unbegrenzt aufbewahrt — eine
+widersprüchliche Zeile bleibt für immer falsch, und zu raten, welche Hälfte gemeint war, ist keine
+Rettung. Der Endpunkt lehnt beide Kombinationen mit `400` und `invalid_source_kind` ab.
+
+Die erste Fassung dieses Branches wählte die Detail-Sorte in `ProjectDetail` danach, **ob** ein Name
+vorhanden ist. Das schloss die erste Lücke und öffnete die zweite; die Zweitmeinung vor dem Merge
+hat es gefunden. Jetzt entscheidet allein `sourceKind`: eine Datei bleibt eine Datei und ein
+mitgeschleppter Name wird verworfen, und eine Kanal-Herkunft ohne Namen fällt auf die nackte Anzahl
+zurück, statt eine Herkunft zu erfinden. Beide Richtungen haben ihren Test.
+
+`sourceKind` selbst wird ordinal und streng kleingeschrieben geprüft — der einzige Aufrufer ist
+unser eigenes Frontend, ein Groß-/Kleinschreibungs-Fallback würde einen Frontend-Fehler verdecken
+statt ihn zu zeigen. Für die leere ID-Liste genügt das bestehende `emote_ids_empty`.
+
+**Kein Upload-Endpunkt.** Die Datei als Transportweg bleibt vollständig im Browser
+(`web/src/app/shared/export/file-download.ts`): ein Download darf nicht mehr sehen als die Seite,
+und das 7TV-Schreiben läuft mit dem Nutzer-Token. Ein `IFormFile`-Upload bräche dieses Modell.
+
+---
+
 ### 2026-09-04 — Die fünf `SevenTv`-Ergebnistypen sind nachgezogen; die Statusprüfung steht jetzt einmal
 
 **Betrifft:** `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `src/EmotePurge.Core/Services/ISevenTvEditorService.cs`

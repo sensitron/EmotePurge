@@ -23,15 +23,15 @@ function lookup(bundle: unknown, key: string): unknown {
 }
 
 describe('audit action tables', () => {
-  it('names all thirteen AuditActions constants', () => {
+  it('names all fourteen AuditActions constants', () => {
     // A gap here is the whole point of the lookup: a newly added backend action must show up as a
     // missing entry rather than as a silently generated key.
-    expect(Object.keys(ACTION_KEYS)).toHaveLength(13);
+    expect(Object.keys(ACTION_KEYS)).toHaveLength(14);
   });
 
   it('excludes the user-scoped actions from the channel-scoped set', () => {
     // A single channel's log can never contain them, so its filter must not offer them.
-    expect(CHANNEL_SCOPED_ACTIONS).toHaveLength(11);
+    expect(CHANNEL_SCOPED_ACTIONS).toHaveLength(12);
     expect(CHANNEL_SCOPED_ACTIONS).not.toContain('user.revokeSessions');
     expect(CHANNEL_SCOPED_ACTIONS).not.toContain('user.invalidateRoleCache');
     expect(CHANNELLESS_ACTIONS.size).toBe(2);
@@ -49,6 +49,12 @@ describe('audit action tables', () => {
 
   it('covers every detail kind the server can send', () => {
     // Mirrors AuditLogDetail.Kinds — the server whitelist is the source of truth for this list.
-    expect(Object.keys(DETAIL_KEYS).sort()).toEqual(['emoteCount', 'removedEntries', 'title']);
+    expect(Object.keys(DETAIL_KEYS).sort()).toEqual([
+      'emoteCount',
+      'importedFromChannel',
+      'importedFromFile',
+      'removedEntries',
+      'title',
+    ]);
   });
 });

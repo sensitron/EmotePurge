@@ -1,0 +1,56 @@
+using EmotePurge.Api.RateLimiting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace EmotePurge.Api.Tests;
+
+/// <summary>
+/// Pins the rate-limit policy each emotes-group route ends up carrying, read straight off the
+/// running endpoint metadata rather than re-deriving it from <c>EmoteEndpoints.cs</c> by eye.
+/// </summary>
+/// <remarks>
+/// Nothing in the repo tested this before (R7 in the #71 import plan): <c>sync-deleted</c> and
+/// <c>sync-restored</c> override the group's <see cref="RateLimitPolicyNames.InteractiveRead"/>
+/// policy with <see cref="RateLimitPolicyNames.Bookkeeping"/> — the last <c>RequireRateLimiting</c>
+/// call on a route wins — and a silently dropped override would only surface in production, as a
+/// bookkeeping call that 429s on a spent read budget. The two bookkeeping cases (sync-restored,
+/// sync-imported) double as the proof that the matching approach below actually finds the right
+/// endpoint metadata, before trusting it for the new route.
+/// </remarks>
+public class EmoteRoutePolicyTests : IClassFixture<ApiFactory>
+{
+    private readonly ApiFactory _factory;
+
+    public EmoteRoutePolicyTests(ApiFactory factory)
+    {
+        _factory = factory;
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/channels/{channelName}/emotes/sync-restored", RateLimitPolicyNames.Bookkeeping)]
+    [InlineData("POST", "/api/channels/{channelName}/emotes/sync-imported", RateLimitPolicyNames.Bookkeeping)]
+    [InlineData("GET", "/api/channels/{channelName}/emotes", RateLimitPolicyNames.InteractiveRead)]
+    public void EmoteGroupRoute_CarriesTheExpectedRateLimitPolicy(string method, string routePattern, string expectedPolicy)
+    {
+        // Resolving from Services boots the host; the endpoints exist only afterwards (same as
+        // LiveRouteStructureTests).
+        var endpointDataSource = _factory.Services.GetRequiredService<EndpointDataSource>();
+
+        var endpoint = endpointDataSource.Endpoints
+            .OfType<RouteEndpoint>()
+            .Single(candidate =>
+                // TrimEnd('/'): group.MapGet("") combines with the group prefix into a trailing
+                // slash ("…/emotes/") that the sub-routes below it do not carry — cosmetic, and not
+                // what this test is pinning.
+                string.Equals(candidate.RoutePattern.RawText?.TrimEnd('/'), routePattern.TrimEnd('/'), StringComparison.Ordinal)
+                && (candidate.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains(method) ?? false));
+
+        var policy = endpoint.Metadata.GetMetadata<EnableRateLimitingAttribute>();
+
+        Assert.NotNull(policy);
+        Assert.Equal(expectedPolicy, policy!.PolicyName);
+    }
+}

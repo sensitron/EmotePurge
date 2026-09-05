@@ -44,7 +44,7 @@ import { NoticeBanner } from '../ui/notice-banner';
 
       @if (failedItems().length > 0) {
         <ul class="mt-3 space-y-1 text-sm text-danger-fg" role="alert">
-          @for (item of failedItems(); track item.emoteId) {
+          @for (item of failedItems(); track item.key) {
             <li>{{ item.name }}: {{ item.errorMessage ?? failedFallback() }}</li>
           }
         </ul>
