@@ -5,6 +5,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { DeleteQueueEmote } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
+import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { PurgeRunRow, parsePurgeRunProtocol } from '../export/purge-run-export';
 import { Button } from '../ui/button';
@@ -28,7 +29,7 @@ import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
         <button
           type="button"
           appButton="outline"
-          [disabled]="restoreService.isRunning()"
+          [disabled]="arbiter.activeRun() !== null"
           class="disabled:cursor-not-allowed"
           (click)="openFilePicker()"
         >
@@ -56,6 +57,9 @@ export class RestorePanel {
   readonly setId = input.required<string>();
 
   protected readonly restoreService = inject(SevenTvRestoreService);
+  /** Read here only for the disabled-state check above — the template needs it too, hence
+   *  `protected` rather than `private` (#70, Task 4; see docs/DECISIONS.md). */
+  protected readonly arbiter = inject(SevenTvRunArbiter);
   private readonly tokenService = inject(SevenTvTokenService);
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly dialog = inject(Dialog);

@@ -311,6 +311,35 @@ Hook und unabhängig von seinem Rückgabewert — ein Abbruch ändert nichts an 
 ungültig". Und ein werfender Hook gilt als `false` (weiterlaufen) und wird per `console.error`
 gemeldet, statt den Lauf in den Fehlerpfad mit nicht-terminalen Zeilen zu reißen.
 
+**Der Run-Arbiter liegt außerhalb der Engine.** Delete und Restore (und ab K3 Import) halten je eine
+*eigene* `SevenTvRunEngine`-Instanz, absichtlich (siehe die Engine-Klassendoku) — genau deshalb kann
+kein einzelnes `isRunning` für alle drei sprechen. Ein Panel, das jeden 7TV-schreibenden Button
+sperren will, sobald *irgendeiner* der drei läuft, braucht eine Stelle, die über alle hinwegsieht;
+in die Engine selbst gehört das nicht, weil die Engine nichts von ihren Geschwister-Instanzen weiß
+und auch nichts wissen soll.
+
+**Der Arbiter leitet ab, statt zu sperren.** Die Issue-Fassung von #70 hatte `tryAcquire`/`release`
+vorgesehen — Handbuchführung. Die Untersuchung (R1 im Plan) fand einen Verklemmungspfad, den eine
+Handbuchführung strukturell nicht ausschließen kann: `tryAcquire` gewinnt, der anschließende
+`engine.start()` lehnt trotzdem ab (z. B. weil ein 401 im *vorigen* Lauf schon das Token gelöscht
+hat), und der Lock bleibt gehalten, obwohl nichts mehr läuft — app-weit verklemmt bis zum Reload.
+`SevenTvRunEngine.start()` setzt sein `isRunning`-Signal synchron und **erst nachdem** alle drei
+Ablehnungsgründe (laufende Engine, leere Liste, fehlender Token) schon mit `false` zurückgekehrt
+sind; ein abgelehnter Start hinterlässt also gar keine Spur. `finish()` ist der einzige Weg zurück
+auf `isRunning() === false`, erreicht vom normalen Ende, von `cancel()` und vom RxJS-Fehlerpfad
+gleichermaßen. Ein zweiter, handgeführter Zustand könnte davon nur abweichen; ein `computed`, das
+`deleteService.isRunning()`/`restoreService.isRunning()` direkt liest, kann das strukturell nicht.
+`SevenTvRunArbiter.activeRun` hat deshalb kein `tryAcquire` und kein `release` — es gibt nichts zu
+halten und nichts zu vergessen freizugeben.
+
+**Die eine Verhaltensänderung.** Bis Task 4 sperrte ein laufender Restore keinen Delete-Start und
+umgekehrt — die vier Start-Stellen (`mass-delete-panel.ts`: Löschen-Button, der Restore-Button nach
+einem abgeschlossenen Delete-Lauf, `openRestoreConfirm()`; `restore-panel.ts`: der Datei-Import)
+prüften jeweils nur den eigenen Service. Sie prüfen jetzt zusätzlich (bzw. an zwei Stellen: statt)
+`arbiter.activeRun() !== null`, sodass genau ein 7TV-Lauf beliebiger Sorte gleichzeitig laufen kann.
+Kein neuer i18n-Key, kein Hinweistext: die Buttons bleiben nur `disabled`, der laufende Fortschritt
+im selben Dock ist selbst der Hinweis (Betreiberentscheidung im Plan, Abschnitt 5).
+
 
 ---
 

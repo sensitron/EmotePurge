@@ -9,6 +9,7 @@ import {
 } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { RunQueueItem } from '../../core/seven-tv/seven-tv-run-engine';
+import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { CSV_MIME } from '../export/csv';
 import { ExportDialogData, openExportDialog } from '../export/export-dialog';
@@ -56,7 +57,11 @@ export interface DeletableEmote {
           appButton="danger-solid"
           buttonSize="lg"
           class="disabled:cursor-not-allowed"
-          [disabled]="selectedEmotes().length === 0 || deleteService.isRunning()"
+          [disabled]="
+            selectedEmotes().length === 0 ||
+            deleteService.isRunning() ||
+            arbiter.activeRun() !== null
+          "
           (click)="openConfirm()"
         >
           {{ 'massDelete.deleteButton' | transloco: { count: selectedEmotes().length } }}
@@ -91,7 +96,7 @@ export interface DeletableEmote {
               <button type="button" appButton="neutral" (click)="openProtocolExport()">
                 {{ 'massDelete.summary.downloadProtocol' | transloco }}
               </button>
-              @if (run.result.doneIds.length > 0 && !restoreService.isRunning()) {
+              @if (run.result.doneIds.length > 0 && arbiter.activeRun() === null) {
                 <!-- The two-tier *shape* of the destructive convention, not its colour: outline
                      triggers, the dialog's primary-solid executes — restore is constructive. -->
                 <button type="button" appButton="outline" (click)="openRestoreConfirm()">
@@ -150,6 +155,9 @@ export class MassDeletePanel {
   protected readonly tokenService = inject(SevenTvTokenService);
   protected readonly deleteService = inject(SevenTvDeleteService);
   protected readonly restoreService = inject(SevenTvRestoreService);
+  /** Read here only for the four start-site checks below — the template needs it too, hence
+   *  `protected` rather than `private` (#70, Task 4; see docs/DECISIONS.md). */
+  protected readonly arbiter = inject(SevenTvRunArbiter);
   private readonly emoteAdminService = inject(EmoteAdminService);
   private readonly dialog = inject(Dialog);
 
@@ -300,7 +308,7 @@ export class MassDeletePanel {
 
   protected openRestoreConfirm(): void {
     const run = this.deleteService.lastRun();
-    if (!run || this.restoreService.isRunning()) {
+    if (!run || this.arbiter.activeRun() !== null) {
       return;
     }
     // A delete run always sets emoteId on every row; the guard below narrows the type rather than

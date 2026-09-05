@@ -6,6 +6,7 @@ import { firstValueFrom } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DELETE_DELAY_MS, DeleteQueueEmote, SevenTvDeleteService } from './seven-tv-delete.service';
+import { SevenTvRunArbiter } from './seven-tv-run-arbiter';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
 // Only the keys this service actually translates — not the full app translation file.
@@ -478,5 +479,54 @@ describe('SevenTvDeleteService', () => {
     httpMock
       .expectOne('/api/channels/sensitron/emotes/sync-deleted')
       .flush({ archivedCount: 2, notFoundIds: [] });
+  });
+
+  // The arbiter (#70, Task 4) has no lock of its own — it reads this service's own isRunning
+  // signal, so these three cases pin the invariants a hand-kept tryAcquire/release could not have
+  // guaranteed (see R1 in docs/DECISIONS.md): the derived state can never outlive the run it
+  // describes, not even across cancel() or a start the engine itself refused.
+  describe('run arbiter', () => {
+    let arbiter: SevenTvRunArbiter;
+
+    beforeEach(() => {
+      arbiter = TestBed.inject(SevenTvRunArbiter);
+    });
+
+    it('reports "delete" as the active run while this service runs, then null once it ends', () => {
+      service.startDelete('set-1', 'sensitron', [EMOTES[0]]);
+
+      expect(arbiter.activeRun()).toBe('delete');
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(DELETE_DELAY_MS);
+      httpMock
+        .expectOne('/api/channels/sensitron/emotes/sync-deleted')
+        .flush({ archivedCount: 1, notFoundIds: [] });
+
+      expect(arbiter.activeRun()).toBeNull();
+    });
+
+    it('clears the active run once cancel() ends it', () => {
+      service.startDelete('set-1', 'sensitron', EMOTES);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+
+      service.cancel();
+
+      expect(arbiter.activeRun()).toBeNull();
+
+      // Drain the closing sync-deleted call so afterEach's httpMock.verify() stays green.
+      httpMock
+        .expectOne('/api/channels/sensitron/emotes/sync-deleted')
+        .flush({ archivedCount: 1, notFoundIds: [] });
+    });
+
+    it('leaves no active run when the engine refuses the start for a cleared token', () => {
+      tokenService.clearToken();
+
+      service.startDelete('set-1', 'sensitron', EMOTES);
+
+      expect(service.isRunning()).toBe(false);
+      expect(arbiter.activeRun()).toBeNull();
+    });
   });
 });
