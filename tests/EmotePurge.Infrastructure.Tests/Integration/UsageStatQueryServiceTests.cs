@@ -664,6 +664,170 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
         Assert.Null(earliestBotDate);
     }
 
+    [Fact]
+    public async Task GetEmoteLifetimesAsync_IncludesActiveAndArchivedEmotes_WithFieldsPassedThrough()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "lifetimetest1");
+        var firstSeen = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        var archivedAt = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var lastSynced = new DateTime(2026, 8, 15, 12, 0, 0, DateTimeKind.Utc);
+        var active = await SeedEmoteAsync(db, channel.Id, "Active", firstSeenAt: firstSeen, lastSyncedAt: lastSynced);
+        var archived = await SeedEmoteAsync(
+            db, channel.Id, "Archived", isArchived: true, archivedAt: archivedAt, lastSyncedAt: lastSynced);
+
+        var service = new UsageStatQueryService(db);
+        var lifetimes = await service.GetEmoteLifetimesAsync(channel.Id);
+
+        Assert.Equal(2, lifetimes.Count);
+        var activeDto = lifetimes.Single(l => l.Id == active.Id);
+        Assert.Equal("Active", activeDto.Name);
+        Assert.False(activeDto.IsArchived);
+        Assert.Equal(firstSeen, activeDto.FirstSeenAt);
+        Assert.Null(activeDto.ArchivedAt);
+        Assert.Equal(lastSynced, activeDto.LastSyncedAt);
+
+        var archivedDto = lifetimes.Single(l => l.Id == archived.Id);
+        Assert.Equal("Archived", archivedDto.Name);
+        Assert.True(archivedDto.IsArchived);
+        Assert.Equal(archivedAt, archivedDto.ArchivedAt);
+        Assert.Null(archivedDto.FirstSeenAt);
+        Assert.Equal(lastSynced, archivedDto.LastSyncedAt);
+    }
+
+    [Fact]
+    public async Task GetEmoteLifetimesAsync_FirstSeenAtNull_StaysNull()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "lifetimetest2");
+        await SeedEmoteAsync(db, channel.Id, "Unknown");
+
+        var service = new UsageStatQueryService(db);
+        var lifetimes = await service.GetEmoteLifetimesAsync(channel.Id);
+
+        Assert.Null(Assert.Single(lifetimes).FirstSeenAt);
+    }
+
+    [Fact]
+    public async Task GetEmoteLifetimesAsync_ExcludesOtherChannels()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "lifetimetest3");
+        var otherChannel = await SeedChannelAsync(db, "lifetimetest3_other");
+        await SeedEmoteAsync(db, otherChannel.Id, "Foreign");
+
+        var service = new UsageStatQueryService(db);
+        var lifetimes = await service.GetEmoteLifetimesAsync(channel.Id);
+
+        Assert.Empty(lifetimes);
+    }
+
+    [Fact]
+    public async Task GetEmoteLifetimesAsync_OrdersById_Ordinal()
+    {
+        // The chat-log backfill harness (issue #69) hashes this list to detect a changed input set
+        // on resume — the order has to be deterministic and independent of insertion order.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "lifetimetest4");
+        var one = await SeedEmoteAsync(db, channel.Id, "One");
+        var two = await SeedEmoteAsync(db, channel.Id, "Two");
+        var three = await SeedEmoteAsync(db, channel.Id, "Three");
+
+        var service = new UsageStatQueryService(db);
+        var lifetimes = await service.GetEmoteLifetimesAsync(channel.Id);
+
+        var expectedOrder = new[] { one.Id, two.Id, three.Id }.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        Assert.Equal(expectedOrder, lifetimes.Select(l => l.Id).ToArray());
+    }
+
+    [Fact]
+    public async Task GetRowsAsync_ReturnsRowsInInclusiveRange_ExcludingOutsideDaysAndOtherEmotes()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "rowstest1");
+        var emote = await SeedEmoteAsync(db, channel.Id, "InScope");
+        var notRequested = await SeedEmoteAsync(db, channel.Id, "NotRequested");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 6, 30), UseCount = 1 },     // before range
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 1), UseCount = 3 },      // first range day
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 7), UseCount = 5 },      // last range day
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 8), UseCount = 9 },      // after range
+            new UsageStat { EmoteId = notRequested.Id, Date = new DateOnly(2026, 7, 2), UseCount = 100 }); // not on the id list
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var rows = await service.GetRowsAsync([emote.Id], new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Equal(
+            [new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7)],
+            rows.Select(r => r.Date).ToArray());
+        Assert.All(rows, r => Assert.Equal(emote.Id, r.EmoteId));
+    }
+
+    [Fact]
+    public async Task GetRowsAsync_IncludesBotOnlyRows()
+    {
+        // Unlike every other query in this service, GetRowsAsync keeps rows with UseCount = 0 and
+        // BotUseCount > 0 — the harness needs the channel's whole recorded activity for its
+        // bot-inclusive total, not the human-only view the usage grid shows.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "rowstest2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "BotOnly");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 3), UseCount = 0, BotUseCount = 3 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var rows = await service.GetRowsAsync([emote.Id], new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(0, row.UseCount);
+        Assert.Equal(3, row.BotUseCount);
+    }
+
+    [Fact]
+    public async Task GetRowsAsync_ForEmptyIdList_ReturnsEmptyWithoutQuerying()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        var service = new UsageStatQueryService(db);
+        var rows = await service.GetRowsAsync([], new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public async Task GetRowsAsync_OrdersByEmoteIdThenDate()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "rowstest3");
+        var emoteA = await SeedEmoteAsync(db, channel.Id, "A");
+        var emoteB = await SeedEmoteAsync(db, channel.Id, "B");
+        var (first, second) = string.CompareOrdinal(emoteA.Id, emoteB.Id) <= 0 ? (emoteA, emoteB) : (emoteB, emoteA);
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = first.Id, Date = new DateOnly(2026, 7, 3), UseCount = 1 },
+            new UsageStat { EmoteId = first.Id, Date = new DateOnly(2026, 7, 1), UseCount = 1 },
+            new UsageStat { EmoteId = second.Id, Date = new DateOnly(2026, 7, 2), UseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var rows = await service.GetRowsAsync([first.Id, second.Id], new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        Assert.Equal(
+            [(first.Id, new DateOnly(2026, 7, 1)), (first.Id, new DateOnly(2026, 7, 3)), (second.Id, new DateOnly(2026, 7, 2))],
+            rows.Select(r => (r.EmoteId, r.Date)).ToArray());
+    }
+
+    [Fact]
+    public async Task GetRowsAsync_FromAfterTo_Throws()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        var service = new UsageStatQueryService(db);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.GetRowsAsync(["irrelevant-id"], new DateOnly(2026, 7, 7), new DateOnly(2026, 7, 1)));
+    }
+
     private static async Task<Channel> SeedChannelAsync(AppDbContext db, string channelName)
     {
         var channel = new Channel { ChannelName = channelName, IsBotActive = true };
@@ -673,7 +837,13 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     private static async Task<Emote> SeedEmoteAsync(
-        AppDbContext db, string channelId, string name, bool isArchived = false, DateTime? firstSeenAt = null)
+        AppDbContext db,
+        string channelId,
+        string name,
+        bool isArchived = false,
+        DateTime? firstSeenAt = null,
+        DateTime? archivedAt = null,
+        DateTime? lastSyncedAt = null)
     {
         var emote = new Emote
         {
@@ -682,8 +852,14 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
             SevenTvEmoteId = Guid.NewGuid().ToString("N")[..24],
             ImageUrl = "https://cdn.7tv.app/emote/example/2x.webp",
             IsArchived = isArchived,
-            FirstSeenAt = firstSeenAt
+            FirstSeenAt = firstSeenAt,
+            ArchivedAt = archivedAt
         };
+        if (lastSyncedAt is not null)
+        {
+            emote.LastSyncedAt = lastSyncedAt.Value;
+        }
+
         db.Emotes.Add(emote);
         await db.SaveChangesAsync();
         return emote;

@@ -268,4 +268,46 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .Select(u => (DateOnly?)u.Date)
             .MinAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<EmoteLifetimeDto>> GetEmoteLifetimesAsync(string channelId, CancellationToken cancellationToken = default)
+    {
+        // A plain projection over Emotes with a scalar ChannelId filter — no navigation join, no
+        // GroupBy, so rule 10 does not even come into play here. Archived emotes are deliberately
+        // included (see the interface doc comment), and the ordering is ordinal on Id so the
+        // harness's hash over this list is stable regardless of insertion order.
+        return await db.Emotes
+            .AsNoTracking()
+            .Where(e => e.ChannelId == channelId)
+            .OrderBy(e => e.Id)
+            .Select(e => new EmoteLifetimeDto(e.Id, e.Name, e.IsArchived, e.FirstSeenAt, e.ArchivedAt, e.LastSyncedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<UsageStatRowDto>> GetRowsAsync(
+        IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        if (from > to)
+        {
+            throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
+        }
+
+        if (emoteIds.Count == 0)
+        {
+            return [];
+        }
+
+        // Rule 10: a plain Where over UsageStats with a scalar id list and the date range — no
+        // join, no GroupBy. Materialized to a plain list first for the same reason
+        // GetTotalsByEmoteIdsAsync does: Contains against the caller's own collection type can
+        // fail to translate. UseCount > 0 is deliberately absent — see the interface doc comment,
+        // a bot-only row is exactly what the harness's bot-inclusive total needs.
+        var ids = emoteIds.ToList();
+
+        return await db.UsageStats
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
+            .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
+            .Select(u => new UsageStatRowDto(u.EmoteId, u.Date, u.UseCount, u.BotUseCount))
+            .ToListAsync(cancellationToken);
+    }
 }
