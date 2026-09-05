@@ -9,8 +9,12 @@ import { AuthService } from '../auth/auth.service';
  * `auth/me` is the probe every guard runs first and 401s for every anonymous visitor — treating
  * that as an expiry would redirect the public landing page to /login. `auth/logout` 401s when the
  * cookie is already gone, which is the outcome the caller wanted anyway.
+ * `live/status` is the diagnostic LiveQuotaService runs *after* a stream was refused, and a revoked
+ * session is one of the reasons a stream is refused — so without this exception every fatal SSE
+ * close would turn into an immediate redirect to /login, which is not what it did before the probe
+ * existed. An expired session still surfaces on the next real request, exactly as it does today.
  */
-const EXPECTED_401_PATHS = ['/api/auth/me', '/api/auth/logout'];
+const EXPECTED_401_PATHS = ['/api/auth/me', '/api/auth/logout', '/api/live/status'];
 
 /**
  * Centralizes "the session expired" for the whole app. Before this, six pages carried the same

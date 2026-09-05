@@ -918,6 +918,15 @@ export async function installLiveStub(page: Page): Promise<void> {
 
     const global = window as unknown as Record<string, unknown>;
     global['EventSource'] = StubEventSource;
+    // The refusal half of the stub: the browser signals a rejected handshake by moving to CLOSED
+    // and firing onerror, carrying neither status code nor body. That is the whole reason
+    // LiveQuotaService has to go and ask — so a state built on it needs this to be reproducible.
+    global['__failLive'] = () => {
+      for (const instance of [...instances]) {
+        instance.readyState = 2;
+        instance.onerror?.();
+      }
+    };
     global['__emitLive'] = (event: unknown) => {
       const data = JSON.stringify(event);
       for (const instance of [...instances]) {
@@ -927,6 +936,23 @@ export async function installLiveStub(page: Page): Promise<void> {
       }
     };
   });
+}
+
+/**
+ * Fails every open stream the way a refused handshake does — readyState CLOSED plus `onerror`, and
+ * nothing else, because that is all the browser gives the page. What made the stream fail (429 over
+ * the connection budget, 503, a revoked session) is only knowable by asking afterwards.
+ */
+export async function failLive(page: Page): Promise<void> {
+  await page.evaluate(() => (window as unknown as { __failLive: () => void }).__failLive());
+}
+
+/** Answers GET /api/live/status — the probe LiveQuotaService runs after a stream was refused. */
+export async function mockLiveQuota(
+  page: Page,
+  status: { openConnections: number; maxPerSubscriber: number; perSubscriberLimitReached: boolean },
+): Promise<void> {
+  await page.route('**/api/live/status', (route) => fulfillJson(route, 200, status));
 }
 
 /** Pushes one live-update frame into every EventSource the app currently holds open. */

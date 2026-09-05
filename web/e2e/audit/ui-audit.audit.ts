@@ -19,6 +19,8 @@ import {
   mockChannelAuditLog,
   mockChannelPermissions,
   mockChannelStatus,
+  failLive,
+  mockLiveQuota,
   mockUsageChannelSeries,
   mockUsageDaily,
   mockUsageTotals,
@@ -334,6 +336,53 @@ const SCENARIOS: Scenario[] = [
     setup: async (page) => {
       await authedShell(page);
       await mockMyChannelsWithFlags(page, []);
+    },
+  },
+  {
+    // Both header warning *conditions* true at once — worker stale and the live-quota budget full
+    // (issue #42). The expected picture is one badge, not two: this run is what established that a
+    // single badge already truncates the wordmark to 3px at 360px, so the quota marker yields to
+    // the worker one. Keeping the scenario is what stops a later change from quietly bringing the
+    // second badge back.
+    slug: 'shell-both-warnings',
+    path: '/',
+    setup: async (page) => {
+      await mockAuthMe(page, AUTH_USER);
+      await mockWorkerHealth(page, 'disconnected');
+      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+      await mockLiveQuota(page, {
+        openConnections: 6,
+        maxPerSubscriber: 6,
+        perSubscriberLimitReached: true,
+      });
+    },
+    afterLoad: async (page) => {
+      // The state only exists after a stream has been refused — that is what makes the app ask.
+      await failLive(page);
+      // The worker marker, not the quota one: waiting for the quota button here would be waiting
+      // for the very thing this scenario exists to prove does *not* appear alongside it.
+      await page.locator('header app-health-marker').waitFor();
+    },
+  },
+  {
+    // The quota explanation open. The panel hangs off a trigger in the *left* group, unlike every
+    // other popover in the app, so the alignment that works for the account menu cannot be assumed
+    // to work here — this is the scenario that decides it.
+    slug: 'shell-live-quota-open',
+    path: '/',
+    setup: async (page) => {
+      await mockAuthMe(page, AUTH_USER);
+      await mockWorkerHealth(page, 'connected');
+      await mockMyChannelsWithFlags(page, TYPICAL_CHANNELS);
+      await mockLiveQuota(page, {
+        openConnections: 6,
+        maxPerSubscriber: 6,
+        perSubscriberLimitReached: true,
+      });
+    },
+    afterLoad: async (page) => {
+      await failLive(page);
+      await page.locator('header button:has(app-health-marker)').click();
     },
   },
   {

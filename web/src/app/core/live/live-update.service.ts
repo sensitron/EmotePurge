@@ -33,9 +33,25 @@ export class LiveUpdateService {
 
   private readonly statusSignal = signal<LiveStatus>('idle');
 
+  private readonly fatalCloseSignal = signal(0);
+
   /** Informational only — service-wide, so with two concurrent streams the last writer wins.
    *  Nothing branches on it; it exists for diagnostics and a possible future indicator. */
   readonly status = this.statusSignal.asReadonly();
+
+  /**
+   * Bumped once per *fatal* close (readyState CLOSED — the server answered non-2xx). A counter and
+   * not a boolean, so a second failure after the first has been dealt with is still an event a
+   * consumer can react to.
+   *
+   * Exists because this service cannot say *why* the stream died and must not learn: `onerror`
+   * carries neither status code nor body, and the alternative — replacing EventSource with a
+   * fetch-based reader to read the status — would move the browser's whole reconnect behaviour into
+   * our code for one hint. So the signal says "a stream was refused, go and ask"; LiveQuotaService
+   * does the asking (issue #42). Deliberately no HttpClient here: keeping this service's dependencies
+   * to the EventSource factory and the document is what makes it testable without an HTTP harness.
+   */
+  readonly fatalCloseCount = this.fatalCloseSignal.asReadonly();
 
   /** One entry per URL this session has ever subscribed to. Holds no connection — only the (inert)
    *  multicast Observable, so a session that visited twenty channels carries twenty closures. */
@@ -102,6 +118,7 @@ export class LiveUpdateService {
             // No rebuild: neither erroring nor completing the subscriber, because the visibility
             // retry below still needs it alive.
             this.statusSignal.set('closed');
+            this.fatalCloseSignal.update((count) => count + 1);
           }
         };
       };

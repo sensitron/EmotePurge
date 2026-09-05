@@ -21,6 +21,10 @@
     "workerStatus": {
       "stale": "Chat is not being counted"
     },
+    "liveStatus": {
+      "paused": "Live updates paused",
+      "explanation": "You have {{open}} of {{max}} live connections open. They count across all tabs and devices. Close another EmotePurge view and reload this page — it will not reconnect on its own."
+    },
     "admin": "Admin",
     "myVotings": "My votes",
     "votings": "Votes",

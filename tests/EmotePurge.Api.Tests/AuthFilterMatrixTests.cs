@@ -69,6 +69,10 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     [InlineData("GET", "/api/auth/me")]
     [InlineData("GET", "/api/channels/live-events")]
     [InlineData("GET", "/api/admin/live")]
+    // Reports how much of the caller's own live-stream budget is in use, so it must be as
+    // authenticated as the streams it counts — an anonymous caller would otherwise all share the
+    // "unknown" subscriber key and read each other's number.
+    [InlineData("GET", "/api/live/status")]
     public async Task EveryProtectedEndpoint_Answers401_ForAnAnonymousCaller(string method, string path)
     {
         // The authorization middleware short-circuits before any endpoint filter, so this is the one
