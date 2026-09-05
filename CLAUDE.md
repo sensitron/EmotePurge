@@ -16,7 +16,7 @@ Emote Purge: plattformübergreifende Webanwendung zur Analyse, Community-Bewertu
 |---|---|---|
 | **1 / A** | Chat-Analytics & Live-Synchronisation: Channel-Join/Leave über Redis, anonymes Twitch-IRC, hybrider 7TV-Sync (EventAPI-WebSocket-Live-Deltas hinter Feature-Flag + periodischer REST-Vollsync als Reconciliation), Chat-Matching + 30-Sekunden-Batch-Flush, Worker-Health | ✅ vollständig |
 | **B** | Twitch-OAuth-Login (Cookie-Session, kein JWT), Live-Rollenprüfung (Admin-Allowlist / Broadcaster / Live-Moderator / 7TV-Editor), serverseitig wirksames Logout | ✅ vollständig |
-| **C** | Voting Engine: `VoteSession`/`Vote`, rollengesteuerte Abstimmung, Beliebtheits-Score aus normalisierter Chat-Nutzung + Keep/Delete-Votes | ✅ vollständig |
+| **C** | Voting Engine: `VoteSession`/`Vote`, rollengesteuerte Abstimmung, Score = Keep-Votes − Delete-Votes (Chat-Nutzung ist bewusst **kein** Bestandteil, nur Manager-Kontext neben der Karte — s. DECISIONS „kein Rückweg von Chat-Nutzung in den Beliebtheits-Score") | ✅ vollständig |
 | **D** | Angular-Frontend: Login, Übersicht, Usage-Stats-Grid, Voting-UI, 7TV-Mass-Delete-Engine, i18n (de/en), Pagination | ✅ vollständig |
 | **Admin** | Globaler Admin-Bereich (`/admin/*`, Allowlist `Auth:AdminTwitchLogins`): Monitoring, Channel-Liste inkl. Resync/Purge, Nutzerliste inkl. Session-Revoke und Rollen-Cache-Invalidierung, Audit-Log (`AuditLogEntry`), eigener SSE-Stream | ✅ vollständig |
 | **E** | Launch-Vorbereitung: Ressourcenlimits, Container-Healthchecks (S3-35), Log-Aggregation/Alerting (S3-36), Rechtstexte | 🟡 fast fertig — die technische Seite ist seit 2026-08-05 komplett: Ressourcenlimits (S2-21), Migration-Fail-Fast (S3-34), getrennte Dev-Compose-Namen (S3-38), payloadfreier `GET /api/health` mit 503-Semantik + Container-HEALTHCHECKs (Z1/S3-35), Monitoring-Kette Uptime Kuma + Telegram + Backup VPS→NAS→OneDrive + Log-Rotation (S3-36, VPS-Härtung). Auch die CI-/Lieferketten-Seite ist komplett (SHA-Pins, Dependabot, schlanke Docker-Kontexte, AGPL-3.0-LICENSE), und der Kuma-Monitor zeigt seit dem 2026-09-04 auf `/api/health`. Offen ist damit nur noch, was nicht am Code hängt: **Rechtstexte (S2-20)** + `robots.txt` |
@@ -204,3 +204,22 @@ Kein Bestandscode wird rückwirkend umgeschrieben.
 - **Twitchs JOIN-Limits — zwei getrennte, das härtere ist ein Bestandslimit.** (1) *Rate*: eine nicht-verifizierte Verbindung darf 20 JOINs pro 10 Sekunden; TwitchLib drosselt JOINs überhaupt nicht. Unsere eigenen Join-Pfade sind auf 600 ms Abstand gedrosselt, TwitchLibs eigener Rejoin nach einem Reconnect nicht. (2) *Bestand*: **seit 2024-05-15 darf ein Account maximal 100 Chatrooms gleichzeitig gejoint haben** ([dev.twitch.tv/docs/chat](https://dev.twitch.tv/docs/chat/)) — ausgenommen sind nur Kanäle, in denen der Account Broadcaster oder Moderator ist. Die Messung vom 2026-07-30 (28 ungedrosselte JOINs in 5 s, 0 Fehler) hat die *Rate* geprüft und sagt über diese Decke nichts. Vor einem größeren Ausbau: verifizierter Bot-Account (2.000 JOINs/10 s, hebt beide Limits) oder Sharding — Details in [Review-2026-07-29-Umsetzung.md](docs/Review-2026-07-29-Umsetzung.md). **Ein Wechsel auf EventSub ist ausdrücklich kein Ausweg**: Twitch wendet beide Limits auf `channel.chat.message` mit User-Token wortgleich an — s. [Untersuchung-Twitch-EventSub-2026-08-01.md](docs/Untersuchung-Twitch-EventSub-2026-08-01.md).
 - **Twitch-Token-Refresh ist in-process.** Seit 2026-07-30 werden Access Tokens serverseitig per Refresh-Token erneuert (lazy, Single-Flight — s. DECISIONS-Eintrag); der Lock ist aber ein In-Process-Semaphor: bei mehr als einer Api-Replica bräuchte es einen verteilten Lock. Idle gespeicherte Tokens werden zudem nicht stündlich validiert, nur benutzte.
 - **7TV-EventAPI-Grenzen.** `subscription_limit` ist 500 pro Verbindung (2 Subscriptions je Channel → Connection-Sharding nötig ab ~250 Channels; bisher nur eine 90-%-Warnung im Log). Kein Resume/Replay und ~1-h-Verbindungs-TTL — der periodische REST-Resync ist deshalb Pflicht, nicht Optimierung. Zustellqualität bei ~900er-Sets (HandOfBlood) ungemessen; 7TVs REST-Cache kann 10–30 min veraltet sein (SevenTV/SevenTV#81), das Mess-Log „archiviert <15 min altes Emote" in `ReconcileAsync` quantifiziert die Folgen. Details: [docs/Untersuchung-7TV-WebSocket-2026-07-30.md](docs/Untersuchung-7TV-WebSocket-2026-07-30.md).
+
+## Skill routing
+
+When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
+
+Key routing rules:
+- Product ideas/brainstorming → invoke /office-hours
+- Strategy/scope → invoke /plan-ceo-review
+- Architecture → invoke /plan-eng-review
+- Design system/plan review → invoke /design-consultation or /plan-design-review
+- Full review pipeline → invoke /autoplan
+- Bugs/errors → invoke /investigate
+- QA/testing site behavior → invoke /qa or /qa-only
+- Code review/diff check → invoke /review
+- Visual polish → invoke /design-review
+- Ship/deploy/PR → invoke /ship or /land-and-deploy
+- Save progress → invoke /context-save
+- Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
