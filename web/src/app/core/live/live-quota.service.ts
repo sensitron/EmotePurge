@@ -37,14 +37,15 @@ export class LiveQuotaService {
   private readonly quotaSignal = signal<LiveStreamStatus | null>(null);
 
   /**
-   * Bumped whenever anything invalidates an answer that is still on its way — today only a stream
-   * reopening. A probe whose generation no longer matches is dropped on arrival.
+   * Bumped by every probe and by every stream that opens. An answer whose generation no longer
+   * matches is dropped, so only the newest question can change what is shown.
    *
-   * Needed because the two are genuinely concurrent: the visibility retry can reopen a stream while
-   * the probe explaining the *previous* close is still in flight, and a late "your budget was full"
-   * would then land after the clear and stick — `status` stays `open`, so nothing would ever clear
-   * it again. The result is the one failure this feature must not have: a warning about live updates
-   * on a page whose live updates work.
+   * Needed because these are genuinely concurrent in two ways. The visibility retry can reopen a
+   * stream while the probe explaining the *previous* close is still in flight — a late "your budget
+   * was full" would land after the clear and stick, because `status` stays `open` and nothing would
+   * clear it again. And two refusals in a row put two probes in flight that can answer out of
+   * order. Both end in the one failure this feature must not have: a warning about live updates on
+   * a page whose live updates work.
    */
   private probeGeneration = 0;
 
@@ -85,19 +86,27 @@ export class LiveQuotaService {
   }
 
   private probe(): void {
-    const generation = this.probeGeneration;
+    // Versioned per probe, not per reopen: two fatal closes without an `open` in between (a
+    // visibility retry that is refused again) put two requests in flight, and they can answer out
+    // of order. Bumping only on `open` gave both the same version, so the older answer could still
+    // overwrite the newer one — a warning built on a snapshot that was already superseded.
+    const generation = ++this.probeGeneration;
     this.http.get<LiveStreamStatus>('/api/live/status').subscribe({
+      // Both callbacks gated, not just the success one: a stale *failure* clearing a valid newer
+      // warning is the same defect wearing the other hat.
       next: (status) => {
-        if (generation !== this.probeGeneration) {
-          return;
+        if (generation === this.probeGeneration) {
+          this.quotaSignal.set(status);
         }
-        this.quotaSignal.set(status);
       },
       // A hint that cannot be substantiated is not shown. The failure this whole path exists to
       // explain is itself a sign of a wobbly connection, and guessing "it was probably your tabs"
-      // would be the same unfounded claim as today's silence, only louder. No generation check on
-      // this side: the effect above has already set false, and setting it again is the same value.
-      error: () => this.quotaSignal.set(null),
+      // would be the same unfounded claim as today's silence, only louder.
+      error: () => {
+        if (generation === this.probeGeneration) {
+          this.quotaSignal.set(null);
+        }
+      },
     });
   }
 }

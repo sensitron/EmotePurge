@@ -123,6 +123,42 @@ describe('LiveQuotaService', () => {
     expect(service.perSubscriberLimitReached()).toBe(false);
   });
 
+  it('lets only the newest of two overlapping probes decide', () => {
+    // Two fatal closes without an `open` in between — a visibility retry that was refused again.
+    // Versioning per reopen instead of per probe gave both requests the same generation, so the
+    // older answer could still overwrite the newer one. Found by the Codex review.
+    fatalCloseCount.set(1);
+    TestBed.tick();
+    const first = httpMock.expectOne('/api/live/status');
+
+    fatalCloseCount.set(2);
+    TestBed.tick();
+    const second = httpMock.expectOne('/api/live/status');
+
+    // Newest answers first, then the stale one — the order that used to lose the newer snapshot.
+    second.flush({ openConnections: 6, maxPerSubscriber: 6, perSubscriberLimitReached: true });
+    first.flush({ openConnections: 1, maxPerSubscriber: 6, perSubscriberLimitReached: false });
+
+    expect(service.perSubscriberLimitReached()).toBe(true);
+  });
+
+  it('lets a stale probe failure not clear a newer warning', () => {
+    fatalCloseCount.set(1);
+    TestBed.tick();
+    const first = httpMock.expectOne('/api/live/status');
+
+    fatalCloseCount.set(2);
+    TestBed.tick();
+    const second = httpMock.expectOne('/api/live/status');
+
+    second.flush({ openConnections: 6, maxPerSubscriber: 6, perSubscriberLimitReached: true });
+    first.flush(null, { status: 503, statusText: 'Service Unavailable' });
+
+    // The same defect wearing the other hat: gating only the success callback would let this
+    // stale error wipe a warning that is still correct.
+    expect(service.perSubscriberLimitReached()).toBe(true);
+  });
+
   it('asks again on a second refusal', () => {
     // A counter rather than a boolean on LiveUpdateService exists for exactly this: the second
     // failure after the first was cleared is still an event worth reacting to.
