@@ -23,7 +23,7 @@
     },
     "liveStatus": {
       "paused": "Live-Updates pausiert",
-      "explanation": "Du hast {{open}} von {{max}} möglichen Live-Verbindungen offen. Sie zählen über alle Tabs und Geräte zusammen. Schließ eine andere EmotePurge-Ansicht und lade diese Seite neu — von allein verbindet sie sich nicht wieder."
+      "explanation": "Du hast {{open}} von {{max}} möglichen Live-Verbindungen offen. Sie zählen über alle Tabs und Geräte zusammen. Schließ eine andere EmotePurge-Ansicht, warte einen Moment und lade diese Seite dann neu — der Platz wird nicht sofort frei, und von allein verbindet sie sich nicht wieder."
     },
     "admin": "Admin",
     "myVotings": "Meine Abstimmungen",
