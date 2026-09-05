@@ -22,6 +22,7 @@ export const ACTION_KEYS: Record<string, string> = {
   'voteSession.delete': 'audit.actions.voteSessionDelete',
   'emotes.syncDeleted': 'audit.actions.emotesSyncDeleted',
   'emotes.syncRestored': 'audit.actions.emotesSyncRestored',
+  'emotes.syncImported': 'audit.actions.emotesSyncImported',
   'user.revokeSessions': 'audit.actions.userRevokeSessions',
   'user.invalidateRoleCache': 'audit.actions.userInvalidateRoleCache',
 };
@@ -51,4 +52,6 @@ export const DETAIL_KEYS: Record<string, string> = {
   emoteCount: 'audit.details.emoteCount',
   removedEntries: 'audit.details.removedEntries',
   title: 'audit.details.title',
+  importedFromChannel: 'audit.details.importedFromChannel',
+  importedFromFile: 'audit.details.importedFromFile',
 };

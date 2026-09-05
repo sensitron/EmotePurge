@@ -531,13 +531,16 @@
       "voteSessionDelete": "Voting deleted",
       "emotesSyncDeleted": "Emotes marked as deleted",
       "emotesSyncRestored": "Emotes restored",
+      "emotesSyncImported": "Emotes imported",
       "userRevokeSessions": "User sessions revoked",
       "userInvalidateRoleCache": "Role cache cleared"
     },
     "details": {
       "emoteCount": "{{count}} emotes",
       "removedEntries": "{{count}} entries removed",
-      "title": "“{{title}}”"
+      "title": "“{{title}}”",
+      "importedFromChannel": "{{count}} emotes from {{title}}",
+      "importedFromFile": "{{count}} emotes from a file"
     }
   },
   "emoteCount": {

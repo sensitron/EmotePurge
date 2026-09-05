@@ -54,6 +54,32 @@ describe('toAuditRows', () => {
     });
   });
 
+  it('renders an import-from-channel detail with both count and title parameters', () => {
+    // The only kind that carries count and text at once (R1) — the other three kinds set exactly
+    // one of the two fields, so this is the case that proves renderDetail passes both through.
+    const [row] = toAuditRows(
+      [entry({ detail: { kind: 'importedFromChannel', count: 5, text: 'sourcechannel' } })],
+      'de-DE',
+    );
+
+    expect(row.detail).toEqual({
+      key: 'audit.details.importedFromChannel',
+      params: { count: 5, title: 'sourcechannel' },
+    });
+  });
+
+  it('renders an import-from-file detail with only its count parameter', () => {
+    const [row] = toAuditRows(
+      [entry({ detail: { kind: 'importedFromFile', count: 7, text: null } })],
+      'de-DE',
+    );
+
+    expect(row.detail).toEqual({
+      key: 'audit.details.importedFromFile',
+      params: { count: 7 },
+    });
+  });
+
   it('drops a detail kind this build has no label for', () => {
     // Not a safety decision — the server already whitelisted the payload. This build is simply
     // older than the backend, and the row keeps its action and actor.
