@@ -148,4 +148,14 @@ public interface IUsageStatQueryService
     /// </summary>
     Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(
         IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The earliest day across all of the channel's emotes — including archived ones — with a
+    /// <c>UsageStat</c> row that has <c>BotUseCount &gt; 0</c>, or <c>null</c> if no bot has ever
+    /// been seen here. See <see cref="EmoteSetStatusDto.BotsExcludedSince"/> for what "seen" means
+    /// here (first sighting, not the deploy day the separation itself started). Consumed by
+    /// <c>EmoteSetStatusService</c> and by the chat-log backfill harness (issue #69), which both
+    /// need the same cutover day rather than two copies of this rule.
+    /// </summary>
+    Task<DateOnly?> GetEarliestBotUsageDateAsync(string channelId, CancellationToken cancellationToken = default);
 }

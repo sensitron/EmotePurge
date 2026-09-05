@@ -247,4 +247,25 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount) })
             .ToDictionaryAsync(g => g.EmoteId, g => g.TotalUseCount, cancellationToken);
     }
+
+    public async Task<DateOnly?> GetEarliestBotUsageDateAsync(string channelId, CancellationToken cancellationToken = default)
+    {
+        // Rule 10: resolve the channel's emote ids to a plain scalar list first, then aggregate
+        // over UsageStats alone — the same shape EmoteSetStatusService used before this method
+        // absorbed its query (a MIN grouped straight off a Where that still carries the Emote
+        // navigation risks the client-eval fallback that GroupBy hits there). Archived emotes are
+        // deliberately included: a bot sighting on an emote since deleted from 7TV still tells us
+        // when the separation started for this channel. Projected to DateOnly? — a non-nullable
+        // Min throws on an empty result set, and "no bot ever seen" is exactly the empty case this
+        // has to handle without an exception.
+        var emoteIds = await db.Emotes
+            .Where(e => e.ChannelId == channelId)
+            .Select(e => e.Id)
+            .ToListAsync(cancellationToken);
+
+        return await db.UsageStats
+            .Where(u => emoteIds.Contains(u.EmoteId) && u.BotUseCount > 0)
+            .Select(u => (DateOnly?)u.Date)
+            .MinAsync(cancellationToken);
+    }
 }
