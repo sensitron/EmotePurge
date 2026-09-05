@@ -42,7 +42,14 @@ import { Popover } from '../../shared/ui/popover';
 
                Logo and the worker warning form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
-          <div class="flex min-w-0 items-center gap-3">
+          <!-- relative + the popover anchor sit on the whole left group, not on the quota badge
+               inside it. Anchoring to the badge made the panel's position follow the badge's, which
+               moves with the locale: "Votes" is shorter than "Abstimmungen", so in en the wordmark
+               keeps more width, the badge starts further right and the panel ran 27px past the
+               right edge at 360px (measured). Anchored here, left-0 is the header's own left
+               padding in every locale, and the panel's max-w keeps it inside the viewport from
+               there. -->
+          <div class="relative flex min-w-0 items-center gap-3" data-popover-anchor>
             <!-- min-w-0 + truncate on the wordmark rather than nowrap: this group is the shrinking
                  side of the row, and a child that refuses to shrink runs out of its own box and
                  lands on top of whatever sits on the right. The logo keeps its size; only the
@@ -82,32 +89,38 @@ import { Popover } from '../../shared/ui/popover';
                  ignore (§4.3). LiveQuotaService confirms the cause with the server before this can
                  appear at all.
 
-                 The label is short for a reason the header enforces rather than prefers: this row
-                 holds the wordmark, "Abstimmungen" and the 44px account trigger at 360px, and a
-                 badge does not wrap. "Live-Updates pausiert" is the same length as the worker
-                 marker beside it, which is the one length proven to fit. What does not fit is the
-                 cause ("zu viele offene Tabs") — see the decision log; it needs a surface that is
-                 not this row.
+                 The label is short for a reason the header enforces rather than prefers, and the
+                 audit harness measured it: at 360px one badge already truncates the wordmark to
+                 3px (shell-both-warnings). The cause ("zu viele offene Tabs") therefore lives one
+                 click down, in the popover.
 
-                 The visible badge is aria-hidden and the announcement comes from the live region
-                 above it: this state appears *after* load, so without a region that already exists
-                 at that moment a screen reader is told nothing at all — which would leave exactly
-                 the group this feature is for with today's silence. sr-only rather than a wrapper
-                 around the badge, so the region can be permanent without adding an empty flex child
-                 (and its gap) to the row. -->
+                 The announcement is deliberately NOT inside the @if below: this state appears
+                 *after* load, and a live region that only comes into existence with its content
+                 announces nothing. Permanent and sr-only, so it can exist without adding an empty
+                 flex child (and its gap) to the row. It also keeps speaking when the badge yields
+                 its space below — a screen reader has no 360px to run out of, so there is no reason
+                 to make it share the header's scarcity. -->
             <span class="sr-only" aria-live="polite">
               @if (liveQuotaExhausted()) {
                 {{ 'shell.liveStatus.paused' | transloco }}
               }
             </span>
+            <!-- One badge at a time, and this is arithmetic rather than taste: the measurement above
+                 shows a single badge already consuming the whole wordmark, so a second one pushes
+                 "Abstimmungen" out of the row and gets clipped by the account trigger. The worker
+                 warning wins because it outranks this one — "Chat wird nicht gezählt" is data being
+                 lost for good, while paused live updates are a stale view that a reload fixes. -->
             @if (liveQuota(); as quota) {
-              @if (quota.perSubscriberLimitReached) {
-                <div class="relative" data-popover-anchor>
+              @if (quota.perSubscriberLimitReached && !workerStale()) {
+                <div>
                   <!-- The badge is the trigger, so it also supplies the button's accessible name —
                        hence no aria-label here and no aria-hidden on the marker. -->
+                  <!-- min-h-6 is the WCAG 2.5.8 floor (§10): the badge itself is 20px, so the
+                       button has to add the rest — without it the only way to open this panel is a
+                       target smaller than the standard allows. -->
                   <button
                     type="button"
-                    class="inline-flex items-center rounded-md transition hover:opacity-80"
+                    class="inline-flex min-h-6 items-center rounded-md px-0.5 transition hover:opacity-80"
                     aria-haspopup="dialog"
                     [attr.aria-expanded]="liveHintOpen()"
                     (click)="liveHintOpen.set(!liveHintOpen())"
@@ -118,10 +131,16 @@ import { Popover } from '../../shared/ui/popover';
                     />
                   </button>
                   @if (liveHintOpen()) {
-                    <!-- align="end": the trigger sits in the left group, but the panel is wide and
-                         a start-aligned one runs past the right edge at 360px. -->
+                    <!-- align="start", against the instinct that copies the account menu: that
+                         panel is right-aligned because its trigger sits at the right edge. This
+                         trigger sits in the *left* group, so right-aligning put the panel's left
+                         edge at roughly -116px and clipped the first third of every line. Neither
+                         horizontalOverflowPx nor beyondRightEdge sees that — overflow to the left
+                         does not lengthen scrollWidth — which is why this was caught in the audit
+                         screenshot and not in its metrics. Left-aligned, the panel runs from the
+                         trigger rightwards and fits inside 360px. -->
                     <app-popover
-                      align="end"
+                      align="start"
                       width="w-72"
                       [ariaLabel]="'shell.liveStatus.paused' | transloco"
                       (closed)="liveHintOpen.set(false)"
@@ -193,6 +212,15 @@ export class AppShell {
     // ensureLoaded() is idempotent (cached via an internal isLoaded flag), so this never causes a
     // duplicate /api/auth/me call when authGuard also runs.
     this.authService.ensureLoaded().subscribe();
+
+    // A panel left open when the stream recovers would keep liveHintOpen true, and the next
+    // exhaustion in the same session would remount the block already expanded — a dialog opening
+    // with no user action behind it.
+    effect(() => {
+      if (!this.liveQuotaExhausted()) {
+        this.liveHintOpen.set(false);
+      }
+    });
 
     // Consumes a return URL stashed by AuthService.login()/stashReturnUrl() (e.g. a route guard
     // redirecting a logged-out visitor) once the session is confirmed, sending them back to the
