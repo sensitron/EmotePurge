@@ -15,7 +15,11 @@ namespace EmotePurge.Infrastructure.ChatLogArchive;
 /// least <see cref="ChatLogArchiveOptions.RequestDelay"/> between the start of consecutive
 /// requests, tracked as instance state on <see cref="_lastRequestStartedAtTicks"/>. A second,
 /// concurrent call while one is already in flight is a caller error — there is no internal lock
-/// enforcing it.
+/// enforcing it. This pacing is bound to the instance's lifetime: the caller must resolve one
+/// instance and hold it for the whole run (Task 6's day-loop). Resolving a fresh instance per
+/// call — e.g. from a transient DI registration — silently loses the pacing, with no error and no
+/// log line (Fixrunde 1 finding; see the registration comment in
+/// <c>ServiceCollectionExtensions</c>).
 /// </para>
 /// <para>
 /// <b>No retry, no rate limiter.</b> The archive documents no contract (Premise 5 of the design):
@@ -69,7 +73,10 @@ public class ChatLogArchiveClient(
         {
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                logger.LogInformation("Kein Log-Tag für Kanal {ChannelId}, Tag {Day} (404, laut T8 der Normalzustand).", twitchChannelId, day);
+                // Debug, not Information: 404 is the normal case for most channel-days (T8), and a
+                // backfill over thousands of channel-days would otherwise write thousands of "nothing
+                // happened" lines (same reasoning as issue #32's loglevel choice for its own no-op path).
+                logger.LogDebug("Kein Log-Tag für Kanal {ChannelId}, Tag {Day} (404, laut T8 der Normalzustand).", twitchChannelId, day);
                 return new ChatLogDayResult(ChatLogDayStatus.NoLogDay, 0, null, 0, 0, 0, (int)response.StatusCode);
             }
 
@@ -106,14 +113,31 @@ public class ChatLogArchiveClient(
 
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
+        // Declared here rather than inside the try below (Fixrunde 1 finding): a transport failure
+        // mid-body needs to report however many bytes had actually arrived before it, not 0 — the
+        // two other abort paths (BodyTimeout, ByteCapExceeded) already did this right because they
+        // return from inside the same scope as the stream. leaveOpen: true on the StreamReader below
+        // means this is the only thing that disposes it, exactly once, in the finally block.
+        CountingHashStream? countingStream = null;
+
         try
         {
-            var rawStream = await response.Content.ReadAsStreamAsync(bodyCt);
+            Stream rawStream;
+            try
+            {
+                rawStream = await response.Content.ReadAsStreamAsync(bodyCt);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or IOException)
+            {
+                logger.LogWarning(ex, "Log-Archiv-Übertragung für Kanal {ChannelId}, Tag {Day} beim Öffnen des Bodys abgebrochen.", twitchChannelId, day);
+                return new ChatLogDayResult(ChatLogDayStatus.TransportFailure, 0, null, 0, 0, 0, httpStatusCode);
+            }
+
             // Bytes are counted and fed into the digest as they arrive off the wire, before the
             // corresponding text is decoded into a line and handed to the parser — the digest
             // therefore belongs to the received body, not to what the parser made of it.
-            await using var countingStream = new CountingHashStream(rawStream, hash);
-            using var reader = new StreamReader(countingStream, Encoding.UTF8);
+            countingStream = new CountingHashStream(rawStream, hash);
+            using var reader = new StreamReader(countingStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
 
             while (true)
             {
@@ -129,6 +153,17 @@ public class ChatLogArchiveClient(
                         twitchChannelId, day, options.BodyTimeout);
                     return new ChatLogDayResult(
                         ChatLogDayStatus.BodyTimeout, countingStream.BytesRead, null, messageCount, nonPrivmsgLines, malformedLines, httpStatusCode);
+                }
+                // A read failure mid-body (dropped connection, reset stream) is the transport's
+                // fault. This catch deliberately covers only the read call above, not the parsing/
+                // callback code below it (Fixrunde 1 finding): an exception the harness's onMessage
+                // callback throws is the caller's error, not a transport failure, and must reach the
+                // caller unchanged instead of being reported as a false TransportFailure.
+                catch (Exception ex) when (ex is HttpRequestException or IOException)
+                {
+                    logger.LogWarning(ex, "Log-Archiv-Übertragung für Kanal {ChannelId}, Tag {Day} mitten im Body abgebrochen.", twitchChannelId, day);
+                    return new ChatLogDayResult(
+                        ChatLogDayStatus.TransportFailure, countingStream.BytesRead, null, messageCount, nonPrivmsgLines, malformedLines, httpStatusCode);
                 }
 
                 if (line is null)
@@ -177,10 +212,12 @@ public class ChatLogArchiveClient(
             return new ChatLogDayResult(
                 ChatLogDayStatus.Complete, countingStream.BytesRead, digest, messageCount, nonPrivmsgLines, malformedLines, httpStatusCode);
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        finally
         {
-            logger.LogWarning(ex, "Log-Archiv-Übertragung für Kanal {ChannelId}, Tag {Day} mitten im Body abgebrochen.", twitchChannelId, day);
-            return new ChatLogDayResult(ChatLogDayStatus.TransportFailure, 0, null, messageCount, nonPrivmsgLines, malformedLines, httpStatusCode);
+            if (countingStream is not null)
+            {
+                await countingStream.DisposeAsync();
+            }
         }
     }
 

@@ -11,6 +11,16 @@ namespace EmotePurge.Infrastructure.ChatLogArchive;
 /// is not a recognizable IRC line at all and counts as malformed, not as some unrecognized
 /// command.
 /// <para>
+/// <b>Known edge, deliberately out of scope.</b> Plain IRC itself allows tag-less lines that would
+/// be perfectly valid commands elsewhere — a bare <c>PING</c>, or a <c>JOIN</c>/<c>PART</c> without
+/// tags. This parser counts such a line as malformed, not as an unrecognized command, because it
+/// never carries the <c>@tags</c>/<c>:prefix</c> shape. That is intentional, not an oversight: the
+/// justlog per-day chat export never emits such lines (T8), and treating "no tags, no prefix" as
+/// "could be any command" would make the <see cref="ChatLogDayStatus.MalformedResponse"/> ratio
+/// unreachable — a body of pure garbage text (no <c>@</c>/<c>:</c> in sight) would otherwise count
+/// as a pile of unrecognized-but-valid commands instead of tripping the malformed-ratio check.
+/// </para>
+/// <para>
 /// Only <c>PRIVMSG</c> lines produce a <see cref="ChatLogMessage"/>. Every other recognized
 /// command (<c>CLEARCHAT</c>, <c>USERNOTICE</c>, <c>CLEARMSG</c>, …) returns <c>false</c> with
 /// <c>ircCommand</c> set to that command, so <see cref="ChatLogArchiveClient"/> can count it apart

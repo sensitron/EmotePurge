@@ -27,7 +27,7 @@ public class ChatLogArchiveClientTests
 
         var received = new List<ChatLogMessage>();
         var result = await client.ReadDayAsync(
-            "489111423", new DateOnly(2026, 1, 15), maxBytes: 10_000_000,
+            "900000001", new DateOnly(2026, 1, 15), maxBytes: 10_000_000,
             msg => { received.Add(msg); return ValueTask.CompletedTask; }, CancellationToken.None);
 
         Assert.Equal(ChatLogDayStatus.Complete, result.Status);
@@ -156,7 +156,7 @@ public class ChatLogArchiveClientTests
     }
 
     [Fact]
-    public async Task ReadDayAsync_WithTransportErrorMidBody_ReturnsTransportFailure()
+    public async Task ReadDayAsync_WithTransportErrorMidBody_ReturnsTransportFailure_WithBytesReceivedSoFar()
     {
         var handler = new StreamStubHandler(HttpStatusCode.OK, () => new ThrowingAfterBytesStream(Encoding.UTF8.GetBytes("@partial-line-before-drop"), throwAfterBytes: 5));
         var client = CreateClient(handler, new ChatLogArchiveOptions());
@@ -165,6 +165,53 @@ public class ChatLogArchiveClientTests
 
         Assert.Equal(ChatLogDayStatus.TransportFailure, result.Status);
         Assert.Null(result.BodySha256Hex);
+        // Fixrunde 1 finding: this used to always report 0 regardless of how many bytes had
+        // actually arrived before the drop — a harness reading BytesReceived for its byte budget
+        // and resume decisions needs the real count, not a contradiction (messages parsed but 0
+        // bytes received would never happen here, but the same bug applied whenever any bytes had
+        // already streamed in before the failure).
+        Assert.Equal(5, result.BytesReceived);
+    }
+
+    [Fact]
+    public async Task ReadDayAsync_WhenCallbackThrows_PropagatesTheException_InsteadOfReportingTransportFailure()
+    {
+        // Fixrunde 1 finding: the callback's own exception (here deliberately an IOException, the
+        // same type a real transport failure would throw) must never be relabeled as
+        // TransportFailure — that would blame the archive for a bug in the caller.
+        var fixtureBytes = await File.ReadAllBytesAsync(FixturePath);
+        var handler = new StreamStubHandler(HttpStatusCode.OK, () => new LineChunkedStream(fixtureBytes));
+        var client = CreateClient(handler, new ChatLogArchiveOptions());
+
+        var thrown = await Assert.ThrowsAsync<IOException>(() =>
+            client.ReadDayAsync(
+                "1", new DateOnly(2026, 1, 1), 10_000_000,
+                _ => throw new IOException("harness storage full"), CancellationToken.None));
+
+        Assert.Equal("harness storage full", thrown.Message);
+    }
+
+    [Fact]
+    public async Task ReadDayAsync_WithUnexpectedNon2xxStatus_ReturnsTransportFailureWithStatusCode()
+    {
+        var client = CreateClient(new FixedStatusStubHandler(HttpStatusCode.InternalServerError), new ChatLogArchiveOptions());
+
+        var result = await client.ReadDayAsync("1", new DateOnly(2026, 1, 1), 1000, _ => ValueTask.CompletedTask, CancellationToken.None);
+
+        Assert.Equal(ChatLogDayStatus.TransportFailure, result.Status);
+        Assert.Equal((int)HttpStatusCode.InternalServerError, result.HttpStatusCode);
+        Assert.Null(result.BodySha256Hex);
+    }
+
+    [Fact]
+    public async Task ReadDayAsync_WithHeaderPhaseTransportError_ReturnsTransportFailureWithNullHttpStatusCode()
+    {
+        var client = CreateClient(new ThrowingHandler(), new ChatLogArchiveOptions());
+
+        var result = await client.ReadDayAsync("1", new DateOnly(2026, 1, 1), 1000, _ => ValueTask.CompletedTask, CancellationToken.None);
+
+        Assert.Equal(ChatLogDayStatus.TransportFailure, result.Status);
+        Assert.Null(result.HttpStatusCode);
     }
 
     private static ChatLogArchiveClient CreateClient(HttpMessageHandler handler, ChatLogArchiveOptions options)
@@ -186,6 +233,15 @@ public class ChatLogArchiveClientTests
             var response = new HttpResponseMessage(statusCode) { Content = new StreamContent(streamFactory()) };
             return Task.FromResult(response);
         }
+    }
+
+    // Fails before any response is even produced — simulates a DNS/connection failure during the
+    // header phase (distinct from every other failure test here, which fails during or after the
+    // response headers already arrived).
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("Simulated connection failure.");
     }
 
     // Hands StreamReader exactly one source line (including its trailing '\n') per ReadAsync call,

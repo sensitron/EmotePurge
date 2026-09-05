@@ -29,9 +29,10 @@ public enum ChatLogDayStatus
     RateLimited,
 
     /// <summary>
-    /// The body stalled for longer than the configured body timeout — a separate concern from
-    /// <c>HttpClient.Timeout</c>, which only covers the header phase once
-    /// <c>HttpCompletionOption.ResponseHeadersRead</c> is used.
+    /// The response body did not finish within the configured body timeout — a deadline for the
+    /// whole body transfer (not a stall detector: a body that keeps making slow-but-steady
+    /// progress past the deadline hits this too), separate from <c>HttpClient.Timeout</c>, which
+    /// only covers the header phase once <c>HttpCompletionOption.ResponseHeadersRead</c> is used.
     /// </summary>
     BodyTimeout,
 
