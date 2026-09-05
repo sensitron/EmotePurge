@@ -274,7 +274,13 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         // A plain projection over Emotes with a scalar ChannelId filter — no navigation join, no
         // GroupBy, so rule 10 does not even come into play here. Archived emotes are deliberately
         // included (see the interface doc comment), and the ordering is ordinal on Id so the
-        // harness's hash over this list is stable regardless of insertion order.
+        // harness's hash over this list is stable regardless of insertion order. That ordinal
+        // guarantee rests on the database's collation, though: OrderBy(e => e.Id) translates to a
+        // plain ORDER BY "Id" with no COLLATE "C", so a non-C collation could in principle order
+        // differently from string.CompareOrdinal. It holds for the ids actually stored here — hex
+        // GUIDs with hyphens at fixed positions, a character set essentially every collation orders
+        // the same way — and a collation change would only ever produce a different (still
+        // deterministic) input hash and thus a fresh report file, never a wrong count.
         return await db.Emotes
             .AsNoTracking()
             .Where(e => e.ChannelId == channelId)
@@ -288,7 +294,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
     {
         if (from > to)
         {
-            throw new ArgumentException("'from' must be less than or equal to 'to'.", nameof(from));
+            throw new ArgumentException("'from' darf nicht nach 'to' liegen.", nameof(from));
         }
 
         if (emoteIds.Count == 0)

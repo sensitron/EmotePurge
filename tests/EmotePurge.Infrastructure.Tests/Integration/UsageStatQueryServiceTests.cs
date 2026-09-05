@@ -796,6 +796,28 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetRowsAsync_ForASingleDayWindow_ReturnsOnlyThatDay()
+    {
+        // from == to is the narrowest legal window (not the from > to guard) — the boundary day
+        // must still come back, and its neighbours must not.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "rowstest4");
+        var emote = await SeedEmoteAsync(db, channel.Id, "OneDay");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 2), UseCount = 1 },  // day before
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 3), UseCount = 4 },  // the window
+            new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 4), UseCount = 1 }); // day after
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var rows = await service.GetRowsAsync([emote.Id], new DateOnly(2026, 7, 3), new DateOnly(2026, 7, 3));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(new DateOnly(2026, 7, 3), row.Date);
+        Assert.Equal(4, row.UseCount);
+    }
+
+    [Fact]
     public async Task GetRowsAsync_OrdersByEmoteIdThenDate()
     {
         await using var db = fixture.CreateDbContext();
