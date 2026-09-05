@@ -23,7 +23,7 @@
     },
     "liveStatus": {
       "paused": "Live updates paused",
-      "explanation": "You have {{open}} of {{max}} live connections open. They count across all tabs and devices. Close another EmotePurge view and reload this page — it will not reconnect on its own."
+      "explanation": "You have {{open}} of {{max}} live connections open. They count across all tabs and devices. Close another EmotePurge view, wait a moment, then reload this page — the slot is not released immediately, and it will not reconnect on its own."
     },
     "admin": "Admin",
     "myVotings": "My votes",
