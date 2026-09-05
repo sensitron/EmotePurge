@@ -398,7 +398,7 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     public async Task SyncImported_Answers400_ForAChannelSourceWithoutAName()
     {
         // An audit row is write-once and kept forever, so a "came from a channel" entry that cannot
-        // name the channel would stay broken. "file" is the kind that legitimately has no source.
+        // name the channel would stay broken. "file" is the kind that has no source channel.
         _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
             .Returns(true);
 
@@ -406,7 +406,22 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
         var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.InvalidChannelName, await ReadErrorCodeAsync(response));
+        Assert.Equal(ApiErrorCodes.InvalidSourceKind, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_ForAFileSourceCarryingAChannelName()
+    {
+        // The other direction of the same contradiction: accepting this would file a file import
+        // under a channel origin it never had, permanently.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": "somechannel", "sourceKind": "file"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidSourceKind, await ReadErrorCodeAsync(response));
     }
 
     [Fact]

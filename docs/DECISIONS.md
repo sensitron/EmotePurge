@@ -382,15 +382,22 @@ nicht rekonstruierbar ist. **Die Prüfreihenfolge ist dabei tragend:** die Impor
 **vor** der `emoteCount`-Prüfung, denn der Import-Payload enthält `emoteCount` ebenfalls und würde
 sonst von der allgemeineren Regel geschluckt.
 
-**„Aus einem Kanal" ohne Kanalnamen wird abgelehnt, nicht gespeichert.** `sourceKind: "channel"`
-ohne `sourceChannelName` ergäbe eine Audit-Zeile, die eine Kanal-Herkunft behauptet, die sie nicht
-benennen kann — und Audit-Einträge sind write-once und werden unbegrenzt aufbewahrt, eine kaputte
-Zeile bleibt kaputt. Der Endpunkt antwortet darauf mit `400`; zusätzlich fällt `ProjectDetail` auf
-die Datei-Variante zurück, falls je etwas daran vorbeikommt (die Spalte wird von zehn Stellen
-beschrieben). `sourceKind` selbst wird ordinal und streng kleingeschrieben geprüft — der einzige
-Aufrufer ist unser eigenes Frontend, ein Groß-/Kleinschreibungs-Fallback würde einen Frontend-Fehler
-verdecken statt ihn zu zeigen. Neuer sprachneutraler Code dafür: `invalid_source_kind`; für die
-leere ID-Liste genügt das bestehende `emote_ids_empty`.
+**Sorte und Quellname müssen übereinstimmen, in beide Richtungen.** `sourceKind: "channel"` ohne
+`sourceChannelName` behauptet eine Kanal-Herkunft, die die Zeile nicht benennen kann;
+`sourceKind: "file"` **mit** einem Namen legt einen Datei-Import unter einer Kanal-Herkunft ab, die
+er nie hatte. Audit-Einträge sind write-once und werden unbegrenzt aufbewahrt — eine
+widersprüchliche Zeile bleibt für immer falsch, und zu raten, welche Hälfte gemeint war, ist keine
+Rettung. Der Endpunkt lehnt beide Kombinationen mit `400` und `invalid_source_kind` ab.
+
+Die erste Fassung dieses Branches wählte die Detail-Sorte in `ProjectDetail` danach, **ob** ein Name
+vorhanden ist. Das schloss die erste Lücke und öffnete die zweite; die Zweitmeinung vor dem Merge
+hat es gefunden. Jetzt entscheidet allein `sourceKind`: eine Datei bleibt eine Datei und ein
+mitgeschleppter Name wird verworfen, und eine Kanal-Herkunft ohne Namen fällt auf die nackte Anzahl
+zurück, statt eine Herkunft zu erfinden. Beide Richtungen haben ihren Test.
+
+`sourceKind` selbst wird ordinal und streng kleingeschrieben geprüft — der einzige Aufrufer ist
+unser eigenes Frontend, ein Groß-/Kleinschreibungs-Fallback würde einen Frontend-Fehler verdecken
+statt ihn zu zeigen. Für die leere ID-Liste genügt das bestehende `emote_ids_empty`.
 
 **Kein Upload-Endpunkt.** Die Datei als Transportweg bleibt vollständig im Browser
 (`web/src/app/shared/export/file-download.ts`): ein Download darf nicht mehr sehen als die Seite,

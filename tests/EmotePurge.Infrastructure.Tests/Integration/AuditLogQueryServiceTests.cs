@@ -209,12 +209,12 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task ListAsync_FallsBackToTheFileKind_WhenAChannelSourceCarriesNoName()
+    public async Task ListAsync_FallsBackToTheBareCount_WhenAChannelSourceCarriesNoName()
     {
         // The endpoint rejects this combination, so it should never reach the column. If it ever
-        // does, the reader still has to degrade sensibly: the channel kind's translation
-        // interpolates the source name, and claiming a channel origin without one would render
-        // "3 emotes from ". Belt and braces, on a column that is written by ten call sites.
+        // does, the reader degrades to the bare count rather than inventing an origin: the channel
+        // kind would render "3 emotes from " with nothing after it, and the file kind would claim
+        // an origin this row never had. Belt and braces, on a column ten call sites write.
         await using var db = fixture.CreateDbContext();
         var channel = $"{ChannelPrefix}-imp-noname";
         db.AuditLogEntries.Add(new AuditLogEntry
@@ -225,6 +225,31 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
             Action = AuditActions.EmotesSyncImported,
             ChannelName = channel,
             DetailsJson = """{"emoteCount": 3, "sourceChannelName": null, "sourceKind": "channel"}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.EmoteCount, 3, null), dto.Detail);
+    }
+
+    [Fact]
+    public async Task ListAsync_KeepsAFileImportAFileImport_WhenAStraySourceChannelIsPresent()
+    {
+        // The finding a second opinion caught: picking the kind by "is a name present" filed a file
+        // import under a channel origin it never had. sourceKind decides, the stray name is dropped.
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-imp-stray";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 18, 0, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncImported,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 3, "sourceChannelName": "otherchannel", "sourceKind": "file"}"""
         });
         await db.SaveChangesAsync();
 

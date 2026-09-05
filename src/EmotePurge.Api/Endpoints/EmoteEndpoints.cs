@@ -140,19 +140,19 @@ public static class EmoteEndpoints
 
             // SourceChannelName is attacker-controlled free text that ends up in jsonb forever
             // (R6, import plan) — validated like every other inbound channel name, but only when the
-            // caller actually set one; a file import may legitimately omit it.
+            // caller actually set one; the kind-versus-name agreement is checked just below.
             if (request.SourceChannelName is not null && !ChannelNameValidation.IsValid(request.SourceChannelName))
             {
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
             }
 
-            // "channel" without a name is rejected rather than stored: the audit entry would claim a
-            // channel origin it cannot name, and audit rows are write-once and kept forever, so a
-            // malformed one stays malformed. A file import is the case that legitimately has no
-            // source channel — that is what "file" is for.
-            if (request.SourceKind == "channel" && string.IsNullOrWhiteSpace(request.SourceChannelName))
+            // The kind and the name have to agree, in both directions. Audit rows are write-once and
+            // kept forever, so an inconsistent body would leave a permanently wrong entry: "channel"
+            // without a name claims an origin it cannot name, and "file" with one gets filed under a
+            // channel origin the import never had. Rejecting beats guessing which half was meant.
+            if (string.IsNullOrWhiteSpace(request.SourceChannelName) != (request.SourceKind == "file"))
             {
-                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidSourceKind });
             }
 
             var actor = httpContext.User.TryBuildAuditActor();

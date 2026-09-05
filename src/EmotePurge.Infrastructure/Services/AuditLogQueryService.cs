@@ -140,9 +140,9 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
         if (root.TryGetProperty(SourceKindProperty, out var sourceKindElement)
             && sourceKindElement.ValueKind == JsonValueKind.String)
         {
-            var isKnownSourceKind = sourceKindElement.GetString() is "channel" or "file";
+            var sourceKind = sourceKindElement.GetString();
 
-            if (isKnownSourceKind && TryReadCount(root, AuditLogDetail.Kinds.EmoteCount, out var importedCount))
+            if (sourceKind is "channel" or "file" && TryReadCount(root, AuditLogDetail.Kinds.EmoteCount, out var importedCount))
             {
                 string? source = null;
                 if (root.TryGetProperty(SourceChannelNameProperty, out var sourceChannelNameElement)
@@ -154,13 +154,23 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
                         : sourceChannelName;
                 }
 
-                // The name decides the Kind, not sourceKind alone: the channel variant's translation
-                // interpolates the source, so a row claiming a channel origin without one would
-                // render "N emotes from ". The endpoint already rejects that combination; this keeps
-                // the reader honest for anything that got in before it did, or around it.
-                return source is null
-                    ? new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromFile, importedCount, null)
-                    : new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromChannel, importedCount, source);
+                // sourceKind decides the kind, never the mere presence of a name: a file import that
+                // somehow carries a source channel is still a file import, and reading the name
+                // instead would file it under a channel origin it never had. A stray name is
+                // dropped rather than shown.
+                if (sourceKind == "file")
+                {
+                    return new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromFile, importedCount, null);
+                }
+
+                // A channel origin that cannot name its channel falls through to the bare count
+                // below instead of claiming an origin. The endpoint rejects that combination, so
+                // this only covers rows that got in around it; saying "N emotes" is honest, while
+                // both import kinds would not be.
+                if (source is not null)
+                {
+                    return new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromChannel, importedCount, source);
+                }
             }
         }
 
