@@ -10,6 +10,74 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Statische Analyse läuft in der CI, und ihre Befunde landen im Code-Scanning statt im Issue-Tracker
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `scripts/sonar-to-sarif.mjs`, `tests/EmotePurge.Api.Tests/EmotePurge.Api.Tests.csproj`, `tests/EmotePurge.Infrastructure.Tests/EmotePurge.Infrastructure.Tests.csproj`, `tests/EmotePurge.Worker.Tests/EmotePurge.Worker.Tests.csproj`, `web/package.json`
+
+**Der generierte Workflow konnte nicht funktionieren.** GitHubs Marketplace-Vorlage benutzt
+`SonarSource/sonarcloud-github-action`, deren Docker-Image den SonarScanner CLI 5.0.1 auf Java 17
+mitbringt; SonarQube Cloud verlangt inzwischen Java 21 und weist jeden älteren Scanner ab. Jeder Lauf
+scheiterte nach drei Sekunden. Der Ersatz ist aber nicht bloß eine neuere Action: Der generische
+CLI-Scanner analysiert **kein C#**. Er hätte `web/` ausgewertet und die vier .NET-Projekte
+stillschweigend übersprungen. C# braucht den SonarScanner for .NET, der sich um den Build legt
+(`begin` → `build` → `test` → `end`), weil die Regeln den Roslyn-Semantikbaum brauchen.
+
+**`ubuntu-latest`, nicht `windows-latest`.** Sonars eigene .NET-Vorlage schlägt Windows vor. Das geht
+hier nicht: `EmotePurge.Infrastructure.Tests` fährt Postgres und Redis per Testcontainers hoch und
+braucht den Docker-Daemon, den nur die Linux-Runner mitbringen. Ohne Testlauf keine Coverage, und
+ohne Coverage misst die Quality Gate ins Leere.
+
+**`--no-incremental` ist Pflicht, nicht Stil.** Der MSBuild-Hook des Scanners sieht nur Projekte, die
+tatsächlich neu kompiliert werden. Überspringt MSBuild eines inkrementell, fehlt es im Analysebericht
+— ohne dass der Build-Schritt einen Fehler zeigt. Das ist dieselbe Klasse von stiller Teilmessung,
+die im Repo schon bei den Compiler-Warnungen aufgefallen ist.
+
+**Die Befunde gehen ins Code-Scanning, nicht in den Issue-Tracker.** Zuerst war ein Sync geplant, der
+je Finding ein GitHub-Issue anlegt, per Marker dedupliziert und behobene Issues wieder schließt. Das
+ist verworfen worden, nachdem klar war, dass GitHubs Code-Scanning genau diesen Lebenszyklus selbst
+führt: Ein Finding, das im nächsten SARIF-Upload fehlt, wird automatisch auf „Fixed" gesetzt, ein
+wiederkehrendes reaktiviert denselben Alert. Marker-Dedup, Auto-Close und das Sicherheitsnetz gegen
+eine Issue-Flut beim Erstlauf entfallen damit ersatzlos — und der Tracker bleibt dem vorbehalten, was
+ein Mensch dort hineingeschrieben hat.
+
+**Warum ein eigener SARIF-Export und nicht SonarClouds native Anbindung.** SonarQube Cloud kann
+Code-Scanning-Alerts direkt bespielen, ohne jeden Schritt in der CI. Dieser Weg exportiert aber nur
+**Security**-Findings; von den 42 Befunden des Erstbestands wären das neun gewesen, die 32 Code
+Smells und der eine Bug blieben unsichtbar. `scripts/sonar-to-sarif.mjs` holt stattdessen alle
+offenen Findings über die Issues-API und setzt sie nach SARIF 2.1.0 um. Beide Wege gleichzeitig zu
+aktivieren wäre falsch: Sie laufen als getrennte Kategorien und lieferten die Security-Findings
+doppelt.
+
+**Das Skript wartet auf die Auswertung, und das ist der Teil, der leicht übersehen wird.**
+`dotnet-sonarscanner end` lädt nur hoch und kehrt sofort zurück; SonarClouds Compute Engine wertet
+danach asynchron weiter aus. Eine Abfrage direkt im Anschluss liefert den Stand des **vorherigen**
+Laufs — ein Fehler, der nie auffällt, weil das Ergebnis plausibel aussieht. Das Skript liest deshalb
+die `ceTaskId` aus `.sonarqube/out/.sonar/report-task.txt` und pollt, bis der Task `SUCCESS` meldet.
+Fehlt die Datei, bricht es ab, statt alte Daten zu exportieren.
+
+**Nur auf `main`, nicht bei Pull Requests.** Ein SARIF-Upload aus einem PR liefe gegen den
+Merge-Ref; die Alerts verschwänden beim Merge und kämen unter neuen Fingerprints zurück. Die Analyse
+selbst läuft weiterhin auch auf PRs — nur der Upload nicht. PR-Uploads lassen sich später gezielt
+nachrüsten.
+
+**Die Security-Einstufung steht am Regel-Objekt, nicht am Ergebnis, und das ist keine Stilfrage.**
+GitHub liest `security-severity` ausschließlich aus
+`runs[].tool.driver.rules[].properties`. Am einzelnen Ergebnis notiert, besteht die Datei zwar jede
+Schema-Validierung, aber die Eigenschaft wird stillschweigend ignoriert — die Befunde erscheinen dann
+ohne die High/Medium/Low-Einstufung und gelten nicht als Security-Alerts. Der erste Entwurf hatte
+genau diesen Fehler, und die grüne Schema-Prüfung hat ihn gedeckt: Ein Validator prüft die Form, nicht
+die Wirkung. Weil Sonar die Severity pro Finding führt und SARIF sie pro Regel, wird eine Regel nach
+ihrem schwersten Fund eingestuft; zusätzlich bekommt sie den `security`-Tag, ohne den GitHub die
+Bewertung nicht als Security-Bewertung liest.
+
+**Drei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
+nicht in `angular.json` verdrahtet: dort eingetragen, würde sie jeden lokalen `npm test`-Lauf
+mitrechnen, obwohl sie nur die CI interessiert. Und der Upload trägt `category: sonarcloud`, damit
+ein später hinzukommender zweiter Scanner unsere Alerts nicht bei jedem eigenen Upload als behoben
+schließt. Und `scripts/**` ist von der Coverage-Messung ausgenommen: CI-Hilfsskripte werden weiter auf
+Fehler analysiert, zählen aber nicht in die Quote — sonst drückte jedes künftige Shell- oder
+Node-Skript die Zahl, und die Quality Gate würde zu einem Dauerrot, das niemand mehr liest.
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
