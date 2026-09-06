@@ -199,6 +199,68 @@ describe('SevenTvRestoreService', () => {
     expect(service.resyncTrigger()).toBe('idle');
   });
 
+  // R15 (#72, T12): finish() flips isRunning() to false *before* the two closing calls resolve, so
+  // a second run can legitimately start while the first one's report/resync are still in flight.
+  // Their late answers must not land on the second run's state.
+  describe('superseded run (R15)', () => {
+    it('discards a late sync-restored answer from a superseded run without touching the new one', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+
+      const staleSyncReq = httpMock.expectOne(SYNC_RESTORED_ENDPOINT);
+      // Settle the resync half immediately — this case is about the sync-restored guard alone.
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+      expect(service.syncReport()).toBe('pending');
+
+      // A second run starts, for a different channel, before run 1's sync-restored answer comes
+      // back — legitimate, because finish() already flipped isRunning() to false.
+      service.startRestore('set-2', 'other-channel', [EMOTES[1]]);
+      expect(service.isRunning()).toBe(true);
+      expect(service.syncReport()).toBe('idle'); // run 2's own state, reset at start
+
+      staleSyncReq.flush({ restoredCount: 1, notFoundIds: [] });
+      expect(service.syncReport()).toBe('idle'); // still run 2's state, untouched by run 1's answer
+
+      // Run 2 finishes normally afterwards — the guard must not have swallowed its own terminal
+      // flank along with the stale one.
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock
+        .expectOne('/api/channels/other-channel/emotes/sync-restored')
+        .flush({ restoredCount: 1, notFoundIds: [] });
+      expect(service.syncReport()).toBe('succeeded');
+      httpMock
+        .expectOne('/api/channels/other-channel/resync')
+        .flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('never lets a stale resync answer overwrite a later state — including "cooldown"', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      const staleResyncReq = httpMock.expectOne(RESYNC_ENDPOINT);
+
+      // A second run starts, runs to completion, and its own resync lands in cooldown — a real
+      // state, not the guard's doing.
+      service.startRestore('set-2', 'other-channel', [EMOTES[1]]);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock
+        .expectOne('/api/channels/other-channel/emotes/sync-restored')
+        .flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock
+        .expectOne('/api/channels/other-channel/resync')
+        .flush({ errorCode: 'resync_cooldown_active' }, { status: 429, statusText: 'Too Many' });
+      expect(service.resyncTrigger()).toBe('cooldown');
+
+      // Run 1's late resync answer must not disturb run 2's already-settled 'cooldown'.
+      staleResyncReq.flush(null, { status: 202, statusText: 'Accepted' });
+      expect(service.resyncTrigger()).toBe('cooldown');
+    });
+  });
+
   // The arbiter (#70, Task 4) has no lock of its own — it reads this service's own isRunning
   // signal, so these cases pin the invariants a hand-kept tryAcquire/release could not have
   // guaranteed (see R1 in docs/DECISIONS.md): the derived state can never outlive the run it

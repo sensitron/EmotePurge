@@ -41,6 +41,20 @@ const ADD_OPERATION: RunOperation = {
 export type ResyncTriggerState = 'idle' | 'pending' | 'succeeded' | 'cooldown' | 'failed';
 
 /**
+ * One restore run, from the moment it starts to the moment both closing calls are done. Everything
+ * the two asynchronous follow-ups need hangs off *this* object, never off a field next to the
+ * service (R15, #72, T12) — see the identical note on `DeleteRunInfo` in
+ * `seven-tv-delete.service.ts` and on `ImportRunInfo` in `seven-tv-import.service.ts`. A restore has
+ * *two* callbacks racing a superseded run (`sync-restored` and `resync`), each checked
+ * independently: one settling first must not stop the other's guard from applying.
+ */
+interface RestoreRunInfo {
+  channelName: string;
+  /** `null` while the run is in flight; set once the engine reports the run complete. */
+  result: RunResult | null;
+}
+
+/**
  * The restore half of A6: re-adds emotes to the 7TV set, in the browser, over the same run engine
  * (pacing, backoff, token) as the delete — ADD draws tickets from the same `emote_set_change`
  * bucket. Zero-knowledge holds: the write token never leaves the browser.
@@ -65,8 +79,8 @@ export class SevenTvRestoreService {
     inject(TranslocoService),
   );
 
-  private currentChannelName: string | null = null;
-  private lastReportedIds: string[] = [];
+  /** The run every asynchronous follow-up is bound to (R15). */
+  private run: RestoreRunInfo | null = null;
 
   readonly queue = this.engine.queue;
   readonly isRunning = this.engine.isRunning;
@@ -81,13 +95,15 @@ export class SevenTvRestoreService {
   startRestore(setId: string, channelName: string, emotes: DeleteQueueEmote[]): void {
     // Same key-mirrors-emoteId reasoning as the delete service (see R3 in docs/DECISIONS.md).
     const queueEmotes: RunQueueEmote[] = emotes.map((emote) => ({ ...emote, key: emote.emoteId }));
-    const started = this.engine.start(setId, queueEmotes, ADD_OPERATION, (result) =>
-      this.onRunComplete(channelName, result),
+    const started: RestoreRunInfo = { channelName, result: null };
+    const engineStarted = this.engine.start(setId, queueEmotes, ADD_OPERATION, (result) =>
+      this.onRunComplete(started, result),
     );
-    if (!started) {
+    if (!engineStarted) {
+      // Refused (already running, empty list, no token) — leave every signal as it was.
       return;
     }
-    this.currentChannelName = channelName;
+    this.run = started;
     this.syncReport.set('idle');
     this.resyncTrigger.set('idle');
   }
@@ -100,55 +116,64 @@ export class SevenTvRestoreService {
     this.engine.reset();
     this.syncReport.set('idle');
     this.resyncTrigger.set('idle');
-    this.currentChannelName = null;
-    this.lastReportedIds = [];
+    this.run = null;
   }
 
   /** Same page-follows-user reasoning as the delete service's counterpart. */
   resetIfChannelChanged(channelName: string): void {
-    if (
-      this.isRunning() ||
-      this.currentChannelName === null ||
-      this.currentChannelName === channelName
-    ) {
+    if (this.isRunning() || this.run === null || this.run.channelName === channelName) {
       return;
     }
     this.reset();
   }
 
   /** Manual retry for the closing report — the 7TV re-adds are long done, so this only re-sends
-   *  the bookkeeping call. Safe to repeat: ids already un-archived still count as restored. */
+   *  the bookkeeping call. Safe to repeat: ids already un-archived still count as restored. Channel
+   *  *and* ids come from the same record, so a retry can never mix one run's ids with another's
+   *  channel (R15). */
   retrySyncReport(): void {
+    const current = this.run;
     if (
       this.syncReport() === 'pending' ||
-      this.lastReportedIds.length === 0 ||
-      this.currentChannelName === null
+      current === null ||
+      current.result === null ||
+      current.result.doneIds.length === 0
     ) {
       return;
     }
 
-    this.reportRestored(this.currentChannelName, this.lastReportedIds);
+    this.reportRestored(current, current.channelName, current.result.doneIds);
   }
 
-  private onRunComplete(channelName: string, result: RunResult): void {
+  private onRunComplete(started: RestoreRunInfo, result: RunResult): void {
+    if (this.run !== started) {
+      // Only reachable via reset()/resetIfChannelChanged() during the run: the shown run is not
+      // this one any more, so neither its result nor its bookkeeping belong on screen.
+      return;
+    }
+
+    const finished: RestoreRunInfo = { ...started, result };
+    this.run = finished;
+
     if (result.doneIds.length === 0) {
       return;
     }
-    this.lastReportedIds = result.doneIds;
     // Deliberately both, in parallel: the report is bookkeeping + audit trail for exactly these
     // ids, the resync is reconciliation against 7TV as the authority. Neither replaces the other.
-    this.reportRestored(channelName, result.doneIds);
+    this.reportRestored(finished, finished.channelName, result.doneIds);
     this.resyncTrigger.set('pending');
-    this.channelService.resync(channelName).subscribe({
-      next: () => this.resyncTrigger.set('succeeded'),
+    this.channelService.resync(finished.channelName).subscribe({
+      next: () => this.applyIfCurrent(finished, () => this.resyncTrigger.set('succeeded')),
       error: (error: HttpErrorResponse) =>
         // 429 = the per-channel cooldown: a sync just ran or will run — "coming on its own",
         // reported as such rather than as an error.
-        this.resyncTrigger.set(error.status === 429 ? 'cooldown' : 'failed'),
+        this.applyIfCurrent(finished, () =>
+          this.resyncTrigger.set(error.status === 429 ? 'cooldown' : 'failed'),
+        ),
     });
   }
 
-  private reportRestored(channelName: string, emoteIds: string[]): void {
+  private reportRestored(run: RestoreRunInfo, channelName: string, emoteIds: string[]): void {
     this.syncReport.set('pending');
 
     this.emoteAdminService
@@ -165,8 +190,21 @@ export class SevenTvRestoreService {
       )
       .subscribe({
         next: (result: SyncRestoredResult) =>
-          this.syncReport.set(result.restoredCount >= emoteIds.length ? 'succeeded' : 'partial'),
-        error: () => this.syncReport.set('failed'),
+          this.applyIfCurrent(run, () =>
+            this.syncReport.set(result.restoredCount >= emoteIds.length ? 'succeeded' : 'partial'),
+          ),
+        error: () => this.applyIfCurrent(run, () => this.syncReport.set('failed')),
       });
+  }
+
+  /** The R15 guard in one place: an answer that belongs to a superseded run is dropped silently —
+   *  no error state, nothing written. The run it belongs to is not on screen any more, and the one
+   *  that is must not inherit its outcome. Shared by both closing calls (`sync-restored`, `resync`)
+   *  — each checks independently, so one settling does not gate the other. */
+  private applyIfCurrent(run: RestoreRunInfo, apply: () => void): void {
+    if (this.run !== run) {
+      return;
+    }
+    apply();
   }
 }

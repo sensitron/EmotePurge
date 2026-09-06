@@ -166,6 +166,174 @@ schließt. Und `scripts/**` ist von der Coverage-Messung ausgenommen: CI-Hilfssk
 Fehler analysiert, zählen aber nicht in die Quote — sonst drückte jedes künftige Shell- oder
 Node-Skript die Zahl, und die Quality Gate würde zu einem Dauerrot, das niemand mehr liest.
 
+### 2026-09-06 — Ungültige Emote-Namen (Nicht-ASCII) werden vor dem Lauf gewarnt, nicht gesperrt (#72)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-preview.ts`, `web/src/app/shared/seven-tv/import-confirm-dialog.ts`
+
+Im Live-Test lehnte 7TV zwei Emote-Namen mit Umlaut (`Hänno`, `HörMalZuBrudi`) beim Anlegen im
+Zielset ab (`Failed to parse "String": invalid emote name`) — der Lauf verhielt sich korrekt
+(Zeilenfehler, Lauf lief weiter), aber der Nutzer erfuhr es erst nach dem Schreiben. Der
+Bestätigungsdialog prüft Namen deshalb jetzt clientseitig vorab und zeigt sie neben den
+Namenskollisionen als zweite, gleichartige Warnung.
+
+Die Regel ist bewusst eng: belegt ist ausschließlich, dass 7TV Nicht-ASCII-Zeichen im Emote-Namen
+(nicht im Alias) ablehnt — genau die beiden beobachteten Fälle. 7TVs vollständiger erlaubter
+Zeichensatz ist unbekannt, und ihn zu raten ist in diesem Projekt schon zweimal schiefgegangen
+(#33, #37: Code und Mock teilten dieselbe falsche Annahme, Tests grün, Sache trotzdem kaputt). Die
+Prüfung bleibt daher auf reines Nicht-ASCII beschränkt statt eine Regex für erlaubte
+Sonderzeichen nachzubauen; wird ein weiterer Ablehnungsgrund beobachtet, wird die Regel erweitert,
+nicht gelockert.
+
+Wie bei Namenskollisionen ist es eine Warnung, keine Sperre: betroffene Zeilen bleiben im Lauf.
+Ändert 7TV seine Regeln, verschwindet dadurch nichts stillschweigend aus dem Ergebnis.
+
+---
+
+### 2026-09-06 — Nachlauf-an-Laufobjekt gilt für alle drei 7TV-Läufe, auch die beiden ausgelieferten (#72, T12)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-delete.service.ts`, `web/src/app/core/seven-tv/seven-tv-restore.service.ts`
+
+Die Regel, dass jeder asynchrone Nachlauf an dem beim Start angelegten Laufobjekt hängt und eine
+verspätete Antwort verwirft, sobald dieses Objekt nicht mehr der aktuelle Lauf ist (Eintrag unten zu
+`SevenTvImportService`), gilt seit #72 für **alle drei** Läufe: Delete und Restore halten ihren
+Zielkanal und die gemeldeten Keys jetzt ebenfalls in einem `DeleteRunInfo`/`RestoreRunInfo` statt in
+losen Feldern neben dem Dienst, und ihr Abschlussbericht (`sync-deleted`/`sync-restored`) samt Retry
+liest ausschließlich daraus.
+
+Beide Pfade waren bereits ausgeliefert und wurden rückwirkend nachgezogen, weil die Klasse dieselbe
+ist, die Folgen aber nicht waren: Delete und Restore schreiben immer in den Kanal der aktuellen
+Seite, ein verspäteter Bericht traf also höchstens denselben Kanal, wo das Backend die fremden Ids
+als `notFoundIds` verschluckt hat — folgenlos, aber nur zufällig. Der Import schreibt absichtlich in
+einen *anderen* Kanal; dort hätte ein Retry die Keys des einen Laufs an den Zielkanal eines
+**anderen** schicken können. Eine Regel, die nur an der Stelle gilt, an der sie zuerst wehtut,
+verlässt sich darauf, dass niemand die anderen beiden kopiert.
+
+---
+
+### 2026-09-06 — Import-Lauf: dritter Arbiter-Zweig ohne DI-Zirkel, kein Kanal-Reset, Nachlauf ans Laufobjekt gebunden (#72, K3)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-import.service.ts`, `web/src/app/core/seven-tv/seven-tv-run-arbiter.ts`, `web/src/app/core/seven-tv/import-source.ts`
+
+`SevenTvRunArbiter.activeRun` bekommt einen dritten Zweig (`if (importService.isRunning()) return
+'import'`, nach `delete`/`restore`) statt einer Meldung des Import-Service, wie die Issue es noch
+vorsah — der Arbiter leitet seine Antwort weiterhin nur aus den `isRunning`-Signalen der drei Dienste
+ab, kein `tryAcquire`/`release`. Der Import-Service injiziert den Arbiter deshalb **nicht**: die
+Kante bliebe sonst `Arbiter → ImportService → Arbiter` und damit ein DI-Zirkel; die Sperrprüfung vor
+dem Start (`activeRun() === null`) macht stattdessen der Aufrufer (`import-flow.ts`).
+
+`SevenTvImportService` bekommt **kein** `resetIfChannelChanged` — ein Restore schreibt immer in den
+Kanal der aktuellen Seite, ein Import schreibt absichtlich in einen *anderen*; ein Reset beim
+Kanalwechsel würde genau den gerade gestarteten Lauf verwerfen. Der Datei-Weg meldet dem Backend
+zudem `sourceChannelName: null`, auch wenn die Quelldatei einen Kanal nennt: `EmoteEndpoints.cs`
+(`SyncImportedRequest`) weist `sourceKind: 'file'` **mit** gesetztem `sourceChannelName` ebenso mit
+`400 invalid_source_kind` ab wie `sourceKind: 'channel'` **ohne** Namen — der Audit-Eintrag eines
+Datei-Imports nennt deshalb keinen Herkunftskanal (bekannte, hingenommene Grenze).
+
+Zielkanal, Herkunft und die von 7TV gemeldeten Keys stehen zusammen an genau einem Objekt, dem beim
+Start angelegten `ImportRunInfo` (`run` Signal), nicht an losen Feldern daneben. Grund: die
+Run-Engine setzt `isRunning` bereits synchron in `finish()`, **bevor** ihr asynchroner Nachlauf
+(`onComplete`) beginnt — ein zweiter Import kann also schon laufen, während der Nachlauf des ersten
+noch fliegt. Jeder asynchrone Schreibzugriff auf `syncReport`/`resyncTrigger` prüft deshalb vorher,
+ob sein `ImportRunInfo` noch `run()` ist, und verwirft die Antwort sonst kommentarlos, ohne
+Fehlerzustand; `retrySyncReport()` liest Zielkanal **und** gemeldete Keys aus demselben Objekt statt
+aus verteilten Feldern — ohne die Bindung hätte ein späterer Lauf in einen dritten Kanal die Keys
+eines fremden, bereits abgeschlossenen Laufs übernehmen können.
+
+Die Privilegien-Sonde (`abortOn`-Hook der Run-Engine) bricht den Lauf ab, sobald ein GQL-Fehlertext
+`insufficient privileges` oder `missing permission` enthält oder der HTTP-Status `401`/`403` ist —
+ohne einen eigenen Vorab-Request ans Zielset, der die restliche Laufzeit nur verlängert hätte. Die
+beiden Textfragmente sind aus dem Design übernommen und noch nicht live gegen ein Token ohne
+Editor-Recht belegt (offen für die Live-Probe, T11 im #72-Plan); weicht der beobachtete Text ab, wird
+die Liste erweitert, nicht die Bedingung gelockert.
+
+---
+
+### 2026-09-06 — Bestätigungsdialog: Token-Prompt nach der Bestätigung, Zieldaten-Loader ohne Fehlerpfad (#72, K3)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-confirm-dialog.ts`, `web/src/app/shared/seven-tv/import-flow.ts`, `web/src/app/core/emotes/import-target-loader.ts`
+
+Der 7TV-Token-Prompt kommt beim Import **nach** der Bestätigung, anders als bei Delete und Restore
+(dort weiterhin davor) — Absicht, kein Nachzügler. Picker und Vorschau sind reine Lesevorgänge, und
+die Vorschau ist beim Import der Ort, an dem die eigentliche Entscheidung fällt; ein Secret zu
+verlangen, bevor der Nutzer gesehen hat, was passieren würde, wäre die falsche Reihenfolge. Bricht
+der Nutzer den Prompt ab, startet kein Lauf. Delete/Restore ändern sich nicht: dort ist die
+Bestätigung selbst schon die ganze Vorschau. Die Zeilenreihenfolge des Bestätigungsdialogs (Titel,
+Herkunft, Ziel, Ladezustand, Set-Warnung, Slot-Projektion, Kollisionen, Verlust/Konsolidierung,
+Lauf-Hinweis, Aktionen) ist damit selbst ein Vertrag — festgehalten in docs/UI-Designsprache.md §7.2,
+nicht nur im Plan, damit sie nicht als Layout-Detail behandelt wird.
+
+`loadImportTarget` (`import-target-loader.ts`) emittiert für die drei Zieldaten-Anfragen
+(`getSetStatus`, `listEmotes`, `getSetWarning`) genau **einmal** und wirft nie: jede der drei fängt
+ihren eigenen Fehler und liefert einen getaggten Wert, statt einen umschließenden `forkJoin` beim
+ersten Fehler abbrechen zu lassen. Ein fehlgeschlagenes `getSetWarning` degradiert nur die
+Set-Prüfung zu „nicht möglich" und lässt den Lauf weiterhin zu; ein fehlgeschlagenes `getSetStatus`/
+`listEmotes` oder ein fehlendes aktives Set blockiert ihn (`no-set` gewinnt, wenn beides gleichzeitig
+zutrifft — ein 404 ist die endgültigere Aussage).
+
+---
+
+### 2026-09-06 — Datei-Import: eigene `emote-list`-Envelope, `readEnvelope` als geteilter Vorschritt, Verlust getrennt von Konsolidierung (#72, K3)
+
+**Betrifft:** `web/src/app/shared/export/export-envelope.ts`, `web/src/app/shared/export/read-envelope.ts`, `web/src/app/shared/export/emote-list-export.ts`, `web/src/app/shared/export/import-source-parser.ts`, `web/src/app/shared/export/purge-run-export.ts`
+
+`ExportKind` bekommt eine vierte Sorte `'emote-list'` (Regel 8: bewusst **ohne** `emoteId` — der
+interne Guid ist channel-scoped und im Zielkanal bedeutungslos, anders als beim Purge-Protokoll).
+`readEnvelope` ist aus `purge-run-export.ts` in eine eigene Datei herausgezogen und ist jetzt der
+gemeinsame erste Schritt jedes Datei-Imports: `JSON.parse`, die CSV-statt-JSON-Heuristik,
+`source !== 'emotepurge'` und ein nicht-String-`kind` — alles Weitere (Sorte, Version, Zeilen) prüft
+weiterhin der jeweilige Parser.
+
+Ein Nutzungs-Export (`kind: 'usage'`) gilt zusätzlich als gültige Import-Quelle neben der eigentlichen
+Emote-Liste — er trägt `sevenTvEmoteId` plus `emoteName` je Zeile, genug für ein Kopieren, und ein
+Nutzer, der seine Statistik als Backup heruntergeladen hat, soll dafür nicht extra neu exportieren
+müssen. Der Fehlerschlüssel `restore.import.errors.usageExport` entfällt damit ersatzlos.
+
+`discardedRows` und `duplicatesCollapsed` messen zwei verschiedene Dinge und werden nie
+gegeneinander verrechnet: `discardedRows` zählt Zeilen, die der Parser schon vor der Deduplizierung
+als ungültig verwarf (`sevenTvEmoteId`/Namensfeld fehlt oder ist kein String) — echter Datenverlust,
+gemessen gegen `meta.rowCount`, falls die Datei das Feld trägt, sonst gegen die Länge des rohen
+`rows`-Arrays. `duplicatesCollapsed` zählt danach, wie viele der gültigen Zeilen `dedupeImportRows`
+als Zweitnennung derselben `sevenTvEmoteId` verwarf — bloße Konsolidierung, kein Verlust. Beide
+sperren den Lauf nicht; im Bestätigungsdialog steht die Verlust-Zeile deshalb vor der
+Konsolidierungs-Zeile (docs/UI-Designsprache.md §7.2).
+
+---
+
+### 2026-09-06 — Restore-Panel bekommt einen dritten Dispatch-Zweig: Emote-Liste/Nutzungs-Export laufen als Import (#72, K3)
+
+**Betrifft:** `web/src/app/shared/seven-tv/restore-panel.ts`
+
+Dasselbe eine Datei-Feld entscheidet jetzt per `kind` über drei Wege statt über einen: ein
+Purge-Protokoll (`kind: 'purge-run'`) bleibt der bestehende Restore-Weg unverändert, mit Token-Prompt
+weiterhin vor der Bestätigung. Eine Emote-Liste oder ein Nutzungs-Export (`kind: 'emote-list'` /
+`'usage'`) wird stattdessen als `ImportSource` gelesen (`parseImportSource`) und über denselben
+`startImportFlow` gestartet, den auch der Header-Button „In Kanal kopieren…" auf der
+Usage-Stats-Seite benutzt — Ziel ist dabei immer der **aktuelle** Kanal, der Token-Prompt kommt hier
+also nach der Bestätigung (der Flow selbst fragt danach; das Panel promptet hier bewusst nicht ein
+zweites Mal). Ein Abstimmungs-Export (`kind: 'voting'`) bleibt abgelehnt, ohne Importweg. Push (aus
+dem Grid heraus kopieren) und Pull (eine Datei ins Zielpanel ziehen) sind damit zwei Türen zum
+selben Lauf, keine zwei Features.
+
+---
+
+### 2026-09-06 — Leave-Guard für einen laufenden Import erkennt einen reinen Kanalwechsel an der Routen-Identität (#72, K3)
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-leave.guard.ts`, `web/src/app/app.routes.ts`
+
+Ein `CanDeactivateFn` an der `usage-stats`-Route fragt beim Verlassen der Seite nach, solange
+`SevenTvImportService.isRunning()` wahr ist — der Lauf selbst läuft im `providedIn: 'root'`-Service
+weiter, egal wie die Frage beantwortet wird; der Guard verhindert oder verzögert nichts, er warnt nur.
+Ein reiner Kanalwechsel (`/channels/a/usage-stats` → `/channels/b/usage-stats`) ist davon ausdrücklich
+ausgenommen, obwohl Angular den Guard wegen `runGuardsAndResolvers: 'paramsChange'` auch dabei
+erneut ausführt: die Komponente wird wiederverwendet, derselbe Lauf zeigt sich im Dock der neuen
+Seite sofort wieder, und eine Rückfrage würde vor nichts Verlorenem warnen. Erkannt wird das über die
+**Objektidentität** von `routeConfig` im nächsten Router-State, nicht über einen Pfad- oder
+Namensvergleich — die Referenz ist pro Routen-Definition stabil, unabhängig davon, welches
+Pfadsegment gerade den Kanalnamen trägt. Ein Reload oder Tab-Schließen deckt der Guard bewusst nicht
+ab (kein `beforeunload`).
+
+---
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`

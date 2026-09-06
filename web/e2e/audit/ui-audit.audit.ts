@@ -19,6 +19,8 @@ import {
   mockChannelAuditLog,
   mockChannelPermissions,
   mockChannelStatus,
+  mockEmoteList,
+  mockSetWarning,
   failLive,
   mockLiveQuota,
   mockUsageChannelSeries,
@@ -771,6 +773,76 @@ const SCENARIOS: Scenario[] = [
         .first()
         .click();
       await page.locator('#app-dialog-title').waitFor();
+    },
+  },
+  {
+    // The push flow's first step (#72, K3): the target picker, opened without a grid selection so
+    // the scope radiogroup does not render and every visible row is the implied scope. One tracked,
+    // one untracked (disabled with its hint) channel plus the "save as file" row is the state the
+    // picker is in most often.
+    slug: 'usage-stats-import-target-dialog',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+      await mockMyChannelsWithFlags(page, [
+        ...TYPICAL_CHANNELS,
+        { channelName: 'aatrociity', isSevenTvEditor: true, isTracked: true },
+      ]);
+    },
+    afterLoad: async (page) => {
+      // Locale-independent handle: the visible label is translated ("In Kanal kopieren…" / "Copy to
+      // channel…") with no shared word and no aria-label of its own, unlike the export trigger next
+      // to it — so this goes by position in the header action row instead (export, then import,
+      // then refresh; see usage-stats-page.html). Scoped to `main` because the app shell has its
+      // own top-level `<header>` (the account menu) — an unscoped `header button` counts that one
+      // first and silently opens the export dialog instead.
+      await page.locator('main header button').nth(1).click();
+      await page.locator('#app-dialog-title').waitFor();
+    },
+  },
+  {
+    // The confirmation step, past the picker: origin, target, an already-present row and a name
+    // collision — the two findings that make a copy differ from the naive "N emotes copied" reading
+    // (R8/T5's row-order contract).
+    slug: 'usage-stats-import-confirm-dialog',
+    path: '/channels/sensitron/usage-stats',
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockUsageTotals(page, 'sensitron', usageEmotes(24));
+      await mockMyChannelsWithFlags(page, [
+        ...TYPICAL_CHANNELS,
+        { channelName: 'aatrociity', isSevenTvEditor: true, isTracked: true },
+      ]);
+      await mockActiveEmoteSet(page, 'aatrociity', 'target-set', {
+        capacity: 1000,
+        occupiedSlots: 3,
+      });
+      await mockSetWarning(page, 'aatrociity');
+      await mockEmoteList(page, 'aatrociity', [
+        { sevenTvEmoteId: '7tv-1', name: 'Emote1PogU' },
+        { sevenTvEmoteId: 'target-99', name: 'Emote3PogU' },
+      ]);
+    },
+    afterLoad: async (page) => {
+      // See the target-dialog scenario above for why this goes by position, not by label, and for
+      // why it is scoped to `main`.
+      await page.locator('main header button').nth(1).click();
+      const picker = page.getByRole('dialog');
+      // Channel logins are not translated, so the radio's own name is locale-independent — unlike
+      // the "Weiter"/"Continue" submit button next to it, matched here by position instead
+      // ([dialog-actions] is the attribute DialogShell's <ng-content select> projects on, so it is
+      // never removed from the DOM; Cancel is always first — dialog-shell.ts's own comment).
+      await picker.getByRole('radio', { name: '#aatrociity' }).check();
+      await picker.locator('[dialog-actions]').last().click();
+      // The target load starts async and the dialog opens on its loading skeleton (R8). The dialog
+      // title itself already carries the channel name the moment the dialog opens — before the
+      // target data has loaded — so waiting on the mocked set id instead (only rendered once
+      // `ready()` is true, and, like the channel login, never translated) is what actually proves
+      // the confirm dialog has filled in rather than still showing its skeleton.
+      await page.getByText('target-set').first().waitFor();
     },
   },
   {

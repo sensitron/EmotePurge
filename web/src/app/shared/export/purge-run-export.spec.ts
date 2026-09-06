@@ -87,12 +87,8 @@ describe('parsePurgeRunProtocol', () => {
     });
   });
 
-  it('names the other export kinds instead of calling them "not a protocol"', () => {
+  it('names a voting export instead of calling it "not a protocol"', () => {
     const envelope = (kind: string) => JSON.stringify({ source: 'emotepurge', kind });
-    expect(parsePurgeRunProtocol(envelope('usage'), EXPECTED)).toEqual({
-      ok: false,
-      errorKey: 'restore.import.errors.usageExport',
-    });
     expect(parsePurgeRunProtocol(envelope('voting'), EXPECTED)).toEqual({
       ok: false,
       errorKey: 'restore.import.errors.votingExport',

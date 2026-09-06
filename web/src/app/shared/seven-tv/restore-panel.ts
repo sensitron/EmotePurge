@@ -4,21 +4,38 @@ import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { DeleteQueueEmote } from '../../core/seven-tv/seven-tv-delete.service';
+import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { parseImportSource } from '../export/import-source-parser';
 import { PurgeRunRow, parsePurgeRunProtocol } from '../export/purge-run-export';
+import { readEnvelope } from '../export/read-envelope';
 import { Button } from '../ui/button';
 import { NoticeBanner } from '../ui/notice-banner';
+import { startImportFlow } from './import-flow';
 import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
 import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
 /**
- * The half of the A6 safety net that survives a reload: re-import of a downloaded purge protocol.
- * The post-run restore button covers the immediate "wrong selection, panel still open" panic; this
- * panel makes the file itself the restore list. Validation happens in parsePurgeRunProtocol —
- * channel *and* active set id must match, and only rows the delete actually removed are offered.
- * The restore run itself renders in the mass-delete panel's restore progress section.
+ * One file input, three acceptable sorts of file (#72, K3) — `readEnvelope` opens the file and its
+ * `kind` decides which of them it is:
+ * - A purge-run protocol (A6): the paper trail of a mass delete, re-imported as this channel's
+ *   restore list. Validation happens in `parsePurgeRunProtocol` — channel *and* active set id
+ *   must match, and only rows the delete actually removed are offered. This is the panel's
+ *   original purpose and its only path that is a *restore* rather than a copy; the token prompt
+ *   still comes before the confirmation here, unchanged.
+ * - An emote-list or a usage export: both carry `sevenTvEmoteId` plus a name per row, so both
+ *   become an `ImportSource` (`parseImportSource`) and run through the same import flow the
+ *   usage-stats page's "copy to channel" uses, targeting the *current* channel. The token prompt
+ *   for this branch comes *after* the confirmation — `startImportFlow` does that itself (R2); this
+ *   panel must not prompt for a token on top of it.
+ * - A voting export: rejected with the existing `votingExport` error; no import path exists for it.
+ *
+ * The post-run restore button covers the immediate "wrong selection, panel still open" panic for
+ * the first case; this panel makes the file itself the list. The restore run itself renders in the
+ * mass-delete panel's restore progress section; an import run renders in the import progress
+ * section on the usage-stats page.
  */
 @Component({
   selector: 'app-restore-panel',
@@ -62,6 +79,7 @@ export class RestorePanel {
   protected readonly arbiter = inject(SevenTvRunArbiter);
   private readonly tokenService = inject(SevenTvTokenService);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  private readonly importService = inject(SevenTvImportService);
   private readonly dialog = inject(Dialog);
 
   // Named apart from the #fileInput template reference: inside the template the bare name
@@ -85,7 +103,42 @@ export class RestorePanel {
     }
 
     this.errorKey.set(null);
-    const parsed = parsePurgeRunProtocol(await file.text(), {
+    const text = await file.text();
+    const read = readEnvelope(text);
+    if (!read.ok) {
+      this.errorKey.set(read.errorKey);
+      return;
+    }
+
+    if (read.envelope.kind === 'purge-run') {
+      // Unchanged restore path: parsePurgeRunProtocol re-reads the same text and keeps enforcing
+      // both the channel and the active-set match (`wrongChannel`/`wrongSet`) on its own.
+      this.handlePurgeRunProtocol(text);
+      return;
+    }
+
+    const parsedSource = parseImportSource(read.envelope, file.name);
+    if (!parsedSource.ok) {
+      this.errorKey.set(parsedSource.errorKey);
+      return;
+    }
+    // No token prompt here — startImportFlow asks after the confirmation (R2), and prompting here
+    // as well would ask the user twice.
+    startImportFlow(
+      {
+        dialog: this.dialog,
+        emoteAdminService: this.emoteAdminService,
+        tokenService: this.tokenService,
+        importService: this.importService,
+        arbiter: this.arbiter,
+      },
+      parsedSource.source,
+      this.channelName(),
+    );
+  }
+
+  private handlePurgeRunProtocol(text: string): void {
+    const parsed = parsePurgeRunProtocol(text, {
       channelName: this.channelName(),
       emoteSetId: this.setId(),
     });
