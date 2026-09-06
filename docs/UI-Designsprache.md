@@ -110,7 +110,8 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Der Verteilungsstreifen trägt dieselben vier Farben und einen 3-px-Sockel.** Ohne Sockel ist ein Balken des toten Schwanzes einen Pixel hoch, und eine Farbe auf einem Pixel nimmt niemand wahr; der Sockel stellt „nie benutzt" außerdem richtig dar — das ist keine kleine Zahl, sondern eine eigene Kategorie. Darunter ein flacher Segmentbalken, dessen Breiten die Nutzungsanteile sind: derselbe Sachverhalt auf der anderen Achse, und zusammen gelesen die Pareto-Aussage. Er beschreibt das **ganze** Set, auch wenn ein Filter aktiv ist — der Streifen sagt „Das ganze Set, nach Nutzung gereiht", eine Bandüberschrift sagt, was unter ihr liegt. Beschriftet wird nicht das Segment, sondern eine umbrechende Legende darunter — Farbplättchen, Anteil, Bandname, nach Inhalt bemessen. Die Beschriftung in Segmentbreite zu zwingen war der Versuch, eine Pixelfrage mit einer Prozentschwelle zu beantworten: gemessen braucht „11 % regelmäßig" 105 px und bekommt selbst auf 1280 px nur 68, war also auf **jeder** Breite abgeschnitten — auf Englisch nur unauffälliger, weil die Wörter kürzer sind. Die Ausrichtung unter dem eigenen Segment ist der Preis dafür und war bei 11 % Breite ohnehin keine.
 - **Der Sidecar ist die Lupe ab `lg`** (`<aside>`, sticky, 16 rem; das Raster wird erst zweispaltig, wenn tatsächlich etwas inspiziert ist). Darunter trägt eine kompakte Meta-Zeile (`lg:hidden`) dieselben Zahlen. **Der Drilldown-Dialog bleibt** — er ist der einzige Weg auf dem Stimmzettel, unterhalb `lg`, per Touch und per Tastatur, und trägt zusätzlich den Zeitraum, Erst- und Letztnutzung und den Abstimmungsblock. Y-Achse, Spitzensatz und die Live-Tage-Zeile stehen in beiden.
 - **Der Sidecar lädt nie pro Zelle nach.** Seine Tagesreihe kommt aus **einem** Aufruf pro (Channel, Zeitraum) — `GET /usage-stats/series`. Eine Fläche, die am Mauszeiger hängt, darf keine Requests erzeugen; das Durchfahren eines Bandes wäre sonst ein Lastprofil.
-- **`.app-dock` erscheint nur, solange eine Auswahl besteht.** Eine dauerhaft geparkte Aktionsleiste ist ein Bedienelement, an dem der Erstbesuch vorbeilesen muss. Der Dock trägt als einzige Fläche der App eine Linie in der Leitfarbe — sie markiert die Grenze eines lebenden, umkehrbaren Zustands.
+- **`.app-dock` erscheint nur, solange es etwas zu tun oder zu lesen gibt:** eine Auswahl, oder ein 7TV-Lauf (Delete, Restore, Import), der läuft oder gerade fertig geworden ist — dessen Zusammenfassung trägt das Protokoll zum Herunterladen und muss den letzten Löschvorgang überleben. Eine dauerhaft geparkte Aktionsleiste ist ein Bedienelement, an dem der Erstbesuch vorbeilesen muss. Der Dock trägt als einzige Fläche der App eine Linie in der Leitfarbe — sie markiert die Grenze eines lebenden, umkehrbaren Zustands.
+- **Das aktive Emote-Set gated nur die Markier-Hälfte des Docks, nicht den Dock selbst.** Zählzeile, Mass-Delete-Panel und der Stimmzettel-Knopf handeln vom Set *dieses* Kanals und brauchen eines; die Import-Sektion zeigt einen Lauf in ein **fremdes** Set (§7.2) und ist deshalb außerhalb dieses Gates montiert. Andernfalls verschwände auf einer Usage-Seite ohne aktives Set ein schreibender Lauf samt seinem Abbrechen-Knopf, während er weiterläuft.
 - **Selektion, Dock und der 20-px-Verlaufs-Trigger sind zusätzlich hinter `PointerModeService.isCoarse` gegated — kein 7TV-Schreibzugriff ohne Maus.** Das 7TV-Schreib-Token lässt sich nur aus den Entwicklertools auf 7tv.app kopieren, die ein Telefon nicht hat; das Gate ist deshalb die Zeigerart, nicht die Breite (`(pointer: coarse)`, nicht `any-pointer` — ein Desktop mit angestecktem Touchscreen behält alles, weil DevTools bleiben). Auf `coarse` markiert ein Klick auf die Zelle nichts mehr, sondern öffnet direkt den Drilldown-Dialog (§7.1), und Mass-Delete- wie Restore-Panel rendern gar nicht erst.
 - **Was auf `coarse` wegfällt, wird nicht erklärt — was auf `coarse` ins Leere zeigt, schon.** Dock, Mass-Delete- und Restore-Panel verschwinden kommentarlos: visuell fehlt nichts, also gibt es nichts zu sagen. Ein *Verweis* auf eine dieser Fähigkeiten ist der andere Fall — er bleibt sichtbar stehen und verspricht etwas, das sein Ziel dort nicht einlösen kann. Einziges Beispiel bisher: der Link „Nur bestimmte Emotes zur Wahl stellen?" unter dem Erstellen-Formular der Voting-Liste, der auf coarse einem Satz weicht (`voting.list.wholeSetHintDesktopOnly`). Rein visuelles Umschalten dieser Art gehört ins Variantenpaar `pointer-coarse:hidden` / `hidden pointer-coarse:inline`, nicht in `PointerModeService` — der Dienst ist für Entscheidungen, die der Code trifft.
 - **Tastatur ist gleichwertig, nicht nachgereicht:** Roving-Tabindex über den Bogen, Pfeile bewegen, Leertaste markiert, Enter öffnet den Verlauf, Umschalt+Klick überträgt den Zustand der zuletzt angeklickten Zelle auf einen ganzen Bereich — er markiert ihn also, oder hebt die Markierung wieder auf, wenn der letzte Klick eine aufgehoben hat. Eine *Gruppen*aktion darf das nicht: „alle markieren" bleibt rein additiv, weil ein zweiter Druck sonst eine handgebaute Auswahl in einem Klick vernichtet. Der Hinweistext dazu ist übersetzt und steht sichtbar an der Seite — eine Tastaturbedienung, die niemand erwähnt, existiert für die meisten nicht.
@@ -179,8 +180,8 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
 - **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen.
 - **Schwere rechtfertigt keine Ausnahme von der Wiederholungsregel.** Auch Purge und Session-Revoke laufen in den Admin-Listen als `danger-quiet` — je länger die Liste, desto schlimmer die Farbleiter. Abgesichert wird eine unwiderrufliche Aktion durch die typisierte Namensbestätigung, nicht durch einen roten Rahmen, den man fünfundzwanzigmal untereinander sieht.
-- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70).
-- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`; in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
+- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „In Kanal kopieren…" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) — gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports.
+- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, Header-Button `web/src/app/features/usage-stats/usage-stats-page.html`; in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
 
@@ -302,6 +303,62 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Das 44-px-Komfortziel ist inzwischen kein Popover-Sonderfall mehr, sondern an der Button-Größe `lg` verankert** (`shared/ui/button.ts`, `SIZE_CLASSES.lg = 'min-h-11 …'`): ein flow-tragender Button, der sich für `lg` entscheidet — Dialog-Bestätigungen, der Mass-Delete-Auslöser, der Schließen-Weg des Sheets —, bekommt die 44-px-Höhe darüber, ohne die Klassenkette selbst nachzubauen. Automatisch ist daran nichts: `buttonSize` ist standardmäßig `md` (23 Aufrufstellen setzen `lg` bewusst), und `md` bleibt unverändert für dichte Toolbars, wo eine Maus der realistische Zeiger ist.
 - **Der 20-px-Verlaufs-Trigger auf einer Atlas-Zelle (§2.5) entfällt auf `coarse` ganz** — dort ist die ganze 64-px-Zelle das Ziel, was ein 20-px-Overlay in jeder Hinsicht schlägt und ohnehin die einzige Aktion ist, die der Tap auf coarse noch auslöst.
 - **Referenz:** `web/src/app/shared/ui/popover.ts`; Verwendung `shared/datetime/date-range-menu.ts`.
+
+### 7.2 Ziel-Picker und Bestätigungsdialog (Import, #72)
+
+- **Was gilt:** Der Kopier-Fluss „In Kanal kopieren…" läuft über zwei Dialoge, beide über
+  `openAppDialog` (s. o.): `ImportTargetDialog` (`shared/seven-tv/import-target-dialog.ts`,
+  `openImportTargetDialog`) wählt Bereich und Ziel, `ImportConfirmDialog`
+  (`shared/seven-tv/import-confirm-dialog.ts`, `openImportConfirmDialog`) zeigt die Vorschau und
+  startet den Lauf. Beide Reihenfolgen unten sind Vertrag (2.4/2.5 des #72-Plans), keine
+  Layout-Frage — wer sie ändert, ändert einen Vertrag.
+- **Ziel-Picker, Zeilenreihenfolge:**
+  1. Bereichs-Radiogruppe `visible`/`selection` — nur, wenn eine Grid-Auswahl existiert.
+  2. Kanalliste-Zustand: `<app-skeleton-rows [count]="3">`, während `listMine()` lädt, danach
+     höchstens **eine** Meldung (exklusiv) — `reauthRequired` (warning), sonst `loadFailed` (error +
+     „Erneut laden"), sonst `listIncomplete` (info).
+  3. Ziel-Radiogruppe: ein Radio je Kanal, in dem der Nutzer Broadcaster oder 7TV-Editor ist
+     (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle,
+     zuletzt ein Radio „… als Datei speichern".
+  4. Abbrechen / Weiter.
+- **Scope-Default `selection` bricht bewusst mit dem Export-Dialog** (der dort `visible` vorbelegt):
+  ein Export läuft Gefahr, unbemerkt zu **verengen**; ein Kopieren in ein fremdes 7TV-Set läuft
+  Gefahr, unbemerkt auf mehrere hundert sichtbare Emotes zu **verbreitern** — der Wedge des Features
+  ist „auswählen, dann kopieren". Ohne Grid-Auswahl gibt es keine Radiogruppe, Scope ist dann
+  `visible`. Nicht angleichen.
+- **Bestätigungsdialog, Zeilenreihenfolge:** Titel (Anzahl + Zielkanal) → Herkunftszeile (Kanal,
+  oder Datei mit Export-Datum/-Kanal) → Zielzeile „Ziel: Kanal · Set …", sobald die Zieldaten da
+  sind → genau **einer** von drei Ladezuständen (handgerolltes Skeleton nach §6.1-Muster /
+  `no-set`-Banner / `failed`-Banner mit Retry) → geteiltes-Set-Warnung (error) oder „Prüfung nicht
+  möglich" (warning) → Slot-Projektion (Überlauf als Warnbanner, sonst stiller Text) →
+  Veraltet-Hinweis, wenn der letzte Sync des Ziels fehlgeschlagen ist → „bereits im Zielset"-Zeile →
+  Namenskollisionen-Zeile + `NamePreviewList` → **verworfene Zeilen vor zusammengefassten
+  Duplikaten** (echter Datenverlust wiegt schwerer als bloße Konsolidierung — der Grund steht bei
+  `discardedRows`/`duplicatesCollapsed`) → „nichts hinzuzufügen"-Banner → „Diese Liste stammt aus
+  diesem Kanal" → der stille Hinweis auf den automatischen Lauf → (nur im Ladezustand: der
+  Ladehinweis neben den Aktionsknöpfen) → Abbrechen / Kopieren.
+- **Der Zieldaten-Loader (`core/emotes/import-target-loader.ts`, `loadImportTarget`) emittiert genau
+  einmal und wirft nie** — die drei inneren Anfragen (`getSetStatus`, `listEmotes`,
+  `getSetWarning`) fangen ihren eigenen Fehler und liefern einen getaggten Wert, statt den `forkJoin`
+  beim ersten Fehler abbrechen zu lassen. Ein fehlgeschlagenes `getSetWarning` degradiert nur die
+  Set-Prüfung zu „nicht möglich" und lässt den Lauf zu; ein fehlgeschlagenes `getSetStatus`/
+  `listEmotes` oder ein fehlendes aktives Set blockiert ihn (`failed`/`no-set`, `no-set` gewinnt bei
+  beidem gleichzeitig — ein 404 ist die endgültigere Aussage). Der Ausführen-Knopf trägt seinen
+  Sperrgrund als Text (`aria-describedby`, Muster wie oben): `loadingHint`, `loadFailed`,
+  `noTargetSet`, `nothingToAdd` — nur beim gleichzeitig laufenden 7TV-Lauf einer anderen Stelle
+  (`runBlocked`) bleibt der Knopf ohne eigenen Text gesperrt, weil dann der laufende Fortschritt im
+  Dock schon die Erklärung ist (4.2).
+- **Der Token-Prompt kommt beim Import nach der Bestätigung, nicht davor** — anders als bei Delete
+  und Restore, wo er weiterhin vor der Bestätigung steht. Grund: Picker und Vorschau sind reine
+  Lesevorgänge, und die Vorschau ist beim Import der Ort, an dem die eigentliche Entscheidung fällt
+  — ein Secret zu verlangen, bevor der Nutzer gesehen hat, was passieren würde, wäre die falsche
+  Reihenfolge. Bricht der Nutzer den Prompt ab, startet kein Lauf. Delete/Restore ändern sich nicht:
+  dort *ist* die Bestätigung schon die ganze Vorschau, also gibt es dort keinen Grund, den Token
+  später zu verlangen. **Dieser Unterschied ist Absicht, kein Nachzügler** — bei einer
+  Vereinheitlichung zuerst hier nachlesen, nicht den Import „korrigieren".
+- **Referenz:** `web/src/app/shared/seven-tv/import-target-dialog.ts`, `import-confirm-dialog.ts`,
+  `import-target-options.ts`, `import-preview.ts`, `slot-projection.ts`,
+  `web/src/app/core/emotes/import-target-loader.ts`; Aufrufer `web/src/app/shared/seven-tv/import-flow.ts`.
 
 ## 8. Navigation
 
