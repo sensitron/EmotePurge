@@ -388,7 +388,7 @@ public sealed class HarnessRunner(
         var resumePoint = allDays.Count == 0 ? (DateOnly?)null : allDays[^1].Day;
 
         var report = ReplayFidelityCalculator.Compute(
-            window, emotes, liveRows, allDays, days, runComplete: true, rateLimitedDays, resumePoint);
+            window, emotes, liveRows, allDays, days, runComplete: true, bytesUsed, rateLimitedDays, resumePoint);
 
         file.WriteFinalReportAtomically(report, BuildMarkdown(
             identity, report, allDays, liveRows, loadedAtUtc, timeProvider.GetUtcNow().UtcDateTime,

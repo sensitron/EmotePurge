@@ -264,6 +264,11 @@ public sealed record ReplayDiagnostics(
 /// kind that currently produces a final report — this equals <paramref name="WindowTo"/> and is a
 /// statement of where the run ended, not an instruction to continue anywhere.
 /// </param>
+/// <param name="TotalBytes">
+/// Also supplied by the caller, and for the same reason as <see cref="RateLimitedDays"/>: an aborted
+/// attempt's bytes live only on an event line, never on a day line, so deriving this from
+/// <see cref="DayLineCount"/>'s lines alone would under-report every run an abort ever touched.
+/// </param>
 public sealed record ReplayRunInfo(
     DateOnly WindowFrom,
     DateOnly WindowTo,

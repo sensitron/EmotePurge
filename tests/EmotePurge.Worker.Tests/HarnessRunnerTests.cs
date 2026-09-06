@@ -310,6 +310,43 @@ public class HarnessRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ACompleteRun_ReportsTotalBytesIncludingBytesBookedByAnAbortedAttempt()
+    {
+        // Befund B (external review): a TransportFailure never becomes a day line, only an event
+        // line with its own Bytes — same case as
+        // ADayThatAbortedWithoutABodyStillSpendsFromTheCap_AndTheNextRunKnowsIt above, but carried
+        // all the way to a finished report. ReplayFidelityCalculator.Compute must not derive
+        // run.totalBytes from the day lines alone, or the 900 KB this attempt cost the archive
+        // silently vanishes from the machine-readable report even though the byte-cap bookkeeping
+        // (bytesUsed) already counts it.
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day2)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.TransportFailure, 900_000, null, 0, 0, 0, 502);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1, bytes: 10_000);
+        });
+        Assert.Equal(4, await Run(3));
+
+        // Resume: day 1's line is already on disk, so only day 2 and day 3 are fetched again.
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1, bytes: 5_000);
+        });
+        Assert.Equal(0, await Run(3));
+
+        // 10,000 (day 1, first run) + 900,000 (day 2's aborted attempt, event line only) + 5,000
+        // (day 2, second run) + 5,000 (day 3, second run) = 920,000. The buggy calculation
+        // (days.Sum(d => d.Bytes)) would report only 20,000 — the three day lines without the event.
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"totalBytes\": 920000", json);
+    }
+
+    [Fact]
     public async Task ACompleteRun_WritesBothReportsAndTheGateFieldsOfTheCalculator()
     {
         // Day 2 alone carries a SourceRoomId distinct from RoomId, so exactly one of the three

@@ -172,7 +172,7 @@ public class HarnessReportFileTests : IDisposable
 
         var report = ReplayFidelityCalculator.Compute(
             new ReplayWindow(identity.WindowFrom, identity.WindowTo, null), [], [], [], 3,
-            runComplete: true, rateLimitedDays: 0, resumePoint: null);
+            runComplete: true, totalBytes: 0, rateLimitedDays: 0, resumePoint: null);
         file.WriteFinalReportAtomically(report, "# Bericht\n");
 
         Assert.True(File.Exists(file.ReportJsonPath));

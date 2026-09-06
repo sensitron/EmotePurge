@@ -169,7 +169,7 @@ public class ReplayFidelityCalculatorTests
         var (days, rows) = Build(30, perDay, perDay);
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, null), emotes, rows, days, 30, true, 0, To);
+            new ReplayWindow(From, To, null), emotes, rows, days, 30, true, 0, 0, To);
 
         Assert.Equal(0, report.Diagnostics.HumanOnlyDays);
         Assert.Equal(0, report.Gate.RatedDays);
@@ -659,9 +659,10 @@ public class ReplayFidelityCalculatorTests
         DateOnly? cutover = null,
         int windowDays = 30,
         bool runComplete = true,
+        long? totalBytes = null,
         int rateLimitedDays = 0,
         DateOnly? resumePoint = null)
         => ReplayFidelityCalculator.Compute(
             new ReplayWindow(From, To, cutover ?? From), emotes, rows, days, windowDays, runComplete,
-            rateLimitedDays, resumePoint);
+            totalBytes ?? days.Sum(d => d.Bytes), rateLimitedDays, resumePoint);
 }

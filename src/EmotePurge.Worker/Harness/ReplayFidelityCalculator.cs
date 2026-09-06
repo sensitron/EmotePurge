@@ -30,6 +30,16 @@ public static class ReplayFidelityCalculator
     /// <param name="days">One line per archive day the run produced.</param>
     /// <param name="windowDays">The window length the run was started with (30 for a binding run).</param>
     /// <param name="runComplete">Whether the run covered the whole window; an aborted run never binds.</param>
+    /// <param name="totalBytes">
+    /// Every byte the archive sent for this report file, across every run that wrote into it —
+    /// finished days and aborted attempts alike. A caller-supplied number for the same reason as
+    /// <paramref name="rateLimitedDays"/>: an aborted attempt (429, body timeout, byte cap,
+    /// transport failure) never becomes a day line, only an event line, so summing
+    /// <paramref name="days"/> alone would silently drop those bytes from the report. The caller is
+    /// expected to pass the same total the byte-cap bookkeeping already uses
+    /// (<c>existing.Days.Sum(...) + existing.Events.Sum(...)</c> in <see cref="HarnessRunner"/>), so
+    /// the two can never disagree.
+    /// </param>
     /// <param name="rateLimitedDays">
     /// How many channel-day requests the archive answered with a 429, over every run that wrote into
     /// this report file. A caller-supplied number on purpose: a throttled day never becomes a day
@@ -46,6 +56,7 @@ public static class ReplayFidelityCalculator
         IReadOnlyList<ReplayDayLine> days,
         int windowDays,
         bool runComplete,
+        long totalBytes,
         int rateLimitedDays,
         DateOnly? resumePoint)
     {
@@ -74,7 +85,7 @@ public static class ReplayFidelityCalculator
             window.BotSplitCutover,
             windowDays,
             days.Count,
-            days.Sum(d => d.Bytes),
+            totalBytes,
             rateLimitedDays,
             resumePoint,
             runComplete);
