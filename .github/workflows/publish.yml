@@ -61,7 +61,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
         working-directory: web
 
       # Both run before the test steps: they take a few seconds each, so a formatting or member
@@ -81,7 +81,7 @@ jobs:
       # e2e specs mock every /api/** call (see web/e2e/support/mocks.ts) — no .NET Api/Postgres/
       # Redis/Twitch OAuth app needed here, only Chromium + the Angular dev server.
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx --ignore-scripts playwright install --with-deps chromium
         working-directory: web
 
       - name: Run e2e tests (Playwright)

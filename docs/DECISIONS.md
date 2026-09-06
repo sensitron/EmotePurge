@@ -10,6 +10,142 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Roslyn wird in der `.editorconfig` gefiltert statt am Sonar-Import abgeschaltet
+
+**Betrifft:** `.editorconfig`, `.github/workflows/sonarcloud.yml`
+
+**Revidiert den Eintrag darunter.** Dort war der Import der Roslyn-Befunde ganz abgeschaltet worden
+(`sonar.cs.roslyn.ignoreIssues=true`), weil 95 von 142 Befunden aus ihm stammten. Das war zu grob:
+Vier der 95 hatten Substanz — darunter ein nicht weitergereichter `CancellationToken` in
+`TwitchLivePollWorker` —, und vor allem hätte **jeder künftige** Roslyn-Befund dasselbe Schicksal
+geteilt, ohne dass es jemand bemerkt. Der Import ist deshalb wieder an; gefiltert wird eine Ebene
+tiefer.
+
+**Die Annahme, auf der die erste Entscheidung ruhte, war falsch.** Sie ging davon aus, die
+Warnungen stünden ohnehin im Build-Log und kehrten dorthin nur zurück. Tatsächlich sind es
+Info-Level-Diagnosen: Ein `dotnet build` druckt sie bei Standard-Ausführlichkeit **nicht**, der
+Sonar-Scanner liest sie aber aus dem Build aus. Abgeschaltet waren sie also nicht leiser, sondern
+unsichtbar.
+
+**Sonar bietet keinen Filter, die `.editorconfig` schon.** Die Eigenschaften
+`sonar.cs.roslyn.bugCategories` und Verwandte klingen danach, bestimmen aber nur, *als was* ein
+importierter Befund gilt (Bug, Vulnerability, Code Smell) — nicht, welche importiert werden. Dort
+gibt es ausschließlich ganz an oder ganz aus. Ein Schweregrad in der `.editorconfig` sorgt dagegen
+dafür, dass der Analyzer die Regel gar nicht erst meldet; sie erreicht den Scanner nie. Nachgemessen:
+`dotnet_diagnostic.CA1873.severity = warning` erzeugt die Meldungen im Build, `= none` lässt sie
+verschwinden.
+
+**Auf `none` stehen fünf Regeln** (`CA1873` mit 72 Fundstellen, `CA1859`, `ASP0015`, `CA1822`,
+`SYSLIB1045`) — zusammen 91 der 95. Alles ohne Eintrag bleibt aktiv und taucht weiterhin im Scan auf.
+
+**Der Preis ist Reichweite.** `.editorconfig` wirkt nicht nur in der CI, sondern in jeder IDE und bei
+jedem lokalen Build. Was hier auf `none` steht, ist damit projektweit abgewählt und nicht nur aus
+einer Ansicht ausgeblendet. Das ist beabsichtigt: Eine Regel, nach der sich niemand richtet, soll
+auch niemanden mehr anpiepen.
+
+### 2026-09-06 — Die Roslyn-Importe fliegen aus dem Scan, und `npm ci` führt keine Paket-Skripte mehr aus
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `.github/workflows/publish.yml`
+
+**Nachlese zum ersten Scan-Ergebnis.** Der erste vollständige Lauf lieferte 142 Befunde, und **95
+davon waren importierte Roslyn-Warnungen** aus dem echten Build (`CA1873` allein 72-mal, dazu
+`CA1859`, `ASP0015`, `CA1822`, `SYSLIB1045`). Sie stammen nicht von Sonar-Regeln, sondern von den
+.NET-Analyzern, die beim Kompilieren ohnehin laufen. `sonar.cs.roslyn.ignoreIssues=true` schaltet
+diesen Import ab.
+
+**Der Grund ist Benutzbarkeit, nicht Qualität.** Zwei Drittel der Ansicht bestanden aus Meldungen,
+die niemand einzeln abarbeitet — eine Liste, die man nicht leerbekommt, wird nicht sortiert, sondern
+ignoriert, und dann geht das Wenige darin unter, das zählt. Die Warnungen verschwinden dadurch nicht:
+`dotnet build` gibt sie weiterhin aus. Sie kehren nur dorthin zurück, wo sie vorher schon standen,
+ins Build-Log.
+
+**Was dabei bewusst mit verloren geht.** Drei der 95 hatten Substanz und sind vor der Abschaltung
+notiert worden: ein nicht weitergereichter `CancellationToken` in `TwitchLivePollWorker` (CA2016),
+ein falscher `paramName` in einer `ArgumentOutOfRangeException` in `LiveEndpoints` (CA2208) und ein
+ungenutzter Routen-Parameter in `Program.cs` (ASP0018, vermutlich der SPA-Catch-all und damit
+Absicht). Wer die Abschaltung später hinterfragt, sollte wissen, dass sie mit offenen Augen getroffen
+wurde und nicht aus Bequemlichkeit.
+
+**`npm ci --ignore-scripts` in beiden Workflows.** Bei `npm ci` laufen `postinstall`-Skripte der
+installierten Pakete mit; ein kompromittiertes Paket führt damit fremden Code auf dem Runner aus. Der
+Befund (`githubactions:S6505`) betraf beide Workflows gleichermaßen — deshalb sind beide geändert
+worden statt nur der neue, sonst stünde dieselbe Zeile weiter nebenan. Beim `npx`-Aufruf für
+Playwrights Browser-Download ist der Fall anders gelagert (der Download **ist** der Zweck des
+Befehls, kein Lifecycle-Skript); dass das Flag dort nichts bricht, ist nicht abgeleitet, sondern über
+einen echten CI-Lauf belegt worden.
+
+### 2026-09-06 — Statische Analyse läuft in der CI, und ihre Befunde landen im Code-Scanning statt im Issue-Tracker
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `scripts/sonar-to-sarif.mjs`, `tests/EmotePurge.Api.Tests/EmotePurge.Api.Tests.csproj`, `tests/EmotePurge.Infrastructure.Tests/EmotePurge.Infrastructure.Tests.csproj`, `tests/EmotePurge.Worker.Tests/EmotePurge.Worker.Tests.csproj`, `web/package.json`
+
+**Der generierte Workflow konnte nicht funktionieren.** GitHubs Marketplace-Vorlage benutzt
+`SonarSource/sonarcloud-github-action`, deren Docker-Image den SonarScanner CLI 5.0.1 auf Java 17
+mitbringt; SonarQube Cloud verlangt inzwischen Java 21 und weist jeden älteren Scanner ab. Jeder Lauf
+scheiterte nach drei Sekunden. Der Ersatz ist aber nicht bloß eine neuere Action: Der generische
+CLI-Scanner analysiert **kein C#**. Er hätte `web/` ausgewertet und die vier .NET-Projekte
+stillschweigend übersprungen. C# braucht den SonarScanner for .NET, der sich um den Build legt
+(`begin` → `build` → `test` → `end`), weil die Regeln den Roslyn-Semantikbaum brauchen.
+
+**`ubuntu-latest`, nicht `windows-latest`.** Sonars eigene .NET-Vorlage schlägt Windows vor. Das geht
+hier nicht: `EmotePurge.Infrastructure.Tests` fährt Postgres und Redis per Testcontainers hoch und
+braucht den Docker-Daemon, den nur die Linux-Runner mitbringen. Ohne Testlauf keine Coverage, und
+ohne Coverage misst die Quality Gate ins Leere.
+
+**`--no-incremental` ist Pflicht, nicht Stil.** Der MSBuild-Hook des Scanners sieht nur Projekte, die
+tatsächlich neu kompiliert werden. Überspringt MSBuild eines inkrementell, fehlt es im Analysebericht
+— ohne dass der Build-Schritt einen Fehler zeigt. Das ist dieselbe Klasse von stiller Teilmessung,
+die im Repo schon bei den Compiler-Warnungen aufgefallen ist.
+
+**Die Befunde gehen ins Code-Scanning, nicht in den Issue-Tracker.** Zuerst war ein Sync geplant, der
+je Finding ein GitHub-Issue anlegt, per Marker dedupliziert und behobene Issues wieder schließt. Das
+ist verworfen worden, nachdem klar war, dass GitHubs Code-Scanning genau diesen Lebenszyklus selbst
+führt: Ein Finding, das im nächsten SARIF-Upload fehlt, wird automatisch auf „Fixed" gesetzt, ein
+wiederkehrendes reaktiviert denselben Alert. Marker-Dedup, Auto-Close und das Sicherheitsnetz gegen
+eine Issue-Flut beim Erstlauf entfallen damit ersatzlos — und der Tracker bleibt dem vorbehalten, was
+ein Mensch dort hineingeschrieben hat.
+
+**Warum ein eigener SARIF-Export und nicht SonarClouds native Anbindung.** SonarQube Cloud kann
+Code-Scanning-Alerts direkt bespielen, ohne jeden Schritt in der CI. Dieser Weg exportiert aber nur
+**Security**-Findings; von den 42 Befunden des Erstbestands wären das neun gewesen, die 32 Code
+Smells und der eine Bug blieben unsichtbar. `scripts/sonar-to-sarif.mjs` holt stattdessen alle
+offenen Findings über die Issues-API und setzt sie nach SARIF 2.1.0 um. Beide Wege gleichzeitig zu
+aktivieren wäre falsch: Sie laufen als getrennte Kategorien und lieferten die Security-Findings
+doppelt.
+
+**Das Skript wartet auf die Auswertung, und das ist der Teil, der leicht übersehen wird.**
+`dotnet-sonarscanner end` lädt nur hoch und kehrt sofort zurück; SonarClouds Compute Engine wertet
+danach asynchron weiter aus. Eine Abfrage direkt im Anschluss liefert den Stand des **vorherigen**
+Laufs — ein Fehler, der nie auffällt, weil das Ergebnis plausibel aussieht. Das Skript liest deshalb
+die `ceTaskId` aus `.sonarqube/out/.sonar/report-task.txt` und pollt, bis der Task `SUCCESS` meldet.
+Fehlt die Datei, bricht es ab, statt alte Daten zu exportieren.
+
+**Nur auf `main`, nicht bei Pull Requests.** Ein SARIF-Upload aus einem PR liefe gegen den
+Merge-Ref; die Alerts verschwänden beim Merge und kämen unter neuen Fingerprints zurück. Die Analyse
+selbst läuft weiterhin auch auf PRs — nur der Upload nicht. PR-Uploads lassen sich später gezielt
+nachrüsten.
+
+**Die Security-Einstufung steht am Regel-Objekt, nicht am Ergebnis, und das ist keine Stilfrage.**
+GitHub liest `security-severity` ausschließlich aus
+`runs[].tool.driver.rules[].properties`. Am einzelnen Ergebnis notiert, besteht die Datei zwar jede
+Schema-Validierung, aber die Eigenschaft wird stillschweigend ignoriert — die Befunde erscheinen dann
+ohne die High/Medium/Low-Einstufung und gelten nicht als Security-Alerts. Der erste Entwurf hatte
+genau diesen Fehler, und die grüne Schema-Prüfung hat ihn gedeckt: Ein Validator prüft die Form, nicht
+die Wirkung. Weil Sonar die Severity pro Finding führt und SARIF sie pro Regel, wird eine Regel nach
+ihrem schwersten Fund eingestuft; zusätzlich bekommt sie den `security`-Tag, ohne den GitHub die
+Bewertung nicht als Security-Bewertung liest. Dieser Tag steht **vorn** in der Liste, und die Liste
+ist bei zehn Einträgen gekappt: GitHub speichert pro Regel nur die ersten zehn Tags und verwirft den
+Rest — nicht bloß in der Anzeige, wie die Doku nahelegt, sondern beim Import (belegt durch GitHubs
+eigene Upload-Warnung). Hinten angehängt fiele der Tag bei einer tag-reichen Regel also weg, und die
+Bewertung würde wieder als gewöhnlicher Qualitätsbefund gelesen.
+
+**Drei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
+nicht in `angular.json` verdrahtet: dort eingetragen, würde sie jeden lokalen `npm test`-Lauf
+mitrechnen, obwohl sie nur die CI interessiert. Und der Upload trägt `category: sonarcloud`, damit
+ein später hinzukommender zweiter Scanner unsere Alerts nicht bei jedem eigenen Upload als behoben
+schließt. Und `scripts/**` ist von der Coverage-Messung ausgenommen: CI-Hilfsskripte werden weiter auf
+Fehler analysiert, zählen aber nicht in die Quote — sonst drückte jedes künftige Shell- oder
+Node-Skript die Zahl, und die Quality Gate würde zu einem Dauerrot, das niemand mehr liest.
+
 ### 2026-09-06 — Ungültige Emote-Namen (Nicht-ASCII) werden vor dem Lauf gewarnt, nicht gesperrt (#72)
 
 **Betrifft:** `web/src/app/shared/seven-tv/import-preview.ts`, `web/src/app/shared/seven-tv/import-confirm-dialog.ts`
