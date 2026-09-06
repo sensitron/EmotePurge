@@ -10,6 +10,122 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Der Harness ist ein zweiter Einstiegspunkt des Worker-Images, kein Hosted Service
+
+**Betrifft:** `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`,
+`src/EmotePurge.Worker/Program.cs`, `src/EmotePurge.Worker/WorkerServiceRegistration.cs`,
+`src/EmotePurge.Worker/Harness/` (alle acht Dateien), außerdem — als Träger der geteilten
+Fensterstart-/Stichtag-/Query-Regeln ohne eigenen Eintrag (verhaltensneutrale Refactorings bzw.
+reine Ergänzungen) — `src/EmotePurge.Core/Services/IUsageStatQueryService.cs`,
+`src/EmotePurge.Core/Services/TrackingCoverage.cs`,
+`src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs`,
+`src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs`, und ihre Tests unter
+`tests/EmotePurge.Infrastructure.Tests/{Integration,Unit}/`.
+
+**Der Fall.** Der Chat-Log-Backfill-Harness (#69) braucht dieselbe DI wie der Worker (Bot-Detektor,
+Matching-Klasse, die beiden neuen Lese-Methoden an `IUsageStatQueryService`), aber keinen einzigen
+seiner neun Hosted Services — er soll einen Kanal einmal gegen ein fremdes Log-Archiv nachzählen und
+enden, nicht dauerhaft laufen. Umgesetzt ist ein zweiter Argument-Zweig direkt am Anfang von
+`Program.cs`: kein Argument startet den normalen Worker, genau `harness <kanal> [--days <n>]`
+startet einen Lauf ohne Host-Hintergrunddienste, alles andere endet mit einer deutschen
+stderr-Zeile und einem definierten Exit-Code.
+
+**Warum ein Einmal-Container statt einer weiteren Betriebsart des Worker-Prozesses.** Ein separater
+Prozess macht vier Dinge überflüssig, die ein In-Process-Harness-Modus im Worker erst hätte bauen
+müssen: kein Redis-Kommando zum Auslösen (der Container startet und endet über `docker compose
+run`), keine Einzellauf-Sperre (zwei Prozesse können sich nicht gegenseitig stören, ein zweiter
+gleichzeitiger Lauf ist ein Handgriff des Nutzers, den nichts verhindern muss), keinen
+Konfigurationsschalter zum Umschalten zwischen Betriebsarten, keine Exception-Isolation zwischen
+Harness-Lauf und den neun Hosted Services. Vor allem trifft ein OOM oder ein Runtime-Tod des
+Harness-Containers nicht den Worker, der für alle Kanäle gleichzeitig IRC und den 7TV-EventAPI-Socket
+hält — ein In-Process-Harness-Modus hätte dieselbe Fehlerdomäne geteilt, die die neun Hosted Services
+seit Modul A bewusst in einem einzigen langlebigen Prozess bündelt.
+
+**Warum `harness` im `entrypoint` des Compose-Dienstes steht, nicht im `command`.** `docker compose
+run` ersetzt den `command` eines Dienstes, hängt aber seine eigenen Argumente an den `entrypoint`
+an. Ein `command: ["harness"]` hier würde von jedem `run --rm harness <kanal>` überschrieben, und der
+Container liefe mit den rohen Argumenten `<kanal> --days <n>` — die `HarnessCommandLine.Parse`
+mangels erkanntem Verb als `Invalid` zurückweist (Exit 2), *falls* das die einzige Folge wäre. Ein
+laxerer Parser hätte hier fail-open gewählt und den vollen Worker gestartet: ein zweiter IRC-Counter
+neben dem Prod-Worker, der jede Nutzungszeile über den additiven UPSERT doppelt schriebe, ohne dass
+irgendein Fehler sichtbar würde (Codex-adversarial „Fail-open CLI"). Der `entrypoint` bleibt von
+`docker compose run` unberührt, genau `["dotnet", "EmotePurge.Worker.dll", "harness"]`, und die
+Argumente von `run` landen dahinter — das ist der einzige Grund, warum die Unterscheidung
+zuverlässig funktioniert.
+
+**Die Argument-Grammatik und die Exit-Codes sind ab jetzt ein Vertrag, kein Implementierungsdetail.**
+Grammatik: kein Argument = Worker; `harness <kanal>` oder `harness <kanal> --days <n>` (1–90) = ein
+Lauf; alles andere = Refusal. Exit-Codes, als benannte Konstanten geführt (0/3/4/5/6 an
+`HarnessRunner`, 2 seit diesem Commit ebenfalls dort als `HarnessRunner.ExitInvalidArguments`, statt
+wie zuvor als zwei blanke `return 2`-Literale in `Program.cs`):
+
+| Code | Bedeutung |
+| --- | --- |
+| 0 | Das Fenster wurde vollständig abgearbeitet, beide Endberichte sind geschrieben. |
+| 2 | Die Kommandozeile war ungültig (unbekanntes Verb, fehlender Kanalname, `--days` außerhalb 1–90, überzählige Argumente) — kein Host wurde je gebaut. |
+| 3 | Eine Vorbedingung war verletzt (keine Twitch-ID, zu wenig `UsageStat`-Historie, kein Log für keinen Tag, fremde/beschädigte Bestandsdatei) — die Frage konnte gar nicht gestellt werden. |
+| 4 | Abgebrochen mit Wiederaufnahmepunkt (429, Body-Timeout, Byte-Decke, Transportfehler, `docker stop`/Ctrl-C) — derselbe Aufruf setzt am letzten fertigen Tag fort. |
+| 5 | Undecidable: die Logs tragen weder Badges noch `user-id`, der Bot-Split ist unmöglich — der Ansatz ist neu zu bewerten, kein erneuter Versuch hilft. |
+| 6 | Ein unerwarteter Fehler im Harness selbst, plausibel im Zähl-Callback — bewusst **nicht** unter 4 gefasst: 4 lädt zum „einfach nochmal laufen lassen" ein, ein Defekt in der eigenen Zähllogik begrüßte den Betreiber beim zweiten Versuch identisch. Bereits geschriebene Tageszeilen bleiben gültig. |
+
+**Die geteilten Regeln laufen über dieselben Funktionen wie der Live-Pfad, nicht über Kopien.**
+Fensterstart (`TrackingResumedAt ?? CreatedAt`, jetzt `TrackingCoverage.TrackedSince` in `Core`) und
+Bot-Split-Stichtag (frühestes `Date` mit `BotUseCount > 0`, jetzt
+`IUsageStatQueryService.GetEarliestBotUsageDateAsync`) sind aus `EmoteSetStatusService`
+herausgezogen; Status-Service und `HarnessRunner` rufen beide dieselbe Implementierung. Die beiden
+neuen Lese-Methoden (`GetEmoteLifetimesAsync`, `GetRowsAsync`) filtern über eine skalare
+Emote-ID-Liste vor jedem `GroupBy` (Regel 10), mit Integrationstest gegen echte Testcontainers, nicht
+nur angenommen. Die Matching-Klasse selbst — Zuordnung und Koaleszenz-Regel — hat ihren eigenen
+Eintrag oben („2026-09-05 — Eine Matching-Regel für Live-Pfad, Match-Cache und Harness"); dieser
+Eintrag deckt nur, dass der Harness dieselbe Klasse aufruft, nicht warum sie dort liegt.
+
+**JSONL-Identität und Resume-Regel:** Zeile 1 jeder Berichtsdatei ist ein Kopf mit Kanal-ID,
+eingefrorenem Fenster (Start/Ende beim ersten Lauf fixiert, endet am letzten vollständig
+abgeschlossenen UTC-Tag), Bot-ID-Menge, Algorithmus-Version und einem Input-Hash über Emote- und
+`UsageStat`-Zeilen. Ein neuer Aufruf nimmt eine vorhandene Datei **nur** auf, wenn ihr Kopf
+byte-gleich ist; sonst beginnt eine neue Datei, statt eine fremde Zählung fortzuschreiben. Ein
+Prozesstod kostet dadurch höchstens den gerade offenen Tag, nie einen doppelten Abruf.
+
+**Byte-Decke als Fremdlast-Bremse, nicht als Kapazitätsgrenze.** Der Log-Dienst ist kein
+Vertragspartner (keine ToS, kein Kontakt, `justlog` selbst archiviert) und liefert 30 Tage eines
+großen Kanals mit rund 490 MB. `Harness__MaxMegabytesPerRun` (Compose:
+`HARNESS_MAX_MEGABYTES_PER_RUN`, Default 200) begrenzt die Bytes über alle Tage und alle Resumes
+eines Laufs; ein am Limit abgebrochener Lauf liefert Wiederaufnahmepunkt und Kennzahlen, aber keine
+Replay-Treue für das volle Fenster — deshalb zuerst ein kleiner Kanal.
+
+**`mem_limit` gegen `deploy.resources.limits`:** Das Design-Dokument schreibt an mehreren Stellen
+`mem_limit`; beide Compose-Dateien setzen Ressourcenlimits aber durchgängig als
+`deploy.resources.limits` (S2-21, `api`/`worker`). Der `harness`-Dienst folgt der Datei, nicht dem
+Dokument — dieselbe Form wie seine Nachbarn (1 CPU / 512M) ist wichtiger als Wortgleichheit mit einer
+älteren Beschreibung.
+
+**Bewusst nicht gebaut** (Design „Bewusst weggelassen"): Schemaänderung, Provenance-Spalte, Idempotenz
+in der DB, SSE-Fortschritt, Fenster-Parameter in der UI, Kennzeichnung in Raster/Kurve/Wahlzettel,
+Historie über 30 Tage hinaus, mehrere Log-Anbieter, `HEAD`-Vorprüfung, ein Api-Endpunkt als Auslöser,
+`RateLimiter` (für konkurrierende Aufrufer gebaut, hier gibt es genau einen sequenziellen). Das sind
+keine vertagten Aufgaben dieses Tasks, sondern für den Harness als Versuchsaufbau nie vorgesehen.
+
+**Handgriffe des Nutzers auf dem VPS** (SSH-Regel: nie selbst verbinden). Im Stack-Verzeichnis, in
+dem Portainer die Compose-Datei ablegt (`<STACK-DIR>`, `.env` liegt daneben):
+
+```
+docker compose -f docker-compose.prod.yml pull harness
+docker compose -f docker-compose.prod.yml run --rm harness <kanal>          # optional: --days <n>
+```
+
+Ein zweiter Aufruf mit derselben Zeile nimmt am letzten fertigen Tag wieder auf. `pull` zuerst ist
+kein Stilwunsch: ohne ihn führt `run` das lokal bereits vorhandene, möglicherweise alte
+`:latest`-Image weiter aus (s. Eintrag „Prod-Redeploy fährt still das alte Image weiter" im Memory
+dieses Projekts) — der Harness liefe dann gegen einen Codestand, der die gemessenen Zahlen gar nicht
+mehr erzeugt. Bericht und Protokoll danach lokal abholen:
+
+```
+scp vps:<STACK-DIR>/harness-reports/<datei>.report.md .
+scp vps:<STACK-DIR>/harness-reports/<datei>.jsonl .
+```
+
+---
+
 ### 2026-09-05 — Eine Matching-Regel für Live-Pfad, Match-Cache und Harness
 
 **Betrifft:** `src/EmotePurge.Core/Matching/EmoteNameMatching.cs`,

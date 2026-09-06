@@ -50,6 +50,14 @@ public sealed class HarnessRunner(
     /// <summary>The window covered completely; both final reports were written.</summary>
     public const int ExitSuccess = 0;
 
+    /// <summary>
+    /// The command line did not parse (see <see cref="HarnessCommandLine.Parse"/>): unknown verb,
+    /// missing channel, malformed <c>--days</c>, or extra arguments. Returned by <c>Program</c>
+    /// before a host is even built, so it lives here only as a named constant for the exit-code
+    /// list to stay in one place — the value itself never runs through <see cref="RunAsync"/>.
+    /// </summary>
+    public const int ExitInvalidArguments = 2;
+
     /// <summary>A precondition was violated; the question could not be asked at all.</summary>
     public const int ExitPreconditionViolated = 3;
 

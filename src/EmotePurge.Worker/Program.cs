@@ -13,7 +13,7 @@ switch (HarnessCommandLine.Parse(args))
 {
     case HarnessCommandLineResult.Invalid invalid:
         await Console.Error.WriteLineAsync(invalid.Message);
-        return 2;
+        return HarnessRunner.ExitInvalidArguments;
 
     case HarnessCommandLineResult.RunHarness harness:
         return await RunHarnessAsync(harness);
@@ -28,7 +28,7 @@ switch (HarnessCommandLine.Parse(args))
         // failure mode is named "fail open" — a fourth case added later must stop here, not boot IRC.
         await Console.Error.WriteLineAsync(
             "Unerwartetes Ergebnis der Argumentprüfung; der Worker wird nicht gestartet.");
-        return 2;
+        return HarnessRunner.ExitInvalidArguments;
 }
 
 async Task RunWorkerAsync()

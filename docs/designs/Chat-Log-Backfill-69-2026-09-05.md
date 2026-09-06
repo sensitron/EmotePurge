@@ -836,4 +836,35 @@ liegt als Kommentar in #69 (T8-Abschluss).
 - **CROSS-MODEL:** Claude-Review und Codex überlappen bei Resume-Semantik und Schwellen; Codex allein brachte Zirkularität, Prozessgrenze und Repräsentativität; Claude allein brachte Body-Timeout, `TwitchChannelId` null, DRY zu `EmoteSetStatusService`, Golden-Fixtures.
 - **VERDICT:** ENG CLEARED — ready to implement (T8 erledigt, Codex adversarial eingearbeitet, Plan als nächster Schritt).
 
+## Nachtrag 2026-09-06: zwei bewusste Abweichungen der Umsetzung
+
+Ergänzung, keine Umschreibung der Vorgeschichte oben — die Textstellen bleiben stehen, damit die
+Entscheidungsfindung nachvollziehbar bleibt. Beide Punkte sind Ist-Stand nach T1–T7, nicht
+nachträglich zu „korrigieren".
+
+**Die geteilte Matching-Klasse liegt in `EmotePurge.Core.Matching.EmoteNameMatching`, nicht im
+Worker.** Dieses Dokument nennt an mehreren Stellen (u. a. „Worktree-Parallelisierung" und die
+Implementation Tasks zu T1) `Worker/` bzw. `tests/EmotePurge.Worker.Tests` als Ort der Klasse. Das
+ist mit der Schichtentreue-Tabelle in `CLAUDE.md` unvereinbar: `SevenTvSyncService` liegt in
+`EmotePurge.Infrastructure`, und `Infrastructure` darf laut Tabelle nur auf `Core` verweisen, nie
+auf `Worker`. Eine Klasse, die Live-Pfad (Worker) *und* Match-Cache-Aufbau (Infrastructure)
+gemeinsam benutzen, kann also nur in `Core` stehen — `CoreAssemblyReferenceTests` erzwingt das.
+Umgesetzt und begründet in `docs/DECISIONS.md` unter „2026-09-05 — Eine Matching-Regel für
+Live-Pfad, Match-Cache und Harness"; der Test liegt entsprechend in
+`tests/EmotePurge.Infrastructure.Tests/Unit/EmoteNameMatchingTests.cs`.
+
+**Der Median für die Abdeckungs-Markierung (D2) läuft nur über Tage mit Log, nicht über „alle
+Tage mit definiertem Verhältnis".** Wörtlich genommen zählten Tage ohne Log mit einem
+Tagesverhältnis von 0 in den Median hinein und drückten ihn nach unten — genau die Tage, die
+`hasLog` bereits aus der Wertung nimmt, würden über den Umweg des Medians doch wieder
+mitentscheiden und ausgerechnet die intakten Tage als „Abdeckung fraglich" markieren. Ein Tag ohne
+Log ist ohnehin kein Kandidat für die Markierung, seine Nichtberücksichtigung im Median ist also
+keine Lockerung der Regel, sondern deren konsistente Fortsetzung. `ReplayFidelityCalculatorTests`
+nagelt diese Lesart fest.
+
+Kleinere Anpassung ohne eigenen Abschnitt: `ReplayFidelityCalculator.Compute` nimmt zwei Parameter
+mehr als in den Implementation Tasks angedeutet (Anzahl gedrosselter Anfragen, Wiederaufnahmepunkt)
+— beide kommen vom Runner, weil sie aus den Ereigniszeilen stammen, nicht aus den Tageszeilen
+(s. Kommentar in `HarnessRunner.ExecuteAsync`, Abschnitt zu `rateLimitedDays`).
+
 NO UNRESOLVED DECISIONS
