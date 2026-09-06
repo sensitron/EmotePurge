@@ -60,6 +60,16 @@ Merge-Ref; die Alerts verschwänden beim Merge und kämen unter neuen Fingerprin
 selbst läuft weiterhin auch auf PRs — nur der Upload nicht. PR-Uploads lassen sich später gezielt
 nachrüsten.
 
+**Die Security-Einstufung steht am Regel-Objekt, nicht am Ergebnis, und das ist keine Stilfrage.**
+GitHub liest `security-severity` ausschließlich aus
+`runs[].tool.driver.rules[].properties`. Am einzelnen Ergebnis notiert, besteht die Datei zwar jede
+Schema-Validierung, aber die Eigenschaft wird stillschweigend ignoriert — die Befunde erscheinen dann
+ohne die High/Medium/Low-Einstufung und gelten nicht als Security-Alerts. Der erste Entwurf hatte
+genau diesen Fehler, und die grüne Schema-Prüfung hat ihn gedeckt: Ein Validator prüft die Form, nicht
+die Wirkung. Weil Sonar die Severity pro Finding führt und SARIF sie pro Regel, wird eine Regel nach
+ihrem schwersten Fund eingestuft; zusätzlich bekommt sie den `security`-Tag, ohne den GitHub die
+Bewertung nicht als Security-Bewertung liest.
+
 **Zwei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
 nicht in `angular.json` verdrahtet: dort eingetragen, würde sie jeden lokalen `npm test`-Lauf
 mitrechnen, obwohl sie nur die CI interessiert. Und der Upload trägt `category: sonarcloud`, damit

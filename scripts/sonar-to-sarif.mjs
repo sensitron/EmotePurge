@@ -259,23 +259,49 @@ function ruleHelpUri(hostUrl, organization, ruleKey) {
   return `${hostUrl}/organizations/${encodeURIComponent(organization)}/rules?open=${encodeURIComponent(ruleKey)}&rule_key=${encodeURIComponent(ruleKey)}`;
 }
 
+// GitHub reads security-severity from the RULE descriptor
+// (runs[].tool.driver.rules[].properties.security-severity), never from a result's own
+// properties bag. Placing it on the result passes SARIF schema validation but is silently
+// ignored, so the findings lose their High/Medium/Low classification. Sonar carries the
+// severity per issue while SARIF carries it per rule, so a rule that produced several
+// vulnerabilities is scored by its worst one.
+function buildSecuritySeverityByRule(issues) {
+  const byRule = new Map();
+  for (const issue of issues) {
+    if (issue.type !== "VULNERABILITY") continue;
+    const score = Number(securitySeverityScore(issue.severity));
+    const current = byRule.get(issue.rule);
+    if (current === undefined || score > current) byRule.set(issue.rule, score);
+  }
+  return new Map([...byRule].map(([ruleKey, score]) => [ruleKey, score.toFixed(1)]));
+}
+
 // Builds the SARIF rule (reportingDescriptor) objects, in the same order the caller
 // will use for ruleIndex. Missing metadata degrades to the rule key as name/description
 // rather than failing the export.
-function buildRuleEntries(ruleKeys, metadataByKey, hostUrl, organization) {
+function buildRuleEntries(ruleKeys, metadataByKey, hostUrl, organization, securitySeverityByRule) {
   return ruleKeys.map((ruleKey) => {
     const meta = metadataByKey.get(ruleKey);
     const name = meta?.name ?? ruleKey;
     const fullDescriptionText = htmlToPlainText(meta?.htmlDesc) ?? name;
     const tags = [...(meta?.sysTags ?? [])];
     if (meta?.type) tags.push(meta.type.toLowerCase().replace("_", "-"));
+
+    const properties = { tags };
+    const securitySeverity = securitySeverityByRule?.get(ruleKey);
+    if (securitySeverity !== undefined) {
+      properties["security-severity"] = securitySeverity;
+      // GitHub only treats a scored rule as a security rule when it is tagged as one.
+      if (!tags.includes("security")) tags.push("security");
+    }
+
     return {
       id: ruleKey,
       name,
       shortDescription: { text: name },
       fullDescription: { text: fullDescriptionText },
       helpUri: ruleHelpUri(hostUrl, organization, ruleKey),
-      properties: { tags },
+      properties,
     };
   });
 }
@@ -360,10 +386,6 @@ function buildResult(issue, projectKey, ruleIndexByKey) {
     result.partialFingerprints = { primaryLocationLineHash: issue.hash };
   }
 
-  if (issue.type === "VULNERABILITY") {
-    result.properties = { "security-severity": securitySeverityScore(issue.severity) };
-  }
-
   return result;
 }
 
@@ -446,7 +468,14 @@ async function main() {
     );
   }
 
-  const ruleEntries = buildRuleEntries(uniqueRuleKeys, ruleMetadata, env.sonarHostUrl, env.organization ?? "unknown");
+  const securitySeverityByRule = buildSecuritySeverityByRule(issues);
+  const ruleEntries = buildRuleEntries(
+    uniqueRuleKeys,
+    ruleMetadata,
+    env.sonarHostUrl,
+    env.organization ?? "unknown",
+    securitySeverityByRule,
+  );
   const ruleIndexByKey = new Map(uniqueRuleKeys.map((key, index) => [key, index]));
 
   let skippedNoFile = 0;
@@ -566,4 +595,5 @@ export {
   severityToSarifLevel,
   securitySeverityScore,
   buildRuleEntries,
+  buildSecuritySeverityByRule,
 };
