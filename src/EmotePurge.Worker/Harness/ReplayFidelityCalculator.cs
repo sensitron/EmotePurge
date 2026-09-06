@@ -574,8 +574,8 @@ public static class ReplayFidelityCalculator
             return null;
         }
 
-        var liveRanks = MidRanks([.. entries.Select(e => (double)e.Live)]);
-        var logRanks = MidRanks([.. entries.Select(e => (double)e.Log)]);
+        var liveRanks = MidRanks([.. entries.Select(e => e.Live)]);
+        var logRanks = MidRanks([.. entries.Select(e => e.Log)]);
 
         double meanLive = liveRanks.Average();
         double meanLog = logRanks.Average();
@@ -594,7 +594,13 @@ public static class ReplayFidelityCalculator
         return liveVariance == 0 || logVariance == 0 ? null : covariance / Math.Sqrt(liveVariance * logVariance);
     }
 
-    private static double[] MidRanks(double[] values)
+    /// <summary>
+    /// Average ranks, with tied values sharing the mean of the ranks they span. Takes the counts as
+    /// they are rather than widened to double: the tie test below is an exact comparison, and on
+    /// counts that is the point — two emotes tie when they were used the same number of times, never
+    /// when they were used a similar number of times.
+    /// </summary>
+    private static double[] MidRanks(long[] values)
     {
         var order = Enumerable.Range(0, values.Length).OrderBy(i => values[i]).ToArray();
         var ranks = new double[values.Length];
