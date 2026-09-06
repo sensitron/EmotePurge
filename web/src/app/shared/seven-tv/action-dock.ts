@@ -12,8 +12,8 @@
  * produced an accent-framed bar with nothing in it, plus the `pb-40` of empty space the page keeps
  * free for it. This function is what the bar and that padding are bound to instead.
  *
- * Pure rather than inlined in the page's `computed`, so the empty-bar case can be pinned by a test:
- * Regel 12 rules out an isolated component test for the page itself.
+ * Pure rather than inlined in the page's `computed`, so the empty-bar case can be pinned by a test
+ * that does not have to stand the whole usage-stats page up in a TestBed.
  */
 export interface ActionDockState {
   /** This channel has an active 7TV set — without one the marking half renders nothing. */
