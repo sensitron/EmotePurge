@@ -149,7 +149,7 @@ scp vps:<STACK-DIR>/harness-reports/<datei>.report.md .
 scp vps:<STACK-DIR>/harness-reports/<datei>.jsonl .
 ```
 
-**Nachtrag (Task 8a, selbes Thema, ein Tag später) — zwei Defekte aus der Live-Verifikation
+**Nachtrag (Task 8a, selbes Thema, selber Tag) — zwei Defekte aus der Live-Verifikation
 behoben.**
 
 *Lauf-Identität stabilisiert.* `HarnessInputHash` nahm bislang `Emote.LastSyncedAt` als vollen
