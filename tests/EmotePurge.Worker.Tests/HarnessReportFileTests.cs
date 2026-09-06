@@ -71,6 +71,35 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void AnAppendAfterATruncatedLastLine_DropsTheFragmentInsteadOfGluingOntoIt()
+    {
+        // The crash this reproduces: the process died mid-Append, leaving a fragment with no
+        // trailing newline. Before the fix, the next Append landed right after that fragment,
+        // turning an ignorable dropped-last-line into corruption in the *middle* of the file — which
+        // ADamagedLineInTheMiddle_IsRefusedRatherThanSilentlySkipped shows the reader refuses to run
+        // past. This test walks the full path: truncated tail on disk, then a real append, then a
+        // read that must see every complete day and nothing else.
+        var identity = Identity();
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+        file.AppendDay(Day(new DateOnly(2026, 9, 2)));
+        File.AppendAllText(file.Path, "{\"kind\":\"day\",\"day\":{\"day\":\"2026-09-03\",\"stat");
+
+        file.AppendDay(Day(new DateOnly(2026, 9, 4)));
+
+        var content = file.ReadDays();
+        Assert.Equal(2, content.Days.Count);
+        Assert.Equal(new DateOnly(2026, 9, 2), content.Days[0].Day);
+        Assert.Equal(new DateOnly(2026, 9, 4), content.Days[1].Day);
+
+        // The file itself is intact, not just readable by luck: every line up to and including the
+        // last one is complete JSON, so a second read (and a third append) behaves the same way.
+        var lines = File.ReadAllText(file.Path);
+        Assert.EndsWith("\n", lines);
+        Assert.DoesNotContain("2026-09-03", lines);
+    }
+
+    [Fact]
     public void ADayLine_KeepsItsCountsAcrossTheRoundTrip()
     {
         var identity = Identity();

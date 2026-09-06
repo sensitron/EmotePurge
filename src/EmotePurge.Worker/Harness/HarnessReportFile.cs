@@ -324,7 +324,43 @@ public sealed class HarnessReportFile
         WriteAtomically(ReportMarkdownPath, markdown);
     }
 
-    private void Append(HarnessJsonLine line) => File.AppendAllText(Path, Serialize(line));
+    private void Append(HarnessJsonLine line)
+    {
+        RemoveDanglingTail();
+        File.AppendAllText(Path, Serialize(line));
+    }
+
+    /// <summary>
+    /// Drops a truncated last line — the trace of a process that died mid-write — before the next
+    /// line is appended. Left alone, the fragment would sit under the new line and turn what
+    /// <see cref="ReadDays"/> can still shrug off as a dropped, unfinished day into corruption in the
+    /// middle of the file, which it refuses to continue past.
+    /// <para>
+    /// Runs here, on the write path, rather than inside <see cref="ReadDays"/>, so a read never
+    /// mutates the file on disk — that would be surprising for a method whose name promises only
+    /// reading. Every complete line this class ever writes ends in <c>"\n"</c> (<see cref="Serialize"/>),
+    /// so a file not ending in one can only be a write that was cut off mid-flight — the exact case
+    /// <see cref="ReadDays"/> already treats as "the last line, drop it" — and truncating back to the
+    /// last newline is enough to undo it.
+    /// </para>
+    /// </summary>
+    private void RemoveDanglingTail()
+    {
+        if (!File.Exists(Path))
+        {
+            return;
+        }
+
+        var bytes = File.ReadAllBytes(Path);
+        if (bytes.Length == 0 || bytes[^1] == (byte)'\n')
+        {
+            return;
+        }
+
+        var lastNewline = Array.LastIndexOf(bytes, (byte)'\n');
+        using var stream = new FileStream(Path, FileMode.Open, FileAccess.Write);
+        stream.SetLength(lastNewline + 1);
+    }
 
     private static string Serialize(HarnessJsonLine line) => JsonSerializer.Serialize(line, LineOptions) + "\n";
 
