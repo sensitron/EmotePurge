@@ -108,7 +108,6 @@ jobs:
           /d:sonar.javascript.lcov.reportPaths="web/coverage/web/lcov.info"
           /d:sonar.exclusions="**/Migrations/**,src/EmotePurge.Api/wwwroot/**,web/dist/**,**/node_modules/**"
           /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**"
-          /d:sonar.cs.roslyn.ignoreIssues=true
 
       # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
       # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
