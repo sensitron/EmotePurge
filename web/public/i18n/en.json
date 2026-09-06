@@ -930,6 +930,10 @@
         "one": "{{ count }} name is already taken in the target set — 7TV will reject this emote:",
         "other": "{{ count }} names are already taken in the target set — 7TV will reject these emotes:"
       },
+      "invalidNames": {
+        "one": "{{ count }} name contains characters 7TV cannot create — 7TV will reject this emote:",
+        "other": "{{ count }} names contain characters 7TV cannot create — 7TV will reject these emotes:"
+      },
       "discardedRows": {
         "one": "{{ count }} invalid row in the source discarded.",
         "other": "{{ count }} invalid rows in the source discarded."

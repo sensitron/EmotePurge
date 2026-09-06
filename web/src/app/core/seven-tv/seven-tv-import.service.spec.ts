@@ -178,7 +178,9 @@ describe('SevenTvImportService', () => {
   it('keeps running on an ordinary 7TV rejection', () => {
     service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS);
 
-    httpMock.expectOne(GQL_ENDPOINT).flush({ errors: [{ message: 'conflicting name' }] });
+    httpMock
+      .expectOne(GQL_ENDPOINT)
+      .flush({ errors: [{ message: 'BAD_REQUEST this emote has a conflicting name' }] });
     vi.advanceTimersByTime(RUN_DELAY_MS);
     httpMock.expectOne(GQL_ENDPOINT).flush({});
     vi.advanceTimersByTime(RUN_DELAY_MS);

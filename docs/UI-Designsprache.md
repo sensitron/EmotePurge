@@ -332,7 +332,9 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   `no-set`-Banner / `failed`-Banner mit Retry) → geteiltes-Set-Warnung (error) oder „Prüfung nicht
   möglich" (warning) → Slot-Projektion (Überlauf als Warnbanner, sonst stiller Text) →
   Veraltet-Hinweis, wenn der letzte Sync des Ziels fehlgeschlagen ist → „bereits im Zielset"-Zeile →
-  Namenskollisionen-Zeile + `NamePreviewList` → **verworfene Zeilen vor zusammengefassten
+  Namenskollisionen-Zeile + `NamePreviewList` → ungültige-Namen-Zeile + `NamePreviewList`
+  (Nicht-ASCII-Zeichen im Emote-Namen — beide Zeilen sagen „7TV wird das ablehnen" und stehen
+  deshalb nebeneinander) → **verworfene Zeilen vor zusammengefassten
   Duplikaten** (echter Datenverlust wiegt schwerer als bloße Konsolidierung — der Grund steht bei
   `discardedRows`/`duplicatesCollapsed`) → „nichts hinzuzufügen"-Banner → „Diese Liste stammt aus
   diesem Kanal" → der stille Hinweis auf den automatischen Lauf → (nur im Ladezustand: der

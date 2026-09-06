@@ -10,6 +10,29 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Ungültige Emote-Namen (Nicht-ASCII) werden vor dem Lauf gewarnt, nicht gesperrt (#72)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-preview.ts`, `web/src/app/shared/seven-tv/import-confirm-dialog.ts`
+
+Im Live-Test lehnte 7TV zwei Emote-Namen mit Umlaut (`Hänno`, `HörMalZuBrudi`) beim Anlegen im
+Zielset ab (`Failed to parse "String": invalid emote name`) — der Lauf verhielt sich korrekt
+(Zeilenfehler, Lauf lief weiter), aber der Nutzer erfuhr es erst nach dem Schreiben. Der
+Bestätigungsdialog prüft Namen deshalb jetzt clientseitig vorab und zeigt sie neben den
+Namenskollisionen als zweite, gleichartige Warnung.
+
+Die Regel ist bewusst eng: belegt ist ausschließlich, dass 7TV Nicht-ASCII-Zeichen im Emote-Namen
+(nicht im Alias) ablehnt — genau die beiden beobachteten Fälle. 7TVs vollständiger erlaubter
+Zeichensatz ist unbekannt, und ihn zu raten ist in diesem Projekt schon zweimal schiefgegangen
+(#33, #37: Code und Mock teilten dieselbe falsche Annahme, Tests grün, Sache trotzdem kaputt). Die
+Prüfung bleibt daher auf reines Nicht-ASCII beschränkt statt eine Regex für erlaubte
+Sonderzeichen nachzubauen; wird ein weiterer Ablehnungsgrund beobachtet, wird die Regel erweitert,
+nicht gelockert.
+
+Wie bei Namenskollisionen ist es eine Warnung, keine Sperre: betroffene Zeilen bleiben im Lauf.
+Ändert 7TV seine Regeln, verschwindet dadurch nichts stillschweigend aus dem Ergebnis.
+
+---
+
 ### 2026-09-06 — Nachlauf-an-Laufobjekt gilt für alle drei 7TV-Läufe, auch die beiden ausgelieferten (#72, T12)
 
 **Betrifft:** `web/src/app/core/seven-tv/seven-tv-delete.service.ts`, `web/src/app/core/seven-tv/seven-tv-restore.service.ts`

@@ -197,6 +197,14 @@ type BlockReason = string | null;
             <app-name-preview-list [names]="preview.nameCollisions" />
           </div>
         }
+        @if (preview.invalidNames.length > 0) {
+          <div class="flex flex-col gap-1">
+            <p class="text-sm text-fg-secondary">
+              {{ invalidNamesKey() | transloco: { count: preview.invalidNames.length } }}
+            </p>
+            <app-name-preview-list [names]="preview.invalidNames" />
+          </div>
+        }
       }
 
       @if (data.source.discardedRows > 0 || data.source.duplicatesCollapsed > 0) {
@@ -294,6 +302,10 @@ export class ImportConfirmDialog {
 
   protected readonly nameCollisionsKey = computed(() =>
     pluralKey(this.preview()?.nameCollisions.length ?? 0, 'import.confirm.nameCollisions'),
+  );
+
+  protected readonly invalidNamesKey = computed(() =>
+    pluralKey(this.preview()?.invalidNames.length ?? 0, 'import.confirm.invalidNames'),
   );
 
   protected readonly discardedRowsKey = pluralKey(

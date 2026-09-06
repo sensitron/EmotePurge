@@ -930,6 +930,10 @@
         "one": "{{ count }} Name ist im Zielset schon vergeben — 7TV wird dieses Emote ablehnen:",
         "other": "{{ count }} Namen sind im Zielset schon vergeben — 7TV wird diese Emotes ablehnen:"
       },
+      "invalidNames": {
+        "one": "{{ count }} Name enthält Zeichen, die 7TV nicht anlegen kann — 7TV wird dieses Emote ablehnen:",
+        "other": "{{ count }} Namen enthalten Zeichen, die 7TV nicht anlegen kann — 7TV wird diese Emotes ablehnen:"
+      },
       "discardedRows": {
         "one": "{{ count }} ungültige Zeile in der Quelle verworfen.",
         "other": "{{ count }} ungültige Zeilen in der Quelle verworfen."

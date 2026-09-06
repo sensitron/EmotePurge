@@ -39,6 +39,7 @@ describe('buildImportPreview', () => {
       { sevenTvEmoteId: 'new-2', name: 'Kappa' },
     ]);
     expect(result.nameCollisions).toEqual(['PogU']);
+    expect(result.invalidNames).toEqual([]);
   });
 
   it('compares names ordinally — a case difference is not a collision', () => {
@@ -72,5 +73,40 @@ describe('buildImportPreview', () => {
     expect(result.toAdd).toEqual([]);
     expect(result.alreadyPresent).toBe(1);
     expect(result.nameCollisions).toEqual([]);
+  });
+
+  it('flags a non-ASCII name as invalid — 7TV rejects umlauts in the emote name itself', () => {
+    const target: EmoteListItem[] = [];
+
+    const result = buildImportPreview(
+      source([
+        { sevenTvEmoteId: 'new-1', name: 'Hänno' },
+        { sevenTvEmoteId: 'new-2', name: 'HörMalZuBrudi' },
+        { sevenTvEmoteId: 'new-3', name: 'Kappa' },
+      ]),
+      target,
+    );
+
+    expect(result.invalidNames).toEqual(['Hänno', 'HörMalZuBrudi']);
+    // Informational only, like nameCollisions: the rows are not filtered out of toAdd.
+    expect(result.toAdd.map((row) => row.sevenTvEmoteId)).toEqual(['new-1', 'new-2', 'new-3']);
+  });
+
+  it('does not flag a name that is only an ASCII name collision', () => {
+    const target: EmoteListItem[] = [{ sevenTvEmoteId: 'existing-1', name: 'PogU' }];
+
+    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: 'PogU' }]), target);
+
+    expect(result.nameCollisions).toEqual(['PogU']);
+    expect(result.invalidNames).toEqual([]);
+  });
+
+  it('reports a name that is both an invalid name and a collision in both lists', () => {
+    const target: EmoteListItem[] = [{ sevenTvEmoteId: 'existing-1', name: 'Hänno' }];
+
+    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: 'Hänno' }]), target);
+
+    expect(result.nameCollisions).toEqual(['Hänno']);
+    expect(result.invalidNames).toEqual(['Hänno']);
   });
 });
