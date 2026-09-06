@@ -226,7 +226,12 @@ public sealed class HarnessRunner(
         var window = new ReplayWindow(from, to, botSplitCutover);
 
         var dayLines = existing.Days.ToDictionary(d => d.Day);
-        var bytesUsed = existing.Days.Sum(d => d.Bytes);
+        // Both finished days and aborted-but-received attempts count against the cap: a day that
+        // ended in ByteCapExceeded/BodyTimeout/TransportFailure still pulled bytes out of the archive,
+        // it just never became a day line. Without the event half, five resumes could each burn a
+        // fresh cap's worth of bytes against a service that never agreed to any of it (DECISIONS: the
+        // cap is a foreign-load brake "über alle Tage und alle Resumes eines Laufs").
+        var bytesUsed = existing.Days.Sum(d => d.Bytes) + existing.Events.Sum(e => e.Bytes);
         var capBytes = (long)options.MaxMegabytesPerRun * BytesPerMegabyte;
 
         // Plan-Entscheidung 13: the window-wide chatter set is transient and never written, so a
@@ -328,7 +333,7 @@ public sealed class HarnessRunner(
 
                 default:
                     AppendAbort(file, day, result.Status.ToString(), result.HttpStatusCode,
-                        $"Log-Archiv-Abruf endete mit {result.Status}.");
+                        $"Log-Archiv-Abruf endete mit {result.Status}.", result.BytesReceived);
                     LogResumePoint(dayLines, result.Status.ToString(), day);
                     return ExitAbortedWithResumePoint;
             }
@@ -368,8 +373,9 @@ public sealed class HarnessRunner(
         return ExitSuccess;
     }
 
-    private void AppendAbort(HarnessReportFile file, DateOnly day, string status, int? httpStatusCode, string message) =>
-        file.AppendEvent(new HarnessEventLine(timeProvider.GetUtcNow().UtcDateTime, day, status, httpStatusCode, message));
+    private void AppendAbort(
+        HarnessReportFile file, DateOnly day, string status, int? httpStatusCode, string message, long bytes = 0) =>
+        file.AppendEvent(new HarnessEventLine(timeProvider.GetUtcNow().UtcDateTime, day, status, httpStatusCode, message, bytes));
 
     private void LogResumePoint(Dictionary<DateOnly, ReplayDayLine> dayLines, string reason, DateOnly day)
     {
@@ -449,11 +455,14 @@ public sealed class HarnessRunner(
         Row(text, "Gesamtabweichung Σ\\|Log − Live\\| / ΣLive", Ratio(gate.TotalDeviation), "≤ 0.10");
         Row(text, "Top-20-Recall", Ratio(gate.Top20Recall), "≥ 0.90");
         Row(text, "Unteres-Quartil-Precision", Ratio(gate.BottomQuartilePrecision), "≥ 0.80");
-        Row(text, "Gewertete Tage", Invariant($"{gate.RatedDays}"), "≥ 20");
+        Row(text, "Gewertete Tage",
+            Invariant($"{gate.RatedDays} (davon {diagnostics.SignallessRatedDays} signallos)"), "≥ 20");
         Row(text, "Fensterlänge", Invariant($"{report.Run.WindowDays}"), "= 30");
 
         text.Append(Invariant($"\nImport-Population: {gate.PopulationSize} Emotes · ΣLog (human) {gate.HumanLogTotal} · ΣLive (human) {gate.HumanLiveTotal}"));
         text.Append(Invariant($" · Top-20-Größe {gate.Top20Size} · Quartilsgröße {gate.BottomQuartileSize}"));
+        text.Append(Invariant(
+            $", davon {gate.BottomQuartileLiveTieCount} auf dem Live-Grenzwert und {gate.BottomQuartileLogTieCount} auf dem Log-Grenzwert"));
         text.Append(Invariant($" · davon signallose gewertete Tage {diagnostics.SignallessRatedDays}\n"));
 
         text.Append("\n## Plausibilität (mit Bots, alle Tage mit Log)\n\n| Feld | Wert |\n| --- | --- |\n");

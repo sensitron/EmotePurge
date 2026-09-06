@@ -128,6 +128,42 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void AnEventLine_KeepsItsBytesAcrossTheRoundTrip()
+    {
+        var identity = Identity();
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+        file.AppendEvent(new HarnessEventLine(
+            DateTime.UtcNow, new DateOnly(2026, 9, 3), "TransportFailure", 502, "Transportfehler.", Bytes: 12_345));
+
+        var line = Assert.Single(file.ReadDays().Events);
+
+        Assert.Equal(12_345, line.Bytes);
+    }
+
+    [Fact]
+    public void AnEventLineWrittenBeforeTheBytesField_StillDeserializesWithZeroBytes()
+    {
+        // A file from before this field existed carries no "bytes" property on its event lines at
+        // all — not the record's default working out to 0 in memory, but the literal absence of the
+        // key in the JSON on disk. Reading it must not throw, and the missing byte cost must read as
+        // 0 rather than as "unknown" (an aborted day before this field existed truly cost nothing
+        // towards the byte cap as far as the file can say).
+        var identity = Identity();
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+        File.AppendAllText(
+            file.Path,
+            "{\"kind\":\"event\",\"event\":{\"atUtc\":\"2026-09-03T00:00:00Z\",\"day\":\"2026-09-03\","
+            + "\"status\":\"RateLimited\",\"httpStatusCode\":429,\"message\":\"gedrosselt\"}}\n");
+
+        var line = Assert.Single(file.ReadDays().Events);
+
+        Assert.Equal(0, line.Bytes);
+        Assert.Equal(429, line.HttpStatusCode);
+    }
+
+    [Fact]
     public void TheFinalReport_IsWrittenAtomicallyAndLeavesNoTempFile()
     {
         var identity = Identity();

@@ -139,6 +139,17 @@ public sealed record ReplayDayRatio(DateOnly Day, long LogTotal, long LiveTotal,
 /// is the human hit count), whereas <see cref="ReplayPlausibility"/> right next to them in the
 /// report sums both sides <b>with</b> bots. The three numbers are not comparable.
 /// </para>
+/// <para>
+/// <c>BottomQuartileLiveTieCount</c> and <c>BottomQuartileLogTieCount</c> are read-only visibility
+/// into the tie-break, never a second gate: both rankings break ties ordinally by emote id, so
+/// <c>TakeLast(BottomQuartileSize)</c> can cut in the middle of a block of equal counts, and which
+/// side of the cut an id lands on is then decided by its GUID rather than by anything about its
+/// usage. Each field counts how many population entries share the exact count value sitting at that
+/// ranking's cut point — a long-tailed population (many emotes tied at, say, one use over the whole
+/// window) can make this most of <c>BottomQuartileSize</c>, at which point
+/// <c>BottomQuartilePrecision</c> is largely tie-break noise rather than a measured rank deviation.
+/// The pre-registered threshold and the ranking itself are unchanged; this is purely a reading aid.
+/// </para>
 /// </summary>
 public sealed record ReplayGateMetrics(
     int RatedDays,
@@ -150,6 +161,8 @@ public sealed record ReplayGateMetrics(
     int Top20Size,
     double? BottomQuartilePrecision,
     int BottomQuartileSize,
+    int BottomQuartileLiveTieCount,
+    int BottomQuartileLogTieCount,
     bool GateEligible,
     ValueList<string> GateIneligibleReasons);
 

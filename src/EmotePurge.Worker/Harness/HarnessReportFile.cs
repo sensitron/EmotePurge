@@ -34,8 +34,15 @@ public sealed record HarnessReportHeader(HarnessRunIdentity Identity, DateTime L
 /// Something that happened to the run but produced no day: a 429, a body timeout, an exhausted byte
 /// budget, a cancellation. Written so the next run can carry the count into its final report — the
 /// day lines alone would say nothing about how often the archive refused.
+/// <para>
+/// <paramref name="Bytes"/> defaults to 0 so a file written before this field existed keeps
+/// deserializing: its event lines simply carry no byte cost, which is the correct reading for them
+/// (see the resume accounting in <see cref="HarnessRunner"/>). Not an <see cref="HarnessRunner.AlgorithmVersion"/>
+/// bump — the day-line shape this field guards did not change.
+/// </para>
 /// </summary>
-public sealed record HarnessEventLine(DateTime AtUtc, DateOnly Day, string Status, int? HttpStatusCode, string Message);
+public sealed record HarnessEventLine(
+    DateTime AtUtc, DateOnly Day, string Status, int? HttpStatusCode, string Message, long Bytes = 0);
 
 /// <summary>Everything the protocol holds below its header.</summary>
 public sealed record HarnessReportContent(IReadOnlyList<ReplayDayLine> Days, IReadOnlyList<HarnessEventLine> Events);

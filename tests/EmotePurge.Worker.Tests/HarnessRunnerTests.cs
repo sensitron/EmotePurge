@@ -242,11 +242,45 @@ public class HarnessRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task ACompleteRun_WritesBothReportsAndTheGateFieldsOfTheCalculator()
+    public async Task ADayThatAbortedWithoutABodyStillSpendsFromTheCap_AndTheNextRunKnowsIt()
     {
+        // Day 1 fails via TransportFailure after receiving 900 KB — a wasted transfer that produces
+        // only an event line, never a day line. If those bytes were forgotten on resume (Befund 1),
+        // the second run would see the full 1 MB cap again instead of the roughly 148 KB actually
+        // left; five such resumes could each burn a fresh cap's worth against a service that never
+        // agreed to any of it.
+        RespondWith(_ => new ChatLogDayResult(ChatLogDayStatus.TransportFailure, 900_000, null, 0, 0, 0, 502));
+
+        Assert.Equal(4, await Run(3, maxMegabytes: 1));
+        Assert.DoesNotContain(
+            Directory.GetFiles(_directory, "*.jsonl").SelectMany(File.ReadAllLines),
+            l => l.Contains("\"kind\":\"day\""));
+
+        var offeredOnResume = new List<long>();
         RespondWith(async (day, onMessage) =>
         {
             await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1, bytes: 10_000);
+        }, offeredOnResume);
+
+        Assert.Equal(0, await Run(3, maxMegabytes: 1));
+
+        // 1 MB minus the 900 KB already wasted by the aborted first attempt, not the full 1 MB again.
+        Assert.Equal((1L * 1024 * 1024) - 900_000, offeredOnResume[0]);
+    }
+
+    [Fact]
+    public async Task ACompleteRun_WritesBothReportsAndTheGateFieldsOfTheCalculator()
+    {
+        // Day 2 alone carries a SourceRoomId distinct from RoomId, so exactly one of the three
+        // messages is a shared-chat hit — this is the third seam of Befund 2 (Abschluss-Review): a
+        // mapping bug that swapped RoomId and SourceRoomId in the `counter.Count(...)` call at the
+        // HarnessRunner call site would mark every message as shared chat instead of exactly one,
+        // which the asserted sharedChatMessages below catches. A day where both fields were the same
+        // (or both null, as the previous fixture had it) could not tell the two apart.
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp", sourceRoomId: day == Day2 ? "other-room" : null));
             return CompleteDay(1);
         });
 
@@ -265,6 +299,13 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
         Assert.Contains("\"runComplete\": true", json);
         Assert.Contains("\"ratedDays\": 3", json);
+        // Befund 2 (Abschluss-Review): these three values, not just their key names, pin the three
+        // mapping seams between the query DTOs and the harness's own replay types. Each was verified
+        // to fail under its corresponding one-line mutation at the HarnessRunner call sites (see the
+        // final-fix report) before this test was written this way.
+        Assert.Contains("\"humanLogTotal\": 3", json); // one PogChamp hit per day, three rated days
+        Assert.Contains("\"humanLiveTotal\": 3", json); // UseCount=1 per day; BotUseCount=7 must not leak in
+        Assert.Contains("\"sharedChatMessages\": 1", json); // only day 2's message carries a foreign SourceRoomId
 
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
         Assert.Contains("Replay-Treue", markdown);
@@ -448,13 +489,13 @@ public class HarnessRunnerTests : IDisposable
     private static ChatLogDayResult CompleteDay(int messageCount, long bytes = 1024) =>
         new(ChatLogDayStatus.Complete, bytes, "deadbeef", messageCount, 0, 0, 200);
 
-    private static ChatLogMessage Message(DateOnly day, string userId, string text) =>
+    private static ChatLogMessage Message(DateOnly day, string userId, string text, string? sourceRoomId = null) =>
         new(
             day.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc),
             userId,
             [new KeyValuePair<string, string>("subscriber", "1")],
             TwitchChannelId,
-            null,
+            sourceRoomId,
             text);
 
     private static Channel NewChannel(
@@ -469,16 +510,37 @@ public class HarnessRunnerTests : IDisposable
             CreatedAt = createdAt ?? new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
         };
 
+    // Asymmetric on purpose (Befund 2 of the Abschluss-Review): FirstSeenAt and ArchivedAt are both
+    // DateTime? and, before this fixture, both took the same-looking round value, so a mapping bug
+    // that swapped them at the HarnessRunner call site (`new ReplayEmote(e.Id, e.Name, e.IsArchived,
+    // e.FirstSeenAt, e.ArchivedAt, e.LastSyncedAt)`) was invisible to every test — CoversDay would
+    // fall to false for every window day, matching zero hits, and ACompleteRun_ below asserted only
+    // that "totalDeviation" existed as a key, never its value. With FirstSeenAt well before the
+    // window and ArchivedAt well after it, the correct mapping still covers every window day (same
+    // behaviour as before); the swapped mapping excludes every window day instead, which the
+    // asserted humanLogTotal below then catches. LastSyncedAt stays a third, distinct value so a
+    // three-way rotation of the same three fields would be caught too.
     private static IReadOnlyList<EmoteLifetimeDto> Lifetimes() =>
     [
-        new("e1", "PogChamp", false, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), null, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+        new(
+            "e1",
+            "PogChamp",
+            false,
+            Day1.AddDays(-5).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            Day3.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc))
     ];
 
+    // BotUseCount = 7, not 0 (Befund 2): a mapping bug that swapped UseCount and BotUseCount at the
+    // HarnessRunner call site (`new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount)`)
+    // used to be invisible — zeroing an already-zero BotUseCount changes nothing a test can see.
+    // With BotUseCount nonzero, the swap inflates the human-live side (the gate's denominator) from
+    // 3 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
     private static IReadOnlyList<UsageStatRowDto> Rows() =>
     [
-        new("e1", Day1, 1, 0),
-        new("e1", Day2, 1, 0),
-        new("e1", Day3, 1, 0)
+        new("e1", Day1, 1, 7),
+        new("e1", Day2, 1, 7),
+        new("e1", Day3, 1, 7)
     ];
 
     private sealed class FakeClock(DateTimeOffset now) : TimeProvider

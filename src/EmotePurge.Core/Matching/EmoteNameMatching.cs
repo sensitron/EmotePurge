@@ -86,7 +86,7 @@ public static class EmoteNameMatching
     /// </summary>
     public static EmoteNameMap Coalesce(IEnumerable<KeyValuePair<string, string>> emotesInLoadOrder)
     {
-        var nameToId = new Dictionary<string, string>();
+        var nameToId = new Dictionary<string, string>(StringComparer.Ordinal);
         HashSet<string>? ambiguousNames = null;
 
         foreach (var (name, id) in emotesInLoadOrder)

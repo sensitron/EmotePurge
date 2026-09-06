@@ -37,8 +37,7 @@ public static class ReplayFidelityCalculator
     /// <paramref name="days"/> would report 0 in every report ever written.
     /// </param>
     /// <param name="resumePoint">
-    /// The last archive day that has a line — likewise the caller's to know, and equal to the
-    /// window's end for a complete run.
+    /// The last archive day that has a line. Equal to the window's end for a complete run.
     /// </param>
     public static ReplayFinalReport Compute(
         ReplayWindow window,
@@ -211,6 +210,9 @@ public static class ReplayFidelityCalculator
             ? null
             : (double)Overlap(liveRanking.TakeLast(quartileSize), logRanking.TakeLast(quartileSize)) / quartileSize;
 
+        var liveTieCount = CountTiesAtQuartileBoundary(population, e => e.Live, quartileSize);
+        var logTieCount = CountTiesAtQuartileBoundary(population, e => e.Log, quartileSize);
+
         var reasons = new List<string>();
         if (!runComplete)
         {
@@ -242,8 +244,29 @@ public static class ReplayFidelityCalculator
             topSize,
             Round(bottomQuartilePrecision),
             quartileSize,
+            liveTieCount,
+            logTieCount,
             reasons.Count == 0,
             new ValueList<string>(reasons));
+    }
+
+    /// <summary>
+    /// How many population entries share the exact value sitting at <paramref name="rankedValue"/>'s
+    /// bottom-quartile cut point — the size of the tie block <see cref="Ranking"/>'s ordinal
+    /// id tie-break has to arbitrate at the one place that changes <c>BottomQuartilePrecision</c>.
+    /// Purely descriptive: it does not change which ids <see cref="Ranking"/> puts in the quartile.
+    /// </summary>
+    private static int CountTiesAtQuartileBoundary(
+        List<PopulationEntry> population, Func<PopulationEntry, long> rankedValue, int quartileSize)
+    {
+        if (quartileSize == 0 || population.Count == 0)
+        {
+            return 0;
+        }
+
+        var ordered = population.OrderByDescending(rankedValue).ToList();
+        var boundaryValue = rankedValue(ordered[ordered.Count - quartileSize]);
+        return ordered.Count(e => rankedValue(e) == boundaryValue);
     }
 
     private static ReplayPlausibility BuildPlausibility(

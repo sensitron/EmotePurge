@@ -293,6 +293,11 @@ public class ReplayFidelityCalculatorTests
         Assert.Equal(4, report.Gate.Top20Size);
         Assert.Equal(1d, report.Gate.Top20Recall!.Value, 6);
         Assert.Equal(0.1429, report.Gate.TotalDeviation!.Value, 6);
+        // Visibility into the tie-break, not a second gate (Abschluss-Review): the live side's
+        // bottom-quartile cut sits on the a/b tie at 20, so both of them share the boundary value
+        // even though the quartile itself only fits one; the log side's cut sits on a's lone 10.
+        Assert.Equal(2, report.Gate.BottomQuartileLiveTieCount);
+        Assert.Equal(1, report.Gate.BottomQuartileLogTieCount);
     }
 
     [Fact]

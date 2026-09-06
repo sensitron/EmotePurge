@@ -136,7 +136,11 @@ Der erste Schritt ist kein Stilwunsch, sondern Pflicht: `docker compose run` leg
 Bind-Mount-Ziel selbst als `root:root` an, das Image läuft aber als `appuser` mit fest vergebenem
 `uid`/`gid` **999** (s. Nachtrag unten) — ohne den `chown` scheitert der erste Lauf mit
 „Permission denied" (Exit 6). Derselbe Handgriff gilt eins zu eins lokal, im Repo-Root vor dem
-ersten `docker compose --profile harness run --rm harness …`.
+ersten `docker compose --profile harness run --build --rm harness …`. Lokal ist `--build` dabei
+kein optionaler Zusatz wie oben bei `pull`: der `harness`-Dienst in `docker-compose.yml` hat ein
+eigenes `build:` ohne `image:`, und `docker compose run` ohne `--build` führt ein vorhandenes,
+potenziell uraltes Image klaglos weiter (Regel 15) — `docker-compose.prod.yml` hat kein `build:`
+und bleibt bei `pull`.
 
 Ein zweiter Aufruf mit derselben Zeile nimmt am letzten fertigen Tag wieder auf. `pull` zuerst ist
 kein Stilwunsch: ohne ihn führt `run` das lokal bereits vorhandene, möglicherweise alte
@@ -179,6 +183,21 @@ Image-Update verschieben. Jetzt `useradd --system --uid 999 …` / `groupadd --s
 derselbe Wert, den Task 8 zur Laufzeit vorgefunden hatte. Erst das macht den `chown`-Handgriff
 oben vorab aufschreibbar, statt ihn — wie in Task 8 — per Root-Container zur Laufzeit erraten zu
 müssen.
+
+**Nachtrag (Abschluss-Review, selbes Thema) — die Byte-Decke zählte nicht, was sie versprach.**
+`bytesUsed` bildete sich bislang nur aus fertigen Tageszeilen; ein Tag, der mit
+`ByteCapExceeded`, `BodyTimeout` oder `TransportFailure` endete, bekam keine Tageszeile und seine
+Bytes waren beim nächsten Aufruf vergessen — der Satz oben, die Decke gelte „über alle Tage und
+alle Resumes eines Laufs", stimmte an dieser Stelle nicht. `HarnessEventLine` trägt jetzt ein
+`Bytes`-Feld (Default 0, damit eine ältere Datei ohne dieses Feld unverändert weiter deserialisiert
+— kein `AlgorithmVersion`-Bump, die Tageszeilen sind unangetastet), und `HarnessRunner` summiert
+beim Resume `existing.Days.Sum(d => d.Bytes) + existing.Events.Sum(e => e.Bytes)`. Zwei zusätzliche
+Report-Felder sind rein beschreibend und ändern keine der drei präregistrierten Gate-Formeln:
+`ReplayGateMetrics.BottomQuartileLiveTieCount`/`BottomQuartileLogTieCount` zählen, wie viele
+Population-Einträge sich den Zählwert am Schnittpunkt der unteren Quartils-Rankings teilen — bei
+einer langschwänzigen Verteilung (viele Emotes mit gleichem, niedrigem Wert) kann
+`BottomQuartilePrecision` sonst überwiegend Gleichstandsrauschen aus dem ordinalen
+GUID-Tie-Break sein, statt eine gemessene Rangabweichung.
 
 ---
 

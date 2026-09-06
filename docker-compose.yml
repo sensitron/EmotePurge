@@ -116,7 +116,9 @@ services:
   # #69: die Akkuratheits-Sonde des Chat-Log-Backfills, ein zweiter Einstiegspunkt desselben
   # Worker-Images, kein Hosted Service (s. DECISIONS "Der Harness ist ein zweiter Einstiegspunkt
   # des Worker-Images, kein Hosted Service"). Läuft nie durch `up`, nur durch
-  # `docker compose --profile harness run --rm harness <kanal> [--days <n>]`.
+  # `docker compose --profile harness run --build --rm harness <kanal> [--days <n>]` — `--build`
+  # ist hier Pflicht, nicht Stilwunsch: der Dienst hat ein eigenes `build:` ohne `image:`, und ein
+  # `run` ohne `--build` führt klaglos ein vorhandenes, potenziell uraltes Image weiter (Regel 15).
   harness:
     build:
       context: .
@@ -148,6 +150,11 @@ services:
       - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
       - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
       - Twitch__LivePollIntervalSeconds=${TWITCH_LIVE_POLL_INTERVAL_SECONDS:-300}
+      # Anders als die übrigen Zeilen hier oben (SevenTv__*, Twitch__LivePollIntervalSeconds,
+      # Auth__Twitch__*) ist diese Zeile für den Harness NICHT tot: BotChatterDetector liest sie
+      # ein, und die Menge geht über KnownBotAccountIds direkt in die Lauf-Identität
+      # (HarnessRunIdentity.BotAccountIds) ein. Eine spätere Aufräum-Runde, die die toten Zeilen
+      # entfernt, ändert hier still die Bot-Klassifikation und damit die gemessene Zahl.
       - Twitch__AdditionalBotAccountIds=${TWITCH_ADDITIONAL_BOT_ACCOUNT_IDS:-}
       - Harness__OutputDirectory=/data/harness
       - Harness__MaxMegabytesPerRun=${HARNESS_MAX_MEGABYTES_PER_RUN:-200}
