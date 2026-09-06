@@ -46,6 +46,12 @@ public sealed class BotChatterDetector : IBotChatterDetector
         }
     }
 
+    /// <summary>
+    /// The union of the static list and the configured additions, frozen at construction — the
+    /// same set <see cref="IsBot"/> looks into, handed out read-only rather than rebuilt.
+    /// </summary>
+    public IReadOnlySet<string> KnownBotAccountIds => _botAccountIds;
+
     public bool IsBot(string? chatterId, IReadOnlyList<KeyValuePair<string, string>>? badges)
     {
         if (badges is not null)
