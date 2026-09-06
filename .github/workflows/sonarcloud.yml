@@ -104,6 +104,15 @@ jobs:
       # gerissen (PR #86, der erste Lauf mit scharfem Gate überhaupt). Gefiltert wird gezielt EINE
       # Regel für EIN Verzeichnis — scripts/** bleibt in der Analyse, analog zur Roslyn-Entscheidung
       # vom 2026-09-06: filtern, nicht abschalten. Alle anderen Regeln greifen dort weiterhin.
+      #
+      # Der Unterparameter heißt resourceKey, nicht resourcePattern — der erste Versuch scheiterte
+      # daran mit "Issue patterns are misconfigured. File pattern is mandatory for each entry".
+      # SonarSource dokumentiert diesen Weg nicht mehr ("strongly advised to configure these features
+      # in SonarQube UI ... not documented in this guide") und rät zur Weboberfläche. Hier steht er
+      # trotzdem, weil eine Server-Einstellung weder im Repo sichtbar ist noch eine Projekt-Migration
+      # überlebt. Der Preis: Bricht ein Scanner-Update die undokumentierte Property, tauchen die drei
+      # S4036-Befunde wieder auf und reißen das Gate — dann ist der Rückfallweg
+      # Project Settings → Analysis Scope → Ignore Issues on Multiple Criteria.
       - name: Sonar Scanner begin
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -119,7 +128,7 @@ jobs:
           /d:sonar.qualitygate.wait=true
           /d:sonar.issue.ignore.multicriteria=e1
           /d:sonar.issue.ignore.multicriteria.e1.ruleKey="javascript:S4036"
-          /d:sonar.issue.ignore.multicriteria.e1.resourcePattern="scripts/**/*.mjs"
+          /d:sonar.issue.ignore.multicriteria.e1.resourceKey="scripts/**/*.mjs"
 
       # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
       # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
