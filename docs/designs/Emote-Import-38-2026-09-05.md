@@ -253,7 +253,8 @@ Last, weil keine Set-Prüfung mehr „gehört woanders hin" sagt:
   `:139-145`); Nutzeraussage: „Der Zielkanal übernimmt die Emotes beim nächsten Abgleich."
 - **Abbruch:** `cancelled`-Zeilen im Protokoll; Nachlauf läuft trotzdem, sobald
   `doneKeys.length > 0`.
-- Ergebnis als Protokoll mit `done` / `failed` / `cancelled` je Zeile, exportierbar.
+- Ergebnis als Protokoll mit `done` / `failed` / `cancelled` je Zeile, auf dem Bildschirm; ein
+  Datei-Export dieses Protokolls ist nicht Teil von #72 (Issue „Out of Scope").
 
 ### Backend (zwei Handgriffe)
 

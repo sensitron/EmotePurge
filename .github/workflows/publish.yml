@@ -1,10 +1,16 @@
 name: Publish Docker images
 
-# Docs-only pushes (Markdown, docs/) skip the whole pipeline — nothing in the images can have
+# Docs-only pushes to main (Markdown, docs/) skip the whole pipeline — nothing in the images can have
 # changed, and republishing would only move the :latest tag to a bit-identical image with a new
 # digest (a blind Portainer re-pull would then restart containers for nothing).
-# pull_request runs the two test jobs only (see the publish job's if:) — optional branches for
-# risky work get CI without changing the day-to-day trunk-based flow (Review 2026-07-29, S3-37).
+# pull_request deliberately carries NO paths-ignore, unlike push: `test` and `test-web` are required
+# status checks on main, and GitHub leaves a required check that never ran pending forever rather than
+# treating it as passed — a docs-only PR would be permanently unmergeable. Running both jobs on a
+# docs-only PR costs a few runner minutes; that is the cheaper half of the trade
+# (see docs/DECISIONS.md, 2026-09-06 — "Das Quality Gate bekommt Zähne").
+# The publish job stays PR-free through its own if: — no image is ever built from a pull request
+# (optional branches for risky work get CI without changing the trunk-based flow, Review 2026-07-29,
+# S3-37).
 on:
   push:
     branches: [main]
@@ -13,9 +19,6 @@ on:
       - "docs/**"
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
   workflow_dispatch:
 
 env:

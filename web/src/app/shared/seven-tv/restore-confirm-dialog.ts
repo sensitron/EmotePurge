@@ -8,6 +8,7 @@ import { openAppDialog } from '../ui/dialog';
 import { DialogShell } from '../ui/dialog-shell';
 import { NamePreviewList } from '../ui/name-preview-list';
 import { NoticeBanner } from '../ui/notice-banner';
+import { projectSlots } from './slot-projection';
 
 export interface RestoreConfirmDialogData {
   /** Names of the emotes about to be re-added — the preview list, capped like the delete's. */
@@ -83,11 +84,10 @@ export class RestoreConfirmDialog {
 
   protected readonly projection = computed(() => {
     const slots = this.data.slots();
-    if (!slots || slots.capacity <= 0) {
+    if (!slots) {
       return null;
     }
-    const projected = slots.occupied + this.data.names.length;
-    return { projected, capacity: slots.capacity, overflow: projected > slots.capacity };
+    return projectSlots(slots.occupied, slots.capacity, this.data.names.length);
   });
 }
 

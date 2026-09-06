@@ -300,6 +300,32 @@ Rückcast auf `HashSet<string>` hätte die geteilte Instanz sonst für alle Aufr
 verändern können.
 
 ---
+### 2026-09-06 — Das Quality Gate bekommt Zähne, und zwar in dieser Reihenfolge
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `.github/workflows/publish.yml`, `scripts/coverage-local.mjs`, `CLAUDE.md`, Repository-Ruleset auf `main`
+
+**Das Gate hat bis heute nichts gebrochen, und das ist beim Aufsetzen eines PRs aufgefallen, nicht beim Bauen.** `dotnet-sonarscanner end` lädt hoch und kehrt sofort zurück; ohne `/d:sonar.qualitygate.wait=true` war der Job längst grün, bevor SonarClouds Compute Engine überhaupt ausgewertet hatte. `scripts/sonar-to-sarif.mjs` schließt die Lücke nicht — es pollt zwar den CE-Task, prüft aber nur dessen Status, nie `/api/qualitygates/project_status`, und läuft ohnehin nur auf `main`. Dazu kam die zweite Hälfte: `gh api repos/sensitron/EmotePurge/rulesets` lieferte `[]`, `branches/main/protection` einen 404. Es gab **keinen** required check — weder den Sonar-Check noch `test` oder `test-web`. Die 80-%-Schwelle wirkte damit ausschließlich über den PR-Kommentar.
+
+**Der Widerspruch lag nicht im Wort „Dauerrot", sondern eine Ebene höher.** Der Satz aus dem Eintrag zur statischen Analyse — die Quality Gate „würde zu einem Dauerrot, das niemand mehr liest" — beschreibt eine Quote, die ignoriert wird, nicht eine, die blockiert; er war nie falsch. Falsch war die stillschweigende Voraussetzung des Eintrags **darüber**: Regel 12 ist am selben Tag geändert worden, weil das Gate „für jede künftige UI-Änderung strukturell unerfüllbar" sei. Eine Konvention ist also umgeschrieben und mit 86 neuen Tests bezahlt worden, um einer Blockade auszuweichen, die es zu dem Zeitpunkt gar nicht gab. Die Regeländerung bleibt richtig — ihr eigener Absatz begründet den Nutzen ausdrücklich unabhängig vom Gate —, aber ihr Anlass stimmt erst ab jetzt.
+
+**Die Reihenfolge ist Teil der Entscheidung, nicht Umsetzungsdetail.** Zuerst das Messwerkzeug, dann sein Eintrag in `CLAUDE.md`, erst danach der harte Schalter. Ein Gate scharf zu stellen, das niemand vorher messen kann, blockiert Branches, deren Autoren keine Möglichkeit hatten, es kommen zu sehen — und erzeugt genau die Sorte Frust, die am Ende zum Bypass greift und das Werkzeug entwertet. `dotnet test EmotePurge.slnx` erzeugt **keine** Coverage-Datei; dafür braucht es `--collect:"XPlat Code Coverage;Format=opencover"`, und das stand bisher nur im Workflow. Wer den Branch lokal für fertig hielt, wusste über seine Abdeckung nichts.
+
+**`scripts/coverage-local.mjs` nähert dateigenau, wo Sonar zeilengenau misst — bewusst.** Es fährt beide Suiten mit Coverage und rechnet die Quote über die gegen `origin/main` geänderten Dateien. Sonars „new code" sind die geänderten **Zeilen**; das nachzubauen hieße, Diff-Hunk-Bereiche gegen OpenCover-SequencePoints und lcov-`DA`-Zeilen zu schneiden — ein eigenes Stück Software, das selbst Tests braucht und bei einem Fehler nicht etwa schweigt, sondern eine falsche Zahl behauptet. **Die Näherung ist in beide Richtungen unscharf, und zwar ohne Schranke** — das ist beim Bauen aufgefallen und hat die erste Fassung dieses Absatzes korrigiert. Die naheliegende Abweichung ist die eine: Eine einzelne neue Zeile in einer großen, gut gedeckten Bestandsdatei sieht hier gut aus, während Sonar für diese Datei 0 % auf neuem Code meldet. Die Gegenrichtung ist genauso real: Eine schlecht gedeckte Bestandsdatei drückt die Zahl hier, obwohl die wenigen neuen Zeilen von einem neuen Test voll gedeckt sind und Sonar 100 % zählt. Ein „rot heißt ziemlich sicher rot" wäre also falsch gewesen. Bei **neuen** Dateien ist die Näherung nah an der Wahrheit, weil dort fast alle Zeilen neu sind; am schwächsten ist sie bei kleinen, chirurgischen Änderungen in großen Dateien. Das steht so im Skriptkopf und in `CLAUDE.md` — eine Näherung, die genauer klingt, als sie ist, wäre schlimmer als gar keine. Node statt Bash, weil OpenCover-XML und lcov zu parsen sind und `sonar-to-sarif.mjs` daneben schon Node ist; `scripts/**` steht ohnehin in `sonar.coverage.exclusions`, das Skript drückt die Quote also nicht selbst.
+
+**Drei required checks, nicht einer, und der Preis dafür steht in `publish.yml`.** `analyze` allein hätte genügt, um Gate, Backend-Tests und Frontend-Unit zu erzwingen — der Job führt beide Suiten selbst aus. Er deckt aber `dotnet format`, Prettier, ESLint und Playwright nicht ab; die stecken in `test` und `test-web`. Wer die mitnimmt, stößt sofort auf GitHubs dokumentiertes Verhalten: Ein required check, den ein `paths-ignore` überspringt, bleibt für immer „Expected — waiting for status" und macht den PR unmergebar („Avoid requiring workflows that can be skipped"). Deshalb fällt `paths-ignore` bei `pull_request` weg, bleibt bei `push` aber stehen: Der ursprüngliche Grund — ein Doku-Push soll `:latest` nicht auf ein bit-identisches Image mit neuem Digest schieben — betrifft nur `main`-Pushes, und der `publish`-Job ist bei PRs ohnehin per `if` aus. Ein Doku-PR kostet ab jetzt ein paar Runner-Minuten. Das ist die billigere Hälfte des Tauschs.
+
+**Ein scharfes Gate hätte beinahe das Code-Scanning stillgelegt — gefunden hat das die Codex-Zweitmeinung, nicht der eigene Review.** Die beiden SARIF-Schritte tragen eine `if`-Bedingung ohne Statusfunktion und behalten damit den impliziten `success()`-Guard. Sobald `end` wegen eines roten Gates fehlschlägt, werden sie übersprungen: Code Scanning bliebe auf der vorigen Analyse stehen, ausgerechnet in dem einen Fall, in dem die Befunde interessieren. Die Bedingung trägt jetzt `!cancelled()`, das den Guard aufhebt, und `steps.sonar_end.conclusion != 'skipped'` als Gegenprobe — scheitert schon Build oder Test, lief `end` nie, es gibt kein `report-task.txt`, und das Skript bräche mit einem zweiten, irreführenden Fehler ab. Der Job bleibt in beiden Fällen rot; nur die Befunde kommen trotzdem an. Nebenbei ist ein Kommentar überholt gewesen und nachgezogen: Das Warten auf die Compute Engine übernimmt seit `qualitygate.wait` schon `end`, nicht mehr erst `sonar-to-sarif.mjs` — dessen eigenes Warten bleibt als Guard dagegen, die Findings des vorigen Laufs zu exportieren.
+
+**Der Admin-Bypass ist Absicht, und er begrenzt die Wirkung ehrlich gesagt erheblich.** `bypass_mode: "always"` für die Repository-Admin-Rolle heißt: ein direkter Push geht wortlos durch, und der Merge-Button bleibt klickbar — rot markiert, mit Warnung, aber klickbar. Die Wirkung ist **Reibung und Sichtbarkeit, kein Lockout**. Für einen Solo-Maintainer ohne zweiten Admin ist das die richtige Seite des Fehlers: Ein Gate, an dem man im Ernstfall nicht vorbeikommt, ist kein Qualitätswerkzeug, sondern ein Ausfallrisiko. Wer den Bypass später herausnimmt, sollte vorher einen zweiten Admin haben. Eine PR-Pflicht (`pull_request`-Rule) ist bewusst **nicht** gesetzt; der trunk-basierte Fluss für Kleinigkeiten bleibt.
+
+**Der erste scharfe Lauf ist prompt rot geworden — und zwar nicht an der Coverage.** PR #86, der diese Änderung selbst einführt, riss `new_security_rating` (A auf B) durch dreimal `javascript:S4036` in `scripts/coverage-local.mjs`: „Make sure the PATH variable only contains fixed, unwriteable directories", ausgelöst von den `spawnSync`-Aufrufen auf die Werkzeuge aus dem PATH. Das ist der Beleg, dass die Kette wirkt — vor dieser Änderung wäre derselbe Befund grün durchgelaufen — und zugleich die Bestätigung, dass `scripts/**` nur von der **Coverage** ausgenommen ist, nicht von der Analyse. Gefiltert wird deshalb gezielt diese eine Regel für dieses eine Verzeichnis (`sonar.issue.ignore.multicriteria`), nicht das Verzeichnis aus der Analyse genommen: dieselbe Linie wie bei Roslyn am selben Tag — filtern, nicht abschalten. Wer den PATH eines lokal gestarteten Entwicklerskripts manipulieren kann, ist ohnehin auf der Maschine; absolute Pfade aufzulösen hätte nur die Portabilität zwischen Devbox und CI gekostet. **Ungeprüft ist, ob SonarCloud diese Property als Scanner-Parameter annimmt oder sie serverseitig verlangt** — der nächste Lauf ist die Probe, und falls sie nicht greift, bleibt die Einstellung in der Weboberfläche als Rückfallweg.
+
+**Nebenbefund am selben Lauf: `new_coverage` war gar nicht unter den ausgewerteten Bedingungen.** Das Gate „Sonar way" führt sie (`LT 80`), aber dieser PR hat keine zu deckenden neuen Zeilen — `scripts/**` ist coverage-exempt, der Rest ist Markdown und YAML. Wer eine fehlende Bedingung für eine fehlende Regel hält, liegt falsch: Sonar wertet nur aus, wofür es Daten gibt.
+
+**Verworfen: `enforcement: "evaluate"` als Zwischenstufe.** Der Dry-Run-Modus, der Regeln auswertet ohne zu blockieren, wäre der lehrbuchmäßige Übergang gewesen — er ist laut GitHubs eigener API-Referenz Enterprise-only und für ein User-Repo auf Free nicht verfügbar. Die Staffelung übernimmt stattdessen das Messwerkzeug: Es liefert dieselbe Vorwarnung, nur lokal statt serverseitig.
+
+**Was am Ruleset nicht dokumentiert ist — hier sind die Werte.** Die `actor_id` der Rolle „Repository admin" steht in keiner offiziellen Quelle; sie lässt sich erst aus einem bestehenden Ruleset per `GET /repos/{owner}/{repo}/rulesets/{id}` auslesen. Deshalb ist das Ruleset über die Weboberfläche angelegt und danach per API gegengelesen worden, statt es blind zu posten. Herausgekommen ist: **`actor_id: 5` für `actor_type: "RepositoryRole"`** ist der Repository-Admin, und **`integration_id: 15368`** ist die GitHub-Actions-App, die GitHub jedem `required_status_checks`-Eintrag selbst beilegt. Damit ließe sich das Ruleset (`name: "main required checks"`, ID 22392287, `enforcement: "active"`) auch per API wiederherstellen, falls es je verloren geht — der Grund, aus dem diese beiden Zahlen hier stehen und nicht nur in der Weboberfläche. `strict_required_status_checks_policy` bleibt aus — es verlangt, dass der Branch vor dem Merge auf dem Stand des Ziels ist, und erzwingt bei einem Ein-Personen-Repo nur Rebase-Schleifen ohne Gegenwert. Offen und nicht abschließend geklärt: ob ein direkter Push, für den noch **gar kein** Checkergebnis existiert, abgelehnt wird oder durchläuft — die Doku behandelt nur den bereits fehlgeschlagenen Fall. Für den Alltag hier ist das folgenlos, weil der Bypass greift.
+
 ### 2026-09-06 — Regel 12 präzisiert: Komponenten werden auf Verhalten getestet, nicht auf Vorlage
 
 **Betrifft:** `CLAUDE.md`, `web/.claude/CLAUDE.md`, `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md`, `web/src/app/shared/seven-tv/action-dock.ts`
@@ -455,6 +481,174 @@ ein später hinzukommender zweiter Scanner unsere Alerts nicht bei jedem eigenen
 schließt. Und `scripts/**` ist von der Coverage-Messung ausgenommen: CI-Hilfsskripte werden weiter auf
 Fehler analysiert, zählen aber nicht in die Quote — sonst drückte jedes künftige Shell- oder
 Node-Skript die Zahl, und die Quality Gate würde zu einem Dauerrot, das niemand mehr liest.
+
+### 2026-09-06 — Ungültige Emote-Namen (Nicht-ASCII) werden vor dem Lauf gewarnt, nicht gesperrt (#72)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-preview.ts`, `web/src/app/shared/seven-tv/import-confirm-dialog.ts`
+
+Im Live-Test lehnte 7TV zwei Emote-Namen mit Umlaut (`Hänno`, `HörMalZuBrudi`) beim Anlegen im
+Zielset ab (`Failed to parse "String": invalid emote name`) — der Lauf verhielt sich korrekt
+(Zeilenfehler, Lauf lief weiter), aber der Nutzer erfuhr es erst nach dem Schreiben. Der
+Bestätigungsdialog prüft Namen deshalb jetzt clientseitig vorab und zeigt sie neben den
+Namenskollisionen als zweite, gleichartige Warnung.
+
+Die Regel ist bewusst eng: belegt ist ausschließlich, dass 7TV Nicht-ASCII-Zeichen im Emote-Namen
+(nicht im Alias) ablehnt — genau die beiden beobachteten Fälle. 7TVs vollständiger erlaubter
+Zeichensatz ist unbekannt, und ihn zu raten ist in diesem Projekt schon zweimal schiefgegangen
+(#33, #37: Code und Mock teilten dieselbe falsche Annahme, Tests grün, Sache trotzdem kaputt). Die
+Prüfung bleibt daher auf reines Nicht-ASCII beschränkt statt eine Regex für erlaubte
+Sonderzeichen nachzubauen; wird ein weiterer Ablehnungsgrund beobachtet, wird die Regel erweitert,
+nicht gelockert.
+
+Wie bei Namenskollisionen ist es eine Warnung, keine Sperre: betroffene Zeilen bleiben im Lauf.
+Ändert 7TV seine Regeln, verschwindet dadurch nichts stillschweigend aus dem Ergebnis.
+
+---
+
+### 2026-09-06 — Nachlauf-an-Laufobjekt gilt für alle drei 7TV-Läufe, auch die beiden ausgelieferten (#72, T12)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-delete.service.ts`, `web/src/app/core/seven-tv/seven-tv-restore.service.ts`
+
+Die Regel, dass jeder asynchrone Nachlauf an dem beim Start angelegten Laufobjekt hängt und eine
+verspätete Antwort verwirft, sobald dieses Objekt nicht mehr der aktuelle Lauf ist (Eintrag unten zu
+`SevenTvImportService`), gilt seit #72 für **alle drei** Läufe: Delete und Restore halten ihren
+Zielkanal und die gemeldeten Keys jetzt ebenfalls in einem `DeleteRunInfo`/`RestoreRunInfo` statt in
+losen Feldern neben dem Dienst, und ihr Abschlussbericht (`sync-deleted`/`sync-restored`) samt Retry
+liest ausschließlich daraus.
+
+Beide Pfade waren bereits ausgeliefert und wurden rückwirkend nachgezogen, weil die Klasse dieselbe
+ist, die Folgen aber nicht waren: Delete und Restore schreiben immer in den Kanal der aktuellen
+Seite, ein verspäteter Bericht traf also höchstens denselben Kanal, wo das Backend die fremden Ids
+als `notFoundIds` verschluckt hat — folgenlos, aber nur zufällig. Der Import schreibt absichtlich in
+einen *anderen* Kanal; dort hätte ein Retry die Keys des einen Laufs an den Zielkanal eines
+**anderen** schicken können. Eine Regel, die nur an der Stelle gilt, an der sie zuerst wehtut,
+verlässt sich darauf, dass niemand die anderen beiden kopiert.
+
+---
+
+### 2026-09-06 — Import-Lauf: dritter Arbiter-Zweig ohne DI-Zirkel, kein Kanal-Reset, Nachlauf ans Laufobjekt gebunden (#72, K3)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-import.service.ts`, `web/src/app/core/seven-tv/seven-tv-run-arbiter.ts`, `web/src/app/core/seven-tv/import-source.ts`
+
+`SevenTvRunArbiter.activeRun` bekommt einen dritten Zweig (`if (importService.isRunning()) return
+'import'`, nach `delete`/`restore`) statt einer Meldung des Import-Service, wie die Issue es noch
+vorsah — der Arbiter leitet seine Antwort weiterhin nur aus den `isRunning`-Signalen der drei Dienste
+ab, kein `tryAcquire`/`release`. Der Import-Service injiziert den Arbiter deshalb **nicht**: die
+Kante bliebe sonst `Arbiter → ImportService → Arbiter` und damit ein DI-Zirkel; die Sperrprüfung vor
+dem Start (`activeRun() === null`) macht stattdessen der Aufrufer (`import-flow.ts`).
+
+`SevenTvImportService` bekommt **kein** `resetIfChannelChanged` — ein Restore schreibt immer in den
+Kanal der aktuellen Seite, ein Import schreibt absichtlich in einen *anderen*; ein Reset beim
+Kanalwechsel würde genau den gerade gestarteten Lauf verwerfen. Der Datei-Weg meldet dem Backend
+zudem `sourceChannelName: null`, auch wenn die Quelldatei einen Kanal nennt: `EmoteEndpoints.cs`
+(`SyncImportedRequest`) weist `sourceKind: 'file'` **mit** gesetztem `sourceChannelName` ebenso mit
+`400 invalid_source_kind` ab wie `sourceKind: 'channel'` **ohne** Namen — der Audit-Eintrag eines
+Datei-Imports nennt deshalb keinen Herkunftskanal (bekannte, hingenommene Grenze).
+
+Zielkanal, Herkunft und die von 7TV gemeldeten Keys stehen zusammen an genau einem Objekt, dem beim
+Start angelegten `ImportRunInfo` (`run` Signal), nicht an losen Feldern daneben. Grund: die
+Run-Engine setzt `isRunning` bereits synchron in `finish()`, **bevor** ihr asynchroner Nachlauf
+(`onComplete`) beginnt — ein zweiter Import kann also schon laufen, während der Nachlauf des ersten
+noch fliegt. Jeder asynchrone Schreibzugriff auf `syncReport`/`resyncTrigger` prüft deshalb vorher,
+ob sein `ImportRunInfo` noch `run()` ist, und verwirft die Antwort sonst kommentarlos, ohne
+Fehlerzustand; `retrySyncReport()` liest Zielkanal **und** gemeldete Keys aus demselben Objekt statt
+aus verteilten Feldern — ohne die Bindung hätte ein späterer Lauf in einen dritten Kanal die Keys
+eines fremden, bereits abgeschlossenen Laufs übernehmen können.
+
+Die Privilegien-Sonde (`abortOn`-Hook der Run-Engine) bricht den Lauf ab, sobald ein GQL-Fehlertext
+`insufficient privileges` oder `missing permission` enthält oder der HTTP-Status `401`/`403` ist —
+ohne einen eigenen Vorab-Request ans Zielset, der die restliche Laufzeit nur verlängert hätte. Die
+beiden Textfragmente sind aus dem Design übernommen und noch nicht live gegen ein Token ohne
+Editor-Recht belegt (offen für die Live-Probe, T11 im #72-Plan); weicht der beobachtete Text ab, wird
+die Liste erweitert, nicht die Bedingung gelockert.
+
+---
+
+### 2026-09-06 — Bestätigungsdialog: Token-Prompt nach der Bestätigung, Zieldaten-Loader ohne Fehlerpfad (#72, K3)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-confirm-dialog.ts`, `web/src/app/shared/seven-tv/import-flow.ts`, `web/src/app/core/emotes/import-target-loader.ts`
+
+Der 7TV-Token-Prompt kommt beim Import **nach** der Bestätigung, anders als bei Delete und Restore
+(dort weiterhin davor) — Absicht, kein Nachzügler. Picker und Vorschau sind reine Lesevorgänge, und
+die Vorschau ist beim Import der Ort, an dem die eigentliche Entscheidung fällt; ein Secret zu
+verlangen, bevor der Nutzer gesehen hat, was passieren würde, wäre die falsche Reihenfolge. Bricht
+der Nutzer den Prompt ab, startet kein Lauf. Delete/Restore ändern sich nicht: dort ist die
+Bestätigung selbst schon die ganze Vorschau. Die Zeilenreihenfolge des Bestätigungsdialogs (Titel,
+Herkunft, Ziel, Ladezustand, Set-Warnung, Slot-Projektion, Kollisionen, Verlust/Konsolidierung,
+Lauf-Hinweis, Aktionen) ist damit selbst ein Vertrag — festgehalten in docs/UI-Designsprache.md §7.2,
+nicht nur im Plan, damit sie nicht als Layout-Detail behandelt wird.
+
+`loadImportTarget` (`import-target-loader.ts`) emittiert für die drei Zieldaten-Anfragen
+(`getSetStatus`, `listEmotes`, `getSetWarning`) genau **einmal** und wirft nie: jede der drei fängt
+ihren eigenen Fehler und liefert einen getaggten Wert, statt einen umschließenden `forkJoin` beim
+ersten Fehler abbrechen zu lassen. Ein fehlgeschlagenes `getSetWarning` degradiert nur die
+Set-Prüfung zu „nicht möglich" und lässt den Lauf weiterhin zu; ein fehlgeschlagenes `getSetStatus`/
+`listEmotes` oder ein fehlendes aktives Set blockiert ihn (`no-set` gewinnt, wenn beides gleichzeitig
+zutrifft — ein 404 ist die endgültigere Aussage).
+
+---
+
+### 2026-09-06 — Datei-Import: eigene `emote-list`-Envelope, `readEnvelope` als geteilter Vorschritt, Verlust getrennt von Konsolidierung (#72, K3)
+
+**Betrifft:** `web/src/app/shared/export/export-envelope.ts`, `web/src/app/shared/export/read-envelope.ts`, `web/src/app/shared/export/emote-list-export.ts`, `web/src/app/shared/export/import-source-parser.ts`, `web/src/app/shared/export/purge-run-export.ts`
+
+`ExportKind` bekommt eine vierte Sorte `'emote-list'` (Regel 8: bewusst **ohne** `emoteId` — der
+interne Guid ist channel-scoped und im Zielkanal bedeutungslos, anders als beim Purge-Protokoll).
+`readEnvelope` ist aus `purge-run-export.ts` in eine eigene Datei herausgezogen und ist jetzt der
+gemeinsame erste Schritt jedes Datei-Imports: `JSON.parse`, die CSV-statt-JSON-Heuristik,
+`source !== 'emotepurge'` und ein nicht-String-`kind` — alles Weitere (Sorte, Version, Zeilen) prüft
+weiterhin der jeweilige Parser.
+
+Ein Nutzungs-Export (`kind: 'usage'`) gilt zusätzlich als gültige Import-Quelle neben der eigentlichen
+Emote-Liste — er trägt `sevenTvEmoteId` plus `emoteName` je Zeile, genug für ein Kopieren, und ein
+Nutzer, der seine Statistik als Backup heruntergeladen hat, soll dafür nicht extra neu exportieren
+müssen. Der Fehlerschlüssel `restore.import.errors.usageExport` entfällt damit ersatzlos.
+
+`discardedRows` und `duplicatesCollapsed` messen zwei verschiedene Dinge und werden nie
+gegeneinander verrechnet: `discardedRows` zählt Zeilen, die der Parser schon vor der Deduplizierung
+als ungültig verwarf (`sevenTvEmoteId`/Namensfeld fehlt oder ist kein String) — echter Datenverlust,
+gemessen gegen `meta.rowCount`, falls die Datei das Feld trägt, sonst gegen die Länge des rohen
+`rows`-Arrays. `duplicatesCollapsed` zählt danach, wie viele der gültigen Zeilen `dedupeImportRows`
+als Zweitnennung derselben `sevenTvEmoteId` verwarf — bloße Konsolidierung, kein Verlust. Beide
+sperren den Lauf nicht; im Bestätigungsdialog steht die Verlust-Zeile deshalb vor der
+Konsolidierungs-Zeile (docs/UI-Designsprache.md §7.2).
+
+---
+
+### 2026-09-06 — Restore-Panel bekommt einen dritten Dispatch-Zweig: Emote-Liste/Nutzungs-Export laufen als Import (#72, K3)
+
+**Betrifft:** `web/src/app/shared/seven-tv/restore-panel.ts`
+
+Dasselbe eine Datei-Feld entscheidet jetzt per `kind` über drei Wege statt über einen: ein
+Purge-Protokoll (`kind: 'purge-run'`) bleibt der bestehende Restore-Weg unverändert, mit Token-Prompt
+weiterhin vor der Bestätigung. Eine Emote-Liste oder ein Nutzungs-Export (`kind: 'emote-list'` /
+`'usage'`) wird stattdessen als `ImportSource` gelesen (`parseImportSource`) und über denselben
+`startImportFlow` gestartet, den auch der Header-Button „In Kanal kopieren…" auf der
+Usage-Stats-Seite benutzt — Ziel ist dabei immer der **aktuelle** Kanal, der Token-Prompt kommt hier
+also nach der Bestätigung (der Flow selbst fragt danach; das Panel promptet hier bewusst nicht ein
+zweites Mal). Ein Abstimmungs-Export (`kind: 'voting'`) bleibt abgelehnt, ohne Importweg. Push (aus
+dem Grid heraus kopieren) und Pull (eine Datei ins Zielpanel ziehen) sind damit zwei Türen zum
+selben Lauf, keine zwei Features.
+
+---
+
+### 2026-09-06 — Leave-Guard für einen laufenden Import erkennt einen reinen Kanalwechsel an der Routen-Identität (#72, K3)
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-leave.guard.ts`, `web/src/app/app.routes.ts`
+
+Ein `CanDeactivateFn` an der `usage-stats`-Route fragt beim Verlassen der Seite nach, solange
+`SevenTvImportService.isRunning()` wahr ist — der Lauf selbst läuft im `providedIn: 'root'`-Service
+weiter, egal wie die Frage beantwortet wird; der Guard verhindert oder verzögert nichts, er warnt nur.
+Ein reiner Kanalwechsel (`/channels/a/usage-stats` → `/channels/b/usage-stats`) ist davon ausdrücklich
+ausgenommen, obwohl Angular den Guard wegen `runGuardsAndResolvers: 'paramsChange'` auch dabei
+erneut ausführt: die Komponente wird wiederverwendet, derselbe Lauf zeigt sich im Dock der neuen
+Seite sofort wieder, und eine Rückfrage würde vor nichts Verlorenem warnen. Erkannt wird das über die
+**Objektidentität** von `routeConfig` im nächsten Router-State, nicht über einen Pfad- oder
+Namensvergleich — die Referenz ist pro Routen-Definition stabil, unabhängig davon, welches
+Pfadsegment gerade den Kanalnamen trägt. Ein Reload oder Tab-Schließen deckt der Guard bewusst nicht
+ab (kein `beforeunload`).
+
+---
 
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 

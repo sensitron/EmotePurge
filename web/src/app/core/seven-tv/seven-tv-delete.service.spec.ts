@@ -464,6 +464,43 @@ describe('SevenTvDeleteService', () => {
     httpMock.expectOne(SYNC_ENDPOINT).flush({ archivedCount: 2, notFoundIds: [] });
   });
 
+  // R15 (#72, T12): finish() flips isRunning() to false *before* the closing sync-deleted call
+  // resolves, so a second run can legitimately start while the first one's report is still in
+  // flight. Its late answer must not land on the second run's state.
+  it('discards a late sync-deleted answer from a superseded run without touching the new one', () => {
+    const staleSyncReq = runOneDeleteToSyncRequest();
+    expect(service.isRunning()).toBe(false); // finish() already flipped this before the follow-up
+
+    // A second run starts, for a different channel, before run 1's answer comes back.
+    service.startDelete('set-2', 'other-channel', [EMOTES[1]]);
+    expect(service.isRunning()).toBe(true);
+    expect(service.syncReport()).toBe('idle'); // run 2's own state, reset at start
+    expect(service.lastRun()).toBeNull(); // run 2 has not finished yet
+
+    // Run 1's late answer resolves successfully — even so, it must not resurrect run 1's outcome.
+    staleSyncReq.flush({ archivedCount: 1, notFoundIds: [] });
+    expect(service.syncReport()).toBe('idle');
+    expect(service.lastRun()).toBeNull();
+
+    // Run 2 finishes normally afterwards — the guard must not have swallowed its own terminal
+    // flank along with the stale one.
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(DELETE_DELAY_MS);
+    httpMock
+      .expectOne('/api/channels/other-channel/emotes/sync-deleted')
+      .flush({ archivedCount: 1, notFoundIds: [] });
+
+    expect(service.syncReport()).toBe('succeeded');
+    expect(service.lastRun()?.channelName).toBe('other-channel');
+    expect(service.lastRun()?.result.doneIds).toEqual(['internal-2']);
+
+    // A retry now must send run 2's ids to run 2's channel, never run 1's.
+    service.retrySyncReport();
+    const retryReq = httpMock.expectOne('/api/channels/other-channel/emotes/sync-deleted');
+    expect(retryReq.request.body).toEqual({ emoteIds: ['internal-2'] });
+    retryReq.flush({ archivedCount: 1, notFoundIds: [] });
+  });
+
   it('does not start a second run while one is already in progress', () => {
     service.startDelete('set-1', 'sensitron', EMOTES);
     const firstQueueLength = service.queue().length;

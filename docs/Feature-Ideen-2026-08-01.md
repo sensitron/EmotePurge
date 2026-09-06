@@ -35,7 +35,7 @@ Legende: ✅ umgesetzt · 🟡 teilweise · ⬜ offen
 | **A11** Duplikat-Erkennung | ⬜ | — |
 | **A12** Ergebnis-Export | ✅ 2026-08-02 | DECISIONS „Der Export ist eine Client-Serialisierung …" |
 | **A13**–**A15** | ⬜ | — |
-| **A16** Emote-Liste importieren (Nachtrag 2026-08-04) | ⬜ | — |
+| **A16** Emote-Liste importieren (Nachtrag 2026-08-04) | ✅ 2026-09-06 | DECISIONS „Import-Lauf: dritter Arbiter-Zweig ohne DI-Zirkel, kein Kanal-Reset, Nachlauf ans Laufobjekt gebunden …" (#72, K3) |
 | **B1** Support-Drilldown | 🟡 2026-08-01 | Audit-Zeilen und Per-Channel-Flush fehlen |
 | **B2** Soll/Ist-Roster | ✅ 2026-08-02 | DECISIONS „Auslastungsbalken bekommen eine Schwellen-Leiter, das Roster-Badge nicht" |
 | **B3**–**B9** | ⬜ | — |
@@ -451,6 +451,13 @@ Per-User-Limits (chat.vote löst das mit einem `!suggest`-Limit). Regel 8 zwingt
 Datenmodell.
 
 ### A16 — Emote-Liste importieren: kopieren statt nur wiederherstellen (Nachtrag 2026-08-04)
+
+**Status: ✅ umgesetzt am 2026-09-06** (#72, K3) — Ziel-Picker (Bereich + Zielkanal oder Datei) und
+Bestätigungsdialog (Herkunft, Ziel, Slot-Projektion, Namenskollisionen) als neue Dialoge, Token-Prompt
+hier bewusst **nach** der Bestätigung statt davor; Datei-Weg über eine eigene `emote-list`-Envelope
+plus Wiederverwendung eines Nutzungs-Exports als Quelle; das Restore-Panel nimmt dieselbe Datei
+zusätzlich für Emote-Listen/Nutzungs-Exporte an und startet dafür denselben Import-Lauf. Details in
+DECISIONS (fünf Einträge vom 2026-09-06) und docs/UI-Designsprache.md §7.2.
 
 Eine hochgeladene Emote-Liste dem aktiven Set hinzufügen, **ohne** dass sie aus einem Löschlauf
 genau dieses Sets stammen muss — der kurze Weg, um ein Set in ein zweites zu übernehmen
