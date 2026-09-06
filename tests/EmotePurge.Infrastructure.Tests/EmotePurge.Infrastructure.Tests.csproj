@@ -37,4 +37,10 @@
     <Content Include="Unit\TestData\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Synthetic justlog `?raw` day fixture for JustlogRawLineParserTests/ChatLogArchiveClientTests
+       (T3, #69) — invented users/ids/text only, see the Fixture-Regel in the task brief. -->
+  <ItemGroup>
+    <Content Include="Unit\TestData\*.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

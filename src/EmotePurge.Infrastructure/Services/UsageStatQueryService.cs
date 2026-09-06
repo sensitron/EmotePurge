@@ -247,4 +247,73 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount) })
             .ToDictionaryAsync(g => g.EmoteId, g => g.TotalUseCount, cancellationToken);
     }
+
+    public async Task<DateOnly?> GetEarliestBotUsageDateAsync(string channelId, CancellationToken cancellationToken = default)
+    {
+        // Rule 10: resolve the channel's emote ids to a plain scalar list first, then aggregate
+        // over UsageStats alone — the same shape EmoteSetStatusService used before this method
+        // absorbed its query (a MIN grouped straight off a Where that still carries the Emote
+        // navigation risks the client-eval fallback that GroupBy hits there). Archived emotes are
+        // deliberately included: a bot sighting on an emote since deleted from 7TV still tells us
+        // when the separation started for this channel. Projected to DateOnly? — a non-nullable
+        // Min throws on an empty result set, and "no bot ever seen" is exactly the empty case this
+        // has to handle without an exception.
+        var emoteIds = await db.Emotes
+            .Where(e => e.ChannelId == channelId)
+            .Select(e => e.Id)
+            .ToListAsync(cancellationToken);
+
+        return await db.UsageStats
+            .Where(u => emoteIds.Contains(u.EmoteId) && u.BotUseCount > 0)
+            .Select(u => (DateOnly?)u.Date)
+            .MinAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<EmoteLifetimeDto>> GetEmoteLifetimesAsync(string channelId, CancellationToken cancellationToken = default)
+    {
+        // A plain projection over Emotes with a scalar ChannelId filter — no navigation join, no
+        // GroupBy, so rule 10 does not even come into play here. Archived emotes are deliberately
+        // included (see the interface doc comment), and the ordering is ordinal on Id so the
+        // harness's hash over this list is stable regardless of insertion order. That ordinal
+        // guarantee rests on the database's collation, though: OrderBy(e => e.Id) translates to a
+        // plain ORDER BY "Id" with no COLLATE "C", so a non-C collation could in principle order
+        // differently from string.CompareOrdinal. It holds for the ids actually stored here — hex
+        // GUIDs with hyphens at fixed positions, a character set essentially every collation orders
+        // the same way — and a collation change would only ever produce a different (still
+        // deterministic) input hash and thus a fresh report file, never a wrong count.
+        return await db.Emotes
+            .AsNoTracking()
+            .Where(e => e.ChannelId == channelId)
+            .OrderBy(e => e.Id)
+            .Select(e => new EmoteLifetimeDto(e.Id, e.Name, e.IsArchived, e.FirstSeenAt, e.ArchivedAt, e.LastSyncedAt))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<UsageStatRowDto>> GetRowsAsync(
+        IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        if (from > to)
+        {
+            throw new ArgumentException("'from' darf nicht nach 'to' liegen.", nameof(from));
+        }
+
+        if (emoteIds.Count == 0)
+        {
+            return [];
+        }
+
+        // Rule 10: a plain Where over UsageStats with a scalar id list and the date range — no
+        // join, no GroupBy. Materialized to a plain list first for the same reason
+        // GetTotalsByEmoteIdsAsync does: Contains against the caller's own collection type can
+        // fail to translate. UseCount > 0 is deliberately absent — see the interface doc comment,
+        // a bot-only row is exactly what the harness's bot-inclusive total needs.
+        var ids = emoteIds.ToList();
+
+        return await db.UsageStats
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
+            .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
+            .Select(u => new UsageStatRowDto(u.EmoteId, u.Date, u.UseCount, u.BotUseCount))
+            .ToListAsync(cancellationToken);
+    }
 }

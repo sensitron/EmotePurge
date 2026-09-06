@@ -113,6 +113,58 @@ services:
       redis:
         condition: service_healthy
 
+  # #69: die Akkuratheits-Sonde des Chat-Log-Backfills, ein zweiter Einstiegspunkt desselben
+  # Worker-Images, kein Hosted Service (s. DECISIONS "Der Harness ist ein zweiter Einstiegspunkt
+  # des Worker-Images, kein Hosted Service"). Läuft nie durch `up`, nur durch
+  # `docker compose -f docker-compose.prod.yml --profile harness run --rm harness <kanal> [--days <n>]`,
+  # nach einem vorherigen `pull harness` (sonst fährt `:latest` still alt).
+  harness:
+    image: ghcr.io/sensitron/emotepurge-worker:latest
+    profiles: ["harness"]
+    restart: "no"
+    # `docker compose run` hängt seine Argumente an den entrypoint an, nicht an command — ein
+    # `command` hier würde ersetzt, und ein `run` ohne Argumente landete beim vollen Worker-Start
+    # statt in HarnessCommandLine.Parse's Invalid-Zweig (Codex-adversarial "Fail-open CLI").
+    entrypoint: ["dotnet", "EmotePurge.Worker.dll", "harness"]
+    healthcheck:
+      # Der Heartbeat-Check des Images misst WorkerHealthPublisher; den gibt es hier nicht.
+      disable: true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      # Der Harness veröffentlicht und abonniert selbst nie etwas über Redis (Regel 4) — aber
+      # IChannelService hängt über IRedisPublisher am selben eager verbindenden
+      # IConnectionMultiplexer-Singleton wie der Worker (ServiceCollectionExtensions, kein
+      # abortConnect=false); ohne erreichbaren Redis beim Start bricht schon die Auflösung von
+      # HarnessRunner, bevor der eigentliche Lauf beginnt.
+      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+      - SevenTv__EventApi__Enabled=${SEVENTV_EVENTAPI_ENABLED:-false}
+      - SevenTv__ResyncIntervalSeconds=${SEVENTV_RESYNC_INTERVAL_SECONDS:-60}
+      - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
+      - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
+      - Twitch__LivePollIntervalSeconds=${TWITCH_LIVE_POLL_INTERVAL_SECONDS:-300}
+      # Anders als die übrigen Zeilen hier oben (SevenTv__*, Twitch__LivePollIntervalSeconds,
+      # Auth__Twitch__*) ist diese Zeile für den Harness NICHT tot: BotChatterDetector liest sie
+      # ein, und die Menge geht über KnownBotAccountIds direkt in die Lauf-Identität
+      # (HarnessRunIdentity.BotAccountIds) ein. Eine spätere Aufräum-Runde, die die toten Zeilen
+      # entfernt, ändert hier still die Bot-Klassifikation und damit die gemessene Zahl.
+      - Twitch__AdditionalBotAccountIds=${TWITCH_ADDITIONAL_BOT_ACCOUNT_IDS:-}
+      - Harness__OutputDirectory=/data/harness
+      - Harness__MaxMegabytesPerRun=${HARNESS_MAX_MEGABYTES_PER_RUN:-200}
+    volumes:
+      - ./harness-reports:/data/harness
+    networks:
+      - emotepurge-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres-data:
     driver: local

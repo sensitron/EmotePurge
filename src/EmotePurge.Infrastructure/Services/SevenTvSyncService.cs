@@ -1,4 +1,5 @@
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Matching;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Infrastructure.Persistence;
@@ -339,18 +340,12 @@ public class SevenTvSyncService(
 
         // 7TV active sets can legitimately contain two emotes sharing the same chat alias
         // (observed live) — ToDictionary would throw, so duplicates are coalesced instead,
-        // keeping whichever was loaded first. Logged only when the collision set changes: this
-        // method runs on every resync tick, and a static collision would spam the log otherwise.
-        // The full current state is served by IDuplicateEmoteNameQueryService instead.
-        var emoteNameToId = new Dictionary<string, string>();
-        var duplicateNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var emote in activeEmotes)
-        {
-            if (!emoteNameToId.TryAdd(emote.Name, emote.Id))
-            {
-                duplicateNames.Add(emote.Name);
-            }
-        }
+        // keeping whichever was loaded first (the load order above has no OrderBy, so "first" is
+        // whatever Postgres returns). Logged only when the collision set changes: this method
+        // runs on every resync tick, and a static collision would spam the log otherwise. The
+        // full current state is served by IDuplicateEmoteNameQueryService instead.
+        var (emoteNameToId, duplicateNames) = EmoteNameMatching.Coalesce(
+            activeEmotes.Select(e => new KeyValuePair<string, string>(e.Name, e.Id)));
 
         if (duplicateNameTracker.Update(channel.ChannelName, duplicateNames))
         {

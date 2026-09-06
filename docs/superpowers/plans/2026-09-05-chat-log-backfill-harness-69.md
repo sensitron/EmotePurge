@@ -356,7 +356,7 @@ Tracker-Logik; `ChannelName.cs` als Vorbild für eine statische Regel in `Core`;
   Live-Cache die unspezifizierte Reihenfolge einer Query ohne `OrderBy`, was der Harness
   ausweist statt zu reparieren. `**Betrifft:**` nennt die vier Dateien dieses Tasks.
 
-- [ ] **Step 1 (Tests zuerst, `EmoteNameMatchingTests`, container-frei):** `MatchEmoteIds`: leerer
+- [x] **Step 1 (Tests zuerst, `EmoteNameMatchingTests`, container-frei):** `MatchEmoteIds`: leerer
   Text ⇒ leer; nur Whitespace ⇒ leer; Emote am Anfang, in der Mitte, am Ende; dasselbe Emote
   dreimal ⇒ genau eine Id; zwei Namen auf dieselbe Id ⇒ eine Id; Doppel-Leerzeichen zwischen
   Tokens (leeres Token trifft nichts); Tab oder geschütztes Leerzeichen trennt **nicht** (Token
@@ -365,9 +365,9 @@ Tracker-Logik; `ChannelName.cs` als Vorbild für eine statische Regel in `Core`;
   Map ⇒ leer ohne Allokation (Referenzgleichheit der leeren Instanz). `Coalesce`: eindeutige
   Namen ⇒ keine Mehrdeutigkeit; doppelter Name ⇒ erster gewinnt, Name in `AmbiguousNames`;
   dreifacher Name ⇒ einmal in der Menge; leere Eingabe ⇒ leere Map.
-- [ ] **Step 2: rot laufen lassen.** Filter `EmoteNameMatchingTests`; Expected: Compilerfehler.
-- [ ] **Step 3: implementieren**, beide Aufrufer umstellen, `CoreAssemblyReferenceTests` im Blick.
-- [ ] **Step 4: grün laufen lassen.** Filter `EmoteNameMatchingTests`, `EmoteMatchCacheTests`,
+- [x] **Step 2: rot laufen lassen.** Filter `EmoteNameMatchingTests`; Expected: Compilerfehler.
+- [x] **Step 3: implementieren**, beide Aufrufer umstellen, `CoreAssemblyReferenceTests` im Blick.
+- [x] **Step 4: grün laufen lassen.** Filter `EmoteNameMatchingTests`, `EmoteMatchCacheTests`,
   `CoreAssemblyReferenceTests`; dann `dotnet build EmotePurge.slnx` und
   `dotnet test EmotePurge.slnx` (die `SevenTvSyncServiceTests` decken die Koaleszenz über den
   Tracker mit).
@@ -382,7 +382,7 @@ Tracker-Logik; `ChannelName.cs` als Vorbild für eine statische Regel in `Core`;
   Da die Live-Nachrichten in beiden Läufen unterschiedlich sind, ist der eigentliche Beleg der
   **Replay** desselben Mitschnitts durch alten und neuen Code, nicht der Zählerstand zweier
   Zeitfenster; der PR nennt Kanäle, Minuten, Nachrichtenzahl und „0 Differenzen".
-- [ ] **Step 6:** DECISIONS-Eintrag schreiben, `dotnet format`, Nutzer fragen, Commit
+- [x] **Step 6:** DECISIONS-Eintrag schreiben, `dotnet format`, Nutzer fragen, Commit
   `refactor(matching): share the emote name matching rule between chat and match cache`.
 
 **Fertig-Bedingung:** Backend-Suite grün; `git diff` von `TwitchChatManager.cs` zeigt nur die
@@ -430,19 +430,19 @@ leerem Set sind die Regressionsgarantie); `UsageStatQueryServiceTests` (Seed-Mus
 - `TrackedSince` ist die eine Zeile `trackingResumedAt ?? createdAt`; ihr Wert liegt darin, dass es
   sie genau einmal gibt und der Harness sie nicht nachbaut. Die `<summary>` nennt beide Aufrufer.
 
-- [ ] **Step 1 (Tests zuerst):** `TrackingCoverageTests`: `null` ⇒ `createdAt`; gesetzt ⇒
+- [x] **Step 1 (Tests zuerst):** `TrackingCoverageTests`: `null` ⇒ `createdAt`; gesetzt ⇒
   `trackingResumedAt`, auch wenn er vor `createdAt` läge (die Funktion urteilt nicht).
   `UsageStatQueryServiceTests`: Stichtag = frühester Bot-Tag, nicht früheste Zeile; nur
   `BotUseCount = 0` ⇒ `null`; Bot-Zeile eines archivierten Emotes zählt; fremder Kanal zählt nicht.
-- [ ] **Step 2: rot laufen lassen.** Filter `TrackingCoverageTests|UsageStatQueryServiceTests`;
+- [x] **Step 2: rot laufen lassen.** Filter `TrackingCoverageTests|UsageStatQueryServiceTests`;
   Expected: Compilerfehler.
-- [ ] **Step 3: implementieren und `EmoteSetStatusService` umstellen** (Query-Service wird dort
+- [x] **Step 3: implementieren und `EmoteSetStatusService` umstellen** (Query-Service wird dort
   injiziert; Konstruktor bekommt `IUsageStatQueryService` dazu).
-- [ ] **Step 4: grün laufen lassen.** Zusätzlich Filter `EmoteSetStatusServiceTests`: **unverändert
+- [x] **Step 4: grün laufen lassen.** Zusätzlich Filter `EmoteSetStatusServiceTests`: **unverändert
   grün ohne Anpassung einer Assertion** (das ist der Beleg der Verhaltensneutralität), dann
   `dotnet test EmotePurge.slnx` (die Api-Tests fahren `Program.cs` hoch und lösen den
   Status-Service auf).
-- [ ] **Step 5:** `dotnet format`, Nutzer fragen, Commit
+- [x] **Step 5:** `dotnet format`, Nutzer fragen, Commit
   `refactor(usage): extract the tracking window and bot cutover rules`.
 
 **Fertig-Bedingung:** Backend-Suite grün; `EmoteSetStatusServiceTests.cs` ohne Diff;
@@ -524,7 +524,7 @@ Failure Modes „Log-Client Body/429/Format"; `TwitchHelixClient.cs` und `SevenT
   `Timeout` 30 s (nur Header), `User-Agent` wie die anderen Clients, **ohne** Telemetrie-Handler
   (Plan-Entscheidung 3, als Kommentar an der Registrierung).
 
-- [ ] **Step 1 (Tests zuerst).** `JustlogRawLineParserTests` (synthetische Zeilen, erfundene IDs):
+- [x] **Step 1 (Tests zuerst).** `JustlogRawLineParserTests` (synthetische Zeilen, erfundene IDs):
   gewöhnliche PRIVMSG mit drei Badges; ohne Badges; mit `bot-badge`; ACTION entpackt; Text mit
   Doppelpunkt und Leerzeichen bleibt vollständig; Tag-Wert mit `\s` entschlüsselt (z. B.
   `display-name`); `source-room-id` ungleich `room-id` gesetzt; CLEARCHAT ⇒ `false`, Befehl
@@ -547,18 +547,18 @@ Failure Modes „Log-Client Body/429/Format"; `TwitchHelixClient.cs` und `SevenT
   lauter unlesbaren Zeilen ⇒ `MalformedResponse`. Die Testdatei ist synthetisch: sechs bis zehn
   Zeilen, erfundene Logins wie `alice_test`, IDs wie `100000001`, ein ACTION, ein CLEARCHAT, ein
   USERNOTICE, ein Shared-Chat-Fall.
-- [ ] **Step 2: rot laufen lassen.** Filter `JustlogRawLineParserTests|ChatLogArchiveClientTests`;
+- [x] **Step 2: rot laufen lassen.** Filter `JustlogRawLineParserTests|ChatLogArchiveClientTests`;
   Expected: Compilerfehler.
-- [ ] **Step 3: implementieren** (Options, Parser, Client, Registrierung).
-- [ ] **Step 4: grün laufen lassen.** Gleicher Filter; dann `CoreAssemblyReferenceTests` (die
+- [x] **Step 3: implementieren** (Options, Parser, Client, Registrierung).
+- [x] **Step 4: grün laufen lassen.** Gleicher Filter; dann `CoreAssemblyReferenceTests` (die
   Records in `Core` dürfen nichts referenzieren) und `dotnet build EmotePurge.slnx`.
-- [ ] **Step 5: Live-Probe ein Tag (Regel 16).** Ein Wegwerf-Aufruf (z. B. ein `dotnet script`
+- [x] **Step 5: Live-Probe ein Tag (Regel 16).** Ein Wegwerf-Aufruf (z. B. ein `dotnet script`
   oder ein temporärer xUnit-Fall mit `[Fact(Skip)]`, der **nicht** committet wird) gegen
   `channelid/489111423/<gestriges Datum>?raw` mit `maxBytes` 50 MB: erwartet `Complete` mit
   Bytes im einstelligen MB-Bereich oder `NoLogDay`, Zeilenzähler plausibel, kein Hänger. Ein
   zweiter Aufruf direkt danach zeigt den Abstand im Log. Ergebnis (Status, Bytes, Nachrichten,
   Dauer) in die Task-Rückmeldung. Mehr als zwei Anfragen macht diese Probe nicht.
-- [ ] **Step 6:** `dotnet format`, Nutzer fragen, Commit
+- [x] **Step 6:** `dotnet format`, Nutzer fragen, Commit
   `feat(infra): add the streaming chat log archive client`.
 
 **Fertig-Bedingung:** beide Testklassen grün; Live-Probe mit genannten Zahlen; kein neuer
@@ -604,15 +604,15 @@ braucht); `UsageStatQueryService.GetTotalsByEmoteIdsAsync` (`:227-245`) als Zusc
   Filter vergessen.
 - `from > to` wirft `ArgumentException` wie `GetUsageContextAsync`.
 
-- [ ] **Step 1 (Tests zuerst, `UsageStatQueryServiceTests`):** Lebenszeiten: aktives und
+- [x] **Step 1 (Tests zuerst, `UsageStatQueryServiceTests`):** Lebenszeiten: aktives und
   archiviertes Emote beide enthalten, Felder durchgereicht, `FirstSeenAt` null bleibt null,
   fremder Kanal fehlt, Reihenfolge nach `Id`; Zeilen: Bereich inklusiv an beiden Enden, Zeile
   außerhalb fehlt, Bot-only-Zeile (`UseCount 0, BotUseCount 3`) **enthalten**, fremde Emote-Id
   fehlt, leere ID-Liste ⇒ leer ohne Query-Fehler, Reihenfolge `(EmoteId, Date)`.
-- [ ] **Step 2: rot laufen lassen.** Filter `UsageStatQueryServiceTests`; Expected: Compilerfehler.
-- [ ] **Step 3: implementieren.**
-- [ ] **Step 4: grün laufen lassen.** Gleicher Filter, dann `dotnet test EmotePurge.slnx`.
-- [ ] **Step 5:** `dotnet format`, Nutzer fragen, Commit
+- [x] **Step 2: rot laufen lassen.** Filter `UsageStatQueryServiceTests`; Expected: Compilerfehler.
+- [x] **Step 3: implementieren.**
+- [x] **Step 4: grün laufen lassen.** Gleicher Filter, dann `dotnet test EmotePurge.slnx`.
+- [x] **Step 5:** `dotnet format`, Nutzer fragen, Commit
   `feat(usage): expose emote lifetimes and window rows for the replay harness`.
 
 **Fertig-Bedingung:** Backend-Suite grün; beide Methoden ohne Navigations-Join; kein Konsument
@@ -717,7 +717,7 @@ Eingabetypen in `ReplayModels.cs`, die Task 6 aus den DTOs befüllt).
   auf vier Nachkommastellen gerundet, Listen sortiert. Dass zwei Aufrufe dasselbe Objekt liefern,
   ist ein Testfall.
 
-- [ ] **Step 1 (Tests zuerst, container-frei, synthetische Emotes und Zeilen).**
+- [x] **Step 1 (Tests zuerst, container-frei, synthetische Emotes und Zeilen).**
   `ReplayDayCounterTests`: Emote vor `FirstSeenAt` ⇒ `BeforeFirstSeen`, nicht gezählt; nach
   `ArchivedAt` ⇒ `AfterArchived`; `FirstSeenAt` null ⇒ gezählt und `FirstSeenUnknownHits`;
   `IsArchived` ohne `ArchivedAt` ⇒ nicht in der Map, Treffer als `UnknownName`? **Nein:** als
@@ -738,12 +738,12 @@ Eingabetypen in `ReplayModels.cs`, die Task 6 aus den DTOs befüllt).
   `ratedDays` und hat den Boden 5; M < 30 ⇒ `stableSubsetDecisive false`; Nullzählung = 100 %;
   Spearman mit Gleichstand (Handrechnung im Test dokumentiert); Rang-Gleichstand ordinal nach Id;
   `Compute` zweimal ⇒ `Equals` wahr.
-- [ ] **Step 2: rot laufen lassen.** Filter `ReplayDayCounterTests|ReplayFidelityCalculatorTests`;
+- [x] **Step 2: rot laufen lassen.** Filter `ReplayDayCounterTests|ReplayFidelityCalculatorTests`;
   Expected: Compilerfehler.
-- [ ] **Step 3: implementieren.** Median/Perzentil per nächstem Rang (kein Interpolieren, im
+- [x] **Step 3: implementieren.** Median/Perzentil per nächstem Rang (kein Interpolieren, im
   Kommentar genannt); Spearman als Pearson über mittlere Ränge.
-- [ ] **Step 4: grün laufen lassen.** Gleicher Filter, dann das ganze Worker-Testprojekt.
-- [ ] **Step 5:** `dotnet format`, Nutzer fragen, Commit
+- [x] **Step 4: grün laufen lassen.** Gleicher Filter, dann das ganze Worker-Testprojekt.
+- [x] **Step 5:** `dotnet format`, Nutzer fragen, Commit
   `feat(harness): compute replay fidelity from day counts`.
 
 **Fertig-Bedingung:** Worker-Tests grün; die zwei Klassen haben keine Abhängigkeit außer `Core`
@@ -1036,10 +1036,10 @@ Harness-Lauf (oder sein sauberer Exit-3-Pfad) mit Zahlen belegt; Prod-Befehle ü
 
 Kein Code. Nach dem Merge, vor dem ersten Lauf auf Prod.
 
-- [ ] **Step 1:** Den T8-Bericht (Abschnitt „T8-Live-Proben 2026-09-05" des Design-Docs) als
+- [x] **Step 1:** Den T8-Bericht (Abschnitt „T8-Live-Proben 2026-09-05" des Design-Docs) als
   Kommentar nach #69 stellen, falls noch nicht geschehen (das Design-Doc verweist darauf, der
   Kommentar existiert laut Auftrag noch nicht).
-- [ ] **Step 2:** Die Präregistrierung als Kommentar nach #69: Gesamtabweichung ≤ 10 % über die
+- [x] **Step 2:** Die Präregistrierung als Kommentar nach #69: Gesamtabweichung ≤ 10 % über die
   volle Population und gewertete Tage, Top-20-Recall ≥ 0,9, unteres-Quartil-Precision ≥ 0,8,
   mindestens zwei Kanäle mit je mindestens 20 gewerteten Tagen, Fensterlänge 30; Diagnostik nicht
   bindend (Median, p90, Spearman der stabilen Teilmenge mit N, M; log-only/live-only-Anteile;

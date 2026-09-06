@@ -56,3 +56,7 @@ src/EmotePurge.Api/wwwroot/
 
 # Angular-CLI-Cache, wenn ng vom Repo-Root statt aus web/ läuft (web/.gitignore deckt nur web/.angular/cache).
 .angular/
+
+# Bind-Mount-Ziel des `harness`-Compose-Services (#69): JSONL-Protokoll und Markdown-Bericht
+# eines Akkuratheits-Laufs. Werden per scp vom VPS geholt, nie committet.
+harness-reports/

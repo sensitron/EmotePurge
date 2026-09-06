@@ -1,7 +1,9 @@
+using EmotePurge.Core.ChatLogArchive;
 using EmotePurge.Core.Messaging;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
+using EmotePurge.Infrastructure.ChatLogArchive;
 using EmotePurge.Infrastructure.Persistence;
 using EmotePurge.Infrastructure.Redis;
 using EmotePurge.Infrastructure.Services;
@@ -94,6 +96,29 @@ public static class ServiceCollectionExtensions
             }
         })
         .AddHttpMessageHandler(sp => ProviderTelemetry(sp, RateLimitProviders.Twitch, RateLimitCallSources.TwitchHelix));
+
+        var chatLogArchiveOptions = new ChatLogArchiveOptions();
+        configuration.GetSection("ChatLogArchive").Bind(chatLogArchiveOptions);
+        services.AddSingleton(chatLogArchiveOptions);
+
+        // T3 (#69): read-only, sequential-by-contract client for the third-party chat-log archive
+        // that backs the accuracy-harness backfill. No telemetry handler here on purpose
+        // (Plan-Entscheidung 3) — the archive is an optional, unreliable harness dependency
+        // behind its own feature flag (design doc Premise 5), not a provider the rate-limit
+        // dashboard needs to track like Twitch/7TV.
+        //
+        // Registered transient, as the typed-client pattern (and the plan) dictate — but the
+        // RequestDelay pacing that keeps this client from hammering a free third-party service
+        // lives in *instance* state on ChatLogArchiveClient (see its class comment). Resolving a
+        // fresh instance per call silently drops that pacing: no exception, no log line, just a
+        // client that no longer waits between requests. Task 6 (the harness) must resolve this
+        // client exactly once per run and hold it for the whole day-loop (Fixrunde 1 finding).
+        services.AddHttpClient<IChatLogArchiveClient, ChatLogArchiveClient>(client =>
+        {
+            client.BaseAddress = new Uri(chatLogArchiveOptions.BaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(30); // header phase only — see ChatLogArchiveClient's body-timeout CTS
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("EmotePurge/1.0");
+        });
 
         // Singleton cache over the transient typed client — see the class comment for why it
         // resolves ITwitchAuthClient through a scope instead of injecting it.

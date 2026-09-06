@@ -288,7 +288,7 @@ Es gibt zwei Compose-Dateien, kein YAML mehr hier gespiegelt — die eingebettet
 
 ### 6a. Lokal (`docker-compose.yml`)
 
-Für lokale Entwicklung/Tests: `docker compose up -d --build` baut `api`/`worker` aus dem Repo-Stand (`build:`-Sektion, kein vorgebautes Image). Gestartet mit `redis`, `postgres`, `api`, `worker` im gemeinsamen `emotepurge-network`-Bridge-Netz.
+Für lokale Entwicklung/Tests: `docker compose up -d --build` baut `api`/`worker` aus dem Repo-Stand (`build:`-Sektion, kein vorgebautes Image). Gestartet mit `redis`, `postgres`, `api`, `worker` im gemeinsamen `emotepurge-network`-Bridge-Netz. Ein fünfter Dienst, `harness` (#69), trägt `profiles: ["harness"]` und startet dadurch nie mit `up` — nur gezielt per `docker compose --profile harness run --rm harness <kanal>` (s. DECISIONS).
 
 ### 6b. Produktion (`docker-compose.prod.yml` + `.github/workflows/publish.yml`)
 
@@ -309,6 +309,8 @@ Läuft auf einem VPS neben einer bestehenden, unabhängigen App, als Portainer-S
 Bewusst **nicht** unterschiedlich: `redis` läuft in beiden Dateien mit `--maxmemory 256mb --maxmemory-policy allkeys-lru`. Redis trägt hier neben dem Rollen-/Health-Cache auch `channel:bot:commands`; ein unkontrolliert wachsender Redis würde also die Bot-Steuerung mitreißen, und ein lokal unlimitierter Redis hätte genau den Pfad ungetestet gelassen, auf den es ankommt.
 
 Konfiguration erfolgt in beiden Fällen über eine `.env`-Datei am Repo-Root (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`) — Vorlage in `.env.example`, `.env` selbst ist git-ignored.
+
+Auch `docker-compose.prod.yml` trägt den `harness`-Dienst aus 6a, hier auf demselben Worker-Image (`ghcr.io/sensitron/emotepurge-worker:latest`) statt eines zweiten Images, ebenfalls nur per `--profile harness run --rm harness <kanal>` erreichbar — nie über den normalen Stack-Redeploy.
 
 ## 7. Lokale Entwicklung & Debugging (Dev Containers)
 

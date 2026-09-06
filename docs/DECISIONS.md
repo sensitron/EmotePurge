@@ -10,6 +10,296 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Der Harness ist ein zweiter Einstiegspunkt des Worker-Images, kein Hosted Service
+
+**Betrifft:** `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`,
+`src/EmotePurge.Worker/Program.cs`, `src/EmotePurge.Worker/WorkerServiceRegistration.cs`,
+`src/EmotePurge.Worker/Harness/` (alle acht Dateien), außerdem — als Träger der geteilten
+Fensterstart-/Stichtag-/Query-Regeln ohne eigenen Eintrag (verhaltensneutrale Refactorings bzw.
+reine Ergänzungen) — `src/EmotePurge.Core/Services/IUsageStatQueryService.cs`,
+`src/EmotePurge.Core/Services/TrackingCoverage.cs`,
+`src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs`,
+`src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs`, und ihre Tests unter
+`tests/EmotePurge.Infrastructure.Tests/{Integration,Unit}/`.
+
+**Der Fall.** Der Chat-Log-Backfill-Harness (#69) braucht dieselbe DI wie der Worker (Bot-Detektor,
+Matching-Klasse, die beiden neuen Lese-Methoden an `IUsageStatQueryService`), aber keinen einzigen
+seiner neun Hosted Services — er soll einen Kanal einmal gegen ein fremdes Log-Archiv nachzählen und
+enden, nicht dauerhaft laufen. Umgesetzt ist ein zweiter Argument-Zweig direkt am Anfang von
+`Program.cs`: kein Argument startet den normalen Worker, genau `harness <kanal> [--days <n>]`
+startet einen Lauf ohne Host-Hintergrunddienste, alles andere endet mit einer deutschen
+stderr-Zeile und einem definierten Exit-Code.
+
+**Warum ein Einmal-Container statt einer weiteren Betriebsart des Worker-Prozesses.** Ein separater
+Prozess macht vier Dinge überflüssig, die ein In-Process-Harness-Modus im Worker erst hätte bauen
+müssen: kein Redis-Kommando zum Auslösen (der Container startet und endet über `docker compose
+run`), keine Einzellauf-Sperre (zwei Prozesse können sich nicht gegenseitig stören, ein zweiter
+gleichzeitiger Lauf ist ein Handgriff des Nutzers, den nichts verhindern muss), keinen
+Konfigurationsschalter zum Umschalten zwischen Betriebsarten, keine Exception-Isolation zwischen
+Harness-Lauf und den neun Hosted Services. Vor allem trifft ein OOM oder ein Runtime-Tod des
+Harness-Containers nicht den Worker, der für alle Kanäle gleichzeitig IRC und den 7TV-EventAPI-Socket
+hält — ein In-Process-Harness-Modus hätte dieselbe Fehlerdomäne geteilt, die die neun Hosted Services
+seit Modul A bewusst in einem einzigen langlebigen Prozess bündelt.
+
+**Warum `harness` im `entrypoint` des Compose-Dienstes steht, nicht im `command`.** `docker compose
+run` ersetzt den `command` eines Dienstes, hängt aber seine eigenen Argumente an den `entrypoint`
+an. Ein `command: ["harness"]` hier würde von jedem `run --rm harness <kanal>` überschrieben, und der
+Container liefe mit den rohen Argumenten `<kanal> --days <n>` — die `HarnessCommandLine.Parse`
+mangels erkanntem Verb als `Invalid` zurückweist (Exit 2), *falls* das die einzige Folge wäre. Ein
+laxerer Parser hätte hier fail-open gewählt und den vollen Worker gestartet: ein zweiter IRC-Counter
+neben dem Prod-Worker, der jede Nutzungszeile über den additiven UPSERT doppelt schriebe, ohne dass
+irgendein Fehler sichtbar würde (Codex-adversarial „Fail-open CLI"). Der `entrypoint` bleibt von
+`docker compose run` unberührt, genau `["dotnet", "EmotePurge.Worker.dll", "harness"]`, und die
+Argumente von `run` landen dahinter — das ist der einzige Grund, warum die Unterscheidung
+zuverlässig funktioniert.
+
+**Die Argument-Grammatik und die Exit-Codes sind ab jetzt ein Vertrag, kein Implementierungsdetail.**
+Grammatik: kein Argument = Worker; `harness <kanal>` oder `harness <kanal> --days <n>` (1–90) = ein
+Lauf; alles andere = Refusal. Exit-Codes, als benannte Konstanten geführt (0/3/4/5/6 an
+`HarnessRunner`, 2 seit diesem Commit ebenfalls dort als `HarnessRunner.ExitInvalidArguments`, statt
+wie zuvor als zwei blanke `return 2`-Literale in `Program.cs`):
+
+| Code | Bedeutung |
+| --- | --- |
+| 0 | Das Fenster wurde vollständig abgearbeitet, beide Endberichte sind geschrieben. |
+| 2 | Die Kommandozeile war ungültig (unbekanntes Verb, fehlender Kanalname, `--days` außerhalb 1–90, überzählige Argumente) — kein Host wurde je gebaut. |
+| 3 | Eine Vorbedingung war verletzt (keine Twitch-ID, zu wenig `UsageStat`-Historie, kein Log für keinen Tag, fremde/beschädigte Bestandsdatei) — die Frage konnte gar nicht gestellt werden. |
+| 4 | Abgebrochen mit Wiederaufnahmepunkt (429, Body-Timeout, Byte-Decke, Transportfehler, `docker stop`/Ctrl-C) — derselbe Aufruf setzt am letzten fertigen Tag fort. |
+| 5 | Undecidable: die Logs tragen weder Badges noch `user-id`, der Bot-Split ist unmöglich — der Ansatz ist neu zu bewerten, kein erneuter Versuch hilft. |
+| 6 | Ein unerwarteter Fehler im Harness selbst, plausibel im Zähl-Callback — bewusst **nicht** unter 4 gefasst: 4 lädt zum „einfach nochmal laufen lassen" ein, ein Defekt in der eigenen Zähllogik begrüßte den Betreiber beim zweiten Versuch identisch. Bereits geschriebene Tageszeilen bleiben gültig. |
+
+**Der `harness`-Dienst hängt in `depends_on` auch an Redis, obwohl er selbst nie etwas
+veröffentlicht oder abonniert.** `IChannelService` nimmt einen `IRedisPublisher` im Konstruktor,
+und der sitzt am selben eager verbindenden `IConnectionMultiplexer`-Singleton
+(`AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(...))`,
+`ServiceCollectionExtensions.cs`, ohne `abortConnect=false`), an dem auch der Worker hängt.
+`GetRequiredService<HarnessRunner>()` in `Program.cs` löst über `IChannelService` also denselben
+Verbindungsaufbau aus, synchron und ungefangen — ein beim Start unerreichbares Redis hätte sonst die
+`ConnectionMultiplexer.Connect`-Ausnahme roh aus `Main` geworfen, außerhalb jedes Try/Catch und mit
+einem von der Laufzeit erfundenen Exit-Status statt einem der sechs oben genannten. Diese eager
+verbindende Registrierung ist geteilter Code (dieselbe Klasse, die die Api ohne Redis nicht booten
+lässt, #37); sie für den Harness durch einen Redis-freien Konstruktionspfad zu ersetzen wäre eine
+invasive Änderung an gemeinsamer Infrastruktur für eine Eigenschaft, die niemand braucht — der
+Harness soll fachlich nichts mit Redis tun, nicht beweisbar unabhängig davon starten können.
+Stattdessen: `depends_on: redis: condition: service_healthy` in beiden Compose-Dateien, genau wie
+beim `worker`, und `Program.cs` fängt die Auflösung von `HarnessRunner`/`HarnessOptions` in einem
+eigenen `try`/`catch`, loggt eine deutsche Zeile und liefert `ExitUnexpectedError` (6) — ein
+Umgebungsfehler, kein wiederaufnehmbarer Abbruch, also bewusst nicht 4.
+
+**Die geteilten Regeln laufen über dieselben Funktionen wie der Live-Pfad, nicht über Kopien.**
+Fensterstart (`TrackingResumedAt ?? CreatedAt`, jetzt `TrackingCoverage.TrackedSince` in `Core`) und
+Bot-Split-Stichtag (frühestes `Date` mit `BotUseCount > 0`, jetzt
+`IUsageStatQueryService.GetEarliestBotUsageDateAsync`) sind aus `EmoteSetStatusService`
+herausgezogen; Status-Service und `HarnessRunner` rufen beide dieselbe Implementierung. Die beiden
+neuen Lese-Methoden (`GetEmoteLifetimesAsync`, `GetRowsAsync`) filtern über eine skalare
+Emote-ID-Liste vor jedem `GroupBy` (Regel 10), mit Integrationstest gegen echte Testcontainers, nicht
+nur angenommen. Die Matching-Klasse selbst — Zuordnung und Koaleszenz-Regel — hat ihren eigenen
+Eintrag oben („2026-09-05 — Eine Matching-Regel für Live-Pfad, Match-Cache und Harness"); dieser
+Eintrag deckt nur, dass der Harness dieselbe Klasse aufruft, nicht warum sie dort liegt.
+
+**JSONL-Identität und Resume-Regel:** Zeile 1 jeder Berichtsdatei ist ein Kopf mit Kanal-ID,
+eingefrorenem Fenster (Start/Ende beim ersten Lauf fixiert, endet am letzten vollständig
+abgeschlossenen UTC-Tag), Bot-ID-Menge, Algorithmus-Version und einem Input-Hash über Emote- und
+`UsageStat`-Zeilen. Ein neuer Aufruf nimmt eine vorhandene Datei **nur** auf, wenn ihr Kopf
+byte-gleich ist; sonst beginnt eine neue Datei, statt eine fremde Zählung fortzuschreiben. Ein
+Prozesstod kostet dadurch höchstens den gerade offenen Tag, nie einen doppelten Abruf.
+
+**Byte-Decke als Fremdlast-Bremse, nicht als Kapazitätsgrenze.** Der Log-Dienst ist kein
+Vertragspartner (keine ToS, kein Kontakt, `justlog` selbst archiviert) und liefert 30 Tage eines
+großen Kanals mit rund 490 MB. `Harness__MaxMegabytesPerRun` (Compose:
+`HARNESS_MAX_MEGABYTES_PER_RUN`, Default 200) begrenzt die Bytes über alle Tage und alle Resumes
+eines Laufs; ein am Limit abgebrochener Lauf liefert Wiederaufnahmepunkt und Kennzahlen, aber keine
+Replay-Treue für das volle Fenster — deshalb zuerst ein kleiner Kanal.
+
+**`mem_limit` gegen `deploy.resources.limits`:** Das Design-Dokument schreibt an mehreren Stellen
+`mem_limit`; beide Compose-Dateien setzen Ressourcenlimits aber durchgängig als
+`deploy.resources.limits` (S2-21, `api`/`worker`). Der `harness`-Dienst folgt der Datei, nicht dem
+Dokument — dieselbe Form wie seine Nachbarn (1 CPU / 512M) ist wichtiger als Wortgleichheit mit einer
+älteren Beschreibung.
+
+**Bewusst nicht gebaut** (Design „Bewusst weggelassen"): Schemaänderung, Provenance-Spalte, Idempotenz
+in der DB, SSE-Fortschritt, Fenster-Parameter in der UI, Kennzeichnung in Raster/Kurve/Wahlzettel,
+Historie über 30 Tage hinaus, mehrere Log-Anbieter, `HEAD`-Vorprüfung, ein Api-Endpunkt als Auslöser,
+`RateLimiter` (für konkurrierende Aufrufer gebaut, hier gibt es genau einen sequenziellen). Das sind
+keine vertagten Aufgaben dieses Tasks, sondern für den Harness als Versuchsaufbau nie vorgesehen.
+
+**Handgriffe des Nutzers auf dem VPS** (SSH-Regel: nie selbst verbinden). Im Stack-Verzeichnis, in
+dem Portainer die Compose-Datei ablegt (`<STACK-DIR>`, `.env` liegt daneben):
+
+```
+mkdir -p harness-reports && sudo chown 999:999 harness-reports   # nur beim allerersten Mal
+docker compose -f docker-compose.prod.yml pull harness
+docker compose -f docker-compose.prod.yml run --rm harness <kanal>          # optional: --days <n>
+```
+
+Der erste Schritt ist kein Stilwunsch, sondern Pflicht: `docker compose run` legt ein fehlendes
+Bind-Mount-Ziel selbst als `root:root` an, das Image läuft aber als `appuser` mit fest vergebenem
+`uid`/`gid` **999** (s. Nachtrag unten) — ohne den `chown` scheitert der erste Lauf mit
+„Permission denied" (Exit 6). Derselbe Handgriff gilt eins zu eins lokal, im Repo-Root vor dem
+ersten `docker compose --profile harness run --build --rm harness …`. Lokal ist `--build` dabei
+kein optionaler Zusatz wie oben bei `pull`: der `harness`-Dienst in `docker-compose.yml` hat ein
+eigenes `build:` ohne `image:`, und `docker compose run` ohne `--build` führt ein vorhandenes,
+potenziell uraltes Image klaglos weiter (Regel 15) — `docker-compose.prod.yml` hat kein `build:`
+und bleibt bei `pull`.
+
+Ein zweiter Aufruf mit derselben Zeile nimmt am letzten fertigen Tag wieder auf. `pull` zuerst ist
+kein Stilwunsch: ohne ihn führt `run` das lokal bereits vorhandene, möglicherweise alte
+`:latest`-Image weiter aus (s. Eintrag „Prod-Redeploy fährt still das alte Image weiter" im Memory
+dieses Projekts) — der Harness liefe dann gegen einen Codestand, der die gemessenen Zahlen gar nicht
+mehr erzeugt. Bericht und Protokoll danach lokal abholen:
+
+```
+scp vps:<STACK-DIR>/harness-reports/<datei>.report.md .
+scp vps:<STACK-DIR>/harness-reports/<datei>.jsonl .
+```
+
+**Nachtrag (Task 8a, selbes Thema, selber Tag) — zwei Defekte aus der Live-Verifikation
+behoben.**
+
+*Lauf-Identität stabilisiert.* `HarnessInputHash` nahm bislang `Emote.LastSyncedAt` als vollen
+Zeitstempel in die Identität auf. Task 8 fand einen realen Kanal (`brudivoeller_tv`), auf dem
+7TV dieselbe Emote-ID zweimal unter zwei Set-Namen führt (`Fiesta`/`clownFiesta`,
+`hammVibe`/`UHHH`) — ein Produktionsdefekt außerhalb von #69, eigenes Issue folgt. Weil
+`ReconcileAsync`/`UpsertEmote` dieselbe Zeile dadurch pro Tick teils zweimal schreibt, wandert
+`LastSyncedAt` im Betrieb, ohne dass sich am Emote inhaltlich etwas ändert: vier Läufe in 13
+Minuten erzeugten vier verschiedene Identitäten und holten jedes Mal dieselben 8,39 MB neu — die
+Wiederaufnahme-Zusage war damit auf einem solchen Kanal wertlos. `HarnessInputHash` hasht jetzt
+nicht mehr den rohen Zeitstempel, sondern genau das Prädikat, das
+`ReplayFidelityCalculator.IsStable` daraus tatsächlich ableitet
+(`LastSyncedAt < windowFrom`, als ein Bit): ein Wechsel der Fensterseite ändert weiterhin die
+Identität (er ändert das Ergebnis), ein Wandern innerhalb derselben Fensterseite nicht mehr (er
+ändert nichts am Ergebnis). Alle anderen Bestandteile des Hashes (`Id`, `Name`, `IsArchived`,
+`FirstSeenAt`, `ArchivedAt`, die `UsageStat`-Zeilen, die Bot-ID-Menge) sind unverändert. Dieselbe
+Beobachtung gilt der Form nach auch für `FirstSeenAt` — `UpsertEmote`s v4-Korrektur schreibt es
+außerhalb der Change-Erkennung neu, sobald `AddedToSetAt` abweicht, was bei zwei Set-Einträgen
+derselben ID ebenfalls kippen könnte — dort aber unangetastet gelassen, weil `FirstSeenAt`
+tageweise (nicht nur an der Fenstergrenze) in die Zählung eingeht und eine Änderung dort
+tatsächlich etwas am Ergebnis ändern kann; ein Kandidat für eine spätere, eigene Prüfung, kein
+Teil dieses Fixes.
+
+*Fester `uid`/`gid` 999 für `appuser`.* `src/EmotePurge.Worker/Dockerfile` legte den Benutzer
+bislang ohne `-u`/`-g` an; die konkrete Nummer hing vom Basis-Image ab und konnte sich mit einem
+Image-Update verschieben. Jetzt `useradd --system --uid 999 …` / `groupadd --system --gid 999`,
+derselbe Wert, den Task 8 zur Laufzeit vorgefunden hatte. Erst das macht den `chown`-Handgriff
+oben vorab aufschreibbar, statt ihn — wie in Task 8 — per Root-Container zur Laufzeit erraten zu
+müssen.
+
+**Nachtrag (Abschluss-Review, selbes Thema) — die Byte-Decke zählte nicht, was sie versprach.**
+`bytesUsed` bildete sich bislang nur aus fertigen Tageszeilen; ein Tag, der mit
+`ByteCapExceeded`, `BodyTimeout` oder `TransportFailure` endete, bekam keine Tageszeile und seine
+Bytes waren beim nächsten Aufruf vergessen — der Satz oben, die Decke gelte „über alle Tage und
+alle Resumes eines Laufs", stimmte an dieser Stelle nicht. `HarnessEventLine` trägt jetzt ein
+`Bytes`-Feld (Default 0, damit eine ältere Datei ohne dieses Feld unverändert weiter deserialisiert
+— kein `AlgorithmVersion`-Bump, die Tageszeilen sind unangetastet), und `HarnessRunner` summiert
+beim Resume `existing.Days.Sum(d => d.Bytes) + existing.Events.Sum(e => e.Bytes)`. Zwei zusätzliche
+Report-Felder sind rein beschreibend und ändern keine der drei präregistrierten Gate-Formeln:
+`ReplayGateMetrics.BottomQuartileLiveTieCount`/`BottomQuartileLogTieCount` zählen, wie viele
+Population-Einträge sich den Zählwert am Schnittpunkt der unteren Quartils-Rankings teilen — bei
+einer langschwänzigen Verteilung (viele Emotes mit gleichem, niedrigem Wert) kann
+`BottomQuartilePrecision` sonst überwiegend Gleichstandsrauschen aus dem ordinalen
+GUID-Tie-Break sein, statt eine gemessene Rangabweichung.
+
+**Nachtrag (selbes Thema) — das eingefrorene Fenster war gar nicht eingefroren.** Die Zusage oben,
+Start und Ende der Berichtsdatei seien „beim ersten Lauf fixiert", stimmte nicht: `HarnessRunner`
+leitete beides bei **jedem** Prozessstart neu aus der Uhr ab (`to` = gestern). Beide Daten stecken im
+Dateinamen *und* im Identitäts-Digest, und mit dem Fenster verschieben sich zusätzlich die geladenen
+`UsageStat`-Zeilen und damit der Input-Hash — ein Folgeaufruf an einem späteren UTC-Tag erzeugte also
+eine andere Identität und eine andere Datei, ignorierte die bereits erledigten Tage und die schon
+gebuchten Byte-Events und vergab die Decke frisch. Das ist dieselbe Fehlerklasse wie beim wandernden
+`LastSyncedAt` (Nachtrag Task 8a), nur mit der Uhr als Quelle der Wanderung, und sie trifft den
+bindenden Lauf **im Normalfall**: 30 Tage eines großen Kanals sind rund 490 MB gegen eine Decke von
+200 MB, der Lauf muss also mehrfach aufgerufen werden und überschreitet dabei mit hoher
+Wahrscheinlichkeit eine Mitternacht. Der Task-6-Brief hatte „bezogen auf den Prozessstart"
+vorgeschrieben; diese Spannung zur Resume-Zusage hat beim Bau niemand aufgelöst.
+
+**Jetzt gilt:** ein Aufruf sucht vor allen fensterabhängigen Abfragen im Berichtsverzeichnis nach
+einem **unabgeschlossenen** Lauf desselben Kanals und übernimmt dessen Fenster, statt ein neues
+abzuleiten. Weil der Fensterzeitraum selbst Teil des Dateinamens ist, ist die Datei über ihren Namen
+nicht auffindbar — gelesen werden deshalb die Köpfe (`HarnessReportFile.TryReadHeader`, wertet nicht,
+sondern liefert `null` für alles Unlesbare). Übernommen wird **nur** das Fenster; die Identität wird
+damit neu berechnet und wie bisher byte-gleich gegen den Kopf geprüft, ein geänderter Datenstand
+beginnt also unverändert eine neue Datei. Vier Grenzfälle sind bewusst entschieden: *abgeschlossen*
+erkennt `HarnessReportFile.IsClosed` an der Existenz der `.report.json` — sie schreibt allein
+`WriteFinalReportAtomically`, und die läuft erst, wenn das ganze Fenster auf Platte liegt; *mehrere
+Kandidaten* sind der Normalzustand des Verzeichnisses (jeder geänderte Datenstand lässt seinen
+Vorgänger für immer unabgeschlossen liegen) und deshalb kein Fehler, sondern eine Wahl — es gewinnt
+das jüngste Fenster, dem eine frische Ableitung am nächsten käme; ein *anderes `--days`* passt nicht
+mehr auf die Fensterlänge des Kopfes und beginnt eine neue Datei, ohne dass `days` ein eigenes Feld
+bräuchte (die Länge *ist* das Fenster); und ein *sehr alter* Lauf wird ab
+`MaxResumeAgeInDays = 7` nicht mehr fortgesetzt, sondern per Warnung im Log liegen gelassen — ein
+Bericht, der heute datiert ist, soll nicht für ein Fenster antworten, nach dem niemand mehr gefragt
+hat. Bewusst **nicht** gebaut: Lockfile, Index, zusätzliches Kommandozeilenargument, Konfigurationsoption.
+
+**Was es gekostet hat:** drei Tests in `HarnessRunnerTests` (Wiederaufnahme über eine UTC-Mitternacht,
+die Altersgrenze, die abweichende Fensterlänge) und eine veränderbare `FakeClock` — die alte gab
+konstant dieselbe Zeit zurück und konnte den Fall grundsätzlich nicht sehen. Ebenfalls in diesem
+Zug, ohne Codeänderung: der `catch (OperationCanceledException)` der Tagesschleife hält jetzt fest,
+**warum** er 0 Bytes bucht, obwohl bei einem Abbruch mitten im Body echte geflossen sind — der
+Archiv-Client lässt eine Caller-Cancellation nackt durchfliegen, der bis dahin gezählte Wert stirbt
+mit dem Stream, der Aufrufer kann ihn also nicht erfahren. Das ist eine Grenze des Client-Vertrags,
+keine Aussage in der Sache, und hat ein eigenes Folge-Issue.
+
+---
+
+### 2026-09-05 — Eine Matching-Regel für Live-Pfad, Match-Cache und Harness
+
+**Betrifft:** `src/EmotePurge.Core/Matching/EmoteNameMatching.cs`,
+`src/EmotePurge.Worker/TwitchChatManager.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`,
+`tests/EmotePurge.Infrastructure.Tests/Unit/EmoteNameMatchingTests.cs`
+
+**Der Fall.** Drei Stellen kannten bisher je eine eigene Kopie derselben Chat-Matching-Idee:
+`TwitchChatManager.OnMessageReceived` splittete Nachrichten an Leerzeichen und schlug jedes Token
+ordinal in der Channel-Emote-Map nach, dedupliziert je Nachricht; `SevenTvSyncService.RefreshMatchCacheAsync`
+koaleszierte gleichnamige aktive Emotes beim Aufbau dieser Map auf die zuerst geladene Id; der
+geplante Chat-Log-Backfill-Harness (#69) braucht exakt beide Regeln ein drittes Mal, um zu messen,
+ob ein Import die Live-Zählung reproduziert. Beide Regeln sind jetzt in eine gemeinsame,
+TwitchLib-freie Klasse `EmoteNameMatching` in `EmotePurge.Core.Matching` gewandert:
+`MatchEmoteIds(message, nameToId)` für den Trefferpfad, `Coalesce(emotesInLoadOrder)` für den
+Map-Aufbau.
+
+**Geteilt statt kopiert, weil die Dedup-Regel eine Metrik-Definition ist, kein
+Implementierungsdetail.** `MatchEmoteIds` liefert „Nachrichten mit diesem Emote", nicht
+„Vorkommen" — das ist genau die Zahl, die `UsageStat.UseCount` seit Modul A bedeutet. Ein Harness,
+der stattdessen Vorkommen zählt oder anders koalesziert, vergliche zwei verschiedene Metriken und
+hielte den Unterschied für Log-Ungenauigkeit statt für eine falsche Nachbildung der eigenen
+Zähldefinition. Wer die Regel künftig ändert (Trimmen, Case-Folding, Twitch-Emote-Tags statt
+Namens-Matching), ändert sie damit zwangsläufig für alle drei Aufrufer gleichzeitig — das ist
+beabsichtigt, nicht ein Nebeneffekt der Extraktion.
+
+**Warum `Core` und nicht `Worker`.** `SevenTvSyncService` liegt in `Infrastructure`, das nach der
+Schichtentreue-Tabelle nur auf `Core` verweisen darf, nie auf `Worker`. Eine gemeinsame Klasse für
+Worker- und Infrastructure-Aufrufer kann also nur in `Core` stehen — `CoreAssemblyReferenceTests`
+erzwingt das (BCL-only, keine Projektreferenz). Präzedenzfall ist `ChannelName`: eine statische,
+zustandslose Regel ohne eigenes Interface (Regel 5, Design D1).
+
+**Die Regel ist absichtlich naiv.** Split an einzelnen Leerzeichen (kein `RemoveEmptyEntries`, kein
+Trim, kein Unicode-Whitespace), ordinaler Lookup, keine Twitch-Emote-Tags. Das ist keine
+Verbesserungsgelegenheit — der Harness misst die Übereinstimmung mit dem Bestand, nicht die
+Korrektheit der Regel selbst, und jede Korrektur hier würde beide Seiten des Vergleichs zugleich
+verschieben.
+
+**Der Gewinner von `Coalesce` ist die Ladereihenfolge des Aufrufers**, nicht irgendeine kanonische
+Ordnung. Für den Live-Match-Cache ist das die unspezifizierte Reihenfolge einer Postgres-Query ohne
+`OrderBy` (`RefreshMatchCacheAsync`, unverändert) — der Harness weist das als Diagnostikzahl aus,
+statt es zu reparieren; ein `OrderBy` einzuführen wäre eine Verhaltensänderung des Live-Pfads, die
+dieser Task nicht vornimmt.
+
+**Nachtrag (Fixrunde 1, selbes Datum):** `MatchEmoteIds` hat jetzt zwei Überladungen statt einer.
+Der gebundene Vertrag mit Rückgabetyp `IReadOnlySet<string>` bleibt für Task 5/6 wörtlich bestehen,
+bekommt aber eine Zwillingsüberladung `MatchEmoteIds(message, nameToId, HashSet<string> into)`, die
+nur befüllt statt zurückzugeben. Grund: Ein `foreach` über den interface-typisierten Rückgabewert
+boxt `HashSet<string>`s Struct-Enumerator, weil es dann über `IEnumerable<T>.GetEnumerator()` statt
+über die konkrete Methode läuft — für Task 5/6 ein einmaliger, vernachlässigbarer Kostenpunkt, für
+den Chat-Hot-Path (jede eingehende Nachricht) aber genau die zusätzliche Allokation, die dieser
+Eintrag oben ausdrücklich ausschließt. `TwitchChatManager.OnMessageReceived` alloziert wie vor der
+ursprünglichen Extraktion genau ein `HashSet<string>` je Nachricht, ruft die Drei-Parameter-Überladung
+und iteriert die Menge über ihren konkreten Typ — kein Boxing. Die beiden geteilten leeren Instanzen
+(`EmptyMatches`, `EmptyAmbiguousNames`) sind außerdem von einem als `IReadOnlySet<string>` getarnten,
+aber tatsächlich veränderlichen `HashSet<string>` auf `FrozenSet<string>.Empty` umgestellt — ein
+Rückcast auf `HashSet<string>` hätte die geteilte Instanz sonst für alle Aufrufer gleichzeitig
+verändern können.
+
+---
 ### 2026-09-06 — Das Quality Gate bekommt Zähne, und zwar in dieser Reihenfolge
 
 **Betrifft:** `.github/workflows/sonarcloud.yml`, `.github/workflows/publish.yml`, `scripts/coverage-local.mjs`, `CLAUDE.md`, Repository-Ruleset auf `main`
