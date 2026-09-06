@@ -10,6 +10,27 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Nachlauf-an-Laufobjekt gilt für alle drei 7TV-Läufe, auch die beiden ausgelieferten (#72, T12)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-delete.service.ts`, `web/src/app/core/seven-tv/seven-tv-restore.service.ts`
+
+Die Regel, dass jeder asynchrone Nachlauf an dem beim Start angelegten Laufobjekt hängt und eine
+verspätete Antwort verwirft, sobald dieses Objekt nicht mehr der aktuelle Lauf ist (Eintrag unten zu
+`SevenTvImportService`), gilt seit #72 für **alle drei** Läufe: Delete und Restore halten ihren
+Zielkanal und die gemeldeten Keys jetzt ebenfalls in einem `DeleteRunInfo`/`RestoreRunInfo` statt in
+losen Feldern neben dem Dienst, und ihr Abschlussbericht (`sync-deleted`/`sync-restored`) samt Retry
+liest ausschließlich daraus.
+
+Beide Pfade waren bereits ausgeliefert und wurden rückwirkend nachgezogen, weil die Klasse dieselbe
+ist, die Folgen aber nicht waren: Delete und Restore schreiben immer in den Kanal der aktuellen
+Seite, ein verspäteter Bericht traf also höchstens denselben Kanal, wo das Backend die fremden Ids
+als `notFoundIds` verschluckt hat — folgenlos, aber nur zufällig. Der Import schreibt absichtlich in
+einen *anderen* Kanal; dort hätte ein Retry die Keys des einen Laufs an den Zielkanal eines
+**anderen** schicken können. Eine Regel, die nur an der Stelle gilt, an der sie zuerst wehtut,
+verlässt sich darauf, dass niemand die anderen beiden kopiert.
+
+---
+
 ### 2026-09-06 — Import-Lauf: dritter Arbiter-Zweig ohne DI-Zirkel, kein Kanal-Reset, Nachlauf ans Laufobjekt gebunden (#72, K3)
 
 **Betrifft:** `web/src/app/core/seven-tv/seven-tv-import.service.ts`, `web/src/app/core/seven-tv/seven-tv-run-arbiter.ts`, `web/src/app/core/seven-tv/import-source.ts`

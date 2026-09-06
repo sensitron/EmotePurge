@@ -61,6 +61,23 @@ export type DeleteQueueItem = RunQueueItem;
  *  'partial' means the call succeeded but the backend archived fewer emotes than we reported. */
 export type SyncReportState = 'idle' | 'pending' | 'succeeded' | 'partial' | 'failed';
 
+/**
+ * One delete run, from the moment it starts to the moment its closing report is done. Everything
+ * the asynchronous follow-up needs hangs off *this* object, never off a field next to the service
+ * (R15, #72, T12): the engine sets `isRunning` back to `false` inside `finish()`, i.e. *before*
+ * `onRunComplete` fires the asynchronous `sync-deleted` call, and the arbiter derives "a run is
+ * active" from exactly that signal — so a second delete can legitimately start while the first
+ * one's report is still in flight. With the channel in one field and the reported ids in another, a
+ * late answer (or a manual retry) of run 1 could be applied to run 2's channel. Bound to the
+ * record, a late answer is simply no longer `this.run` and is dropped — see the identical note on
+ * `ImportRunInfo` in `seven-tv-import.service.ts`.
+ */
+interface DeleteRunInfo {
+  channelName: string;
+  /** `null` while the run is in flight; set once the engine reports the run complete. */
+  result: RunResult | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SevenTvDeleteService {
   private readonly emoteAdminService = inject(EmoteAdminService);
@@ -73,8 +90,9 @@ export class SevenTvDeleteService {
     inject(TranslocoService),
   );
 
-  private currentChannelName: string | null = null;
-  private lastReportedIds: string[] = [];
+  /** The run every asynchronous follow-up is bound to (R15) — not the same thing as `lastRun`,
+   *  which stays `null` for as long as this is in flight and only mirrors it once `result` lands. */
+  private run: DeleteRunInfo | null = null;
 
   readonly queue = this.engine.queue;
   readonly isRunning = this.engine.isRunning;
@@ -94,13 +112,15 @@ export class SevenTvDeleteService {
     // key mirrors emoteId — the two services and the panels only ever build fully-populated rows,
     // so the queue key and the internal id are the same value here (see R3 in docs/DECISIONS.md).
     const queueEmotes: RunQueueEmote[] = emotes.map((emote) => ({ ...emote, key: emote.emoteId }));
-    const started = this.engine.start(setId, queueEmotes, REMOVE_OPERATION, (result) =>
-      this.onRunComplete(setId, channelName, result),
+    const started: DeleteRunInfo = { channelName, result: null };
+    const engineStarted = this.engine.start(setId, queueEmotes, REMOVE_OPERATION, (result) =>
+      this.onRunComplete(setId, started, result),
     );
-    if (!started) {
+    if (!engineStarted) {
+      // Refused (already running, empty list, no token) — leave every signal as it was.
       return;
     }
-    this.currentChannelName = channelName;
+    this.run = started;
     this.syncReport.set('idle');
     this.lastRun.set(null);
   }
@@ -110,12 +130,12 @@ export class SevenTvDeleteService {
   }
 
   /** Clears the panel after the admin has acknowledged a finished/cancelled run. Also drops the
-   *  run's channel and reported ids: with the panel gone there is nothing left to retry against. */
+   *  run record: with the panel gone there is nothing left to retry against, and any answer still
+   *  in flight for it is no longer `this.run` (R15). */
   reset(): void {
     this.engine.reset();
     this.syncReport.set('idle');
-    this.currentChannelName = null;
-    this.lastReportedIds = [];
+    this.run = null;
     this.lastRun.set(null);
   }
 
@@ -124,11 +144,7 @@ export class SevenTvDeleteService {
    *  deliberately left alone — hiding it would be worse than showing it on the wrong page, and it
    *  still needs its channel for the closing sync call. */
   resetIfChannelChanged(channelName: string): void {
-    if (
-      this.isRunning() ||
-      this.currentChannelName === null ||
-      this.currentChannelName === channelName
-    ) {
+    if (this.isRunning() || this.run === null || this.run.channelName === channelName) {
       return;
     }
     this.reset();
@@ -136,28 +152,41 @@ export class SevenTvDeleteService {
 
   /** Manual retry for the closing report. The 7TV deletions are long done at this point, so this
    *  only re-sends the bookkeeping call — safe to repeat, ids already archived come back in
-   *  notFoundIds. */
+   *  notFoundIds. Channel *and* ids come from the same record, so a retry can never mix one run's
+   *  ids with another's channel (R15). */
   retrySyncReport(): void {
+    const current = this.run;
     if (
       this.syncReport() === 'pending' ||
-      this.lastReportedIds.length === 0 ||
-      this.currentChannelName === null
+      current === null ||
+      current.result === null ||
+      current.result.doneIds.length === 0
     ) {
       return;
     }
 
-    this.reportDeleted(this.currentChannelName, this.lastReportedIds);
+    this.reportDeleted(current, current.channelName, current.result.doneIds);
   }
 
-  private onRunComplete(setId: string, channelName: string, result: RunResult): void {
-    this.lastRun.set({ setId, channelName, result });
+  private onRunComplete(setId: string, started: DeleteRunInfo, result: RunResult): void {
+    if (this.run !== started) {
+      // Only reachable via reset()/resetIfChannelChanged() during the run: the shown run is not
+      // this one any more, so neither its result nor its bookkeeping belong on screen.
+      return;
+    }
+
+    // A new object rather than a mutation, so consumers of `run` reading it back via `lastRun`
+    // actually see the result. From here on this is the record the follow-up is bound to.
+    const finished: DeleteRunInfo = { ...started, result };
+    this.run = finished;
+    this.lastRun.set({ setId, channelName: finished.channelName, result });
+
     if (result.doneIds.length > 0) {
-      this.lastReportedIds = result.doneIds;
-      this.reportDeleted(channelName, result.doneIds);
+      this.reportDeleted(finished, finished.channelName, result.doneIds);
     }
   }
 
-  private reportDeleted(channelName: string, emoteIds: string[]): void {
+  private reportDeleted(run: DeleteRunInfo, channelName: string, emoteIds: string[]): void {
     this.syncReport.set('pending');
 
     this.emoteAdminService
@@ -179,8 +208,20 @@ export class SevenTvDeleteService {
           // notFoundIds covers ids the backend could not archive (unknown, foreign channel, already
           // archived). All of them coming back is indistinguishable from success in the raw numbers,
           // which is why the result is evaluated at all instead of being discarded.
-          this.syncReport.set(result.archivedCount >= emoteIds.length ? 'succeeded' : 'partial'),
-        error: () => this.syncReport.set('failed'),
+          this.applyIfCurrent(run, () =>
+            this.syncReport.set(result.archivedCount >= emoteIds.length ? 'succeeded' : 'partial'),
+          ),
+        error: () => this.applyIfCurrent(run, () => this.syncReport.set('failed')),
       });
+  }
+
+  /** The R15 guard in one place: an answer that belongs to a superseded run is dropped silently —
+   *  no error state, nothing written. The run it belongs to is not on screen any more, and the one
+   *  that is must not inherit its outcome. */
+  private applyIfCurrent(run: DeleteRunInfo, apply: () => void): void {
+    if (this.run !== run) {
+      return;
+    }
+    apply();
   }
 }
