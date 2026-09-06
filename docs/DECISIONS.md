@@ -300,6 +300,161 @@ Rückcast auf `HashSet<string>` hätte die geteilte Instanz sonst für alle Aufr
 verändern können.
 
 ---
+### 2026-09-06 — Regel 12 präzisiert: Komponenten werden auf Verhalten getestet, nicht auf Vorlage
+
+**Betrifft:** `CLAUDE.md`, `web/.claude/CLAUDE.md`, `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md`, `web/src/app/shared/seven-tv/action-dock.ts`
+
+Regel 12 schloss isolierte Komponententests bisher pauschal aus: Services, Guards und reine Utilities bekamen einen Vitest-Spec, Komponenten wurden live im Browser verifiziert. Diese Fassung stammt vom 2026-07-28 und ist am 2026-08-29 ausdrücklich gegen Homeports Testregel („Komponenten testen, wenn sie eigene Logik tragen") verteidigt worden — mit dem Satz, das sei eine Entscheidung mit eigener Begründung und bleibe. **Sie wird jetzt nicht umgedreht, sondern an der Stelle geschnitten, an der sie ohnehin schon eine Ausnahme hatte:** Verhalten ja, Vorlage nein. Geprüft wird die Entscheidungslogik einer Komponente — welcher Zustand gilt, welcher Sperrgrund greift, welche Zeile in welcher Reihenfolge erscheint. Nicht geprüft werden Layout, Markup und Styling; dort bleibt der Browser das Mittel, und größere Flüsse bleiben Playwright.
+
+**Der Anlass ist neu, nicht die Meinung.** Am selben Tag ist das SonarCloud-Gate nach `main` gekommen (s. die drei Einträge darunter), und es misst die Abdeckung auf **neuem** Code gegen 80 %. Damit hat die alte Fassung zum ersten Mal einen messbaren Preis: In PR #79 (Import-UI, #72) waren von 362 neuen zu deckenden Zeilen 135 ungedeckt (dazu 20 von 144 Bedingungen), zusammen 69,4 % — und **126 der 135 Zeilen lagen in sechs Komponenten**; der Rest, neun Zeilen, verteilte sich über alle Services, Parser und reinen Funktionen zusammen. Die Regel, die Komponenten ausklammert, klammert bei einem UI-Feature also fast den ganzen neuen Code aus; das Gate ist für jede künftige UI-Änderung strukturell unerfüllbar.
+
+**Vier Wege standen offen, drei sind verworfen.** *(a) Die Schwelle senken.* Die 80 % sind Sonars Voreinstellung für neuen Code; eine eigene, niedrigere Zahl müsste bei jeder künftigen UI-Änderung erneut verteidigt werden und wäre in Wahrheit nur die Konvention in anderer Schreibweise. *(b) Komponenten per `sonar.coverage.exclusions` von der Messung ausnehmen.* Der Mechanismus ist im Repo vorhanden (`scripts/**` steht dort, s. den Eintrag zur statischen Analyse), taugt aber für Hilfsskripte und nicht für die Hauptmasse des Produktivcodes: Das Werkzeug wäre dann genau dort blind, wo bei einem UI-Feature 126 von 135 ungedeckten Zeilen liegen, und die Quote bliebe gut, *weil* sie das Ungetestete nicht mehr sieht. *(c) Die vorhandene Playwright-Suite als zweite Coverage-Quelle einspeisen.* Technisch machbar, aber sie mockt jedes `/api/**` und läuft gegen einen Dev-Server-Build; nötig wären Instrumentierung und das Zusammenführen zweier lcov-Berichte. Vor allem misst sie das Falsche: Ein Seitenaufruf „deckt" viele Zeilen, über die er nichts entscheidet — die Zahl stiege, ohne dass eine Entscheidung geprüft wäre. Bleibt als benannte Option, falls die Unit-Ebene je an eine Grenze stößt. *(d) Die gewählte.* Sie ist die einzige, die die Frage beantwortet, statt sie umzudefinieren.
+
+**Der Nutzen ist nicht der grüne Haken — das ist nachgemessen, nicht behauptet.** Die 86 Tests der ersten Runde unter der neuen Regel haben Dinge festgenagelt, für die es vorher keinen Wächter gab: die Zeilenreihenfolge des Bestätigungsdialogs, die `docs/UI-Designsprache.md` §7.2 ausdrücklich als „Vertrag, keine Layout-Frage" führt; die beiden **unabhängigen** Sperrquellen des Ausführen-Knopfes (`blockReason` und ein fremder laufender Lauf); die Exklusivität der drei Ladezustands-Meldungen im Ziel-Picker; und den umgekehrten Token-Zeitpunkt der beiden Restore-Zweige (Prompt **vor** der Bestätigung beim Protokoll, **danach** beim Import), der als Vertrag im #72-K3-Eintrag steht. Nebenbei fielen zwei Mängel auf, die keiner Suite vorher auffallen konnten — darunter `import.confirm.nothingToAdd`, das als einzige Zählzeile keine Plural-Geschwister hat und bei genau einer Zeile „Alle 1 Emotes" schreibt. Das ist der vom Gate unabhängige Teil der Begründung.
+
+**Die Grenze ist als Liste formuliert, nicht als Gefühl.** „Vorlage" wäre sonst Auslegungssache, und eine Regel, über die man streiten kann, erzeugt Markup-Tests unter falscher Flagge. Ausdrücklich erlaubt sind Zustandsübergänge und `computed()`-Ergebnisse, Outputs und Dialog-Rückgaben, Sperrentscheidungen samt ihrem Grund, Accessibility-Semantik und eine Reihenfolge, **die anderswo als Vertrag dokumentiert ist**. Ausdrücklich verboten sind CSS-Klassen, Tailwind-Ketten, nicht-semantische Tags und Verschachtelung, Snapshots und der Wortlaut einer Übersetzung als Selbstzweck. Die Faustregel für alles dazwischen: Was sich beim Umgestalten ändern darf, ohne dass ein Nutzer etwas anderes erlebt, gehört in keinen Spec. Und die Pflicht trifft nur Komponenten mit **eigener, nicht-trivialer** Entscheidungslogik — rein darstellende bleiben ohne Spec, analog zu Regel 5 auf der C#-Seite.
+
+**Was nicht rückwirkend passiert.** Bestehende Komponenten ohne Spec werden nicht nachgerüstet; die Regel gilt für neue und geänderte Logik. Zwei Stellen sind aber überholt und nachgezogen: Der Klassenkommentar in `web/src/app/shared/seven-tv/action-dock.ts` begründete die Extraktion einer reinen Funktion damit, Regel 12 verbiete einen Test der Seite — der Grund für die Extraktion bleibt, die Regelbegründung stimmt nicht mehr. (Der Kommentar reist mit dem Import-UI-Branch, damit dieser Commit rein dokumentarisch bleibt und die CI nicht für eine Kommentarzeile Images baut.) Und die Entwarnung in `docs/Review-2026-08-01-Struktur-und-Wartbarkeit.md` (Befund ST-3), die 19 fehlenden Specs unter `shared/ui|seven-tv|datetime` seien „regelkonform", gilt nicht mehr pauschal; sie sind ab jetzt einzeln danach zu beurteilen, ob die Komponente eigene Entscheidungslogik trägt. **Plandokumente werden nicht nachträglich umgeschrieben** — die Sätze „keine Komponententests (Regel 12)" in den Plänen zu #70 und #72 bleiben als das stehen, was zum Zeitpunkt ihrer Abfassung galt, wie schon bei den Plänen mit ausformuliertem Code entschieden.
+
+**Die Präzisierung erfindet nichts, sie verallgemeinert eine bestehende Ausnahme.** `back-link.spec.ts` ist seit dem 2026-08-01 ein isolierter Komponenten-Spec mit ausdrücklicher Begründung im Log: „hier ist der Prüfgegenstand kein Layout, sondern Semantik, die man im Browser nicht sieht." Genau diese Grenze steht jetzt in der Regel, statt als Einzelfall daneben. Das Ergebnis kommt Homeports Formulierung nahe, ist aber schärfer geschnitten: Dort entscheidet, **ob** eine Komponente eigene Logik trägt, hier entscheidet, **welcher Teil** von ihr unter Test steht. Der Unterschied ist der, auf den es ankommt — ein Spec, der Markup festnagelt, macht jede spätere Gestaltungsänderung teuer, und das war der ursprüngliche Grund für den pauschalen Ausschluss.
+
+**Was unverändert bleibt:** die Live-Verifikation im Browser vor dem Commit (Regel 16 sinngemäß für die UI), Playwright für Flüsse über mehrere Seiten, und die Tatsache, dass eine Zeile Abdeckung kein Ziel ist. Ein Test, der nur Zeilen berührt, um eine Quote zu heben, fällt nicht unter „Verhalten" und ist deshalb weiterhin nicht gemeint.
+
+### 2026-09-06 — Roslyn wird in der `.editorconfig` gefiltert statt am Sonar-Import abgeschaltet
+
+**Betrifft:** `.editorconfig`, `.github/workflows/sonarcloud.yml`
+
+**Revidiert den Eintrag darunter.** Dort war der Import der Roslyn-Befunde ganz abgeschaltet worden
+(`sonar.cs.roslyn.ignoreIssues=true`), weil 95 von 142 Befunden aus ihm stammten. Das war zu grob:
+Vier der 95 hatten Substanz — darunter ein nicht weitergereichter `CancellationToken` in
+`TwitchLivePollWorker` —, und vor allem hätte **jeder künftige** Roslyn-Befund dasselbe Schicksal
+geteilt, ohne dass es jemand bemerkt. Der Import ist deshalb wieder an; gefiltert wird eine Ebene
+tiefer.
+
+**Die Annahme, auf der die erste Entscheidung ruhte, war falsch.** Sie ging davon aus, die
+Warnungen stünden ohnehin im Build-Log und kehrten dorthin nur zurück. Tatsächlich sind es
+Info-Level-Diagnosen: Ein `dotnet build` druckt sie bei Standard-Ausführlichkeit **nicht**, der
+Sonar-Scanner liest sie aber aus dem Build aus. Abgeschaltet waren sie also nicht leiser, sondern
+unsichtbar.
+
+**Sonar bietet keinen Filter, die `.editorconfig` schon.** Die Eigenschaften
+`sonar.cs.roslyn.bugCategories` und Verwandte klingen danach, bestimmen aber nur, *als was* ein
+importierter Befund gilt (Bug, Vulnerability, Code Smell) — nicht, welche importiert werden. Dort
+gibt es ausschließlich ganz an oder ganz aus. Ein Schweregrad in der `.editorconfig` sorgt dagegen
+dafür, dass der Analyzer die Regel gar nicht erst meldet; sie erreicht den Scanner nie. Nachgemessen:
+`dotnet_diagnostic.CA1873.severity = warning` erzeugt die Meldungen im Build, `= none` lässt sie
+verschwinden.
+
+**Auf `none` stehen fünf Regeln** (`CA1873` mit 72 Fundstellen, `CA1859`, `ASP0015`, `CA1822`,
+`SYSLIB1045`) — zusammen 91 der 95. Alles ohne Eintrag bleibt aktiv und taucht weiterhin im Scan auf.
+
+**Der Preis ist Reichweite.** `.editorconfig` wirkt nicht nur in der CI, sondern in jeder IDE und bei
+jedem lokalen Build. Was hier auf `none` steht, ist damit projektweit abgewählt und nicht nur aus
+einer Ansicht ausgeblendet. Das ist beabsichtigt: Eine Regel, nach der sich niemand richtet, soll
+auch niemanden mehr anpiepen.
+
+### 2026-09-06 — Die Roslyn-Importe fliegen aus dem Scan, und `npm ci` führt keine Paket-Skripte mehr aus
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `.github/workflows/publish.yml`
+
+**Nachlese zum ersten Scan-Ergebnis.** Der erste vollständige Lauf lieferte 142 Befunde, und **95
+davon waren importierte Roslyn-Warnungen** aus dem echten Build (`CA1873` allein 72-mal, dazu
+`CA1859`, `ASP0015`, `CA1822`, `SYSLIB1045`). Sie stammen nicht von Sonar-Regeln, sondern von den
+.NET-Analyzern, die beim Kompilieren ohnehin laufen. `sonar.cs.roslyn.ignoreIssues=true` schaltet
+diesen Import ab.
+
+**Der Grund ist Benutzbarkeit, nicht Qualität.** Zwei Drittel der Ansicht bestanden aus Meldungen,
+die niemand einzeln abarbeitet — eine Liste, die man nicht leerbekommt, wird nicht sortiert, sondern
+ignoriert, und dann geht das Wenige darin unter, das zählt. Die Warnungen verschwinden dadurch nicht:
+`dotnet build` gibt sie weiterhin aus. Sie kehren nur dorthin zurück, wo sie vorher schon standen,
+ins Build-Log.
+
+**Was dabei bewusst mit verloren geht.** Drei der 95 hatten Substanz und sind vor der Abschaltung
+notiert worden: ein nicht weitergereichter `CancellationToken` in `TwitchLivePollWorker` (CA2016),
+ein falscher `paramName` in einer `ArgumentOutOfRangeException` in `LiveEndpoints` (CA2208) und ein
+ungenutzter Routen-Parameter in `Program.cs` (ASP0018, vermutlich der SPA-Catch-all und damit
+Absicht). Wer die Abschaltung später hinterfragt, sollte wissen, dass sie mit offenen Augen getroffen
+wurde und nicht aus Bequemlichkeit.
+
+**`npm ci --ignore-scripts` in beiden Workflows.** Bei `npm ci` laufen `postinstall`-Skripte der
+installierten Pakete mit; ein kompromittiertes Paket führt damit fremden Code auf dem Runner aus. Der
+Befund (`githubactions:S6505`) betraf beide Workflows gleichermaßen — deshalb sind beide geändert
+worden statt nur der neue, sonst stünde dieselbe Zeile weiter nebenan. Beim `npx`-Aufruf für
+Playwrights Browser-Download ist der Fall anders gelagert (der Download **ist** der Zweck des
+Befehls, kein Lifecycle-Skript); dass das Flag dort nichts bricht, ist nicht abgeleitet, sondern über
+einen echten CI-Lauf belegt worden.
+
+### 2026-09-06 — Statische Analyse läuft in der CI, und ihre Befunde landen im Code-Scanning statt im Issue-Tracker
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `scripts/sonar-to-sarif.mjs`, `tests/EmotePurge.Api.Tests/EmotePurge.Api.Tests.csproj`, `tests/EmotePurge.Infrastructure.Tests/EmotePurge.Infrastructure.Tests.csproj`, `tests/EmotePurge.Worker.Tests/EmotePurge.Worker.Tests.csproj`, `web/package.json`
+
+**Der generierte Workflow konnte nicht funktionieren.** GitHubs Marketplace-Vorlage benutzt
+`SonarSource/sonarcloud-github-action`, deren Docker-Image den SonarScanner CLI 5.0.1 auf Java 17
+mitbringt; SonarQube Cloud verlangt inzwischen Java 21 und weist jeden älteren Scanner ab. Jeder Lauf
+scheiterte nach drei Sekunden. Der Ersatz ist aber nicht bloß eine neuere Action: Der generische
+CLI-Scanner analysiert **kein C#**. Er hätte `web/` ausgewertet und die vier .NET-Projekte
+stillschweigend übersprungen. C# braucht den SonarScanner for .NET, der sich um den Build legt
+(`begin` → `build` → `test` → `end`), weil die Regeln den Roslyn-Semantikbaum brauchen.
+
+**`ubuntu-latest`, nicht `windows-latest`.** Sonars eigene .NET-Vorlage schlägt Windows vor. Das geht
+hier nicht: `EmotePurge.Infrastructure.Tests` fährt Postgres und Redis per Testcontainers hoch und
+braucht den Docker-Daemon, den nur die Linux-Runner mitbringen. Ohne Testlauf keine Coverage, und
+ohne Coverage misst die Quality Gate ins Leere.
+
+**`--no-incremental` ist Pflicht, nicht Stil.** Der MSBuild-Hook des Scanners sieht nur Projekte, die
+tatsächlich neu kompiliert werden. Überspringt MSBuild eines inkrementell, fehlt es im Analysebericht
+— ohne dass der Build-Schritt einen Fehler zeigt. Das ist dieselbe Klasse von stiller Teilmessung,
+die im Repo schon bei den Compiler-Warnungen aufgefallen ist.
+
+**Die Befunde gehen ins Code-Scanning, nicht in den Issue-Tracker.** Zuerst war ein Sync geplant, der
+je Finding ein GitHub-Issue anlegt, per Marker dedupliziert und behobene Issues wieder schließt. Das
+ist verworfen worden, nachdem klar war, dass GitHubs Code-Scanning genau diesen Lebenszyklus selbst
+führt: Ein Finding, das im nächsten SARIF-Upload fehlt, wird automatisch auf „Fixed" gesetzt, ein
+wiederkehrendes reaktiviert denselben Alert. Marker-Dedup, Auto-Close und das Sicherheitsnetz gegen
+eine Issue-Flut beim Erstlauf entfallen damit ersatzlos — und der Tracker bleibt dem vorbehalten, was
+ein Mensch dort hineingeschrieben hat.
+
+**Warum ein eigener SARIF-Export und nicht SonarClouds native Anbindung.** SonarQube Cloud kann
+Code-Scanning-Alerts direkt bespielen, ohne jeden Schritt in der CI. Dieser Weg exportiert aber nur
+**Security**-Findings; von den 42 Befunden des Erstbestands wären das neun gewesen, die 32 Code
+Smells und der eine Bug blieben unsichtbar. `scripts/sonar-to-sarif.mjs` holt stattdessen alle
+offenen Findings über die Issues-API und setzt sie nach SARIF 2.1.0 um. Beide Wege gleichzeitig zu
+aktivieren wäre falsch: Sie laufen als getrennte Kategorien und lieferten die Security-Findings
+doppelt.
+
+**Das Skript wartet auf die Auswertung, und das ist der Teil, der leicht übersehen wird.**
+`dotnet-sonarscanner end` lädt nur hoch und kehrt sofort zurück; SonarClouds Compute Engine wertet
+danach asynchron weiter aus. Eine Abfrage direkt im Anschluss liefert den Stand des **vorherigen**
+Laufs — ein Fehler, der nie auffällt, weil das Ergebnis plausibel aussieht. Das Skript liest deshalb
+die `ceTaskId` aus `.sonarqube/out/.sonar/report-task.txt` und pollt, bis der Task `SUCCESS` meldet.
+Fehlt die Datei, bricht es ab, statt alte Daten zu exportieren.
+
+**Nur auf `main`, nicht bei Pull Requests.** Ein SARIF-Upload aus einem PR liefe gegen den
+Merge-Ref; die Alerts verschwänden beim Merge und kämen unter neuen Fingerprints zurück. Die Analyse
+selbst läuft weiterhin auch auf PRs — nur der Upload nicht. PR-Uploads lassen sich später gezielt
+nachrüsten.
+
+**Die Security-Einstufung steht am Regel-Objekt, nicht am Ergebnis, und das ist keine Stilfrage.**
+GitHub liest `security-severity` ausschließlich aus
+`runs[].tool.driver.rules[].properties`. Am einzelnen Ergebnis notiert, besteht die Datei zwar jede
+Schema-Validierung, aber die Eigenschaft wird stillschweigend ignoriert — die Befunde erscheinen dann
+ohne die High/Medium/Low-Einstufung und gelten nicht als Security-Alerts. Der erste Entwurf hatte
+genau diesen Fehler, und die grüne Schema-Prüfung hat ihn gedeckt: Ein Validator prüft die Form, nicht
+die Wirkung. Weil Sonar die Severity pro Finding führt und SARIF sie pro Regel, wird eine Regel nach
+ihrem schwersten Fund eingestuft; zusätzlich bekommt sie den `security`-Tag, ohne den GitHub die
+Bewertung nicht als Security-Bewertung liest. Dieser Tag steht **vorn** in der Liste, und die Liste
+ist bei zehn Einträgen gekappt: GitHub speichert pro Regel nur die ersten zehn Tags und verwirft den
+Rest — nicht bloß in der Anzeige, wie die Doku nahelegt, sondern beim Import (belegt durch GitHubs
+eigene Upload-Warnung). Hinten angehängt fiele der Tag bei einer tag-reichen Regel also weg, und die
+Bewertung würde wieder als gewöhnlicher Qualitätsbefund gelesen.
+
+**Drei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
+nicht in `angular.json` verdrahtet: dort eingetragen, würde sie jeden lokalen `npm test`-Lauf
+mitrechnen, obwohl sie nur die CI interessiert. Und der Upload trägt `category: sonarcloud`, damit
+ein später hinzukommender zweiter Scanner unsere Alerts nicht bei jedem eigenen Upload als behoben
+schließt. Und `scripts/**` ist von der Coverage-Messung ausgenommen: CI-Hilfsskripte werden weiter auf
+Fehler analysiert, zählen aber nicht in die Quote — sonst drückte jedes künftige Shell- oder
+Node-Skript die Zahl, und die Quality Gate würde zu einem Dauerrot, das niemand mehr liest.
 
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 

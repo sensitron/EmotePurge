@@ -1,0 +1,159 @@
+name: SonarCloud analysis
+
+# Ersetzt den von GitHub generierten Marketplace-Stub (SonarSource/sonarcloud-github-action, deprecated,
+# scheitert an Java 17): der Scanner läuft jetzt als eigenständiges dotnet-Tool mit echter Backend- UND
+# Frontend-Coverage, statt nur den Quellcode ohne Testergebnisse hochzuladen.
+#
+# pull_request-Typen bewusst eingeschränkt (opened/synchronize/reopened): das sind die drei Ereignisse,
+# bei denen sich der zu analysierende Diff tatsächlich ändert — ein "labeled" o.ä. würde sonst einen
+# weiteren, unveränderten Scan auslösen.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    # ubuntu-latest ist Pflicht, nicht nur Vorliebe: EmotePurge.Infrastructure.Tests nutzt Testcontainers
+    # gegen echte, ephemere Postgres-/Redis-Container und braucht damit den Docker-Daemon, den nur die
+    # ubuntu-Runner mitbringen (Windows/macOS-Runner haben keinen).
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # erlaubt SonarCloud, PRs mit den Analyseergebnissen zu kommentieren
+      security-events: write # für den SARIF-Upload nach GitHub Code Scanning weiter unten
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Sonars Blame- und New-Code-Zuordnung braucht die volle Commit-Historie — mit einem flachen
+          # Checkout (Default: nur der letzte Commit) hält Sonar jede Zeile für "neu" und die
+          # New-Code-Metriken (Coverage-on-new-code, Quality Gate) werden bedeutungslos.
+          fetch-depth: 0
+
+      - name: Setup JDK 21 (für den Sonar-Scanner)
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        with:
+          distribution: zulu
+          java-version: "21"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          # Liest die SDK-Version aus global.json (10.0.300) statt sie hier zu duplizieren — ein Bump
+          # dort greift damit automatisch auch hier.
+          global-json-file: global.json
+
+      # Muss vor dem Sonar-"begin" laufen: der Scanner liest beim "end"-Schritt die Angular-lcov-Datei
+      # ein, die es zu diesem Zeitpunkt schon geben muss — Node/npm also hier hochziehen und den
+      # Angular-Testlauf VOR den .NET-Scanner-Schritten ausführen, nicht danach.
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --ignore-scripts
+        working-directory: web
+
+      # Coverage bewusst per Flag statt fest in angular.json: dort verdrahtet würde sie jeden lokalen
+      # "npm test"-Lauf mitrechnen, obwohl sie nur die CI interessiert. Der Report landet unter
+      # web/coverage/web/lcov.info — den Projektnamen "web" hängt der Builder selbst an den Pfad an
+      # (real nachgemessen, nicht abgeleitet).
+      - name: Run Angular unit tests with coverage (lcov)
+        run: npm test -- --watch=false --coverage --coverage-reporters=lcov
+        working-directory: web
+
+      - name: Cache Sonar packages
+        id: cache-sonar-packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Cache Sonar Scanner tool
+        id: cache-sonar-scanner
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ./.sonar/scanner
+          key: ${{ runner.os }}-sonar-scanner
+
+      # "update" läuft bewusst auch bei einem Cache-Treffer. Mit einem unveränderlichen Cache-Key und
+      # einer Bedingung darauf bliebe der einmal gecachte Scanner sonst für immer liegen — genau das
+      # Versagensmuster, das diesen Workflow überhaupt nötig gemacht hat (der alte Scanner wurde vom
+      # Server wegen Java 17 abgewiesen). Der Cache bleibt als Warmstart erhalten, entscheidet aber
+      # nicht mehr über die Version.
+      - name: Install Sonar Scanner
+        run: dotnet tool update dotnet-sonarscanner --tool-path ./.sonar/scanner
+
+      # Der Token kommt über die Umgebung, nicht als /d:sonar.token=. In der Kommandozeile stünde er in
+      # der Prozessliste des Runners und in jedem Echo des Schritts; der Scanner liest SONAR_TOKEN von
+      # sich aus. (Sonar-Regel githubactions:S7636, am eigenen Workflow gefunden.)
+      - name: Sonar Scanner begin
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >
+          ./.sonar/scanner/dotnet-sonarscanner begin
+          /k:"sensitron_EmotePurge"
+          /o:"sensitron"
+          /d:sonar.host.url="https://sonarcloud.io"
+          /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml"
+          /d:sonar.javascript.lcov.reportPaths="web/coverage/web/lcov.info"
+          /d:sonar.exclusions="**/Migrations/**,src/EmotePurge.Api/wwwroot/**,web/dist/**,**/node_modules/**"
+          /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**"
+
+      # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
+      # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
+      # nur Projekte, die tatsächlich neu kompiliert wurden — übersprungene Projekte fehlen dann komplett
+      # im Analyse-Report, ohne dass der Build-Schritt selbst einen Fehler zeigt.
+      - name: Build (ohne Inkrementalität, damit der Scanner alle Projekte sieht)
+        run: dotnet build EmotePurge.slnx --configuration Release --no-incremental
+
+      # coverlet.collector (s. tests/*/*.csproj) schreibt je Testprojekt/Run einen eigenen
+      # coverage.opencover.xml unter einem GUID-Unterordner in TestResults/ — daher der Glob oben statt
+      # eines festen Pfads.
+      - name: Test mit Coverage (OpenCover)
+        run: dotnet test EmotePurge.slnx --no-build --configuration Release --collect:"XPlat Code Coverage;Format=opencover"
+
+      - name: Sonar Scanner end
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./.sonar/scanner/dotnet-sonarscanner end
+
+      # Die ref-Prüfung ist kein Gürtel-und-Hosenträger: workflow_dispatch lässt einen beliebigen Branch
+      # wählen, der Scanner analysiert dann diesen Ref — aber sonar-to-sarif.mjs fragt die Issues-API ohne
+      # Branch-Parameter und bekäme die Findings des Default-Branch. Ohne die Prüfung hingen mains
+      # Ergebnisse an einem fremden Ref.
+      #
+      # Bewusst NICHT bei pull_request: ein SARIF-Upload liefe dort gegen den Merge-Ref und würde die
+      # Alert-Historie von main durcheinanderbringen (Alerts "verschwänden" beim Merge und tauchten
+      # unter neuen Fingerprints wieder auf). PR-Uploads können bei Bedarf später gezielt nachgerüstet
+      # werden; für jetzt reicht ein main-Push oder ein bewusst manuell angestoßener Lauf.
+      #
+      # Läuft im selben Job wie die Analyse (kein eigener Job mit needs): das Skript braucht
+      # .sonarqube/out/.sonar/report-task.txt, das der "end"-Schritt im Arbeitsverzeichnis hinterlässt —
+      # das über Job-Grenzen als Artifact zu reichen wäre unnötiger Aufwand für denselben Runner-Checkout.
+      - name: SARIF-Report erzeugen
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: node scripts/sonar-to-sarif.mjs
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: sensitron_EmotePurge
+
+      # Der "end"-Schritt oben lädt nur hoch und kehrt sofort zurück, ohne auf SonarClouds serverseitige
+      # Auswertung zu warten — das Warten darauf übernimmt scripts/sonar-to-sarif.mjs, dessen Ergebnis
+      # (sonar.sarif) hier hochgeladen wird. Eine eigene "category" trennt die Alerts von denen anderer
+      # Scanner (z.B. CodeQL selbst), falls das Repo die später zusätzlich einsetzt.
+      - name: Nach GitHub Code Scanning hochladen
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
+        with:
+          sarif_file: sonar.sarif
+          category: sonarcloud
