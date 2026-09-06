@@ -108,6 +108,7 @@ jobs:
           /d:sonar.javascript.lcov.reportPaths="web/coverage/web/lcov.info"
           /d:sonar.exclusions="**/Migrations/**,src/EmotePurge.Api/wwwroot/**,web/dist/**,**/node_modules/**"
           /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**"
+          /d:sonar.qualitygate.wait=true
 
       # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
       # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
@@ -122,6 +123,11 @@ jobs:
       - name: Test mit Coverage (OpenCover)
         run: dotnet test EmotePurge.slnx --no-build --configuration Release --collect:"XPlat Code Coverage;Format=opencover"
 
+      # sonar.qualitygate.wait (s. begin) wirkt erst hier: ohne den Parameter lädt "end" nur hoch und
+      # kehrt sofort zurück — die Auswertung der Compute Engine kommt danach, und ein rotes Gate blieb
+      # folgenlos, weil der Job da längst grün beendet war. Mit dem Parameter pollt "end" bis zum
+      # Ergebnis und fällt bei rotem Gate mit Exit != 0 aus. Das kostet ein bis drei Minuten Laufzeit
+      # und ist der Preis dafür, dass dieser Job als required check überhaupt etwas aussagt.
       - name: Sonar Scanner end
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
