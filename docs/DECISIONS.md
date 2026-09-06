@@ -70,11 +70,13 @@ die Wirkung. Weil Sonar die Severity pro Finding führt und SARIF sie pro Regel,
 ihrem schwersten Fund eingestuft; zusätzlich bekommt sie den `security`-Tag, ohne den GitHub die
 Bewertung nicht als Security-Bewertung liest.
 
-**Zwei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
+**Drei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
 nicht in `angular.json` verdrahtet: dort eingetragen, würde sie jeden lokalen `npm test`-Lauf
 mitrechnen, obwohl sie nur die CI interessiert. Und der Upload trägt `category: sonarcloud`, damit
 ein später hinzukommender zweiter Scanner unsere Alerts nicht bei jedem eigenen Upload als behoben
-schließt.
+schließt. Und `scripts/**` ist von der Coverage-Messung ausgenommen: CI-Hilfsskripte werden weiter auf
+Fehler analysiert, zählen aber nicht in die Quote — sonst drückte jedes künftige Shell- oder
+Node-Skript die Zahl, und die Quality Gate würde zu einem Dauerrot, das niemand mehr liest.
 
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 

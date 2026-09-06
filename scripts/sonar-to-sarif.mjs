@@ -457,7 +457,9 @@ async function main() {
 
   env.organization = issues[0]?.organization;
 
-  const uniqueRuleKeys = [...new Set(issues.map((issue) => issue.rule))].sort();
+  // Explicit comparator: the default sort is lexicographic, which is what these rule keys want,
+  // but saying so keeps the intent readable and satisfies javascript:S2871.
+  const uniqueRuleKeys = [...new Set(issues.map((issue) => issue.rule))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   console.log(`Lade Regelmetadaten für ${uniqueRuleKeys.length} eindeutige Regeln...`);
   const ruleMetadata = uniqueRuleKeys.length > 0 ? await fetchRuleMetadata(env, uniqueRuleKeys) : new Map();
   const rulesMissingMetadata = uniqueRuleKeys.filter((key) => !ruleMetadata.has(key) || !ruleMetadata.get(key)?.name);

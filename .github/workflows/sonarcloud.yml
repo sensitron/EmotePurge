@@ -93,17 +93,21 @@ jobs:
       - name: Install Sonar Scanner
         run: dotnet tool update dotnet-sonarscanner --tool-path ./.sonar/scanner
 
+      # Der Token kommt über die Umgebung, nicht als /d:sonar.token=. In der Kommandozeile stünde er in
+      # der Prozessliste des Runners und in jedem Echo des Schritts; der Scanner liest SONAR_TOKEN von
+      # sich aus. (Sonar-Regel githubactions:S7636, am eigenen Workflow gefunden.)
       - name: Sonar Scanner begin
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: >
           ./.sonar/scanner/dotnet-sonarscanner begin
           /k:"sensitron_EmotePurge"
           /o:"sensitron"
           /d:sonar.host.url="https://sonarcloud.io"
-          /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
           /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml"
           /d:sonar.javascript.lcov.reportPaths="web/coverage/web/lcov.info"
           /d:sonar.exclusions="**/Migrations/**,src/EmotePurge.Api/wwwroot/**,web/dist/**,**/node_modules/**"
-          /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**"
+          /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**"
 
       # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
       # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
@@ -119,7 +123,9 @@ jobs:
         run: dotnet test EmotePurge.slnx --no-build --configuration Release --collect:"XPlat Code Coverage;Format=opencover"
 
       - name: Sonar Scanner end
-        run: ./.sonar/scanner/dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./.sonar/scanner/dotnet-sonarscanner end
 
       # Die ref-Prüfung ist kein Gürtel-und-Hosenträger: workflow_dispatch lässt einen beliebigen Branch
       # wählen, der Scanner analysiert dann diesen Ref — aber sonar-to-sarif.mjs fragt die Issues-API ohne
