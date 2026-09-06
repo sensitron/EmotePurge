@@ -702,6 +702,59 @@ export async function mockUsageChannelSeries(
   });
 }
 
+export interface MockEmoteListItem {
+  sevenTvEmoteId: string;
+  name: string;
+}
+
+/** GET /api/channels/{channelName}/emotes — the import target dialog's own picture of the target
+ *  set (#72, K3): no usage numbers, just enough to answer "already there?" / "name collision?". */
+export async function mockEmoteList(
+  page: Page,
+  channelName: string,
+  emotes: MockEmoteListItem[],
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/emotes`, (route) => {
+    if (route.request().method() !== 'GET') {
+      return route.fallback();
+    }
+    return fulfillJson(route, 200, { emotes });
+  });
+}
+
+/**
+ * GET /api/channels/{channelName}/emotes/set-warning — the shared/foreign-set ownership check both
+ * the mass-delete panel and the import confirm dialog read. Defaults to a clean, own, unshared set;
+ * pass overrides for the shared-set-warning or check-unavailable cases.
+ */
+export async function mockSetWarning(
+  page: Page,
+  channelName: string,
+  overrides: {
+    available?: boolean;
+    isOwnSet?: boolean;
+    otherTrackedChannelsSharingSet?: string[];
+    otherModeratedChannelsSharingSet?: string[];
+  } = {},
+): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/emotes/set-warning`, (route) =>
+    fulfillJson(route, 200, {
+      available: overrides.available ?? true,
+      isOwnSet: overrides.isOwnSet ?? true,
+      otherTrackedChannelsSharingSet: overrides.otherTrackedChannelsSharingSet ?? [],
+      otherModeratedChannelsSharingSet: overrides.otherModeratedChannelsSharingSet ?? [],
+    }),
+  );
+}
+
+/** POST /api/channels/{channelName}/emotes/sync-imported — the import run's only server-side
+ *  effect (the audit entry at the target). Answers 204 like the real endpoint. */
+export async function mockSyncImported(page: Page, channelName: string): Promise<void> {
+  await page.route(`**/api/channels/${channelName}/emotes/sync-imported`, (route) =>
+    route.fulfill({ status: 204 }),
+  );
+}
+
 /**
  * GET /api/channels/{channelName}/emotes/active-set — needed for the mass-delete panel to render,
  * and the source of the slot-budget bar above the grid.
@@ -961,4 +1014,39 @@ export async function emitLive(page: Page, event: LiveEventFrame): Promise<void>
     (frame) => (window as unknown as { __emitLive: (e: unknown) => void }).__emitLive(frame),
     event,
   );
+}
+
+/** Parsed body of one call to 7TV's GQL endpoint, handed to a `mockSevenTvGql` handler. */
+export interface SevenTvGqlRequest {
+  query: string;
+  variables: Record<string, unknown>;
+}
+
+/**
+ * Routes `https://7tv.io/v3/gql` — the run engine's one write endpoint (ADD/DELETE mutations for
+ * import, delete and restore alike). The handler sees each call's parsed body plus a zero-based
+ * call index (the run engine issues one request per queued row, in order), and returns the GQL
+ * response body to answer with; always a 200 with either `data` or `errors` — 7TV's own contract,
+ * which is what `SevenTvRunEngine` reads its outcome from rather than the HTTP status.
+ *
+ * Sets `ep_7tv_write_token` in `sessionStorage` via `addInitScript` (R14) so the write flow never
+ * hits the token prompt — call before `page.goto`, same as `installLiveStub`.
+ */
+export async function mockSevenTvGql(
+  page: Page,
+  handler: (
+    request: SevenTvGqlRequest,
+    callIndex: number,
+  ) => { data?: unknown; errors?: { message: string }[] },
+): Promise<void> {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem('ep_7tv_write_token', 'e2e-fake-write-token');
+  });
+  let callIndex = 0;
+  await page.route('https://7tv.io/v3/gql', (route) => {
+    const request = route.request().postDataJSON() as SevenTvGqlRequest;
+    const body = handler(request, callIndex);
+    callIndex += 1;
+    return fulfillJson(route, 200, body);
+  });
 }
