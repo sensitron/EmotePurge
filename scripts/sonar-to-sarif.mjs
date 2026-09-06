@@ -23,6 +23,7 @@
 
 import { readFile, writeFile, appendFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // GitHub code scanning SARIF limits, as documented at
 // https://docs.github.com/en/code-security/reference/code-scanning/sarif-files/troubleshoot-sarif-uploads/results-exceed-limit
@@ -587,7 +588,11 @@ async function main() {
   }
 }
 
-const isDirectRun = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+// `file://${process.argv[1]}` is NOT the canonical form of import.meta.url once the path
+// contains spaces, non-ASCII characters, or (on Windows) backslashes/a drive letter — the
+// comparison would then silently be false and the script would do nothing at all, with exit 0.
+// pathToFileURL() builds the same URL Node itself used for import.meta.url.
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   main().catch((error) => {
     console.error(`Abbruch mit Fehler: ${error.message}`);

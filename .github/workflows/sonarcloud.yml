@@ -96,6 +96,23 @@ jobs:
       # Der Token kommt über die Umgebung, nicht als /d:sonar.token=. In der Kommandozeile stünde er in
       # der Prozessliste des Runners und in jedem Echo des Schritts; der Scanner liest SONAR_TOKEN von
       # sich aus. (Sonar-Regel githubactions:S7636, am eigenen Workflow gefunden.)
+      # multicriteria e1 filtert javascript:S4036 ("Make sure the PATH variable only contains fixed,
+      # unwriteable directories") für die Hilfsskripte. Die Regel trifft dort jeden spawnSync-Aufruf
+      # auf ein Werkzeug aus dem PATH — also genau das, wozu ein lokales Entwicklerskript da ist. Wer
+      # den PATH manipulieren kann, ist ohnehin auf der Maschine. Drei solche Befunde in
+      # coverage-local.mjs haben new_security_rating von A auf B gedrückt und damit die Quality Gate
+      # gerissen (PR #86, der erste Lauf mit scharfem Gate überhaupt). Gefiltert wird gezielt EINE
+      # Regel für EIN Verzeichnis — scripts/** bleibt in der Analyse, analog zur Roslyn-Entscheidung
+      # vom 2026-09-06: filtern, nicht abschalten. Alle anderen Regeln greifen dort weiterhin.
+      #
+      # Der Unterparameter heißt resourceKey, nicht resourcePattern — der erste Versuch scheiterte
+      # daran mit "Issue patterns are misconfigured. File pattern is mandatory for each entry".
+      # SonarSource dokumentiert diesen Weg nicht mehr ("strongly advised to configure these features
+      # in SonarQube UI ... not documented in this guide") und rät zur Weboberfläche. Hier steht er
+      # trotzdem, weil eine Server-Einstellung weder im Repo sichtbar ist noch eine Projekt-Migration
+      # überlebt. Der Preis: Bricht ein Scanner-Update die undokumentierte Property, tauchen die drei
+      # S4036-Befunde wieder auf und reißen das Gate — dann ist der Rückfallweg
+      # Project Settings → Analysis Scope → Ignore Issues on Multiple Criteria.
       - name: Sonar Scanner begin
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -108,6 +125,10 @@ jobs:
           /d:sonar.javascript.lcov.reportPaths="web/coverage/web/lcov.info"
           /d:sonar.exclusions="**/Migrations/**,src/EmotePurge.Api/wwwroot/**,web/dist/**,**/node_modules/**"
           /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**"
+          /d:sonar.qualitygate.wait=true
+          /d:sonar.issue.ignore.multicriteria=e1
+          /d:sonar.issue.ignore.multicriteria.e1.ruleKey="javascript:S4036"
+          /d:sonar.issue.ignore.multicriteria.e1.resourceKey="scripts/**/*.mjs"
 
       # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
       # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
@@ -122,7 +143,13 @@ jobs:
       - name: Test mit Coverage (OpenCover)
         run: dotnet test EmotePurge.slnx --no-build --configuration Release --collect:"XPlat Code Coverage;Format=opencover"
 
+      # sonar.qualitygate.wait (s. begin) wirkt erst hier: ohne den Parameter lädt "end" nur hoch und
+      # kehrt sofort zurück — die Auswertung der Compute Engine kommt danach, und ein rotes Gate blieb
+      # folgenlos, weil der Job da längst grün beendet war. Mit dem Parameter pollt "end" bis zum
+      # Ergebnis und fällt bei rotem Gate mit Exit != 0 aus. Das kostet ein bis drei Minuten Laufzeit
+      # und ist der Preis dafür, dass dieser Job als required check überhaupt etwas aussagt.
       - name: Sonar Scanner end
+        id: sonar_end
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: ./.sonar/scanner/dotnet-sonarscanner end
@@ -140,19 +167,29 @@ jobs:
       # Läuft im selben Job wie die Analyse (kein eigener Job mit needs): das Skript braucht
       # .sonarqube/out/.sonar/report-task.txt, das der "end"-Schritt im Arbeitsverzeichnis hinterlässt —
       # das über Job-Grenzen als Artifact zu reichen wäre unnötiger Aufwand für denselben Runner-Checkout.
+      #
+      # Die Bedingung trägt seit sonar.qualitygate.wait eine Statusfunktion: Ohne sie gilt implizit
+      # success(), und ein rotes Gate ließe den "end"-Schritt fehlschlagen — die beiden SARIF-Schritte
+      # würden übersprungen und Code Scanning bliebe auf der VORIGEN Analyse stehen, ausgerechnet im
+      # einzigen Fall, in dem die Befunde interessieren. `!cancelled()` hebt den impliziten Guard auf,
+      # `steps.sonar_end.conclusion != 'skipped'` fängt den Gegenfall ab: Scheitert schon Build oder
+      # Test, lief "end" nie, es gibt kein report-task.txt, und das Skript bräche mit einem zweiten,
+      # irreführenden Fehler ab. Der Job bleibt in beiden Fällen rot.
       - name: SARIF-Report erzeugen
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: ${{ !cancelled() && steps.sonar_end.conclusion != 'skipped' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         run: node scripts/sonar-to-sarif.mjs
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: sensitron_EmotePurge
 
-      # Der "end"-Schritt oben lädt nur hoch und kehrt sofort zurück, ohne auf SonarClouds serverseitige
-      # Auswertung zu warten — das Warten darauf übernimmt scripts/sonar-to-sarif.mjs, dessen Ergebnis
-      # (sonar.sarif) hier hochgeladen wird. Eine eigene "category" trennt die Alerts von denen anderer
-      # Scanner (z.B. CodeQL selbst), falls das Repo die später zusätzlich einsetzt.
+      # Seit sonar.qualitygate.wait wartet bereits der "end"-Schritt auf SonarClouds Auswertung; das
+      # eigene Warten in scripts/sonar-to-sarif.mjs (es pollt die ceTaskId aus report-task.txt) bleibt
+      # trotzdem nötig — es ist der Guard dagegen, die Findings des VORIGEN Laufs zu exportieren, und
+      # deckt auch den Fall ab, dass "end" wegen eines roten Gates abbricht. Hochgeladen wird sein
+      # Ergebnis (sonar.sarif). Eine eigene "category" trennt die Alerts von denen anderer Scanner
+      # (z.B. CodeQL selbst), falls das Repo die später zusätzlich einsetzt.
       - name: Nach GitHub Code Scanning hochladen
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: ${{ !cancelled() && steps.sonar_end.conclusion != 'skipped' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
         with:
           sarif_file: sonar.sarif
