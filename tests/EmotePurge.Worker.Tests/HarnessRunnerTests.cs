@@ -616,6 +616,31 @@ public class HarnessRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task AForeignHeaderWithoutAnIdentity_IsSkippedRatherThanCrashingTheRun()
+    {
+        // Regression: TryReadHeader used to hand back a header object even when its Identity was
+        // null — a syntactically valid but unusable envelope, reachable via a foreign or damaged file
+        // in the output directory. FindFrozenWindow dereferences header.Identity right away, so one
+        // such file turned the whole run into ExitUnexpectedError instead of simply not being a resume
+        // candidate.
+        File.WriteAllText(
+            Path.Combine(_directory, "foreign.jsonl"),
+            "{\"kind\":\"header\",\"header\":{\"identity\":null}}\n");
+
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        // The run completed normally and produced its own report next to the untouched foreign file.
+        Assert.True(File.Exists(Path.Combine(_directory, "foreign.jsonl")));
+        Assert.Single(Directory.GetFiles(_directory, "*.report.json"));
+    }
+
+    [Fact]
     public async Task AResumeWithADifferentWindowLength_StartsANewFile()
     {
         // The frozen window carries its own length, so a --days that no longer matches it cannot be

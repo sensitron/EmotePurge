@@ -227,7 +227,11 @@ public sealed class HarnessReportFile
 
             var line = JsonSerializer.Deserialize<HarnessJsonLine>(completeLines[0], LineOptions);
 
-            return line?.Kind == HeaderKind ? line.Header : null;
+            // A syntactically valid envelope is not the same as a usable header: a foreign or damaged
+            // file can deserialize into a header whose Identity is null, and the one caller of this
+            // method (HarnessRunner.FindFrozenWindow) dereferences header.Identity right away. This is
+            // exactly the "unlesbar" case the method promises to fold into null, not evaluate.
+            return line?.Kind == HeaderKind && line.Header?.Identity is not null ? line.Header : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
