@@ -137,8 +137,11 @@ services:
           memory: 512M
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      # Nur, weil AddWorkerCore die Redis-Registrierung für beide Einstiegspunkte gemeinsam
-      # aufbaut — der Harness öffnet nie eine Verbindung.
+      # Der Harness veröffentlicht und abonniert selbst nie etwas über Redis (Regel 4) — aber
+      # IChannelService hängt über IRedisPublisher am selben eager verbindenden
+      # IConnectionMultiplexer-Singleton wie der Worker (ServiceCollectionExtensions, kein
+      # abortConnect=false); ohne erreichbaren Redis beim Start bricht schon die Auflösung von
+      # HarnessRunner, bevor der eigentliche Lauf beginnt.
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
       - SevenTv__EventApi__Enabled=${SEVENTV_EVENTAPI_ENABLED:-false}
       - SevenTv__ResyncIntervalSeconds=${SEVENTV_RESYNC_INTERVAL_SECONDS:-60}
@@ -154,6 +157,8 @@ services:
       - emotepurge-network
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:

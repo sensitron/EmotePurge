@@ -68,8 +68,26 @@ async Task<int> RunHarnessAsync(HarnessCommandLineResult.RunHarness request)
     using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, StopRun);
 
     await using var scope = host.Services.CreateAsyncScope();
-    var runner = scope.ServiceProvider.GetRequiredService<HarnessRunner>();
-    var options = scope.ServiceProvider.GetRequiredService<HarnessOptions>();
+
+    HarnessRunner runner;
+    HarnessOptions options;
+    try
+    {
+        // Resolving HarnessRunner also resolves IChannelService, which takes an IRedisPublisher
+        // dependency sitting on the eager-connecting IConnectionMultiplexer singleton
+        // (ServiceCollectionExtensions, no abortConnect=false) — shared DI wiring the harness cannot
+        // opt out of even though it never publishes or subscribes itself. Without this try/catch, an
+        // unreachable Redis at startup would throw ConnectionMultiplexer.Connect's exception straight
+        // out of Main with a runtime-invented exit status instead of one of the six documented ones.
+        runner = scope.ServiceProvider.GetRequiredService<HarnessRunner>();
+        options = scope.ServiceProvider.GetRequiredService<HarnessOptions>();
+    }
+    catch (Exception ex)
+    {
+        await Console.Error.WriteLineAsync(
+            $"Der Dienst-Graph des Harness ließ sich nicht aufbauen, vermutlich weil Redis beim Start nicht erreichbar war: {ex.Message}");
+        return HarnessRunner.ExitUnexpectedError;
+    }
 
     // The parser cannot see the configuration (it runs before the builder), so the configured
     // default window is applied here.

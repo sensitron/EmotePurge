@@ -13,8 +13,20 @@ namespace EmotePurge.Worker.Harness;
 /// pre-registered figures next to the live <c>UsageStat</c> numbers.
 /// <para>
 /// Read-only end to end. It touches Postgres exclusively through <see cref="IChannelService"/> and
-/// <see cref="IUsageStatQueryService"/> (Regel 4), never writes a row, and never touches Redis at
-/// all. Everything it produces is a file.
+/// <see cref="IUsageStatQueryService"/> (Regel 4), never writes a row, and never publishes or
+/// subscribes on Redis itself. Everything it produces is a file.
+/// </para>
+/// <para>
+/// <b>It still needs Redis reachable at startup, just not for anything of its own.</b>
+/// <see cref="IChannelService"/> takes an <c>IRedisPublisher</c> constructor dependency, which sits
+/// on the same eager-connecting <c>IConnectionMultiplexer</c> singleton the whole worker image
+/// shares (<c>ServiceCollectionExtensions.AddEmotePurgeInfrastructure</c>, no
+/// <c>abortConnect=false</c>) — resolving this class resolves that singleton, and
+/// <c>ConnectionMultiplexer.Connect</c> is synchronous and throws if nothing answers. Not worth
+/// carving a Redis-free construction path out of shared DI wiring for a property nobody needs;
+/// <c>Program</c> wraps the resolution in a try/catch instead and returns
+/// <see cref="ExitUnexpectedError"/> with a German line, so an unreachable Redis at startup gets a
+/// documented exit code rather than a runtime-invented one.
 /// </para>
 /// <para>
 /// <b>The archive client is taken once, through the constructor, and held for the whole day

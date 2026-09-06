@@ -68,6 +68,24 @@ wie zuvor als zwei blanke `return 2`-Literale in `Program.cs`):
 | 5 | Undecidable: die Logs tragen weder Badges noch `user-id`, der Bot-Split ist unmöglich — der Ansatz ist neu zu bewerten, kein erneuter Versuch hilft. |
 | 6 | Ein unerwarteter Fehler im Harness selbst, plausibel im Zähl-Callback — bewusst **nicht** unter 4 gefasst: 4 lädt zum „einfach nochmal laufen lassen" ein, ein Defekt in der eigenen Zähllogik begrüßte den Betreiber beim zweiten Versuch identisch. Bereits geschriebene Tageszeilen bleiben gültig. |
 
+**Der `harness`-Dienst hängt in `depends_on` auch an Redis, obwohl er selbst nie etwas
+veröffentlicht oder abonniert.** `IChannelService` nimmt einen `IRedisPublisher` im Konstruktor,
+und der sitzt am selben eager verbindenden `IConnectionMultiplexer`-Singleton
+(`AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(...))`,
+`ServiceCollectionExtensions.cs`, ohne `abortConnect=false`), an dem auch der Worker hängt.
+`GetRequiredService<HarnessRunner>()` in `Program.cs` löst über `IChannelService` also denselben
+Verbindungsaufbau aus, synchron und ungefangen — ein beim Start unerreichbares Redis hätte sonst die
+`ConnectionMultiplexer.Connect`-Ausnahme roh aus `Main` geworfen, außerhalb jedes Try/Catch und mit
+einem von der Laufzeit erfundenen Exit-Status statt einem der sechs oben genannten. Diese eager
+verbindende Registrierung ist geteilter Code (dieselbe Klasse, die die Api ohne Redis nicht booten
+lässt, #37); sie für den Harness durch einen Redis-freien Konstruktionspfad zu ersetzen wäre eine
+invasive Änderung an gemeinsamer Infrastruktur für eine Eigenschaft, die niemand braucht — der
+Harness soll fachlich nichts mit Redis tun, nicht beweisbar unabhängig davon starten können.
+Stattdessen: `depends_on: redis: condition: service_healthy` in beiden Compose-Dateien, genau wie
+beim `worker`, und `Program.cs` fängt die Auflösung von `HarnessRunner`/`HarnessOptions` in einem
+eigenen `try`/`catch`, loggt eine deutsche Zeile und liefert `ExitUnexpectedError` (6) — ein
+Umgebungsfehler, kein wiederaufnehmbarer Abbruch, also bewusst nicht 4.
+
 **Die geteilten Regeln laufen über dieselben Funktionen wie der Live-Pfad, nicht über Kopien.**
 Fensterstart (`TrackingResumedAt ?? CreatedAt`, jetzt `TrackingCoverage.TrackedSince` in `Core`) und
 Bot-Split-Stichtag (frühestes `Date` mit `BotUseCount > 0`, jetzt
