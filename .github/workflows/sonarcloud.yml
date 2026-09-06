@@ -146,8 +146,9 @@ jobs:
       # sonar.qualitygate.wait (s. begin) wirkt erst hier: ohne den Parameter lädt "end" nur hoch und
       # kehrt sofort zurück — die Auswertung der Compute Engine kommt danach, und ein rotes Gate blieb
       # folgenlos, weil der Job da längst grün beendet war. Mit dem Parameter pollt "end" bis zum
-      # Ergebnis und fällt bei rotem Gate mit Exit != 0 aus. Das kostet ein bis drei Minuten Laufzeit
-      # und ist der Preis dafür, dass dieser Job als required check überhaupt etwas aussagt.
+      # Ergebnis und fällt bei rotem Gate mit Exit != 0 aus. Der Aufpreis ist klein: an PR #86 gemessen
+      # rund sechs Sekunden zwischen "Check Quality Gate status" und dem Ergebnis, in beide Richtungen
+      # (rot wie grün). Dafür sagt dieser Job als required check überhaupt etwas aus.
       - name: Sonar Scanner end
         id: sonar_end
         env:
