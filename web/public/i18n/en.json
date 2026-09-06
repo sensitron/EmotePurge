@@ -821,16 +821,16 @@
       "failed": "Could not trigger a sync — the periodic sync catches up within a minute."
     },
     "import": {
-      "trigger": "Import protocol",
-      "hint": "Load a downloaded purge protocol (JSON) as the restore list.",
-      "fileLabel": "Choose a purge protocol",
+      "trigger": "Import file",
+      "hint": "Load a purge protocol (restore), an emote list or a usage export (copy) as JSON.",
+      "fileLabel": "Choose a protocol, emote list or usage export",
       "errors": {
         "notJson": "The file is not valid JSON.",
         "csvInsteadOfJson": "That is the CSV version. The import needs the same file as JSON — pick the JSON format when exporting.",
-        "wrongKind": "The file is not an EmotePurge purge protocol. An importable protocol is only created by a delete run and offered for download right afterwards.",
-        "usageExport": "That is a usage-stats export, not a purge protocol. An importable protocol is only created by a delete run and offered for download right afterwards.",
+        "wrongKind": "The file is not an EmotePurge export. Importable are purge protocols, emote lists and usage exports in JSON format.",
         "votingExport": "That is a vote export, not a purge protocol. An importable protocol is only created by a delete run and offered for download right afterwards.",
-        "wrongVersion": "The protocol comes from a newer EmotePurge version.",
+        "wrongVersion": "The file comes from a newer EmotePurge version.",
+        "noRows": "The file contains no importable emotes.",
         "wrongChannel": "The protocol belongs to a different channel.",
         "wrongSet": "The protocol belongs to a different emote set — the channel switched its active set.",
         "noRestorableRows": "The protocol contains no successfully deleted emotes to restore."
@@ -890,6 +890,81 @@
       "rateLimitedGaveUp": "7TV rate limit still active after several waits — emote skipped.",
       "networkError": "Couldn't connect to 7TV (network error).",
       "genericStatus": "7TV error (status {{ status }})."
+    }
+  },
+  "import": {
+    "copyButton": "Copy to channel…",
+    "target": {
+      "title": "Copy emotes to a channel",
+      "label": "Target channel",
+      "notTracked": "Channel has to join first",
+      "saveAsFile": "… save as a file",
+      "none": "No other channel where you are broadcaster or 7TV editor.",
+      "listIncomplete": "The channel list is incomplete right now — missing channels appear after a reload.",
+      "reauthRequired": "Your Twitch login has expired or was revoked — target channels appear after a fresh login.",
+      "loadFailed": "The channel list could not be loaded.",
+      "retry": "Reload",
+      "submit": "Continue"
+    },
+    "confirm": {
+      "title": {
+        "one": "Copy {{ count }} emote to {{ channel }}?",
+        "other": "Copy {{ count }} emotes to {{ channel }}?"
+      },
+      "originChannel": "From channel {{ channel }}",
+      "originFile": "From file {{ fileName }}",
+      "originFileDetails": "Exported from {{ channel }}, {{ date }}",
+      "dateUnknown": "date unknown",
+      "channelUnknown": "channel unknown",
+      "target": "Target: {{ channel }} · set {{ setId }}",
+      "loadingHint": "Loading target data…",
+      "noTargetSet": "The target channel has no active 7TV set yet — its first sync is still running or has failed.",
+      "loadFailed": "The target channel's data could not be loaded.",
+      "retry": "Reload",
+      "staleHint": "The target channel's last sync failed — our copy may be stale, 7TV decides.",
+      "alreadyPresent": {
+        "one": "{{ count }} emote is already in the target set and will be skipped.",
+        "other": "{{ count }} emotes are already in the target set and will be skipped."
+      },
+      "nameCollisions": {
+        "one": "{{ count }} name is already taken in the target set — 7TV will reject this emote:",
+        "other": "{{ count }} names are already taken in the target set — 7TV will reject these emotes:"
+      },
+      "discardedRows": {
+        "one": "{{ count }} invalid row in the source discarded.",
+        "other": "{{ count }} invalid rows in the source discarded."
+      },
+      "duplicatesCollapsed": {
+        "one": "{{ count }} duplicate row in the source collapsed.",
+        "other": "{{ count }} duplicate rows in the source collapsed."
+      },
+      "nothingToAdd": "All {{ count }} emotes are already in the target set.",
+      "sameChannelFile": "This list comes from this channel.",
+      "runNotice": "Adding then runs automatically, one emote at a time, with a short delay between each.",
+      "execute": "Copy"
+    },
+    "progress": "{{ finished }} / {{ total }} copied",
+    "deleteFailedFallback": "Copy failed",
+    "rateLimitPaused": "7TV rate limit reached — resuming automatically in {{ seconds }}s.",
+    "summary": {
+      "counts": "{{done}} copied · {{failed}} failed · {{cancelled}} cancelled",
+      "target": "Target: {{ channel }}",
+      "openTarget": "Open target channel",
+      "insufficientPrivileges": "The 7TV token has no write access to the target set — the run stopped after the first row."
+    },
+    "syncFailedTitle": "Reporting back to EmotePurge failed",
+    "syncFailed": "The emotes were added on 7TV, but EmotePurge could not record it. The target channel still picks them up on its next sync.",
+    "syncRetry": "Report again",
+    "syncRetrySucceeded": "Reported back successfully.",
+    "resync": {
+      "pending": "Triggering the target channel's sync…",
+      "succeeded": "Sync triggered — the target channel shows the emotes in a moment.",
+      "cooldown": "The target channel picks up the emotes on its next sync.",
+      "failed": "Could not trigger the sync — the periodic sync catches up within a minute."
+    },
+    "leaveWhileRunning": {
+      "message": "The copy run is still going. It continues in the background, but its progress is only visible on the emote-usage page. Leave the page anyway?",
+      "confirm": "Leave"
     }
   },
   "sevenTvToken": {

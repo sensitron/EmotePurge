@@ -821,16 +821,16 @@
       "failed": "Synchronisierung konnte nicht angestoßen werden — der periodische Sync holt es innerhalb einer Minute nach."
     },
     "import": {
-      "trigger": "Protokoll importieren",
-      "hint": "Ein heruntergeladenes Purge-Protokoll (JSON) als Wiederherstellungsliste einspielen.",
-      "fileLabel": "Purge-Protokoll auswählen",
+      "trigger": "Datei importieren",
+      "hint": "Ein Purge-Protokoll (Wiederherstellen), eine Emote-Liste oder einen Nutzungs-Export (Kopieren) als JSON einspielen.",
+      "fileLabel": "Protokoll, Emote-Liste oder Nutzungs-Export auswählen",
       "errors": {
         "notJson": "Die Datei ist kein gültiges JSON.",
         "csvInsteadOfJson": "Das ist die CSV-Fassung. Der Import braucht dieselbe Datei als JSON — beim Export das Format JSON wählen.",
-        "wrongKind": "Die Datei ist kein EmotePurge-Purge-Protokoll. Ein importierbares Protokoll entsteht erst bei einem Löschlauf und wird direkt danach zum Download angeboten.",
-        "usageExport": "Das ist ein Export der Nutzungsstatistik, kein Purge-Protokoll. Ein importierbares Protokoll entsteht erst bei einem Löschlauf und wird direkt danach zum Download angeboten.",
+        "wrongKind": "Die Datei ist kein EmotePurge-Export. Importierbar sind Purge-Protokolle, Emote-Listen und Nutzungs-Exporte im JSON-Format.",
         "votingExport": "Das ist ein Export einer Abstimmung, kein Purge-Protokoll. Ein importierbares Protokoll entsteht erst bei einem Löschlauf und wird direkt danach zum Download angeboten.",
-        "wrongVersion": "Das Protokoll stammt aus einer neueren EmotePurge-Version.",
+        "wrongVersion": "Die Datei stammt aus einer neueren EmotePurge-Version.",
+        "noRows": "Die Datei enthält keine importierbaren Emotes.",
         "wrongChannel": "Das Protokoll gehört zu einem anderen Channel.",
         "wrongSet": "Das Protokoll gehört zu einem anderen Emote-Set — der Channel hat das aktive Set gewechselt.",
         "noRestorableRows": "Das Protokoll enthält keine erfolgreich gelöschten Emotes zum Wiederherstellen."
@@ -890,6 +890,81 @@
       "rateLimitedGaveUp": "7TV-Rate-Limit auch nach mehreren Wartezyklen aktiv — Emote übersprungen.",
       "networkError": "Keine Verbindung zu 7TV möglich (Netzwerkfehler).",
       "genericStatus": "7TV-Fehler (Status {{ status }})."
+    }
+  },
+  "import": {
+    "copyButton": "In Kanal kopieren…",
+    "target": {
+      "title": "Emotes in einen Kanal kopieren",
+      "label": "Zielkanal",
+      "notTracked": "Kanal muss erst beitreten",
+      "saveAsFile": "… als Datei speichern",
+      "none": "Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.",
+      "listIncomplete": "Die Kanalliste ist gerade unvollständig — fehlende Kanäle erscheinen nach einem erneuten Laden.",
+      "reauthRequired": "Deine Twitch-Anmeldung ist abgelaufen oder wurde widerrufen — Zielkanäle gibt es erst nach einem neuen Login.",
+      "loadFailed": "Die Kanalliste konnte nicht geladen werden.",
+      "retry": "Erneut laden",
+      "submit": "Weiter"
+    },
+    "confirm": {
+      "title": {
+        "one": "{{ count }} Emote nach {{ channel }} kopieren?",
+        "other": "{{ count }} Emotes nach {{ channel }} kopieren?"
+      },
+      "originChannel": "Aus Kanal {{ channel }}",
+      "originFile": "Aus Datei {{ fileName }}",
+      "originFileDetails": "Export aus {{ channel }}, {{ date }}",
+      "dateUnknown": "Datum unbekannt",
+      "channelUnknown": "Kanal unbekannt",
+      "target": "Ziel: {{ channel }} · Set {{ setId }}",
+      "loadingHint": "Zieldaten werden geladen…",
+      "noTargetSet": "Der Zielkanal hat noch kein aktives 7TV-Set — der erste Abgleich läuft noch oder ist fehlgeschlagen.",
+      "loadFailed": "Die Daten des Zielkanals konnten nicht geladen werden.",
+      "retry": "Erneut laden",
+      "staleHint": "Der letzte Abgleich des Zielkanals ist fehlgeschlagen — unser Abbild kann veraltet sein, 7TV entscheidet.",
+      "alreadyPresent": {
+        "one": "{{ count }} Emote ist bereits im Zielset und wird übersprungen.",
+        "other": "{{ count }} Emotes sind bereits im Zielset und werden übersprungen."
+      },
+      "nameCollisions": {
+        "one": "{{ count }} Name ist im Zielset schon vergeben — 7TV wird dieses Emote ablehnen:",
+        "other": "{{ count }} Namen sind im Zielset schon vergeben — 7TV wird diese Emotes ablehnen:"
+      },
+      "discardedRows": {
+        "one": "{{ count }} ungültige Zeile in der Quelle verworfen.",
+        "other": "{{ count }} ungültige Zeilen in der Quelle verworfen."
+      },
+      "duplicatesCollapsed": {
+        "one": "{{ count }} doppelte Zeile in der Quelle zusammengefasst.",
+        "other": "{{ count }} doppelte Zeilen in der Quelle zusammengefasst."
+      },
+      "nothingToAdd": "Alle {{ count }} Emotes sind bereits im Zielset.",
+      "sameChannelFile": "Diese Liste stammt aus diesem Kanal.",
+      "runNotice": "Das Hinzufügen läuft danach automatisch nacheinander mit kurzer Verzögerung zwischen den Emotes.",
+      "execute": "Kopieren"
+    },
+    "progress": "{{ finished }} / {{ total }} kopiert",
+    "deleteFailedFallback": "Kopieren fehlgeschlagen",
+    "rateLimitPaused": "7TV-Rate-Limit erreicht — es geht in {{ seconds }} s automatisch weiter.",
+    "summary": {
+      "counts": "{{done}} kopiert · {{failed}} fehlgeschlagen · {{cancelled}} abgebrochen",
+      "target": "Ziel: {{ channel }}",
+      "openTarget": "Zielkanal öffnen",
+      "insufficientPrivileges": "Das 7TV-Token hat im Zielset kein Schreibrecht — der Lauf wurde nach der ersten Zeile abgebrochen."
+    },
+    "syncFailedTitle": "Rückmeldung an EmotePurge fehlgeschlagen",
+    "syncFailed": "Die Emotes sind bei 7TV hinzugefügt, aber EmotePurge konnte es nicht vermerken. Der Zielkanal übernimmt sie beim nächsten Abgleich trotzdem.",
+    "syncRetry": "Erneut melden",
+    "syncRetrySucceeded": "Rückmeldung erfolgreich.",
+    "resync": {
+      "pending": "Abgleich des Zielkanals wird angestoßen…",
+      "succeeded": "Abgleich angestoßen — der Zielkanal zeigt die Emotes gleich.",
+      "cooldown": "Der Zielkanal übernimmt die Emotes beim nächsten Abgleich.",
+      "failed": "Abgleich konnte nicht angestoßen werden — der periodische Abgleich holt es innerhalb einer Minute nach."
+    },
+    "leaveWhileRunning": {
+      "message": "Der Kopierlauf läuft noch. Er läuft im Hintergrund weiter, sein Fortschritt ist aber nur auf der Emote-Nutzungsseite sichtbar. Seite trotzdem verlassen?",
+      "confirm": "Verlassen"
     }
   },
   "sevenTvToken": {

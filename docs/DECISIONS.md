@@ -48,6 +48,30 @@ die Liste erweitert, nicht die Bedingung gelockert.
 
 ---
 
+### 2026-09-06 — Bestätigungsdialog: Token-Prompt nach der Bestätigung, Zieldaten-Loader ohne Fehlerpfad (#72, K3)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-confirm-dialog.ts`, `web/src/app/shared/seven-tv/import-flow.ts`, `web/src/app/core/emotes/import-target-loader.ts`
+
+Der 7TV-Token-Prompt kommt beim Import **nach** der Bestätigung, anders als bei Delete und Restore
+(dort weiterhin davor) — Absicht, kein Nachzügler. Picker und Vorschau sind reine Lesevorgänge, und
+die Vorschau ist beim Import der Ort, an dem die eigentliche Entscheidung fällt; ein Secret zu
+verlangen, bevor der Nutzer gesehen hat, was passieren würde, wäre die falsche Reihenfolge. Bricht
+der Nutzer den Prompt ab, startet kein Lauf. Delete/Restore ändern sich nicht: dort ist die
+Bestätigung selbst schon die ganze Vorschau. Die Zeilenreihenfolge des Bestätigungsdialogs (Titel,
+Herkunft, Ziel, Ladezustand, Set-Warnung, Slot-Projektion, Kollisionen, Verlust/Konsolidierung,
+Lauf-Hinweis, Aktionen) ist damit selbst ein Vertrag — festgehalten in docs/UI-Designsprache.md §7.2,
+nicht nur im Plan, damit sie nicht als Layout-Detail behandelt wird.
+
+`loadImportTarget` (`import-target-loader.ts`) emittiert für die drei Zieldaten-Anfragen
+(`getSetStatus`, `listEmotes`, `getSetWarning`) genau **einmal** und wirft nie: jede der drei fängt
+ihren eigenen Fehler und liefert einen getaggten Wert, statt einen umschließenden `forkJoin` beim
+ersten Fehler abbrechen zu lassen. Ein fehlgeschlagenes `getSetWarning` degradiert nur die
+Set-Prüfung zu „nicht möglich" und lässt den Lauf weiterhin zu; ein fehlgeschlagenes `getSetStatus`/
+`listEmotes` oder ein fehlendes aktives Set blockiert ihn (`no-set` gewinnt, wenn beides gleichzeitig
+zutrifft — ein 404 ist die endgültigere Aussage).
+
+---
+
 ### 2026-09-06 — Datei-Import: eigene `emote-list`-Envelope, `readEnvelope` als geteilter Vorschritt, Verlust getrennt von Konsolidierung (#72, K3)
 
 **Betrifft:** `web/src/app/shared/export/export-envelope.ts`, `web/src/app/shared/export/read-envelope.ts`, `web/src/app/shared/export/emote-list-export.ts`, `web/src/app/shared/export/import-source-parser.ts`, `web/src/app/shared/export/purge-run-export.ts`
