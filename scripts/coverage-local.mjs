@@ -8,11 +8,21 @@
 // SonarCloud's "new code" coverage is computed LINE-BY-LINE: it diffs against the base branch
 // (via git blame) and only counts lines that are actually new/changed as the denominator. This
 // script approximates that at FILE granularity instead: for every file touched on this branch,
-// it takes that file's *entire* line coverage (covered lines / coverable lines, from the same
-// OpenCover/lcov reports Sonar itself would read) as a stand-in for "new code coverage" of that
-// file. Line-accurate diffing was deliberately not attempted here — re-implementing Sonar's
-// blame-based new-code detection would be its own non-trivial piece of software with its own
-// failure modes, and a wrong "close approximation" is worse than an honest coarse one.
+// it takes that file's *entire* coverage (from the same OpenCover/lcov reports Sonar itself would
+// read) as a stand-in for "new code coverage" of that file. Line-accurate diffing was
+// deliberately not attempted here — re-implementing Sonar's blame-based new-code detection would
+// be its own non-trivial piece of software with its own failure modes, and a wrong "close
+// approximation" is worse than an honest coarse one.
+//
+// Lines AND branches both count, but this is still not Sonar's formula. Sonar's own coverage
+// number is (CT + CF + LC) / (2*B + EL) — covered true/false branch outcomes plus covered lines,
+// over twice the branch count plus executable lines. This script instead counts (covered lines +
+// covered branches) / (executable lines + total branches), read straight from the OpenCover
+// SequencePoint/BranchPoint and lcov DA/BRDA records. That is CLOSER to Sonar than lines alone —
+// a line can be fully "hit" while one of its branches is never taken (see docs/DECISIONS.md's
+// rule-12 entry: "135 ungedeckt (dazu 20 von 144 Bedingungen)" for a real example of that gap —
+// but it is not a reimplementation of Sonar's exact weighting, just a same-shaped approximation
+// with one more input than before.
 //
 // What this means in practice:
 //   - Brand-new files: the approximation is close to accurate (nearly all lines ARE new).
@@ -24,10 +34,37 @@
 //   - The opposite also happens: a file with a poor OVERALL percentage (lots of old, untested
 //     code) whose few new lines happen to be exactly the ones covered by a new test would score
 //     red here while SonarCloud scores that same diff 100% (only the new lines count there).
+//   - Weighting, not just per-file scoring, is skewed: since the frontend run is forced to
+//     include every production file (--coverage-include), a large untouched-but-untested file
+//     with only a handful of changed lines enters the denominator with its FULL line and branch
+//     count. Measured example: usage-stats-page.ts contributes 0/391 lines + 0/178 branches here
+//     while Sonar would weigh roughly the 166 lines the diff actually touched. Both call it 0%,
+//     but this script lets it drag the overall figure down much harder than Sonar does.
 // Neither direction is bounded — this is a genuine approximation, not a safe upper or lower
 // bound on what SonarCloud will report. Treat a green result as "probably fine, not a
 // guarantee" (especially for small, surgical diffs into large files), and treat a red result as
 // "worth a closer look", not as proof SonarCloud will also fail the gate.
+//
+// A changed file that never appears in either report at all (no test imports it, e.g. a brand
+// new component with no spec yet) is NOT silently treated as 0% or 100% — it is listed
+// separately as "not measured", and its presence forces the overall verdict to stay cautious
+// (see the "unvollständig" handling in main()) even when the measured files alone would clear
+// the threshold. Deliberately no heuristic tries to guess which unmeasured files are "probably
+// fine" (e.g. type-only/interface files with nothing to execute) — such a heuristic would
+// eventually misclassify a file that DOES have real logic, and it would do so silently, exactly
+// where nobody would notice. An honest "can't tell, a human should look" beats a guess that is
+// wrong occasionally and invisibly.
+//
+// The frontend run also passes `--coverage-include=src/**/*.ts` (see runFrontendTests below),
+// on top of what .github/workflows/sonarcloud.yml itself runs. That flag only affects the lcov
+// report THIS script reads locally — it is not added to angular.json or to the CI workflow, so
+// the coverage number SonarCloud actually sees is unaffected. It shrinks (does not eliminate)
+// the "not measured" blind spot: Vitest's default coverage.include only reports files that some
+// test actually imported, so a completely untested new file simply never appears in lcov.info
+// and this script couldn't have told "file has no data" apart from "file wasn't touched by any
+// test" without it. With the broader include, such a file now shows up with 0% instead of
+// vanishing — verified live against mass-delete-panel.ts (see the coordinator's requested
+// verification).
 //
 // Required tools: git, dotnet, npm (unless the corresponding side is skipped).
 // Docker must be running for the backend side (dotnet test uses Testcontainers).
@@ -43,6 +80,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // Quality Gate threshold this script approximates. Must match the SonarCloud project's actual
 // gate condition ("Coverage on New Code" >= 80%) — that value lives in SonarCloud's project
@@ -218,9 +256,16 @@ function runBackendTests(repoRoot) {
   }
 }
 
+// `--coverage-include=src/**/*.ts` is added on top of the command CI runs (see the big comment
+// above): verified live to raise Vitest's lcov output from 80-ish files actually imported by a
+// test to 150 of the 151 non-spec .ts files under web/src (only test-setup.ts — itself test
+// infrastructure — stays out), so a changed file with zero tests shows up as a real 0% instead
+// of being indistinguishable from "report doesn't exist". This is a LOCAL-ONLY addition to this
+// script's own npm invocation; it does not touch web/angular.json or
+// .github/workflows/sonarcloud.yml, so SonarCloud's own coverage number is unaffected.
 function runFrontendTests(repoRoot) {
   console.log(
-    "--- Frontend: npm --prefix web test -- --watch=false --coverage --coverage-reporters=lcov ---",
+    "--- Frontend: npm --prefix web test -- --watch=false --coverage --coverage-reporters=lcov --coverage-include=src/**/*.ts ---",
   );
   const exitCode = runInherited(
     "npm",
@@ -232,6 +277,7 @@ function runFrontendTests(repoRoot) {
       "--watch=false",
       "--coverage",
       "--coverage-reporters=lcov",
+      "--coverage-include=src/**/*.ts",
     ],
     repoRoot,
   );
@@ -304,10 +350,23 @@ function extractAttr(tag, attrName) {
   return match ? match[1] : null;
 }
 
-// Parses one OpenCover XML report into `fullPath -> Map<lineNumber, covered>`. A line counts as
-// covered if ANY SequencePoint on that (fileid, line) pair has vc > 0 — a line can carry several
-// sequence points (e.g. multiple statements, branches), so points are deduplicated by
-// (fileid, sl) and OR-ed together rather than counted individually.
+// A per-file coverage record: lines AND branches, each a Map keyed by a dedup identity to a
+// covered boolean. Lines dedupe by line number alone (a line counts covered if ANY sequence
+// point on it was hit); branches dedupe by their own distinct-branch identity (see below) since,
+// unlike lines, each branch is its own coverable unit — collapsing them into their line would
+// throw away exactly the information branch coverage exists to capture.
+function emptyFileCoverage() {
+  return { lines: new Map(), branches: new Map() };
+}
+
+// Parses one OpenCover XML report into `fullPath -> { lines, branches }`.
+//   - Lines: a line counts as covered if ANY SequencePoint on that (fileid, line) pair has
+//     vc > 0 — a line can carry several sequence points (e.g. multiple statements), so points
+//     are deduplicated by (fileid, sl) and OR-ed together rather than counted individually.
+//   - Branches: each BranchPoint is one coverable branch outcome, identified within a file by
+//     (sl, offset, path) — offset/path are the IL offset and branch index OpenCover itself uses
+//     to distinguish sibling branches at the same line (e.g. the two arms of an `if`), so this
+//     mirrors OpenCover's own notion of "distinct branch" rather than inventing one.
 function parseOpenCoverXml(xmlText) {
   const pathByFileUid = new Map();
   for (const tag of xmlText.match(/<File\b[^>]*\/?>/g) ?? []) {
@@ -329,26 +388,56 @@ function parseOpenCoverXml(xmlText) {
     lineMap.set(line, (lineMap.get(line) ?? false) || covered);
   }
 
-  const result = new Map(); // fullPath -> Map<line, covered>
-  for (const [uid, lineMap] of linesByFileUid) {
+  const branchesByFileUid = new Map(); // fileUid -> Map<"sl:offset:path", covered>
+  for (const tag of xmlText.match(/<BranchPoint\b[^>]*\/>/g) ?? []) {
+    const fileid = extractAttr(tag, "fileid");
+    const startLine = extractAttr(tag, "sl");
+    const offset = extractAttr(tag, "offset");
+    const branchPath = extractAttr(tag, "path");
+    const visitCount = extractAttr(tag, "vc");
+    if (!fileid || startLine === null || offset === null || branchPath === null)
+      continue;
+    const key = `${startLine}:${offset}:${branchPath}`;
+    const covered = Number(visitCount) > 0;
+    if (!branchesByFileUid.has(fileid))
+      branchesByFileUid.set(fileid, new Map());
+    const branchMap = branchesByFileUid.get(fileid);
+    branchMap.set(key, (branchMap.get(key) ?? false) || covered);
+  }
+
+  const result = new Map(); // fullPath -> { lines, branches }
+  const allFileUids = new Set([
+    ...linesByFileUid.keys(),
+    ...branchesByFileUid.keys(),
+  ]);
+  for (const uid of allFileUids) {
     const fullPath = pathByFileUid.get(uid);
-    if (fullPath) result.set(fullPath, lineMap);
+    if (!fullPath) continue;
+    result.set(fullPath, {
+      lines: linesByFileUid.get(uid) ?? new Map(),
+      branches: branchesByFileUid.get(uid) ?? new Map(),
+    });
   }
   return result;
 }
 
-// Parses web/coverage/web/lcov.info into `path -> Map<lineNumber, covered>`. Standard lcov
-// tracefile grammar: SF: starts a per-file block, DA:<line>,<hits> reports one line's hit count,
-// end_of_record closes the block.
+// Parses web/coverage/web/lcov.info into `path -> { lines, branches }`. Standard lcov tracefile
+// grammar: SF: starts a per-file block, DA:<line>,<hits> reports one line's hit count,
+// BRDA:<line>,<block>,<branch>,<taken> reports one branch outcome (`taken` is either a hit count
+// or the literal "-" for "never reached at all"), end_of_record closes the block. A branch is
+// identified within a file by (line, block, branch) — the triple lcov itself uses to tell two
+// branches at the same line apart (e.g. the two arms of a ternary).
 function parseLcov(lcovText) {
   const result = new Map();
   let currentPath = null;
   let currentLines = null;
+  let currentBranches = null;
   for (const rawLine of lcovText.split("\n")) {
     const line = rawLine.trim();
     if (line.startsWith("SF:")) {
       currentPath = line.slice(3).trim();
       currentLines = new Map();
+      currentBranches = new Map();
     } else if (line.startsWith("DA:") && currentLines) {
       const [lineNoText, hitsText] = line.slice(3).split(",");
       const lineNo = Number(lineNoText);
@@ -358,10 +447,23 @@ function parseLcov(lcovText) {
           lineNo,
           (currentLines.get(lineNo) ?? false) || hits > 0,
         );
+    } else if (line.startsWith("BRDA:") && currentBranches) {
+      const [lineNoText, blockText, branchText, takenText] = line
+        .slice(5)
+        .split(",");
+      const key = `${lineNoText}:${blockText}:${branchText}`;
+      const covered = takenText !== "-" && Number(takenText) > 0;
+      currentBranches.set(key, (currentBranches.get(key) ?? false) || covered);
     } else if (line === "end_of_record") {
-      if (currentPath && currentLines) result.set(currentPath, currentLines);
+      if (currentPath && currentLines) {
+        result.set(currentPath, {
+          lines: currentLines,
+          branches: currentBranches ?? new Map(),
+        });
+      }
       currentPath = null;
       currentLines = null;
+      currentBranches = null;
     }
   }
   return result;
@@ -390,17 +492,23 @@ function normalizeToRepoRelativePosix(rawPath, repoRoot) {
   return withoutDotSlash;
 }
 
-// Merges a raw (path -> Map<line, covered>) report into the accumulator, keyed by repo-relative
+// Merges a raw (path -> { lines, branches }) report into the accumulator, keyed by repo-relative
 // POSIX path. Multiple reports can legitimately cover the same file (e.g. a Core class exercised
-// by more than one test project) — lines are OR-ed together, never overwritten.
+// by more than one test project) — lines and branches are each OR-ed together, never overwritten.
 function mergeCoverageReport(accumulator, rawReport, repoRoot) {
-  for (const [rawPath, lineMap] of rawReport) {
+  for (const [rawPath, fileCoverage] of rawReport) {
     const normalizedPath = normalizeToRepoRelativePosix(rawPath, repoRoot);
     if (!accumulator.has(normalizedPath))
-      accumulator.set(normalizedPath, new Map());
+      accumulator.set(normalizedPath, emptyFileCoverage());
     const target = accumulator.get(normalizedPath);
-    for (const [line, covered] of lineMap) {
-      target.set(line, (target.get(line) ?? false) || covered);
+    for (const [line, covered] of fileCoverage.lines) {
+      target.lines.set(line, (target.lines.get(line) ?? false) || covered);
+    }
+    for (const [branchKey, covered] of fileCoverage.branches) {
+      target.branches.set(
+        branchKey,
+        (target.branches.get(branchKey) ?? false) || covered,
+      );
     }
   }
 }
@@ -495,22 +603,39 @@ function getChangedFiles(repoRoot, base) {
     .filter((relativePath) => existsSync(path.join(repoRoot, relativePath))); // ignore deleted files
 }
 
+function countCovered(map) {
+  let covered = 0;
+  for (const isCovered of map.values()) {
+    if (isCovered) covered += 1;
+  }
+  return covered;
+}
+
 function buildFileReport(changedFiles, coverageByPath) {
   const measured = [];
   const unmeasured = [];
   for (const filePath of changedFiles) {
-    const lineMap = coverageByPath.get(filePath);
-    if (!lineMap || lineMap.size === 0) {
+    const fileCoverage = coverageByPath.get(filePath);
+    const totalLines = fileCoverage?.lines.size ?? 0;
+    const totalBranches = fileCoverage?.branches.size ?? 0;
+    if (!fileCoverage || totalLines + totalBranches === 0) {
+      // No SequencePoint/BranchPoint at all for this file in either report — could mean "not
+      // exercised by any test" or "genuinely has nothing executable" (a pure interface/type
+      // file). Deliberately not distinguished (see the header comment): both are reported the
+      // same, cautious way.
       unmeasured.push(filePath);
       continue;
     }
-    let covered = 0;
-    for (const isCovered of lineMap.values()) {
-      if (isCovered) covered += 1;
-    }
-    const total = lineMap.size;
+    const coveredLines = countCovered(fileCoverage.lines);
+    const coveredBranches = countCovered(fileCoverage.branches);
+    const covered = coveredLines + coveredBranches;
+    const total = totalLines + totalBranches;
     measured.push({
       filePath,
+      coveredLines,
+      totalLines,
+      coveredBranches,
+      totalBranches,
       covered,
       total,
       percent: (covered / total) * 100,
@@ -524,6 +649,9 @@ function formatPercent(percent) {
   return `${percent.toFixed(1)}%`;
 }
 
+// Lines and branches are shown as separate columns (not just the combined percent) so a bad
+// number is diagnosable at a glance: "lines fine, branches bad" points at untested error paths
+// inside otherwise-executed code, which a single blended percentage would hide.
 function printFileTable(measured) {
   if (measured.length === 0) {
     console.log("  (keine gemessenen Dateien)");
@@ -533,13 +661,30 @@ function printFileTable(measured) {
     ...measured.map((row) => row.filePath.length),
     "Datei".length,
   );
-  const header = `  ${"Datei".padEnd(pathWidth)}  Zeilen (gedeckt/gesamt)  Anteil`;
+  const linesWidth = Math.max(
+    ...measured.map((row) => `${row.coveredLines}/${row.totalLines}`.length),
+    "Zeilen".length,
+  );
+  const branchesWidth = Math.max(
+    ...measured.map(
+      (row) => `${row.coveredBranches}/${row.totalBranches}`.length,
+    ),
+    "Zweige".length,
+  );
+  const header =
+    `  ${"Datei".padEnd(pathWidth)}  ${"Zeilen".padStart(linesWidth)}  ` +
+    `${"Zweige".padStart(branchesWidth)}  Anteil`;
   console.log(header);
   console.log(`  ${"-".repeat(header.length - 2)}`);
   for (const row of measured) {
-    const linesText = `${row.covered}/${row.total}`.padStart(19);
+    const linesText = `${row.coveredLines}/${row.totalLines}`.padStart(
+      linesWidth,
+    );
+    const branchesText = `${row.coveredBranches}/${row.totalBranches}`.padStart(
+      branchesWidth,
+    );
     console.log(
-      `  ${row.filePath.padEnd(pathWidth)}  ${linesText}  ${formatPercent(row.percent)}`,
+      `  ${row.filePath.padEnd(pathWidth)}  ${linesText}  ${branchesText}  ${formatPercent(row.percent)}`,
     );
   }
 }
@@ -610,11 +755,35 @@ async function main() {
     }
   }
 
+  // OR-merge rather than overwrite: backend and frontend paths practically never collide (.cs
+  // vs .ts), but a plain `.set()` would silently drop one side's data for a key that DID exist
+  // in both, exactly the kind of quiet loss this script's whole point is to avoid.
   const combinedCoverage = new Map();
-  for (const [filePath, lineMap] of backendCoverage)
-    combinedCoverage.set(filePath, lineMap);
-  for (const [filePath, lineMap] of frontendCoverage)
-    combinedCoverage.set(filePath, lineMap);
+  for (const [filePath, fileCoverage] of backendCoverage) {
+    combinedCoverage.set(filePath, {
+      lines: new Map(fileCoverage.lines),
+      branches: new Map(fileCoverage.branches),
+    });
+  }
+  for (const [filePath, fileCoverage] of frontendCoverage) {
+    if (!combinedCoverage.has(filePath)) {
+      combinedCoverage.set(filePath, {
+        lines: new Map(fileCoverage.lines),
+        branches: new Map(fileCoverage.branches),
+      });
+      continue;
+    }
+    const target = combinedCoverage.get(filePath);
+    for (const [line, covered] of fileCoverage.lines) {
+      target.lines.set(line, (target.lines.get(line) ?? false) || covered);
+    }
+    for (const [branchKey, covered] of fileCoverage.branches) {
+      target.branches.set(
+        branchKey,
+        (target.branches.get(branchKey) ?? false) || covered,
+      );
+    }
+  }
 
   const { measured, unmeasured } = buildFileReport(
     relevantFiles,
@@ -640,10 +809,24 @@ async function main() {
     return;
   }
 
-  const totalCovered = measured.reduce((sum, row) => sum + row.covered, 0);
-  const totalLines = measured.reduce((sum, row) => sum + row.total, 0);
+  const totalCoveredLines = measured.reduce(
+    (sum, row) => sum + row.coveredLines,
+    0,
+  );
+  const totalLines = measured.reduce((sum, row) => sum + row.totalLines, 0);
+  const totalCoveredBranches = measured.reduce(
+    (sum, row) => sum + row.coveredBranches,
+    0,
+  );
+  const totalBranches = measured.reduce(
+    (sum, row) => sum + row.totalBranches,
+    0,
+  );
+  const totalCovered = totalCoveredLines + totalCoveredBranches;
+  const totalUnits = totalLines + totalBranches;
   const overallPercent =
-    totalLines > 0 ? (totalCovered / totalLines) * 100 : null;
+    totalUnits > 0 ? (totalCovered / totalUnits) * 100 : null;
+  const incomplete = unmeasured.length > 0;
 
   console.log("\n=== Gesamturteil ===");
   if (overallPercent === null) {
@@ -655,16 +838,29 @@ async function main() {
   }
 
   console.log(
-    `Gesamtquote über ${measured.length} gemessene Datei(en): ${totalCovered}/${totalLines} Zeilen = ${formatPercent(overallPercent)}.`,
+    `Gesamtquote über ${measured.length} gemessene Datei(en): ${totalCovered}/${totalUnits} ` +
+      `(${totalCoveredLines}/${totalLines} Zeilen, ${totalCoveredBranches}/${totalBranches} Zweige) ` +
+      `= ${formatPercent(overallPercent)}.`,
   );
-  if (unmeasured.length > 0) {
+  if (incomplete) {
     console.log(
       `Zusätzlich ${unmeasured.length} nicht gemessene Datei(en) — die Gesamtquote sagt über diese nichts aus.`,
     );
   }
 
   const belowThreshold = overallPercent < NEW_CODE_COVERAGE_THRESHOLD_PERCENT;
-  if (belowThreshold) {
+
+  // An incomplete picture (changed, potentially coverable files with zero data) overrides a
+  // clean verdict either way: a passing percentage computed only over the files that DID report
+  // data says nothing about the ones that didn't, so this can never resolve to a plain "✓"/exit 0.
+  if (incomplete) {
+    const relation = belowThreshold ? "unter" : "über";
+    console.log(
+      `\n⚠ Quote ${formatPercent(overallPercent)} liegt ${relation} der ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}%-Schwelle, ` +
+        `ABER ${unmeasured.length} Datei(en) ohne Coverage-Daten — Urteil unvollständig. Diese Dateien von Hand ` +
+        "prüfen (im Zweifel: hat ein Test sie überhaupt importiert?), bevor der Branch als gedeckt gilt.",
+    );
+  } else if (belowThreshold) {
     console.log(
       `\n⚠ WARNUNG: ${formatPercent(overallPercent)} liegt unter der ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}%-Schwelle. ` +
         "Das ist ein deutliches Signal, dass SonarClouds Quality Gate diesen Branch ablehnen könnte — aber auch " +
@@ -679,13 +875,17 @@ async function main() {
     );
   }
 
-  if (belowThreshold) {
+  if (belowThreshold || incomplete) {
     process.exitCode = 1;
   }
 }
 
+// `file://${process.argv[1]}` is NOT the canonical form of import.meta.url once the path
+// contains spaces, non-ASCII characters, or (on Windows) backslashes/a drive letter — the
+// comparison would then silently be false and the script would do nothing at all, with exit 0.
+// pathToFileURL() builds the same URL Node itself used for import.meta.url.
 const isDirectRun =
-  process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   main().catch((error) => {
     console.error(`Abbruch mit Fehler: ${error.message}`);
