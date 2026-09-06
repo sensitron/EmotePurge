@@ -34,7 +34,11 @@ const GITHUB_LIMITS = {
   maxResultsPerRunDisplayed: 5000, // only the top N (by severity) are shown/prioritized
   maxRulesPerRun: 25000,
   maxRunsPerFile: 20,
-  maxTagsPerRule: 20, // only the top 10 are displayed
+  // The docs describe 20 with "only the top 10 displayed", but GitHub's own upload warning says
+  // otherwise: "had 15 tags which is more than our limit of 10. Only 10 tags were stored for that
+  // rule, the additional ones were ignored." Observed behaviour wins — the surplus is dropped, not
+  // merely hidden, so anything that must survive has to be inside the first ten.
+  maxTagsPerRule: 10,
   maxFileSizeBytes: 10 * 1024 * 1024, // upload is rejected above this
 };
 
@@ -291,9 +295,13 @@ function buildRuleEntries(ruleKeys, metadataByKey, hostUrl, organization, securi
     const securitySeverity = securitySeverityByRule?.get(ruleKey);
     if (securitySeverity !== undefined) {
       properties["security-severity"] = securitySeverity;
-      // GitHub only treats a scored rule as a security rule when it is tagged as one.
-      if (!tags.includes("security")) tags.push("security");
+      // GitHub only treats a scored rule as a security rule when it is tagged as one, and it keeps
+      // only the first maxTagsPerRule tags. Appending would put the tag last, where a rule carrying
+      // ten tags of its own drops it -- and the score would then be read as an ordinary quality
+      // finding. Leading with it makes that impossible regardless of how many tags Sonar supplies.
+      properties.tags = ["security", ...tags.filter((tag) => tag !== "security")];
     }
+    properties.tags = properties.tags.slice(0, GITHUB_LIMITS.maxTagsPerRule);
 
     return {
       id: ruleKey,

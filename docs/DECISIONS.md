@@ -68,7 +68,11 @@ ohne die High/Medium/Low-Einstufung und gelten nicht als Security-Alerts. Der er
 genau diesen Fehler, und die grüne Schema-Prüfung hat ihn gedeckt: Ein Validator prüft die Form, nicht
 die Wirkung. Weil Sonar die Severity pro Finding führt und SARIF sie pro Regel, wird eine Regel nach
 ihrem schwersten Fund eingestuft; zusätzlich bekommt sie den `security`-Tag, ohne den GitHub die
-Bewertung nicht als Security-Bewertung liest.
+Bewertung nicht als Security-Bewertung liest. Dieser Tag steht **vorn** in der Liste, und die Liste
+ist bei zehn Einträgen gekappt: GitHub speichert pro Regel nur die ersten zehn Tags und verwirft den
+Rest — nicht bloß in der Anzeige, wie die Doku nahelegt, sondern beim Import (belegt durch GitHubs
+eigene Upload-Warnung). Hinten angehängt fiele der Tag bei einer tag-reichen Regel also weg, und die
+Bewertung würde wieder als gewöhnlicher Qualitätsbefund gelesen.
 
 **Drei Detailentscheidungen.** Die Angular-Coverage wird per Kommandozeilen-Flag angefordert und
 nicht in `angular.json` verdrahtet: dort eingetragen, würde sie jeden lokalen `npm test`-Lauf
