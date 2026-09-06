@@ -5,3 +5,27 @@ end_of_line = lf
 insert_final_newline = true
 charset = utf-8
 trim_trailing_whitespace = true
+
+# .NET-Analyzer-Schweregrade.
+#
+# Diese Diagnosen sind Info-Level: ein normaler `dotnet build` druckt sie nicht, aber der
+# Sonar-Scanner liest sie aus dem Build und importiert sie als Befunde. Der erste vollständige Scan
+# bestand deshalb zu zwei Dritteln aus ihnen (95 von 142). Gefiltert wird hier statt am Import,
+# denn Sonar kennt nur ganz an oder ganz aus — und ganz aus hätte auch die wenigen Roslyn-Befunde
+# verschluckt, die etwas taugen (ein nicht weitergereichter CancellationToken war darunter).
+#
+# Was hier auf `none` steht, ist bewusst abgewählt und nicht bloß lästig. Alles ohne Eintrag bleibt
+# aktiv und taucht damit weiterhin im Scan auf, auch wenn es neu dazukommt.
+[*.cs]
+
+# 72 Fundstellen. Trifft den Logging-Stil des Projekts systematisch, nicht einzelne Ausrutscher;
+# die Meldung einzeln abzuarbeiten hieße, das Log-Muster überall umzubauen.
+dotnet_diagnostic.CA1873.severity = none
+
+# Mikro-Optimierungen ohne Bezug zu einem beobachteten Problem.
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.CA1822.severity = none
+
+# Stilempfehlungen der ASP.NET-Core- bzw. Regex-Analyzer.
+dotnet_diagnostic.ASP0015.severity = none
+dotnet_diagnostic.SYSLIB1045.severity = none

@@ -10,6 +10,39 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Roslyn wird in der `.editorconfig` gefiltert statt am Sonar-Import abgeschaltet
+
+**Betrifft:** `.editorconfig`, `.github/workflows/sonarcloud.yml`
+
+**Revidiert den Eintrag darunter.** Dort war der Import der Roslyn-Befunde ganz abgeschaltet worden
+(`sonar.cs.roslyn.ignoreIssues=true`), weil 95 von 142 Befunden aus ihm stammten. Das war zu grob:
+Vier der 95 hatten Substanz — darunter ein nicht weitergereichter `CancellationToken` in
+`TwitchLivePollWorker` —, und vor allem hätte **jeder künftige** Roslyn-Befund dasselbe Schicksal
+geteilt, ohne dass es jemand bemerkt. Der Import ist deshalb wieder an; gefiltert wird eine Ebene
+tiefer.
+
+**Die Annahme, auf der die erste Entscheidung ruhte, war falsch.** Sie ging davon aus, die
+Warnungen stünden ohnehin im Build-Log und kehrten dorthin nur zurück. Tatsächlich sind es
+Info-Level-Diagnosen: Ein `dotnet build` druckt sie bei Standard-Ausführlichkeit **nicht**, der
+Sonar-Scanner liest sie aber aus dem Build aus. Abgeschaltet waren sie also nicht leiser, sondern
+unsichtbar.
+
+**Sonar bietet keinen Filter, die `.editorconfig` schon.** Die Eigenschaften
+`sonar.cs.roslyn.bugCategories` und Verwandte klingen danach, bestimmen aber nur, *als was* ein
+importierter Befund gilt (Bug, Vulnerability, Code Smell) — nicht, welche importiert werden. Dort
+gibt es ausschließlich ganz an oder ganz aus. Ein Schweregrad in der `.editorconfig` sorgt dagegen
+dafür, dass der Analyzer die Regel gar nicht erst meldet; sie erreicht den Scanner nie. Nachgemessen:
+`dotnet_diagnostic.CA1873.severity = warning` erzeugt die Meldungen im Build, `= none` lässt sie
+verschwinden.
+
+**Auf `none` stehen fünf Regeln** (`CA1873` mit 72 Fundstellen, `CA1859`, `ASP0015`, `CA1822`,
+`SYSLIB1045`) — zusammen 91 der 95. Alles ohne Eintrag bleibt aktiv und taucht weiterhin im Scan auf.
+
+**Der Preis ist Reichweite.** `.editorconfig` wirkt nicht nur in der CI, sondern in jeder IDE und bei
+jedem lokalen Build. Was hier auf `none` steht, ist damit projektweit abgewählt und nicht nur aus
+einer Ansicht ausgeblendet. Das ist beabsichtigt: Eine Regel, nach der sich niemand richtet, soll
+auch niemanden mehr anpiepen.
+
 ### 2026-09-06 — Die Roslyn-Importe fliegen aus dem Scan, und `npm ci` führt keine Paket-Skripte mehr aus
 
 **Betrifft:** `.github/workflows/sonarcloud.yml`, `.github/workflows/publish.yml`
