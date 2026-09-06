@@ -224,7 +224,7 @@ type BlockReason = string | null;
 
       @if (nothingToAdd()) {
         <app-notice-banner id="import-confirm-nothing-to-add" variant="info">
-          {{ 'import.confirm.nothingToAdd' | transloco: { count: data.source.rows.length } }}
+          {{ nothingToAddKey | transloco: { count: data.source.rows.length } }}
         </app-notice-banner>
       }
 
@@ -308,6 +308,13 @@ export class ImportConfirmDialog {
     pluralKey(this.preview()?.invalidNames.length ?? 0, 'import.confirm.invalidNames'),
   );
 
+  // Selected on the offered row count, not on `toAdd` — the banner only shows when nothing is
+  // left to add, so `toAdd` is always 0 here and would always pick the plural form.
+  protected readonly nothingToAddKey = pluralKey(
+    this.data.source.rows.length,
+    'import.confirm.nothingToAdd',
+  );
+
   protected readonly discardedRowsKey = pluralKey(
     this.data.source.discardedRows,
     'import.confirm.discardedRows',
@@ -383,7 +390,7 @@ export class ImportConfirmDialog {
       case 'no-set':
         return 'import.confirm.noTargetSet';
       default:
-        return this.nothingToAdd() ? 'import.confirm.nothingToAdd' : null;
+        return this.nothingToAdd() ? this.nothingToAddKey : null;
     }
   });
 
