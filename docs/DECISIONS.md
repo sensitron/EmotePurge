@@ -10,6 +10,37 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Die Roslyn-Importe fliegen aus dem Scan, und `npm ci` führt keine Paket-Skripte mehr aus
+
+**Betrifft:** `.github/workflows/sonarcloud.yml`, `.github/workflows/publish.yml`
+
+**Nachlese zum ersten Scan-Ergebnis.** Der erste vollständige Lauf lieferte 142 Befunde, und **95
+davon waren importierte Roslyn-Warnungen** aus dem echten Build (`CA1873` allein 72-mal, dazu
+`CA1859`, `ASP0015`, `CA1822`, `SYSLIB1045`). Sie stammen nicht von Sonar-Regeln, sondern von den
+.NET-Analyzern, die beim Kompilieren ohnehin laufen. `sonar.cs.roslyn.ignoreIssues=true` schaltet
+diesen Import ab.
+
+**Der Grund ist Benutzbarkeit, nicht Qualität.** Zwei Drittel der Ansicht bestanden aus Meldungen,
+die niemand einzeln abarbeitet — eine Liste, die man nicht leerbekommt, wird nicht sortiert, sondern
+ignoriert, und dann geht das Wenige darin unter, das zählt. Die Warnungen verschwinden dadurch nicht:
+`dotnet build` gibt sie weiterhin aus. Sie kehren nur dorthin zurück, wo sie vorher schon standen,
+ins Build-Log.
+
+**Was dabei bewusst mit verloren geht.** Drei der 95 hatten Substanz und sind vor der Abschaltung
+notiert worden: ein nicht weitergereichter `CancellationToken` in `TwitchLivePollWorker` (CA2016),
+ein falscher `paramName` in einer `ArgumentOutOfRangeException` in `LiveEndpoints` (CA2208) und ein
+ungenutzter Routen-Parameter in `Program.cs` (ASP0018, vermutlich der SPA-Catch-all und damit
+Absicht). Wer die Abschaltung später hinterfragt, sollte wissen, dass sie mit offenen Augen getroffen
+wurde und nicht aus Bequemlichkeit.
+
+**`npm ci --ignore-scripts` in beiden Workflows.** Bei `npm ci` laufen `postinstall`-Skripte der
+installierten Pakete mit; ein kompromittiertes Paket führt damit fremden Code auf dem Runner aus. Der
+Befund (`githubactions:S6505`) betraf beide Workflows gleichermaßen — deshalb sind beide geändert
+worden statt nur der neue, sonst stünde dieselbe Zeile weiter nebenan. Beim `npx`-Aufruf für
+Playwrights Browser-Download ist der Fall anders gelagert (der Download **ist** der Zweck des
+Befehls, kein Lifecycle-Skript); dass das Flag dort nichts bricht, ist nicht abgeleitet, sondern über
+einen echten CI-Lauf belegt worden.
+
 ### 2026-09-06 — Statische Analyse läuft in der CI, und ihre Befunde landen im Code-Scanning statt im Issue-Tracker
 
 **Betrifft:** `.github/workflows/sonarcloud.yml`, `scripts/sonar-to-sarif.mjs`, `tests/EmotePurge.Api.Tests/EmotePurge.Api.Tests.csproj`, `tests/EmotePurge.Infrastructure.Tests/EmotePurge.Infrastructure.Tests.csproj`, `tests/EmotePurge.Worker.Tests/EmotePurge.Worker.Tests.csproj`, `web/package.json`
