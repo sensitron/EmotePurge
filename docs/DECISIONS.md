@@ -48,6 +48,33 @@ die Liste erweitert, nicht die Bedingung gelockert.
 
 ---
 
+### 2026-09-06 — Datei-Import: eigene `emote-list`-Envelope, `readEnvelope` als geteilter Vorschritt, Verlust getrennt von Konsolidierung (#72, K3)
+
+**Betrifft:** `web/src/app/shared/export/export-envelope.ts`, `web/src/app/shared/export/read-envelope.ts`, `web/src/app/shared/export/emote-list-export.ts`, `web/src/app/shared/export/import-source-parser.ts`, `web/src/app/shared/export/purge-run-export.ts`
+
+`ExportKind` bekommt eine vierte Sorte `'emote-list'` (Regel 8: bewusst **ohne** `emoteId` — der
+interne Guid ist channel-scoped und im Zielkanal bedeutungslos, anders als beim Purge-Protokoll).
+`readEnvelope` ist aus `purge-run-export.ts` in eine eigene Datei herausgezogen und ist jetzt der
+gemeinsame erste Schritt jedes Datei-Imports: `JSON.parse`, die CSV-statt-JSON-Heuristik,
+`source !== 'emotepurge'` und ein nicht-String-`kind` — alles Weitere (Sorte, Version, Zeilen) prüft
+weiterhin der jeweilige Parser.
+
+Ein Nutzungs-Export (`kind: 'usage'`) gilt zusätzlich als gültige Import-Quelle neben der eigentlichen
+Emote-Liste — er trägt `sevenTvEmoteId` plus `emoteName` je Zeile, genug für ein Kopieren, und ein
+Nutzer, der seine Statistik als Backup heruntergeladen hat, soll dafür nicht extra neu exportieren
+müssen. Der Fehlerschlüssel `restore.import.errors.usageExport` entfällt damit ersatzlos.
+
+`discardedRows` und `duplicatesCollapsed` messen zwei verschiedene Dinge und werden nie
+gegeneinander verrechnet: `discardedRows` zählt Zeilen, die der Parser schon vor der Deduplizierung
+als ungültig verwarf (`sevenTvEmoteId`/Namensfeld fehlt oder ist kein String) — echter Datenverlust,
+gemessen gegen `meta.rowCount`, falls die Datei das Feld trägt, sonst gegen die Länge des rohen
+`rows`-Arrays. `duplicatesCollapsed` zählt danach, wie viele der gültigen Zeilen `dedupeImportRows`
+als Zweitnennung derselben `sevenTvEmoteId` verwarf — bloße Konsolidierung, kein Verlust. Beide
+sperren den Lauf nicht; im Bestätigungsdialog steht die Verlust-Zeile deshalb vor der
+Konsolidierungs-Zeile (docs/UI-Designsprache.md §7.2).
+
+---
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`

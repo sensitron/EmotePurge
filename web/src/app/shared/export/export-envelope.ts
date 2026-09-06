@@ -6,7 +6,7 @@
 
 export const EXPORT_FORMAT_VERSION = 1;
 
-export type ExportKind = 'usage' | 'voting' | 'purge-run';
+export type ExportKind = 'usage' | 'voting' | 'purge-run' | 'emote-list';
 
 export const JSON_MIME = 'application/json';
 
