@@ -169,7 +169,7 @@ public class ReplayFidelityCalculatorTests
         var (days, rows) = Build(30, perDay, perDay);
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, null), emotes, rows, days, 30, true);
+            new ReplayWindow(From, To, null), emotes, rows, days, 30, true, 0, To);
 
         Assert.Equal(0, report.Diagnostics.HumanOnlyDays);
         Assert.Equal(0, report.Gate.RatedDays);
@@ -355,7 +355,7 @@ public class ReplayFidelityCalculatorTests
         };
         var rows = new List<ReplayUsageRow> { new("x", From, 3, 0), new("x", From.AddDays(1), 3, 0) };
 
-        var report = Compute(emotes, rows, days);
+        var report = Compute(emotes, rows, days, rateLimitedDays: 1, resumePoint: From.AddDays(2));
 
         Assert.Equal(14, report.Diagnostics.UnknownNameHits);
         Assert.Equal(4, report.Diagnostics.AmbiguousNameHits);
@@ -379,6 +379,30 @@ public class ReplayFidelityCalculatorTests
         Assert.Equal(1, report.Run.RateLimitedDays);
         Assert.Equal(From.AddDays(2), report.Run.ResumePoint);
         Assert.Equal(3, report.Run.DayLineCount);
+    }
+
+    [Fact]
+    public void RunInfo_TakesTheRateLimitCountAndTheResumePointFromTheCaller()
+    {
+        // The point of the parameters: a throttled day never becomes a day line (that would mark it
+        // finished and make the resume skip it forever), so anything derived from `days` here would
+        // read 0 in every report ever written. These two numbers are the caller's to state.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var reported = Compute(emotes, rows, days, rateLimitedDays: 7, resumePoint: From.AddDays(4));
+
+        Assert.Equal(7, reported.Run.RateLimitedDays);
+        Assert.Equal(From.AddDays(4), reported.Run.ResumePoint);
+
+        // A day line carrying the status is explicitly not a source for the count any more.
+        var withThrottledLine = new List<ReplayDayLine>(days)
+        {
+            DayLine(To.AddDays(1), Empty, status: ReplayDayStatuses.RateLimited),
+        };
+
+        Assert.Equal(0, Compute(emotes, rows, withThrottledLine).Run.RateLimitedDays);
+        Assert.Null(Compute(emotes, rows, withThrottledLine).Run.ResumePoint);
     }
 
     [Fact]
@@ -629,7 +653,10 @@ public class ReplayFidelityCalculatorTests
         IReadOnlyList<ReplayDayLine> days,
         DateOnly? cutover = null,
         int windowDays = 30,
-        bool runComplete = true)
+        bool runComplete = true,
+        int rateLimitedDays = 0,
+        DateOnly? resumePoint = null)
         => ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, cutover ?? From), emotes, rows, days, windowDays, runComplete);
+            new ReplayWindow(From, To, cutover ?? From), emotes, rows, days, windowDays, runComplete,
+            rateLimitedDays, resumePoint);
 }

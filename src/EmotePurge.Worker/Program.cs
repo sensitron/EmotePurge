@@ -18,9 +18,17 @@ switch (HarnessCommandLine.Parse(args))
     case HarnessCommandLineResult.RunHarness harness:
         return await RunHarnessAsync(harness);
 
-    default:
+    case HarnessCommandLineResult.RunWorker:
         await RunWorkerAsync();
         return 0;
+
+    default:
+        // Unreachable today: the result hierarchy is closed and has exactly three cases. It stays a
+        // refusal rather than a fall-through to the worker, because this is the one switch whose
+        // failure mode is named "fail open" — a fourth case added later must stop here, not boot IRC.
+        await Console.Error.WriteLineAsync(
+            "Unerwartetes Ergebnis der Argumentprüfung; der Worker wird nicht gestartet.");
+        return 2;
 }
 
 async Task RunWorkerAsync()

@@ -69,7 +69,14 @@ public static class ReplayDayStatuses
     /// <summary>The archive has no log for that day (the normal 404 case).</summary>
     public const string NoLog = "NoLog";
 
-    /// <summary>The archive answered 429; the run stops there and keeps a resume point.</summary>
+    /// <summary>
+    /// The archive answered 429. Vocabulary only: the harness deliberately never writes a day line
+    /// with this status, because a day line means "finished" and the resume would then skip that day
+    /// forever. It writes an event line instead, and the run-level count reaches the report through
+    /// <see cref="ReplayFidelityCalculator.Compute"/>'s <c>rateLimitedDays</c> parameter. Should such
+    /// a line ever appear anyway, the calculator treats it like every other non-Complete status: the
+    /// day has no usable log.
+    /// </summary>
     public const string RateLimited = "RateLimited";
 }
 
@@ -233,6 +240,17 @@ public sealed record ReplayDiagnostics(
     ValueList<ReplayDayRatio> CoverageQuestionableDays);
 
 /// <summary>How the run itself went — the part of the report that is about the fetch, not the numbers.</summary>
+/// <param name="RateLimitedDays">
+/// How many channel-day requests the archive throttled with a 429, across every run that wrote into
+/// this report file. Supplied by the caller rather than counted from <paramref name="DayLineCount"/>'s
+/// lines: a throttled day produces no day line at all (see
+/// <see cref="ReplayDayStatuses.RateLimited"/>), so deriving it here would report 0 forever.
+/// </param>
+/// <param name="ResumePoint">
+/// The last archive day that has a line. Also supplied by the caller. On a complete run — the only
+/// kind that currently produces a final report — this equals <paramref name="WindowTo"/> and is a
+/// statement of where the run ended, not an instruction to continue anywhere.
+/// </param>
 public sealed record ReplayRunInfo(
     DateOnly WindowFrom,
     DateOnly WindowTo,
@@ -245,8 +263,9 @@ public sealed record ReplayRunInfo(
     bool RunComplete);
 
 /// <summary>
-/// The final report, reproducible from the day lines alone: two runs of
-/// <see cref="ReplayFidelityCalculator.Compute"/> over the same arguments are <c>Equals</c>.
+/// The final report: two runs of <see cref="ReplayFidelityCalculator.Compute"/> over the same
+/// arguments are <c>Equals</c>. Every measured number comes from the day lines; only the two
+/// run-level counters on <see cref="ReplayRunInfo"/> that no day line can carry are passed in.
 /// </summary>
 public sealed record ReplayFinalReport(
     ReplayRunInfo Run,

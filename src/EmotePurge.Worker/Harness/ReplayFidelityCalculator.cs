@@ -30,13 +30,25 @@ public static class ReplayFidelityCalculator
     /// <param name="days">One line per archive day the run produced.</param>
     /// <param name="windowDays">The window length the run was started with (30 for a binding run).</param>
     /// <param name="runComplete">Whether the run covered the whole window; an aborted run never binds.</param>
+    /// <param name="rateLimitedDays">
+    /// How many channel-day requests the archive answered with a 429, over every run that wrote into
+    /// this report file. A caller-supplied number on purpose: a throttled day never becomes a day
+    /// line (that would mark it finished and make the resume skip it), so counting it out of
+    /// <paramref name="days"/> would report 0 in every report ever written.
+    /// </param>
+    /// <param name="resumePoint">
+    /// The last archive day that has a line — likewise the caller's to know, and equal to the
+    /// window's end for a complete run.
+    /// </param>
     public static ReplayFinalReport Compute(
         ReplayWindow window,
         IReadOnlyList<ReplayEmote> emotes,
         IReadOnlyList<ReplayUsageRow> liveRows,
         IReadOnlyList<ReplayDayLine> days,
         int windowDays,
-        bool runComplete)
+        bool runComplete,
+        int rateLimitedDays,
+        DateOnly? resumePoint)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(emotes);
@@ -64,8 +76,8 @@ public static class ReplayFidelityCalculator
             windowDays,
             days.Count,
             days.Sum(d => d.Bytes),
-            days.Count(d => d.Status == ReplayDayStatuses.RateLimited),
-            days.Count == 0 ? null : days.Max(d => d.Day),
+            rateLimitedDays,
+            resumePoint,
             runComplete);
 
         return new ReplayFinalReport(run, gate, plausibility, diagnostics);

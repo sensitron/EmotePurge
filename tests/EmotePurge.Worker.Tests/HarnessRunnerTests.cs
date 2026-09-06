@@ -162,8 +162,13 @@ public class HarnessRunnerTests : IDisposable
 
         var reportPath = Assert.Single(Directory.GetFiles(_directory, "*.report.json"));
         var afterSecondRun = File.ReadAllBytes(reportPath);
-        // The 429 of the first run survives in the file and reaches the readable report.
-        Assert.Contains("429", File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md"))));
+
+        // The 429 of the first run survives in the file and reaches both reports as a *number*.
+        // Asserting on the string "429" alone would also match the label of the markdown row and
+        // pass with zero throttled requests.
+        Assert.Contains("\"rateLimitedDays\": 1", File.ReadAllText(reportPath));
+        Assert.Contains("\"resumePoint\": \"2026-09-04\"", File.ReadAllText(reportPath));
+        Assert.Contains("| HTTP 429 | 1 |", File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md"))));
 
         // Third run: everything is on disk, nothing is fetched, and the machine-readable report is
         // byte-identical — that is the "closing step is repeatable" promise of the failure-mode table.
@@ -294,12 +299,11 @@ public class HarnessRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task TheArchiveClient_IsUsedAsASingleInstanceForTheWholeDayLoop()
+    public async Task EveryDayOfTheWindow_IsFetchedExactlyOnce()
     {
-        // The pacing between two requests is instance state on the client (T3 review finding);
-        // a runner that resolved a fresh one per day would silently hammer a free third-party
-        // service. The runner takes it once through the constructor, so this is a structural
-        // assertion: one instance, every day.
+        // Not a claim about the client instance — the runner takes that once through its constructor,
+        // which is structural and needs no test. This is about the loop: three days, three requests,
+        // no day asked for twice.
         RespondWith(async (day, onMessage) =>
         {
             await onMessage(Message(day, "chatter-1", "PogChamp"));
@@ -309,6 +313,103 @@ public class HarnessRunnerTests : IDisposable
         await Run(3);
 
         Assert.Equal(3, _archive.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IChatLogArchiveClient.ReadDayAsync)));
+        foreach (var day in new[] { Day1, Day2, Day3 })
+        {
+            await _archive.Received(1).ReadDayAsync(
+                TwitchChannelId, day, Arg.Any<long>(), Arg.Any<Func<ChatLogMessage, ValueTask>>(), Arg.Any<CancellationToken>());
+        }
+    }
+
+    [Fact]
+    public async Task AChangedDataSnapshot_StartsANewFileInsteadOfContinuingTheOldOne()
+    {
+        // The Codex-adversarial finding the input hash exists for: the live worker keeps writing
+        // while the harness runs, and a resume against a different snapshot would mix day counts
+        // taken against two different databases.
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(0, await Run(3));
+        var firstFile = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+
+        // One live usage row changes; everything else stays.
+        _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<UsageStatRowDto>>([new("e1", Day1, 99, 0), new("e1", Day2, 1, 0), new("e1", Day3, 1, 0)]);
+        _archive.ClearReceivedCalls();
+
+        Assert.Equal(0, await Run(3));
+
+        var files = Directory.GetFiles(_directory, "*.jsonl");
+        Assert.Equal(2, files.Length);
+        Assert.Contains(firstFile, files);
+        // And the new run really fetched all three days again rather than inheriting them.
+        Assert.Equal(3, _archive.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IChatLogArchiveClient.ReadDayAsync)));
+    }
+
+    [Fact]
+    public async Task ADamagedReportFile_EndsAsAViolatedPreconditionRatherThanAStackTrace()
+    {
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day3)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.RateLimited, 0, null, 0, 0, 0, 429);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(4, await Run(3));
+
+        // A damaged line in the *middle* — not a truncated last line, which is a dropped unfinished
+        // day and stays legal.
+        var path = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+        var lines = File.ReadAllLines(path).ToList();
+        lines.Insert(2, "{\"kind\":\"day\",\"day\":{\"day\":\"2026-0");
+        File.WriteAllLines(path, lines);
+
+        Assert.Equal(3, await Run(3));
+    }
+
+    [Fact]
+    public async Task AConfiguredWindowOutsideTheAllowedRange_Aborts()
+    {
+        // --days is clamped by the parser; Harness:WindowDays reaches the runner unchecked, and
+        // Harness__WindowDays=500 in a compose file would otherwise buy a 500-day run.
+        Assert.Equal(3, await Run(500));
+        Assert.Equal(3, await Run(0));
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _archive.DidNotReceiveWithAnyArgs().ReadDayAsync(default!, default, default, default!, default);
+    }
+
+    [Fact]
+    public async Task AFailingCountingCallback_EndsWithItsOwnExitCodeAndKeepsTheFinishedDays()
+    {
+        // Exceptions out of onMessage propagate by the archive client's contract (T3). They are our
+        // bug, not the archive's, so they must not be dressed up as "aborted, just run it again" —
+        // but they must not reach the operator as a stack trace either.
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day2)
+            {
+                await onMessage(new ChatLogMessage(
+                    day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), "chatter-1", null!, TwitchChannelId, null, "PogChamp"));
+            }
+            else
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp"));
+            }
+
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(6, await Run(3));
+
+        var lines = File.ReadAllLines(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
+        Assert.Equal(1, lines.Count(l => l.Contains("\"kind\":\"day\"")));
+        Assert.Empty(Directory.GetFiles(_directory, "*.report.json"));
     }
 
     private Task<int> Run(int days, CancellationToken ct = default, int maxMegabytes = 200)

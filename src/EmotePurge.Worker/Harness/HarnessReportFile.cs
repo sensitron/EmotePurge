@@ -41,11 +41,24 @@ public sealed record HarnessEventLine(DateTime AtUtc, DateOnly Day, string Statu
 public sealed record HarnessReportContent(IReadOnlyList<ReplayDayLine> Days, IReadOnlyList<HarnessEventLine> Events);
 
 /// <summary>
+/// A report file that cannot be continued. One base type for the two ways that happens, so the
+/// runner answers both the same way: a German line and exit code 3, never a stack trace.
+/// </summary>
+public class HarnessReportFileException(string message) : Exception(message);
+
+/// <summary>
 /// Thrown when a report file's head describes a different run than the one about to continue it.
 /// Reachable only by renaming a file by hand — the file name carries the identity digest — which is
 /// exactly why the head is compared anyway.
 /// </summary>
-public sealed class HarnessReportIdentityMismatchException(string message) : Exception(message);
+public sealed class HarnessReportIdentityMismatchException(string message) : HarnessReportFileException(message);
+
+/// <summary>
+/// Thrown for a damaged line anywhere but at the very end of the file. The last line is a different
+/// case and never lands here: a process that died mid-write leaves an unfinished day, which the
+/// reader simply drops.
+/// </summary>
+public sealed class HarnessReportCorruptException(string message) : HarnessReportFileException(message);
 
 /// <summary>
 /// The JSONL protocol of one harness run: one header line, one line per finished archive day, one
@@ -201,14 +214,24 @@ public sealed class HarnessReportFile
                 continue;
             }
 
-            HarnessJsonLine? line = null;
+            HarnessJsonLine? line;
             try
             {
                 line = JsonSerializer.Deserialize<HarnessJsonLine>(raw, LineOptions);
             }
-            catch (JsonException) when (i == lines.Length - 1)
+            catch (JsonException ex)
             {
-                break;
+                // The last line is the crash case: a process killed mid-write leaves an unfinished
+                // day, which is dropped because that day never happened. Anywhere else the same
+                // damage is a hole in the middle of the window, and continuing would let the final
+                // report present an incomplete run as a complete one.
+                if (i == lines.Length - 1)
+                {
+                    break;
+                }
+
+                throw new HarnessReportCorruptException(
+                    $"Zeile {i + 1} der Berichtsdatei '{Path}' ist unlesbar; die Datei ist beschädigt: {ex.Message}");
             }
 
             switch (line?.Kind)
@@ -227,7 +250,7 @@ public sealed class HarnessReportFile
                         break;
                     }
 
-                    throw new InvalidOperationException(
+                    throw new HarnessReportCorruptException(
                         $"Zeile {i + 1} der Berichtsdatei '{Path}' ist unlesbar; die Datei ist beschädigt.");
             }
         }

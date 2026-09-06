@@ -95,6 +95,21 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void ADamagedLineInTheMiddle_IsRefusedRatherThanSilentlySkipped()
+    {
+        // Unlike a truncated last line, this is not an unfinished day — skipping it would leave a
+        // gap that the final report would then present as a complete window.
+        var identity = Identity();
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+        file.AppendDay(Day(new DateOnly(2026, 9, 2)));
+        File.AppendAllText(file.Path, "{\"kind\":\"day\",\"day\":{\"day\":\"2026-09-\n");
+        file.AppendDay(Day(new DateOnly(2026, 9, 4)));
+
+        Assert.Throws<HarnessReportCorruptException>(() => file.ReadDays());
+    }
+
+    [Fact]
     public void EventLines_AreReadBackNextToTheDayLines()
     {
         var identity = Identity();
@@ -120,7 +135,8 @@ public class HarnessReportFileTests : IDisposable
         file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(identity.WindowFrom, identity.WindowTo, null), [], [], [], 3, runComplete: true);
+            new ReplayWindow(identity.WindowFrom, identity.WindowTo, null), [], [], [], 3,
+            runComplete: true, rateLimitedDays: 0, resumePoint: null);
         file.WriteFinalReportAtomically(report, "# Bericht\n");
 
         Assert.True(File.Exists(file.ReportJsonPath));

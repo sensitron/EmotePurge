@@ -59,11 +59,59 @@ public sealed class HarnessRunner(
     /// <summary>The logs carry neither badges nor user ids, so the bot split cannot be made.</summary>
     public const int ExitUndecidable = 5;
 
+    /// <summary>
+    /// Something inside the harness itself failed — most plausibly the counting callback, whose
+    /// exceptions the archive client propagates to us by contract (T3). Deliberately not folded into
+    /// <see cref="ExitAbortedWithResumePoint"/>: that code invites "just run it again", and a defect
+    /// in our own counting would meet the operator with the same failure a second time. The full
+    /// exception is logged; the file on disk stays valid and resumable.
+    /// </summary>
+    public const int ExitUnexpectedError = 6;
+
     private const int BytesPerMegabyte = 1024 * 1024;
 
+    /// <summary>
+    /// Runs once and returns the process exit code. Nothing escapes as an exception: the operator of
+    /// a one-shot container gets a German line and a defined code, never a stack trace with an
+    /// exit status invented by the runtime.
+    /// </summary>
     public async Task<int> RunAsync(string channelName, int days, CancellationToken ct)
     {
+        try
+        {
+            return await ExecuteAsync(channelName, days, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled outside the day loop — during a query, say. The loop has its own handler that
+            // still gets an event line written; here there is no day in flight to record.
+            logger.LogError("Der Harness-Lauf für Kanal '{Kanal}' wurde abgebrochen.", channelName);
+            return ExitAbortedWithResumePoint;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Der Harness-Lauf für Kanal '{Kanal}' ist mit einem unerwarteten Fehler abgebrochen. Bereits geschriebene Tageszeilen bleiben gültig; ein erneuter Aufruf setzt dort fort.",
+                channelName);
+            return ExitUnexpectedError;
+        }
+    }
+
+    private async Task<int> ExecuteAsync(string channelName, int days, CancellationToken ct)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
+
+        // Both sources of this number end up here: the command line, which HarnessCommandLine has
+        // already clamped, and Harness:WindowDays, which nothing else checks — an environment
+        // variable in the compose file would otherwise buy a 500-day run past the same limit.
+        if (days < HarnessCommandLine.MinDays || days > HarnessCommandLine.MaxDays)
+        {
+            logger.LogError(
+                "Die Fensterlänge {Tage} liegt außerhalb der erlaubten {Min} bis {Max} Tage; per '--days' oder über 'Harness:WindowDays' korrigieren.",
+                days, HarnessCommandLine.MinDays, HarnessCommandLine.MaxDays);
+            return ExitPreconditionViolated;
+        }
 
         var stopwatch = Stopwatch.StartNew();
         var startedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
@@ -127,14 +175,18 @@ public sealed class HarnessRunner(
             try
             {
                 file.ReadHeader(identity);
+                existing = file.ReadDays();
             }
-            catch (HarnessReportIdentityMismatchException ex)
+            catch (HarnessReportFileException ex)
             {
-                logger.LogError(ex, "Die vorhandene Berichtsdatei '{Datei}' gehört zu einem anderen Lauf.", file.Path);
+                // A foreign identity or a damaged line in the middle of the file. Both mean the same
+                // thing — this file cannot be continued — and both end the same way: a German line
+                // and exit code 3, never a stack trace. (A truncated *last* line is not damage; the
+                // reader drops it, because that day was never finished.)
+                logger.LogError(ex, "Die vorhandene Berichtsdatei '{Datei}' kann nicht fortgesetzt werden.", file.Path);
                 return ExitPreconditionViolated;
             }
 
-            existing = file.ReadDays();
             resumed = true;
         }
         else
@@ -275,16 +327,20 @@ public sealed class HarnessRunner(
             return ExitPreconditionViolated;
         }
 
-        var report = ReplayFidelityCalculator.Compute(window, emotes, liveRows, allDays, days, runComplete: true);
-
-        // The 429 count comes from the event lines, not from the day lines, and that is why
-        // ReplayRunInfo.RateLimitedDays in the .report.json is always 0: a throttled day gets no day
+        // The 429 count lives in the event lines, never in the day lines: a throttled day gets no day
         // line at all, because a day line means "finished" and would make the resume skip the day
-        // forever. Do not "fix" that by writing a RateLimited day line — the readable report below
-        // is where the number belongs, carried across runs by the file itself.
-        var rateLimitedRequests = existing.Events.Count(e => e.HttpStatusCode == 429);
+        // forever. That is why both this number and the resume point are handed to the calculator
+        // instead of derived from the day lines — derived, they would read 0 and "window end" in
+        // every report ever written.
+        var rateLimitedDays = existing.Events.Count(e => e.HttpStatusCode == 429);
+        var resumePoint = allDays.Count == 0 ? (DateOnly?)null : allDays[^1].Day;
+
+        var report = ReplayFidelityCalculator.Compute(
+            window, emotes, liveRows, allDays, days, runComplete: true, rateLimitedDays, resumePoint);
+
         file.WriteFinalReportAtomically(report, BuildMarkdown(
-            identity, report, allDays, liveRows, loadedAtUtc, stopwatch.Elapsed, bytesUsed, rateLimitedRequests, distinctChatters?.Count));
+            identity, report, allDays, liveRows, loadedAtUtc, timeProvider.GetUtcNow().UtcDateTime,
+            stopwatch.Elapsed, bytesUsed, rateLimitedDays, distinctChatters?.Count));
 
         logger.LogInformation(
             "Harness-Lauf für Kanal '{Kanal}' abgeschlossen: {Tage} Tage, {Bytes} Bytes, Bericht in '{Datei}'.",
@@ -322,9 +378,10 @@ public sealed class HarnessRunner(
         IReadOnlyList<ReplayDayLine> days,
         IReadOnlyList<ReplayUsageRow> liveRows,
         DateTime loadedAtUtc,
+        DateTime generatedAtUtc,
         TimeSpan elapsed,
         long bytes,
-        int rateLimitedRequests,
+        int rateLimitedDays,
         int? distinctChatters)
     {
         var gate = report.Gate;
@@ -348,10 +405,10 @@ public sealed class HarnessRunner(
         Row(text, "Tage mit Log / ohne Log", Invariant($"{diagnostics.LogDays} / {diagnostics.NoLogDays}"));
         Row(text, "Bot-IDs", identity.BotAccountIds.Count == 0 ? "keine" : string.Join(", ", identity.BotAccountIds.Select(id => "`" + id + "`")));
         Row(text, "Ladezeitpunkt der Vergleichsdaten (UTC)", Invariant($"{loadedAtUtc:yyyy-MM-dd HH:mm:ss}"));
-        Row(text, "Bericht erzeugt (UTC)", Invariant($"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}"));
+        Row(text, "Bericht erzeugt (UTC)", Invariant($"{generatedAtUtc:yyyy-MM-dd HH:mm:ss}"));
         Row(text, "Laufzeit dieses Laufs", Invariant($"{elapsed:hh\\:mm\\:ss}"));
         Row(text, "Übertragene Bytes (alle Läufe dieser Datei)", Invariant($"{bytes}"));
-        Row(text, "HTTP 429", Invariant($"{rateLimitedRequests}"));
+        Row(text, "HTTP 429", Invariant($"{rateLimitedDays}"));
         Row(text, "Distinkte Chatter im Fenster", distinctChatters is { } count
             ? Invariant($"{count}")
             : "nicht verfügbar (wiederaufgenommen)");
