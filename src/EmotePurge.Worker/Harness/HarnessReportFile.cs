@@ -119,6 +119,14 @@ public sealed class HarnessReportFile
     public bool Exists => File.Exists(Path);
 
     /// <summary>
+    /// Whether this run reached its end. <see cref="WriteFinalReportAtomically"/> is the only thing
+    /// that ever writes <see cref="ReportJsonPath"/>, and only after every day of the window is on
+    /// disk — so the file's presence is the closing signal, and a run that stopped at a resume point
+    /// never has one.
+    /// </summary>
+    public bool IsClosed => File.Exists(ReportJsonPath);
+
+    /// <summary>
     /// The file name a run of this identity has to use. The digest at the end is what makes
     /// "same head ⇒ resume, different head ⇒ new file" a property of the file system rather than of
     /// a comparison someone has to remember to do (Plan-Entscheidung 8).
@@ -194,6 +202,32 @@ public sealed class HarnessReportFile
         }
 
         return line.Header;
+    }
+
+    /// <summary>
+    /// Line 1 as it stands, compared to nothing, or <c>null</c> if this file carries no readable
+    /// head. The counterpart to <see cref="ReadHeader"/> for the one caller that cannot name the
+    /// file it is looking for: the frozen window is part of the file name, so a resume has to read
+    /// heads to find it. Unreadable is not an error here — a foreign or damaged file in the output
+    /// directory simply is not a resume candidate.
+    /// </summary>
+    public HarnessReportHeader? TryReadHeader()
+    {
+        try
+        {
+            var firstLine = File.ReadLines(Path).FirstOrDefault();
+            if (firstLine is null)
+            {
+                return null;
+            }
+
+            var line = JsonSerializer.Deserialize<HarnessJsonLine>(firstLine, LineOptions);
+            return line?.Kind == HeaderKind ? line.Header : null;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

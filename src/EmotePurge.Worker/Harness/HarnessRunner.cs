@@ -91,6 +91,18 @@ public sealed class HarnessRunner(
     private const int BytesPerMegabyte = 1024 * 1024;
 
     /// <summary>
+    /// How far behind today an unfinished run's frozen window may end and still be continued.
+    /// <para>
+    /// Crossing a UTC midnight is the normal case, not the exception: 30 days of a large channel are
+    /// ~490 MB against a 200 MB cap, so the binding run has to be invoked several times. Weeks later
+    /// it is a different question — the report would be dated today and answer for a window nobody
+    /// asked about any more. Past this age the abandoned file is left where it is (it stays readable
+    /// evidence of the requests it made) and a fresh measurement starts, with a log line saying so.
+    /// </para>
+    /// </summary>
+    private const int MaxResumeAgeInDays = 7;
+
+    /// <summary>
     /// Runs once and returns the process exit code. Nothing escapes as an exception: the operator of
     /// a one-shot container gets a German line and a defined code, never a stack trace with an
     /// exit status invented by the runtime.
@@ -154,19 +166,28 @@ public sealed class HarnessRunner(
             return ExitPreconditionViolated;
         }
 
-        // The window ends on the last fully finished UTC day (Codex-adversarial: today is still
+        // A fresh window ends on the last fully finished UTC day (Codex-adversarial: today is still
         // being written by the live worker), and starts one day after tracking resumed, because the
-        // join day itself is only partially measured.
-        var to = DateOnly.FromDateTime(startedAtUtc).AddDays(-1);
+        // join day itself is only partially measured. A run that is being continued does not derive
+        // one at all — it inherits the frozen window of the file it continues (see FindFrozenWindow).
+        var freshTo = DateOnly.FromDateTime(startedAtUtc).AddDays(-1);
         var trackedSince = TrackingCoverage.TrackedSince(channel.TrackingResumedAt, channel.CreatedAt);
         var firstFullyTrackedDay = DateOnly.FromDateTime(trackedSince).AddDays(1);
-        var from = Later(firstFullyTrackedDay, to.AddDays(-(days - 1)));
+
+        var frozen = FindFrozenWindow(channel.Id, channel.ChannelName, days, freshTo);
+        var to = frozen?.To ?? freshTo;
+        var from = frozen?.From ?? Later(firstFullyTrackedDay, to.AddDays(-(days - 1)));
+
+        // Two different failures, one message. A fresh window is short when tracking started too
+        // late; an inherited one is short when tracking *restarted* into the window after it was
+        // frozen — a channel that left and rejoined. Both mean the same thing to the operator.
         var availableDays = to.DayNumber - from.DayNumber + 1;
-        if (availableDays != days)
+        var measuredDays = to.DayNumber - firstFullyTrackedDay.DayNumber + 1;
+        if (availableDays != days || measuredDays < days)
         {
             logger.LogError(
                 "Kanal '{Kanal}' hat ab dem ersten vollständig gemessenen Tag ({Start}) nur {Vorhanden} Tage Messung bis {Ende}; verlangt sind {Verlangt}.",
-                channel.ChannelName, Iso(firstFullyTrackedDay), Math.Max(availableDays, 0), Iso(to), days);
+                channel.ChannelName, Iso(firstFullyTrackedDay), Math.Max(measuredDays, 0), Iso(to), days);
             return ExitPreconditionViolated;
         }
 
@@ -290,6 +311,10 @@ public sealed class HarnessRunner(
             {
                 // docker stop / Ctrl-C. Everything up to the previous day is on disk already, so
                 // this is an ordinary resume point rather than a loss.
+                // This day's bytes are booked as 0 even though a cancellation mid-body did pull real
+                // ones. Not a judgement that they are free: the archive client lets a caller
+                // cancellation propagate bare (ChatLogArchiveClient class doc), so the count dies with
+                // the stream and this caller cannot learn it. Followed up in #82.
                 AppendAbort(file, day, "Cancelled", null, "Lauf abgebrochen.");
                 LogResumePoint(dayLines, "abgebrochen", day);
                 return ExitAbortedWithResumePoint;
@@ -373,6 +398,97 @@ public sealed class HarnessRunner(
             "Harness-Lauf für Kanal '{Kanal}' abgeschlossen: {Tage} Tage, {Bytes} Bytes, Bericht in '{Datei}'.",
             channel.ChannelName, allDays.Count, bytesUsed, file.ReportMarkdownPath);
         return ExitSuccess;
+    }
+
+    /// <summary>
+    /// The frozen window this invocation should continue, or <c>null</c> if there is nothing to
+    /// continue and a fresh window is to be derived.
+    /// <para>
+    /// The window is part of the report file's name, so the file cannot be addressed directly — the
+    /// heads in the output directory are read instead. Only the window comes from the head; the
+    /// identity is rebuilt around it (including the window-dependent <c>UsageStat</c> rows and the
+    /// input hash) and still compared byte for byte by <see cref="HarnessReportFile.ReadHeader"/>, so
+    /// a changed data snapshot starts a new file exactly as before.
+    /// </para>
+    /// <para>
+    /// A candidate must be the same channel, the same <see cref="AlgorithmVersion"/> and the same
+    /// window length — the last is how a different <c>--days</c> is noticed, since the length is the
+    /// window and needs no field of its own. Several candidates are the normal state of the output
+    /// directory, not an error: every changed snapshot leaves its predecessor unfinished forever, so
+    /// refusing to choose would break the ordinary case. The newest window wins — it is the one a
+    /// fresh derivation comes closest to and the one whose live comparison data is least stale.
+    /// </para>
+    /// </summary>
+    private (DateOnly From, DateOnly To)? FindFrozenWindow(
+        string channelId, string channelName, int days, DateOnly freshTo)
+    {
+        if (!Directory.Exists(options.OutputDirectory))
+        {
+            return null;
+        }
+
+        (HarnessRunIdentity Identity, DateTime LoadedAtUtc, string Path)? best = null;
+        DateOnly? newestTooOld = null;
+
+        foreach (var path in Directory.EnumerateFiles(options.OutputDirectory, "*.jsonl").Order(StringComparer.Ordinal))
+        {
+            var candidate = new HarnessReportFile(path);
+            if (candidate.IsClosed)
+            {
+                continue;
+            }
+
+            // The channel name is not part of the match: a rename (#34/#44) keeps the id and must
+            // not orphan the window, even though it does start a new file via the identity.
+            var header = candidate.TryReadHeader();
+            if (header is null
+                || !string.Equals(header.Identity.ChannelId, channelId, StringComparison.Ordinal)
+                || !string.Equals(header.Identity.AlgorithmVersion, AlgorithmVersion, StringComparison.Ordinal)
+                || header.Identity.WindowTo.DayNumber - header.Identity.WindowFrom.DayNumber + 1 != days)
+            {
+                continue;
+            }
+
+            var age = freshTo.DayNumber - header.Identity.WindowTo.DayNumber;
+            if (age < 0)
+            {
+                // A window ending after the last complete UTC day cannot have been frozen by this
+                // machine's clock; whatever produced it, it is not this run.
+                continue;
+            }
+
+            if (age > MaxResumeAgeInDays)
+            {
+                newestTooOld = newestTooOld is { } known && known > header.Identity.WindowTo
+                    ? known
+                    : header.Identity.WindowTo;
+                continue;
+            }
+
+            if (best is null
+                || header.Identity.WindowTo > best.Value.Identity.WindowTo
+                || (header.Identity.WindowTo == best.Value.Identity.WindowTo && header.LoadedAtUtc > best.Value.LoadedAtUtc))
+            {
+                best = (header.Identity, header.LoadedAtUtc, path);
+            }
+        }
+
+        if (best is null)
+        {
+            if (newestTooOld is { } abandoned)
+            {
+                logger.LogWarning(
+                    "Der jüngste unabgeschlossene Lauf für Kanal '{Kanal}' endet am {Ende} und ist damit älter als {Grenze} Tage; er wird nicht fortgesetzt, dieser Aufruf beginnt eine neue Messung.",
+                    channelName, Iso(abandoned), MaxResumeAgeInDays);
+            }
+
+            return null;
+        }
+
+        logger.LogInformation(
+            "Übernehme das eingefrorene Fenster {Von} bis {Bis} aus dem unabgeschlossenen Lauf '{Datei}'; ob dieser Aufruf ihn tatsächlich fortsetzt, entscheidet erst der anschließende Identitätsabgleich.",
+            Iso(best.Value.Identity.WindowFrom), Iso(best.Value.Identity.WindowTo), best.Value.Path);
+        return (best.Value.Identity.WindowFrom, best.Value.Identity.WindowTo);
     }
 
     private void AppendAbort(

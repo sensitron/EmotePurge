@@ -199,6 +199,46 @@ einer langschwänzigen Verteilung (viele Emotes mit gleichem, niedrigem Wert) ka
 `BottomQuartilePrecision` sonst überwiegend Gleichstandsrauschen aus dem ordinalen
 GUID-Tie-Break sein, statt eine gemessene Rangabweichung.
 
+**Nachtrag (selbes Thema) — das eingefrorene Fenster war gar nicht eingefroren.** Die Zusage oben,
+Start und Ende der Berichtsdatei seien „beim ersten Lauf fixiert", stimmte nicht: `HarnessRunner`
+leitete beides bei **jedem** Prozessstart neu aus der Uhr ab (`to` = gestern). Beide Daten stecken im
+Dateinamen *und* im Identitäts-Digest, und mit dem Fenster verschieben sich zusätzlich die geladenen
+`UsageStat`-Zeilen und damit der Input-Hash — ein Folgeaufruf an einem späteren UTC-Tag erzeugte also
+eine andere Identität und eine andere Datei, ignorierte die bereits erledigten Tage und die schon
+gebuchten Byte-Events und vergab die Decke frisch. Das ist dieselbe Fehlerklasse wie beim wandernden
+`LastSyncedAt` (Nachtrag Task 8a), nur mit der Uhr als Quelle der Wanderung, und sie trifft den
+bindenden Lauf **im Normalfall**: 30 Tage eines großen Kanals sind rund 490 MB gegen eine Decke von
+200 MB, der Lauf muss also mehrfach aufgerufen werden und überschreitet dabei mit hoher
+Wahrscheinlichkeit eine Mitternacht. Der Task-6-Brief hatte „bezogen auf den Prozessstart"
+vorgeschrieben; diese Spannung zur Resume-Zusage hat beim Bau niemand aufgelöst.
+
+**Jetzt gilt:** ein Aufruf sucht vor allen fensterabhängigen Abfragen im Berichtsverzeichnis nach
+einem **unabgeschlossenen** Lauf desselben Kanals und übernimmt dessen Fenster, statt ein neues
+abzuleiten. Weil der Fensterzeitraum selbst Teil des Dateinamens ist, ist die Datei über ihren Namen
+nicht auffindbar — gelesen werden deshalb die Köpfe (`HarnessReportFile.TryReadHeader`, wertet nicht,
+sondern liefert `null` für alles Unlesbare). Übernommen wird **nur** das Fenster; die Identität wird
+damit neu berechnet und wie bisher byte-gleich gegen den Kopf geprüft, ein geänderter Datenstand
+beginnt also unverändert eine neue Datei. Vier Grenzfälle sind bewusst entschieden: *abgeschlossen*
+erkennt `HarnessReportFile.IsClosed` an der Existenz der `.report.json` — sie schreibt allein
+`WriteFinalReportAtomically`, und die läuft erst, wenn das ganze Fenster auf Platte liegt; *mehrere
+Kandidaten* sind der Normalzustand des Verzeichnisses (jeder geänderte Datenstand lässt seinen
+Vorgänger für immer unabgeschlossen liegen) und deshalb kein Fehler, sondern eine Wahl — es gewinnt
+das jüngste Fenster, dem eine frische Ableitung am nächsten käme; ein *anderes `--days`* passt nicht
+mehr auf die Fensterlänge des Kopfes und beginnt eine neue Datei, ohne dass `days` ein eigenes Feld
+bräuchte (die Länge *ist* das Fenster); und ein *sehr alter* Lauf wird ab
+`MaxResumeAgeInDays = 7` nicht mehr fortgesetzt, sondern per Warnung im Log liegen gelassen — ein
+Bericht, der heute datiert ist, soll nicht für ein Fenster antworten, nach dem niemand mehr gefragt
+hat. Bewusst **nicht** gebaut: Lockfile, Index, zusätzliches Kommandozeilenargument, Konfigurationsoption.
+
+**Was es gekostet hat:** drei Tests in `HarnessRunnerTests` (Wiederaufnahme über eine UTC-Mitternacht,
+die Altersgrenze, die abweichende Fensterlänge) und eine veränderbare `FakeClock` — die alte gab
+konstant dieselbe Zeit zurück und konnte den Fall grundsätzlich nicht sehen. Ebenfalls in diesem
+Zug, ohne Codeänderung: der `catch (OperationCanceledException)` der Tagesschleife hält jetzt fest,
+**warum** er 0 Bytes bucht, obwohl bei einem Abbruch mitten im Body echte geflossen sind — der
+Archiv-Client lässt eine Caller-Cancellation nackt durchfliegen, der bis dahin gezählte Wert stirbt
+mit dem Stream, der Aufrufer kann ihn also nicht erfahren. Das ist eine Grenze des Client-Vertrags,
+keine Aussage in der Sache, und hat ein eigenes Folge-Issue.
+
 ---
 
 ### 2026-09-05 — Eine Matching-Regel für Live-Pfad, Match-Cache und Harness

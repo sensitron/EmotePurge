@@ -28,6 +28,10 @@ public class HarnessRunnerTests : IDisposable
     private readonly string _directory =
         Path.Combine(Path.GetTempPath(), "emotepurge-harness-run-" + Guid.NewGuid().ToString("N"));
 
+    // One clock for the whole test, not one per Run(...) call: the resume tests need to move the
+    // process start between two invocations of the same file.
+    private readonly FakeClock _clock = new(Now);
+
     private readonly IChannelService _channels = Substitute.For<IChannelService>();
     private readonly IUsageStatQueryService _usage = Substitute.For<IUsageStatQueryService>();
     private readonly IChatLogArchiveClient _archive = Substitute.For<IChatLogArchiveClient>();
@@ -489,6 +493,121 @@ public class HarnessRunnerTests : IDisposable
         Assert.Empty(Directory.GetFiles(_directory, "*.report.json"));
     }
 
+    [Fact]
+    public async Task ARunContinuedOnTheNextUtcDay_KeepsItsFrozenWindowAndItsFile()
+    {
+        // The window is derived from the process start, so before this test every invocation on a
+        // new UTC day produced a new window, a new identity and therefore a new file — the finished
+        // days and the bytes already spent were silently abandoned. That is not an exotic case: 30
+        // days of a large channel are ~490 MB against a 200 MB cap, so the binding run *has* to be
+        // invoked several times and will cross a midnight.
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day3)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.RateLimited, 900_000, null, 0, 0, 0, 429);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1, bytes: 10_000);
+        });
+
+        Assert.Equal(4, await Run(3, maxMegabytes: 1));
+        var firstFile = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+
+        // Next day, same command line.
+        _clock.Now = Now.AddDays(1);
+        _archive.ClearReceivedCalls();
+        var offeredOnResume = new List<long>();
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1, bytes: 10_000);
+        }, offeredOnResume);
+
+        Assert.Equal(0, await Run(3, maxMegabytes: 1));
+
+        // Same file, and the window did not slide to 2026-09-03..2026-09-05.
+        Assert.Equal(firstFile, Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"windowFrom\": \"2026-09-02\"", json);
+        Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
+
+        // Only the throttled day is fetched again; the two finished ones are not.
+        Assert.Equal(1, _archive.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IChatLogArchiveClient.ReadDayAsync)));
+        await _archive.Received(1).ReadDayAsync(
+            TwitchChannelId, Day3, Arg.Any<long>(), Arg.Any<Func<ChatLogMessage, ValueTask>>(), Arg.Any<CancellationToken>());
+
+        // And the cap still knows what the first run spent: 2 x 10 KB of day lines plus the 900 KB
+        // the throttled attempt cost, not a fresh megabyte.
+        Assert.Equal((1L * 1024 * 1024) - 920_000, offeredOnResume[0]);
+    }
+
+    [Fact]
+    public async Task AnUnfinishedRunOlderThanTheResumeLimit_IsLeftAloneAndANewMeasurementStarts()
+    {
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day3)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.RateLimited, 0, null, 0, 0, 0, 429);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(4, await Run(3));
+        var abandoned = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+
+        // Eight days later the frozen window no longer describes anything the operator asked about;
+        // a report dated today would answer for a window nobody chose.
+        _clock.Now = Now.AddDays(8);
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var files = Directory.GetFiles(_directory, "*.jsonl");
+        Assert.Equal(2, files.Length);
+        Assert.Contains(abandoned, files);
+        Assert.Contains(
+            "\"windowTo\": \"2026-09-12\"",
+            File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json"))));
+    }
+
+    [Fact]
+    public async Task AResumeWithADifferentWindowLength_StartsANewFile()
+    {
+        // The frozen window carries its own length, so a --days that no longer matches it cannot be
+        // continued — it is a different measurement and gets its own file.
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day3)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.RateLimited, 0, null, 0, 0, 0, 429);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(4, await Run(3));
+
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(0, await Run(2));
+
+        Assert.Equal(2, Directory.GetFiles(_directory, "*.jsonl").Length);
+        Assert.Contains(
+            "\"windowFrom\": \"2026-09-03\"",
+            File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json"))));
+    }
+
     private Task<int> Run(int days, CancellationToken ct = default, int maxMegabytes = 200)
     {
         var runner = new HarnessRunner(
@@ -497,7 +616,7 @@ public class HarnessRunnerTests : IDisposable
             _archive,
             _bots,
             new HarnessOptions { OutputDirectory = _directory, MaxMegabytesPerRun = maxMegabytes, WindowDays = 30 },
-            new FakeClock(Now),
+            _clock,
             NullLogger<HarnessRunner>.Instance);
 
         return runner.RunAsync(ChannelName, days, ct);
@@ -581,6 +700,8 @@ public class HarnessRunnerTests : IDisposable
 
     private sealed class FakeClock(DateTimeOffset now) : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => now;
+        public DateTimeOffset Now { get; set; } = now;
+
+        public override DateTimeOffset GetUtcNow() => Now;
     }
 }
