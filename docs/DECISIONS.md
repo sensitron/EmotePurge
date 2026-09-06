@@ -116,6 +116,24 @@ selben Lauf, keine zwei Features.
 
 ---
 
+### 2026-09-06 — Leave-Guard für einen laufenden Import erkennt einen reinen Kanalwechsel an der Routen-Identität (#72, K3)
+
+**Betrifft:** `web/src/app/features/usage-stats/usage-stats-leave.guard.ts`, `web/src/app/app.routes.ts`
+
+Ein `CanDeactivateFn` an der `usage-stats`-Route fragt beim Verlassen der Seite nach, solange
+`SevenTvImportService.isRunning()` wahr ist — der Lauf selbst läuft im `providedIn: 'root'`-Service
+weiter, egal wie die Frage beantwortet wird; der Guard verhindert oder verzögert nichts, er warnt nur.
+Ein reiner Kanalwechsel (`/channels/a/usage-stats` → `/channels/b/usage-stats`) ist davon ausdrücklich
+ausgenommen, obwohl Angular den Guard wegen `runGuardsAndResolvers: 'paramsChange'` auch dabei
+erneut ausführt: die Komponente wird wiederverwendet, derselbe Lauf zeigt sich im Dock der neuen
+Seite sofort wieder, und eine Rückfrage würde vor nichts Verlorenem warnen. Erkannt wird das über die
+**Objektidentität** von `routeConfig` im nächsten Router-State, nicht über einen Pfad- oder
+Namensvergleich — die Referenz ist pro Routen-Definition stabil, unabhängig davon, welches
+Pfadsegment gerade den Kanalnamen trägt. Ein Reload oder Tab-Schließen deckt der Guard bewusst nicht
+ab (kein `beforeunload`).
+
+---
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
