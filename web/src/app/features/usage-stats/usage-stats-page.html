@@ -18,6 +18,23 @@
       >
         {{ 'export.button' | transloco }}
       </button>
+      <!-- Push entry point (#72, K3): copy this channel's emotes into another one's 7TV set.
+           Desktop-only like every other 7TV write path (isCoarse — no write token off a phone), and
+           gone entirely without an active set to copy from. Locked while ANY of the three
+           7TV-writing runs is active (arbiter.activeRun(), not just this button's own kind) — the
+           same rule the delete and restore triggers already follow, and the running progress in the
+           dock is the only reason given for it (UI-Designsprache.md §4.2/§7). -->
+      @if (!isCoarse() && activeEmoteSetId()) {
+        <button
+          type="button"
+          appButton="neutral"
+          class="disabled:cursor-not-allowed"
+          [disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"
+          (click)="openImportTarget()"
+        >
+          {{ 'import.copyButton' | transloco }}
+        </button>
+      }
       <button
         type="button"
         appButton="neutral"
@@ -694,10 +711,13 @@
 <!-- The action bar. It exists only while there is something to act on, which is what allows the
      surface above it to be nothing but emotes. Kept mounted through a settled run as well, because
      the run summary carries the protocol download and that file is the only durable record. -->
-@if (activeEmoteSetId(); as setId) {
-  @if (dockVisible() && !isCoarse()) {
-    <div class="app-dock">
-      <div class="mx-auto flex max-w-5xl flex-col gap-2 overflow-y-auto px-4 py-3 max-h-[70vh]">
+@if (dockVisible() && !isCoarse()) {
+  <div class="app-dock">
+    <div class="mx-auto flex max-w-5xl flex-col gap-2 overflow-y-auto px-4 py-3 max-h-[70vh]">
+      <!-- The marking half of the dock acts on THIS channel's set, so it needs one. The import
+           section below does not (see its own comment), which is why the set gate sits here and
+           not around the whole bar. -->
+      @if (activeEmoteSetId(); as setId) {
         <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span class="font-mono text-base font-semibold text-accent-fg">{{
             selection.selectedKeys().length
@@ -745,7 +765,14 @@
             }
           </ng-container>
         </app-mass-delete-panel>
-      </div>
+      }
+      <!-- A copy run into another channel's set — visible on THIS page even when this channel is
+           neither the run's source nor its target (R9): the run lives in a root-provided service,
+           not in this page's own state, and it deliberately survives a channel switch. That is why
+           it sits outside the set gate above: a usage page without an active set would otherwise
+           hide a still-writing run together with its Cancel button. The component gates its own
+           visibility on the run, so it renders nothing between imports. -->
+      <app-import-progress-section />
     </div>
-  }
+  </div>
 }

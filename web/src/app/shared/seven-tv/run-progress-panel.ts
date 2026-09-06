@@ -89,7 +89,7 @@ export class RunProgressPanel {
   readonly items = input.required<RunQueueItem[]>();
   readonly isRunning = input.required<boolean>();
   /** Which wording family the panel speaks — the union keeps the dynamic keys findable. */
-  readonly labelPrefix = input<'massDelete' | 'restore'>('massDelete');
+  readonly labelPrefix = input<'massDelete' | 'restore' | 'import'>('massDelete');
   /** State of the run's closing bookkeeping call (sync-deleted / sync-restored). Defaults to the
    *  state that renders nothing; the notice wording follows labelPrefix. */
   readonly syncReport = input<SyncReportState>('idle');

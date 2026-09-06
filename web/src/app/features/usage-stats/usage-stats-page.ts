@@ -28,8 +28,12 @@ import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
 import { PointerModeService } from '../../core/pointer/pointer-mode.service';
+import { dedupeImportRows, ImportRow, ImportSource } from '../../core/seven-tv/import-source';
 import { SevenTvDeleteService } from '../../core/seven-tv/seven-tv-delete.service';
+import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
+import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
+import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { VoteSessionSummary } from '../../core/voting/vote-session.model';
 import {
   CreateVoteSessionDialogData,
@@ -81,6 +85,11 @@ import {
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
+import {
+  buildEmoteListEnvelope,
+  emoteListFilename,
+  emoteListJson,
+} from '../../shared/export/emote-list-export';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -99,6 +108,12 @@ import {
   moveInAtlas,
   packAtlasRows,
 } from '../../shared/grid/atlas-grid';
+import { ImportFlowDeps, startImportFlow } from '../../shared/seven-tv/import-flow';
+import { ImportProgressSection } from '../../shared/seven-tv/import-progress-section';
+import {
+  ImportTargetChoice,
+  openImportTargetDialog,
+} from '../../shared/seven-tv/import-target-dialog';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
 import { RestorePanel } from '../../shared/seven-tv/restore-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
@@ -109,6 +124,24 @@ import { SegmentedControl, SegmentedControlOption } from '../../shared/ui/segmen
 
 type SortDirection = 'asc' | 'desc';
 type SortKey = 'usage' | 'lastUsed';
+
+/**
+ * Everything the target picker's continuation is allowed to know, frozen at the moment the picker
+ * opened: both scopes' rows, the set they came from and the channel that owns it. Held together in
+ * one object so no later addition can accidentally re-read a live signal for just one of them —
+ * a mix of captured and freshly read values is precisely the defect this replaces.
+ */
+interface CapturedImportScope {
+  readonly channelName: string;
+  readonly emoteSetId: string;
+  readonly selection: readonly ImportRow[];
+  readonly visible: readonly ImportRow[];
+}
+
+const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
+  sevenTvEmoteId: emote.sevenTvEmoteId,
+  name: emote.emoteName,
+});
 
 // Sorting a never-used emote needs a position, not a crash. It is the deadest thing in the list, so
 // it sorts as older than any real date: descending (most recent first) puts them at the very end,
@@ -168,6 +201,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     ScrollingModule,
     EmoteSprite,
     EmoteSpriteAnimated,
+    ImportProgressSection,
     MassDeletePanel,
     RestorePanel,
     SlotBudgetBar,
@@ -188,6 +222,12 @@ export class UsageStatsPage {
   private readonly languageService = inject(LanguageService);
   private readonly deleteService = inject(SevenTvDeleteService);
   private readonly restoreService = inject(SevenTvRestoreService);
+  private readonly importService = inject(SevenTvImportService);
+  private readonly tokenService = inject(SevenTvTokenService);
+  /** Read here only for the header button's lock (#72, R1) — the template needs it too, hence
+   *  `protected` rather than `private`, mirroring the same choice on the mass-delete panel and the
+   *  restore panel (#70, Task 4; see docs/DECISIONS.md). */
+  protected readonly arbiter = inject(SevenTvRunArbiter);
   private readonly dialog = inject(Dialog);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -618,7 +658,12 @@ export class UsageStatsPage {
       this.deleteService.isRunning() ||
       this.deleteService.queue().length > 0 ||
       this.restoreService.isRunning() ||
-      this.restoreService.queue().length > 0,
+      this.restoreService.queue().length > 0 ||
+      // An import copies INTO this channel's set only when this channel is the chosen target — but
+      // the run stays visible on every usage-stats page it is opened from (R9), source included, so
+      // its start does not silently disappear the moment the picker closes.
+      this.importService.isRunning() ||
+      this.importService.queue().length > 0,
   );
 
   /** Occupied slots after the pending selection would be deleted — the dock's one number. */
@@ -1058,6 +1103,47 @@ export class UsageStatsPage {
     });
   }
 
+  /**
+   * The push entry point (#72, K3): pick a scope and a destination, then either save the rows as a
+   * file or hand them to the confirm-and-run flow. `selectionCount` gates the scope radiogroup the
+   * same way `openExport` does.
+   *
+   * Everything the continuation needs is read *here*, before the dialog opens, and never again
+   * afterwards. Unlike the export dialog, this page keeps updating while the picker is open: a
+   * `usageFlushed` or `channel.synced` event reloads the grid, and the keyed selection deliberately
+   * survives that reload. Reading the rows after the close would therefore let the dialog count one
+   * set of emotes while the run copies another — silently, because a surviving selection looks
+   * exactly like an unchanged one. The same read pairs the already-captured `emoteSetId` (and
+   * channel name) with rows that may no longer belong to it.
+   */
+  protected openImportTarget(): void {
+    const emoteSetId = this.activeEmoteSetId();
+    if (emoteSetId === null) {
+      // The header button is gated on the same signal, so this only guards against a click that
+      // outraces a channel switch.
+      return;
+    }
+
+    const captured: CapturedImportScope = {
+      channelName: this.channelName(),
+      emoteSetId,
+      selection: this.selection.selectedItems().map(toImportRow),
+      visible: this.atlasOrder().map(toImportRow),
+    };
+
+    const data = {
+      currentChannelName: captured.channelName,
+      visibleCount: captured.visible.length,
+      selectionCount: captured.selection.length,
+    };
+    openImportTargetDialog(this.dialog, data).closed.subscribe((choice) => {
+      if (!choice) {
+        return;
+      }
+      this.startImportFromChoice(captured, choice);
+    });
+  }
+
   // The delete run finished on 7TV, but the backend could not confirm it — refetch instead of
   // filtering locally, so the list never claims a state the server does not share.
   protected onReloadRequested(): void {
@@ -1088,6 +1174,49 @@ export class UsageStatsPage {
     }
     this.viewport()?.scrollToIndex(rowIndex);
     requestAnimationFrame(() => find()?.focus());
+  }
+
+  /**
+   * `openImportTarget`'s continuation once a target has been chosen. Works exclusively off the
+   * scope captured before the dialog opened (see there) — both destinations read the very same
+   * rows, so the file a user saves and the run they start describe the identical moment — and
+   * only branches on where those rows are going.
+   */
+  private startImportFromChoice(captured: CapturedImportScope, choice: ImportTargetChoice): void {
+    const rows = choice.scope === 'selection' ? captured.selection : captured.visible;
+    const deduped = dedupeImportRows(rows);
+    const source: ImportSource = {
+      origin: { kind: 'channel', channelName: captured.channelName },
+      rows: deduped.rows,
+      duplicatesCollapsed: deduped.duplicatesCollapsed,
+      // The channel grid only ever supplies rows that already passed server-side EmoteListItem
+      // validation — nothing here can be invalid the way a parsed file's rows can be (R6).
+      discardedRows: 0,
+    };
+
+    if (choice.target.kind === 'file') {
+      const envelope = buildEmoteListEnvelope({
+        channelName: captured.channelName,
+        emoteSetId: captured.emoteSetId,
+        scope: choice.scope,
+        rows: source.rows,
+      });
+      downloadFile(
+        emoteListFilename(captured.channelName, envelope.exportedAt),
+        emoteListJson(envelope),
+        JSON_MIME,
+      );
+      return;
+    }
+
+    const deps: ImportFlowDeps = {
+      dialog: this.dialog,
+      emoteAdminService: this.emoteAdminService,
+      tokenService: this.tokenService,
+      importService: this.importService,
+      arbiter: this.arbiter,
+    };
+    startImportFlow(deps, source, choice.target.channelName);
   }
 
   // Quiet counterpart to the set-status fetch in load(): no sync-poll, and a failed refetch keeps
