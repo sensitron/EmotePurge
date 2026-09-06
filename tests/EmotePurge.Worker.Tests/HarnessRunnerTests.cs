@@ -122,6 +122,42 @@ public class HarnessRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ANoBadgesNoUserIdsAbort_SpendsFromTheCapUsingTheReceivedBytes()
+    {
+        // The day was read to completion (Complete, MessageCount > 0) before the fallback fired, so
+        // it already cost the archive real bytes — the same accounting the TransportFailure/
+        // ByteCapExceeded paths get via the `default:` branch (see
+        // ADayThatAbortedWithoutABodyStillSpendsFromTheCap...). Befund: this call dropped the
+        // `bytes` argument, so the event line read 0 and a resume would see the full cap again
+        // instead of what this already-spent request actually cost.
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, "PogChamp"));
+            return CompleteDay(1, bytes: 900_000);
+        });
+
+        Assert.Equal(5, await Run(3, maxMegabytes: 1));
+
+        var path = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+        var noBadgesEvent = Assert.Single(
+            new HarnessReportFile(path).ReadDays().Events, e => e.Status == "NoBadgesNoUserIds");
+        Assert.Equal(900_000, noBadgesEvent.Bytes);
+
+        // Second run: a compliant day now answers, but the cap must already reflect the 900 KB the
+        // first, undecidable attempt spent — not the full 1 MB again.
+        var offeredOnResume = new List<long>();
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1, bytes: 10_000);
+        }, offeredOnResume);
+
+        Assert.Equal(0, await Run(3, maxMegabytes: 1));
+
+        Assert.Equal((1L * 1024 * 1024) - 900_000, offeredOnResume[0]);
+    }
+
+    [Fact]
     public async Task ARateLimitedDay_StopsWithAResumePoint_AndTheNextRunContinuesThere()
     {
         RespondWith(async (day, onMessage) =>

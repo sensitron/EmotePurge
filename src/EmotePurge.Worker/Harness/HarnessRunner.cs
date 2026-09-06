@@ -301,14 +301,16 @@ public sealed class HarnessRunner(
                     // Design "Rückfall": logs without any badge and without any user id make the bot
                     // split impossible, and a report without it would answer a different question
                     // than the one #69 asks. No day line is written, so a later run re-fetches this
-                    // day and reaches the same verdict instead of quietly building on it.
+                    // day and reaches the same verdict instead of quietly building on it. The day was
+                    // still read in full, though, so its bytes go on the event line — same as the
+                    // `default:` branch below — or a resume would see the cap as untouched.
                     if (!fallbackChecked && result.MessageCount > 0)
                     {
                         fallbackChecked = true;
                         if (!sawUserId && !sawBadges)
                         {
                             AppendAbort(file, day, "NoBadgesNoUserIds", result.HttpStatusCode,
-                                "Logs ohne Badges und ohne user-id.");
+                                "Logs ohne Badges und ohne user-id.", result.BytesReceived);
                             logger.LogError(
                                 "Die Logs für Kanal '{Kanal}', Tag {Tag} tragen weder Badges noch user-id; der Bot-Split ist damit nicht möglich und der Ansatz neu zu bewerten.",
                                 channel.ChannelName, Iso(day));
