@@ -120,11 +120,13 @@ public sealed class HarnessReportFile
 
     /// <summary>
     /// Whether this run reached its end. <see cref="WriteFinalReportAtomically"/> is the only thing
-    /// that ever writes <see cref="ReportJsonPath"/>, and only after every day of the window is on
-    /// disk — so the file's presence is the closing signal, and a run that stopped at a resume point
-    /// never has one.
+    /// that ever writes <see cref="ReportJsonPath"/> and <see cref="ReportMarkdownPath"/>, and only
+    /// after every day of the window is on disk — so both files' presence is the closing signal. Both,
+    /// not just the JSON one: a process that dies between the two renames (or a second rename that
+    /// fails outright) must not read as closed, or the run is skipped by every future resume search
+    /// and the missing Markdown report never gets written.
     /// </summary>
-    public bool IsClosed => File.Exists(ReportJsonPath);
+    public bool IsClosed => File.Exists(ReportJsonPath) && File.Exists(ReportMarkdownPath);
 
     /// <summary>
     /// The file name a run of this identity has to use. The digest at the end is what makes

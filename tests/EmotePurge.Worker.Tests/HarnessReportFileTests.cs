@@ -212,6 +212,25 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void IsClosed_RequiresBothFinalReportsNotJustTheJsonOne()
+    {
+        // Regression: WriteFinalReportAtomically writes two files, the ".report.json" and the
+        // ".report.md". IsClosed used to check only the first one's existence, so a process that died
+        // between the two renames — or whose second rename failed outright — read as a finished run:
+        // the resume search would skip it forever and the missing Markdown report would never get
+        // written.
+        var identity = Identity();
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+
+        File.WriteAllText(file.ReportJsonPath, "{}");
+        Assert.False(file.IsClosed);
+
+        File.WriteAllText(file.ReportMarkdownPath, "# Bericht\n");
+        Assert.True(file.IsClosed);
+    }
+
+    [Fact]
     public void TheFileName_CarriesChannelWindowAndIdentityDigest()
     {
         var identity = Identity();
