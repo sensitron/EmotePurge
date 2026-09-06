@@ -99,6 +99,23 @@ Konsolidierungs-Zeile (docs/UI-Designsprache.md §7.2).
 
 ---
 
+### 2026-09-06 — Restore-Panel bekommt einen dritten Dispatch-Zweig: Emote-Liste/Nutzungs-Export laufen als Import (#72, K3)
+
+**Betrifft:** `web/src/app/shared/seven-tv/restore-panel.ts`
+
+Dasselbe eine Datei-Feld entscheidet jetzt per `kind` über drei Wege statt über einen: ein
+Purge-Protokoll (`kind: 'purge-run'`) bleibt der bestehende Restore-Weg unverändert, mit Token-Prompt
+weiterhin vor der Bestätigung. Eine Emote-Liste oder ein Nutzungs-Export (`kind: 'emote-list'` /
+`'usage'`) wird stattdessen als `ImportSource` gelesen (`parseImportSource`) und über denselben
+`startImportFlow` gestartet, den auch der Header-Button „In Kanal kopieren…" auf der
+Usage-Stats-Seite benutzt — Ziel ist dabei immer der **aktuelle** Kanal, der Token-Prompt kommt hier
+also nach der Bestätigung (der Flow selbst fragt danach; das Panel promptet hier bewusst nicht ein
+zweites Mal). Ein Abstimmungs-Export (`kind: 'voting'`) bleibt abgelehnt, ohne Importweg. Push (aus
+dem Grid heraus kopieren) und Pull (eine Datei ins Zielpanel ziehen) sind damit zwei Türen zum
+selben Lauf, keine zwei Features.
+
+---
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
