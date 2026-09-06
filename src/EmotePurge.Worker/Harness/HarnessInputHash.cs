@@ -18,6 +18,22 @@ namespace EmotePurge.Worker.Harness;
 /// meaningless one.
 /// </para>
 /// <para>
+/// <c>Emote.LastSyncedAt</c> is deliberately **not** part of the hash as a raw timestamp — only as
+/// the single boolean <see cref="ReplayFidelityCalculator"/> actually derives from it,
+/// <c>LastSyncedAt &lt; windowFrom</c> ("is this emote part of the window's stable subset"). Task-8
+/// live verification (#69) found <c>LastSyncedAt</c> moving on essentially every 60-second resync
+/// tick for a real channel — 7TV had listed the same emote id twice under two set-entry names
+/// (<c>Fiesta</c>/<c>clownFiesta</c>), and <c>SevenTvSyncService.ReconcileAsync</c> upserts the one
+/// underlying row once per live entry, re-stamping <c>LastSyncedAt</c> on the second write even
+/// though nothing about the row actually changed. Hashing the raw timestamp turned every such tick
+/// into a new run identity: four runs in 13 minutes, four report files, the same 8.39 MB pulled
+/// from the archive four times — the exact failure the resume promise exists to prevent. Hashing
+/// the predicate instead keeps the guarantee precise rather than weaker: a timestamp that moves
+/// without crossing the window boundary can never change what the calculation does with it, so it
+/// must not change the identity either; a timestamp that crosses the boundary changes which subset
+/// the emote belongs to and rightly starts a new run.
+/// </para>
+/// <para>
 /// The canonical form is sorted, so the order the queries happened to return does not matter, and
 /// it is textual rather than JSON, so no serializer setting can change it underneath us.
 /// </para>
@@ -27,7 +43,8 @@ public static class HarnessInputHash
     public static string Compute(
         IReadOnlyList<EmoteLifetimeDto> emotes,
         IReadOnlyList<UsageStatRowDto> rows,
-        IReadOnlySet<string> botIds)
+        IReadOnlySet<string> botIds,
+        DateOnly windowFrom)
     {
         ArgumentNullException.ThrowIfNull(emotes);
         ArgumentNullException.ThrowIfNull(rows);
@@ -43,7 +60,7 @@ public static class HarnessInputHash
                 .Append('|').Append(emote.IsArchived ? '1' : '0')
                 .Append('|').Append(Timestamp(emote.FirstSeenAt))
                 .Append('|').Append(Timestamp(emote.ArchivedAt))
-                .Append('|').Append(Timestamp(emote.LastSyncedAt))
+                .Append('|').Append(DateOnly.FromDateTime(emote.LastSyncedAt) < windowFrom ? '1' : '0')
                 .Append('\n');
         }
 

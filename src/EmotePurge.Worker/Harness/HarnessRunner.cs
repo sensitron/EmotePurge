@@ -166,7 +166,7 @@ public sealed class HarnessRunner(
         {
             logger.LogError(
                 "Kanal '{Kanal}' hat ab dem ersten vollständig gemessenen Tag ({Start}) nur {Vorhanden} Tage Messung bis {Ende}; verlangt sind {Verlangt}.",
-                channel.ChannelName, firstFullyTrackedDay, Math.Max(availableDays, 0), to, days);
+                channel.ChannelName, Iso(firstFullyTrackedDay), Math.Max(availableDays, 0), Iso(to), days);
             return ExitPreconditionViolated;
         }
 
@@ -185,7 +185,7 @@ public sealed class HarnessRunner(
             botSplitCutover,
             [.. botAccountIds.Order(StringComparer.Ordinal)],
             AlgorithmVersion,
-            HarnessInputHash.Compute(lifetimes, liveRowDtos, botAccountIds));
+            HarnessInputHash.Compute(lifetimes, liveRowDtos, botAccountIds, from));
 
         var file = new HarnessReportFile(Path.Combine(options.OutputDirectory, HarnessReportFile.BuildFileName(identity)));
         HarnessReportContent existing;
@@ -306,7 +306,7 @@ public sealed class HarnessRunner(
                                 "Logs ohne Badges und ohne user-id.");
                             logger.LogError(
                                 "Die Logs für Kanal '{Kanal}', Tag {Tag} tragen weder Badges noch user-id; der Bot-Split ist damit nicht möglich und der Ansatz neu zu bewerten.",
-                                channel.ChannelName, day);
+                                channel.ChannelName, Iso(day));
                             return ExitUndecidable;
                         }
                     }
@@ -343,7 +343,7 @@ public sealed class HarnessRunner(
         {
             logger.LogError(
                 "Für keinen der {Tage} Tage von {Von} bis {Bis} hat das Archiv ein Log; für Kanal '{Kanal}' ist der Vergleich nicht durchführbar.",
-                allDays.Count, from, to, channel.ChannelName);
+                allDays.Count, Iso(from), Iso(to), channel.ChannelName);
             return ExitPreconditionViolated;
         }
 
@@ -376,10 +376,16 @@ public sealed class HarnessRunner(
         var resumePoint = dayLines.Count == 0 ? (DateOnly?)null : dayLines.Keys.Max();
         logger.LogError(
             "Harness-Lauf bei Tag {Tag} beendet ({Grund}). Letzter vollständiger Tag: {Wiederaufnahme}. Ein erneuter Aufruf mit denselben Argumenten setzt dort fort.",
-            day, reason, resumePoint?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "keiner");
+            Iso(day), reason, resumePoint is { } value ? Iso(value) : "keiner");
     }
 
     private static DateOnly Later(DateOnly left, DateOnly right) => left > right ? left : right;
+
+    // ISO 8601 rather than DateOnly's culture-dependent default ToString(): a container's invariant
+    // culture renders that as MM/dd/yyyy, which read as an ordinary (if odd) US date in a German
+    // log line until Task 8's live verification (#69) actually compared it against the day the
+    // archive itself had answered for.
+    private static string Iso(DateOnly value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static void AppendDay(HarnessReportFile file, Dictionary<DateOnly, ReplayDayLine> dayLines, ReplayDayLine line)
     {

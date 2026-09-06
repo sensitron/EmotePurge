@@ -127,9 +127,16 @@ keine vertagten Aufgaben dieses Tasks, sondern für den Harness als Versuchsaufb
 dem Portainer die Compose-Datei ablegt (`<STACK-DIR>`, `.env` liegt daneben):
 
 ```
+mkdir -p harness-reports && sudo chown 999:999 harness-reports   # nur beim allerersten Mal
 docker compose -f docker-compose.prod.yml pull harness
 docker compose -f docker-compose.prod.yml run --rm harness <kanal>          # optional: --days <n>
 ```
+
+Der erste Schritt ist kein Stilwunsch, sondern Pflicht: `docker compose run` legt ein fehlendes
+Bind-Mount-Ziel selbst als `root:root` an, das Image läuft aber als `appuser` mit fest vergebenem
+`uid`/`gid` **999** (s. Nachtrag unten) — ohne den `chown` scheitert der erste Lauf mit
+„Permission denied" (Exit 6). Derselbe Handgriff gilt eins zu eins lokal, im Repo-Root vor dem
+ersten `docker compose --profile harness run --rm harness …`.
 
 Ein zweiter Aufruf mit derselben Zeile nimmt am letzten fertigen Tag wieder auf. `pull` zuerst ist
 kein Stilwunsch: ohne ihn führt `run` das lokal bereits vorhandene, möglicherweise alte
@@ -141,6 +148,37 @@ mehr erzeugt. Bericht und Protokoll danach lokal abholen:
 scp vps:<STACK-DIR>/harness-reports/<datei>.report.md .
 scp vps:<STACK-DIR>/harness-reports/<datei>.jsonl .
 ```
+
+**Nachtrag (Task 8a, selbes Thema, ein Tag später) — zwei Defekte aus der Live-Verifikation
+behoben.**
+
+*Lauf-Identität stabilisiert.* `HarnessInputHash` nahm bislang `Emote.LastSyncedAt` als vollen
+Zeitstempel in die Identität auf. Task 8 fand einen realen Kanal (`brudivoeller_tv`), auf dem
+7TV dieselbe Emote-ID zweimal unter zwei Set-Namen führt (`Fiesta`/`clownFiesta`,
+`hammVibe`/`UHHH`) — ein Produktionsdefekt außerhalb von #69, eigenes Issue folgt. Weil
+`ReconcileAsync`/`UpsertEmote` dieselbe Zeile dadurch pro Tick teils zweimal schreibt, wandert
+`LastSyncedAt` im Betrieb, ohne dass sich am Emote inhaltlich etwas ändert: vier Läufe in 13
+Minuten erzeugten vier verschiedene Identitäten und holten jedes Mal dieselben 8,39 MB neu — die
+Wiederaufnahme-Zusage war damit auf einem solchen Kanal wertlos. `HarnessInputHash` hasht jetzt
+nicht mehr den rohen Zeitstempel, sondern genau das Prädikat, das
+`ReplayFidelityCalculator.IsStable` daraus tatsächlich ableitet
+(`LastSyncedAt < windowFrom`, als ein Bit): ein Wechsel der Fensterseite ändert weiterhin die
+Identität (er ändert das Ergebnis), ein Wandern innerhalb derselben Fensterseite nicht mehr (er
+ändert nichts am Ergebnis). Alle anderen Bestandteile des Hashes (`Id`, `Name`, `IsArchived`,
+`FirstSeenAt`, `ArchivedAt`, die `UsageStat`-Zeilen, die Bot-ID-Menge) sind unverändert. Dieselbe
+Beobachtung gilt der Form nach auch für `FirstSeenAt` — `UpsertEmote`s v4-Korrektur schreibt es
+außerhalb der Change-Erkennung neu, sobald `AddedToSetAt` abweicht, was bei zwei Set-Einträgen
+derselben ID ebenfalls kippen könnte — dort aber unangetastet gelassen, weil `FirstSeenAt`
+tageweise (nicht nur an der Fenstergrenze) in die Zählung eingeht und eine Änderung dort
+tatsächlich etwas am Ergebnis ändern kann; ein Kandidat für eine spätere, eigene Prüfung, kein
+Teil dieses Fixes.
+
+*Fester `uid`/`gid` 999 für `appuser`.* `src/EmotePurge.Worker/Dockerfile` legte den Benutzer
+bislang ohne `-u`/`-g` an; die konkrete Nummer hing vom Basis-Image ab und konnte sich mit einem
+Image-Update verschieben. Jetzt `useradd --system --uid 999 …` / `groupadd --system --gid 999`,
+derselbe Wert, den Task 8 zur Laufzeit vorgefunden hatte. Erst das macht den `chown`-Handgriff
+oben vorab aufschreibbar, statt ihn — wie in Task 8 — per Root-Container zur Laufzeit erraten zu
+müssen.
 
 ---
 
