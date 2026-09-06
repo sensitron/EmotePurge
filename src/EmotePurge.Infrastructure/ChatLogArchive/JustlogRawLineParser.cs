@@ -39,6 +39,14 @@ public static class JustlogRawLineParser
 
     private static readonly IReadOnlyList<KeyValuePair<string, string>> NoBadges = [];
 
+    // Bounds rather than a try/catch around FromUnixTimeMilliseconds: a syntactically valid long
+    // outside DateTimeOffset's range (e.g. long.MaxValue) must count as malformed exactly like
+    // `tmi-sent-ts=not-a-number` does above, and an explicit check keeps this method's malformed
+    // branch exception-free like every other check in it, instead of using an exception for
+    // ordinary control flow.
+    private static readonly long MinSentAtEpochMs = DateTimeOffset.MinValue.ToUnixTimeMilliseconds();
+    private static readonly long MaxSentAtEpochMs = DateTimeOffset.MaxValue.ToUnixTimeMilliseconds();
+
     /// <summary>
     /// <c>false</c> for anything that is not a complete, parsable PRIVMSG line.
     /// <paramref name="ircCommand"/> carries the recognized command (e.g. <c>"CLEARCHAT"</c>) when
@@ -98,7 +106,8 @@ public static class JustlogRawLineParser
         }
 
         if (!tags.TryGetValue("tmi-sent-ts", out var sentAtRaw) ||
-            !long.TryParse(sentAtRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sentAtEpochMs))
+            !long.TryParse(sentAtRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var sentAtEpochMs) ||
+            sentAtEpochMs < MinSentAtEpochMs || sentAtEpochMs > MaxSentAtEpochMs)
         {
             return false;
         }

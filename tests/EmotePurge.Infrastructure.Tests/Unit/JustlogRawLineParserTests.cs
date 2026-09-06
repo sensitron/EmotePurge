@@ -185,6 +185,33 @@ public class JustlogRawLineParserTests
     }
 
     [Fact]
+    public void TryParse_TimestampAboveDateTimeOffsetRange_ReturnsFalseWithoutCommand()
+    {
+        // long.MaxValue parses fine as a long but is far past what FromUnixTimeMilliseconds can
+        // turn into a DateTimeOffset — that call throws unless the range is checked first, and an
+        // uncaught throw here would abort the whole harness run for one broken foreign line.
+        var line = $"@room-id=200000001;tmi-sent-ts={long.MaxValue};user-id=100000001 "
+            + ":alice_test!alice_test@alice_test.tmi.twitch.tv PRIVMSG #faketown_test :hey";
+
+        var ok = JustlogRawLineParser.TryParse(line, out _, out var ircCommand);
+
+        Assert.False(ok);
+        Assert.Null(ircCommand);
+    }
+
+    [Fact]
+    public void TryParse_TimestampBelowDateTimeOffsetRange_ReturnsFalseWithoutCommand()
+    {
+        var line = $"@room-id=200000001;tmi-sent-ts={long.MinValue};user-id=100000001 "
+            + ":alice_test!alice_test@alice_test.tmi.twitch.tv PRIVMSG #faketown_test :hey";
+
+        var ok = JustlogRawLineParser.TryParse(line, out _, out var ircCommand);
+
+        Assert.False(ok);
+        Assert.Null(ircCommand);
+    }
+
+    [Fact]
     public void TryParse_ValidTimestamp_ProducesUtcKindDateTime()
     {
         var line = "@room-id=200000001;tmi-sent-ts=1700000000000;user-id=100000001 "
