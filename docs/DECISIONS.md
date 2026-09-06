@@ -10,6 +10,44 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-06 — Import-Lauf: dritter Arbiter-Zweig ohne DI-Zirkel, kein Kanal-Reset, Nachlauf ans Laufobjekt gebunden (#72, K3)
+
+**Betrifft:** `web/src/app/core/seven-tv/seven-tv-import.service.ts`, `web/src/app/core/seven-tv/seven-tv-run-arbiter.ts`, `web/src/app/core/seven-tv/import-source.ts`
+
+`SevenTvRunArbiter.activeRun` bekommt einen dritten Zweig (`if (importService.isRunning()) return
+'import'`, nach `delete`/`restore`) statt einer Meldung des Import-Service, wie die Issue es noch
+vorsah — der Arbiter leitet seine Antwort weiterhin nur aus den `isRunning`-Signalen der drei Dienste
+ab, kein `tryAcquire`/`release`. Der Import-Service injiziert den Arbiter deshalb **nicht**: die
+Kante bliebe sonst `Arbiter → ImportService → Arbiter` und damit ein DI-Zirkel; die Sperrprüfung vor
+dem Start (`activeRun() === null`) macht stattdessen der Aufrufer (`import-flow.ts`).
+
+`SevenTvImportService` bekommt **kein** `resetIfChannelChanged` — ein Restore schreibt immer in den
+Kanal der aktuellen Seite, ein Import schreibt absichtlich in einen *anderen*; ein Reset beim
+Kanalwechsel würde genau den gerade gestarteten Lauf verwerfen. Der Datei-Weg meldet dem Backend
+zudem `sourceChannelName: null`, auch wenn die Quelldatei einen Kanal nennt: `EmoteEndpoints.cs`
+(`SyncImportedRequest`) weist `sourceKind: 'file'` **mit** gesetztem `sourceChannelName` ebenso mit
+`400 invalid_source_kind` ab wie `sourceKind: 'channel'` **ohne** Namen — der Audit-Eintrag eines
+Datei-Imports nennt deshalb keinen Herkunftskanal (bekannte, hingenommene Grenze).
+
+Zielkanal, Herkunft und die von 7TV gemeldeten Keys stehen zusammen an genau einem Objekt, dem beim
+Start angelegten `ImportRunInfo` (`run` Signal), nicht an losen Feldern daneben. Grund: die
+Run-Engine setzt `isRunning` bereits synchron in `finish()`, **bevor** ihr asynchroner Nachlauf
+(`onComplete`) beginnt — ein zweiter Import kann also schon laufen, während der Nachlauf des ersten
+noch fliegt. Jeder asynchrone Schreibzugriff auf `syncReport`/`resyncTrigger` prüft deshalb vorher,
+ob sein `ImportRunInfo` noch `run()` ist, und verwirft die Antwort sonst kommentarlos, ohne
+Fehlerzustand; `retrySyncReport()` liest Zielkanal **und** gemeldete Keys aus demselben Objekt statt
+aus verteilten Feldern — ohne die Bindung hätte ein späterer Lauf in einen dritten Kanal die Keys
+eines fremden, bereits abgeschlossenen Laufs übernehmen können.
+
+Die Privilegien-Sonde (`abortOn`-Hook der Run-Engine) bricht den Lauf ab, sobald ein GQL-Fehlertext
+`insufficient privileges` oder `missing permission` enthält oder der HTTP-Status `401`/`403` ist —
+ohne einen eigenen Vorab-Request ans Zielset, der die restliche Laufzeit nur verlängert hätte. Die
+beiden Textfragmente sind aus dem Design übernommen und noch nicht live gegen ein Token ohne
+Editor-Recht belegt (offen für die Live-Probe, T11 im #72-Plan); weicht der beobachtete Text ab, wird
+die Liste erweitert, nicht die Bedingung gelockert.
+
+---
+
 ### 2026-09-05 — Eine unbrauchbare 7TV-Antwort wird abgelehnt, bevor der Sync etwas schreibt
 
 **Betrifft:** `src/EmotePurge.Core/Services/SevenTvSyncFailureReasons.cs`, `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs`, `src/EmotePurge.Core/SevenTv/SevenTvModels.cs`, `web/src/app/core/emotes/seven-tv-sync-failure.ts`, `web/public/i18n/de.json`, `web/public/i18n/en.json`
