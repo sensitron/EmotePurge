@@ -54,6 +54,38 @@ const SOURCE_EMOTES: MockEmoteUsage[] = [
   },
 ];
 
+/** The target channel's own grid, deliberately sharing no emote id or name with SOURCE_EMOTES: on
+ *  the target page a visible `Sadge` cell is proof the rows really changed hands. */
+const TARGET_EMOTES: MockEmoteUsage[] = [
+  {
+    emoteId: 't1',
+    emoteName: 'Sadge',
+    sevenTvEmoteId: '7tv-t1',
+    imageUrl: 'https://cdn.7tv.app/emote/11/2x.webp',
+    totalUseCount: 120,
+  },
+];
+
+/**
+ * Holds an already-routed endpoint until the returned callback is invoked, then lets the handler
+ * registered *before* it answer normally (`route.fallback`). Playwright matches handlers in reverse
+ * registration order, so this must be registered after the mock it defers to.
+ *
+ * Used to pin the ordering of two responses that normally race, which is the only way to observe a
+ * page state that exists between them.
+ */
+async function deferRoute(page: Page, pattern: string): Promise<() => void> {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(pattern, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  return release;
+}
+
 /** One channel's usage-stats page, mocked enough to load — permissions, status, the duplicate-name
  *  check and the totals grid. Mirrors `usage-atlas.e2e.spec.ts`'s `openAtlas` helper, generalized
  *  to a channel name so both the source and (in the channel-switch checks) the target page can use
@@ -462,6 +494,100 @@ test.describe('running import: channel switch', () => {
     // all, and none of the following would render).
     await expect(page.getByText('Ziel: aatrociity')).toBeVisible();
     await expect(page.getByText('1 kopiert · 0 fehlgeschlagen · 0 abgebrochen')).toBeVisible();
+  });
+
+  /**
+   * The same link, used as the only reachable trigger for a channel switch *inside* the usage-stats
+   * route — and therefore the only way to reach the window this test is about.
+   *
+   * `channelName()` follows the URL at once while the set status and the totals keep describing the
+   * previous channel until their own responses land. The copy button used to stay live throughout:
+   * it hangs on `atlasOrder().length` and the run arbiter, neither of which notices a channel
+   * switch. A click in that window captured channel B's name together with channel A's rows and A's
+   * `sourceEmoteSetId` — the confirm dialog said "origin: b", the saved file was named after b, and
+   * a run copied A's emotes into a third set under B's name. That is a wrong 7TV write, not a
+   * display glitch.
+   *
+   * Both halves are asserted separately, because they resolve independently and a fix that only
+   * waited for the set status would still pass the first: after the status lands the button must
+   * STILL be locked, since the grid underneath is the previous channel's until the totals answer.
+   * (Which is also why `isLoading()` alone is not the condition — in the other response order it is
+   * already false while the set id is still the old one.)
+   */
+  test('the copy button stays locked until BOTH the set status and the rows are the new channel’s', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+      { channelName: TARGET_CHANNEL, isSevenTvEditor: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    // The target needs rows of its own: without them the button would end up disabled on
+    // `atlasOrder().length === 0` and the final assertion could not tell the fix from an empty grid.
+    await mockWorkspace(page, TARGET_CHANNEL, TARGET_EMOTES, 'target-set');
+    await mockSetWarning(page, TARGET_CHANNEL);
+    await mockEmoteList(page, TARGET_CHANNEL, []);
+    await mockSyncImported(page, TARGET_CHANNEL);
+    await mockChannelScopedResync(page, TARGET_CHANNEL);
+
+    await mockSevenTvGql(page, () => ({ data: { emoteSet: { emotes: [{ id: '7tv-1' }] } } }));
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    // A minimal run, only to reach the settled state that renders the "open target channel" link.
+    // Runs BEFORE the two routes below are deferred: the confirm dialog's own `loadImportTarget`
+    // resolves the very same target-channel endpoints (`getSetStatus` → `emotes/active-set`) to
+    // decide when "Kopieren" may be clicked, and deferring them any earlier would starve the
+    // dialog itself, not just the post-switch page load this test is actually about.
+    await cell(page, 'CatJAM').click();
+    await copyButton(page).click();
+    let dialog = page.getByRole('dialog');
+    await dialog.getByRole('radio', { name: '#aatrociity' }).check();
+    await dialog.getByRole('button', { name: 'Weiter' }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Kopieren' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.clock.runFor(1000);
+
+    // On the source page, with everything current, the button is live — the baseline the two
+    // assertions below are a change from.
+    await expect(copyButton(page)).toBeEnabled();
+
+    // Registered only now, so the two routes above answer normally for the confirm dialog's own
+    // load and are held only for the page navigation triggered below (see deferRoute).
+    const releaseTargetStatus = await deferRoute(
+      page,
+      `**/api/channels/${TARGET_CHANNEL}/emotes/active-set`,
+    );
+    const releaseTargetTotals = await deferRoute(
+      page,
+      `**/api/channels/${TARGET_CHANNEL}/usage-stats/totals**`,
+    );
+
+    await page.getByRole('link', { name: 'Zielkanal öffnen' }).click();
+    await page.waitForURL(`**/channels/${TARGET_CHANNEL}/usage-stats`);
+
+    // Still mounted, because activeEmoteSetId() is the SOURCE channel's set — which is precisely
+    // the state that must not be copyable.
+    await expect(copyButton(page)).toBeVisible();
+    await expect(copyButton(page)).toBeDisabled();
+
+    // The totals request is only issued once the set status has resolved the "all time" range, so
+    // waiting for it is exact proof that the set status half has landed and the rows half has not.
+    const totalsRequested = page.waitForRequest(
+      `**/api/channels/${TARGET_CHANNEL}/usage-stats/totals**`,
+    );
+    releaseTargetStatus();
+    await totalsRequested;
+    await expect(copyButton(page)).toBeDisabled();
+
+    releaseTargetTotals();
+    await expect(cell(page, 'Sadge')).toBeVisible();
+    await expect(copyButton(page)).toBeEnabled();
   });
 });
 

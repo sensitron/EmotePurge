@@ -108,8 +108,10 @@ import {
   moveInAtlas,
   packAtlasRows,
 } from '../../shared/grid/atlas-grid';
+import { actionDockHasContent } from '../../shared/seven-tv/action-dock';
 import { ImportFlowDeps, startImportFlow } from '../../shared/seven-tv/import-flow';
 import { ImportProgressSection } from '../../shared/seven-tv/import-progress-section';
+import { importScopeIsCurrent } from '../../shared/seven-tv/import-scope';
 import {
   ImportTargetChoice,
   openImportTargetDialog,
@@ -544,6 +546,13 @@ export class UsageStatsPage {
    *  makes it clear no tracking start is coming, without also gating load()'s own retry guard. */
   private readonly setStatusFailedChannel = signal<string | null>(null);
 
+  /** The channel the rows in `emotes()` were loaded for — the totals counterpart to
+   *  setStatusChannel above, and written in the very same place the rows are (loadTotals' success
+   *  branch, so a failed refetch leaves it naming the channel whose rows are still on screen).
+   *  Exists because the two requests answer independently: knowing that *something* has finished
+   *  loading says nothing about whether the rows and the set id describe the same channel. */
+  private readonly totalsChannel = signal<string | null>(null);
+
   /** The channel for which an active-set request is in flight or has already answered, success or
    *  failure. A plain field, not a signal: writing it must never itself retrigger load()'s effect —
    *  only reading channelName()/from()/to()/rangeResolved() should. A signal here would double-fire
@@ -651,19 +660,36 @@ export class UsageStatsPage {
    * The action bar is bound to the selection, but it must not disappear the moment a finished
    * delete clears it: the run summary carries the protocol download, and that file is the only
    * durable record of what was removed. So a live or settled run keeps the dock mounted.
+   *
+   * Mirrors each half's own template gate rather than just asking whether something is selected —
+   * see actionDockHasContent for why the bar would otherwise render empty. The import clause repeats
+   * `app-import-progress-section`'s gate exactly, `run()` included, since that component draws
+   * nothing without a run to name.
    */
-  protected readonly dockVisible = computed(
-    () =>
-      this.selection.selectedKeys().length > 0 ||
-      this.deleteService.isRunning() ||
-      this.deleteService.queue().length > 0 ||
-      this.restoreService.isRunning() ||
-      this.restoreService.queue().length > 0 ||
+  protected readonly dockVisible = computed(() =>
+    actionDockHasContent({
+      hasActiveSet: this.activeEmoteSetId() !== null,
+      markedCount: this.selection.selectedKeys().length,
+      deleteShown: this.deleteService.isRunning() || this.deleteService.queue().length > 0,
+      restoreShown: this.restoreService.isRunning() || this.restoreService.queue().length > 0,
       // An import copies INTO this channel's set only when this channel is the chosen target — but
       // the run stays visible on every usage-stats page it is opened from (R9), source included, so
-      // its start does not silently disappear the moment the picker closes.
-      this.importService.isRunning() ||
-      this.importService.queue().length > 0,
+      // its start does not silently disappear the moment the picker closes. Deliberately NOT gated
+      // on the set status, which is the whole point of the section sitting outside that gate.
+      importShown:
+        this.importService.run() !== null &&
+        (this.importService.isRunning() || this.importService.queue().length > 0),
+    }),
+  );
+
+  /**
+   * Whether the push scope this page would capture still describes the channel in the URL — see
+   * importScopeIsCurrent for the window this closes and for why neither isLoading() nor the set
+   * status alone would do it. Gates the copy button visibly (a silently inert button reads as a
+   * broken one) and openImportTarget itself.
+   */
+  protected readonly importScopeCurrent = computed(() =>
+    importScopeIsCurrent(this.channelName(), this.setStatusChannel(), this.totalsChannel()),
   );
 
   /** Occupied slots after the pending selection would be deleted — the dock's one number. */
@@ -1118,9 +1144,10 @@ export class UsageStatsPage {
    */
   protected openImportTarget(): void {
     const emoteSetId = this.activeEmoteSetId();
-    if (emoteSetId === null) {
-      // The header button is gated on the same signal, so this only guards against a click that
-      // outraces a channel switch.
+    if (emoteSetId === null || !this.importScopeCurrent()) {
+      // The header button is gated on both of these, so this only guards against a click that
+      // outraces a channel switch. The scope check is what keeps a mid-switch capture from pairing
+      // the new channel's name with the previous one's set id and rows — see importScopeIsCurrent.
       return;
     }
 
@@ -1363,6 +1390,9 @@ export class UsageStatsPage {
       .subscribe({
         next: (emotes) => {
           this.emotes.set(emotes);
+          // Written next to the rows themselves, never before: until this line runs, the grid still
+          // shows the previous channel's emotes (see totalsChannel's declaration).
+          this.totalsChannel.set(channelName);
           // Kept even though a keyed selection survives a plain refetch: load() also runs on a
           // channel or date-range change, where the existing selection was made against different
           // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
