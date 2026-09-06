@@ -173,9 +173,11 @@ public sealed class HarnessReportFile
     {
         ArgumentNullException.ThrowIfNull(expectedIdentity);
 
-        var firstLine = File.ReadLines(Path).FirstOrDefault()
-            ?? throw new HarnessReportIdentityMismatchException(
-                $"Die Berichtsdatei '{Path}' ist leer und trägt keinen Kopf.");
+        var completeLines = ReadCompleteLines(Path);
+        var firstLine = completeLines.Count > 0
+            ? completeLines[0]
+            : throw new HarnessReportIdentityMismatchException(
+                $"Die Berichtsdatei '{Path}' trägt keinen vollständig geschriebenen Kopf.");
 
         HarnessJsonLine? line;
         try
@@ -217,13 +219,14 @@ public sealed class HarnessReportFile
     {
         try
         {
-            var firstLine = File.ReadLines(Path).FirstOrDefault();
-            if (firstLine is null)
+            var completeLines = ReadCompleteLines(Path);
+            if (completeLines.Count == 0)
             {
                 return null;
             }
 
-            var line = JsonSerializer.Deserialize<HarnessJsonLine>(firstLine, LineOptions);
+            var line = JsonSerializer.Deserialize<HarnessJsonLine>(completeLines[0], LineOptions);
+
             return line?.Kind == HeaderKind ? line.Header : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -248,8 +251,13 @@ public sealed class HarnessReportFile
             return new HarnessReportContent(days, events);
         }
 
-        var lines = File.ReadAllLines(Path);
-        for (var i = 0; i < lines.Length; i++)
+        // A truncated last line is filtered out by ReadCompleteLines before this loop ever sees it —
+        // it is the trace of a process that died mid-write, the exact fragment RemoveDanglingTail
+        // erases on the next append, and a day that was never finished. Every line reaching the loop
+        // below is therefore complete by construction, so a deserialize failure anywhere in it is
+        // genuine corruption regardless of position.
+        var lines = ReadCompleteLines(Path);
+        for (var i = 0; i < lines.Count; i++)
         {
             var raw = lines[i];
             if (string.IsNullOrWhiteSpace(raw))
@@ -264,15 +272,6 @@ public sealed class HarnessReportFile
             }
             catch (JsonException ex)
             {
-                // The last line is the crash case: a process killed mid-write leaves an unfinished
-                // day, which is dropped because that day never happened. Anywhere else the same
-                // damage is a hole in the middle of the window, and continuing would let the final
-                // report present an incomplete run as a complete one.
-                if (i == lines.Length - 1)
-                {
-                    break;
-                }
-
                 throw new HarnessReportCorruptException(
                     $"Zeile {i + 1} der Berichtsdatei '{Path}' ist unlesbar; die Datei ist beschädigt: {ex.Message}");
             }
@@ -288,11 +287,6 @@ public sealed class HarnessReportFile
                     events.Add(line.Event);
                     break;
                 default:
-                    if (i == lines.Length - 1)
-                    {
-                        break;
-                    }
-
                     throw new HarnessReportCorruptException(
                         $"Zeile {i + 1} der Berichtsdatei '{Path}' ist unlesbar; die Datei ist beschädigt.");
             }
@@ -362,6 +356,27 @@ public sealed class HarnessReportFile
         var lastNewline = Array.LastIndexOf(bytes, (byte)'\n');
         using var stream = new FileStream(Path, FileMode.Open, FileAccess.Write);
         stream.SetLength(lastNewline + 1);
+    }
+
+    /// <summary>
+    /// The lines this file currently holds that are actually complete — terminated by <c>"\n"</c>,
+    /// the same rule <see cref="RemoveDanglingTail"/> enforces on the write side. Every reader in this
+    /// class (<see cref="ReadHeader"/>, <see cref="TryReadHeader"/>, <see cref="ReadDays"/>) goes
+    /// through here so the two sides can never disagree about what a finished record is: a line
+    /// without its trailing newline can only be the trace of a process that died mid-write, and
+    /// <see cref="RemoveDanglingTail"/> erases exactly that fragment before the next append — a reader
+    /// that had already accepted it would then report a record the file no longer contains.
+    /// </summary>
+    private static IReadOnlyList<string> ReadCompleteLines(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var completeLength = bytes.Length > 0 && bytes[^1] == (byte)'\n'
+            ? bytes.Length
+            : Array.LastIndexOf(bytes, (byte)'\n') + 1;
+
+        return completeLength == 0
+            ? []
+            : Encoding.UTF8.GetString(bytes, 0, completeLength).Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
 
     private static string Serialize(HarnessJsonLine line) => JsonSerializer.Serialize(line, LineOptions) + "\n";

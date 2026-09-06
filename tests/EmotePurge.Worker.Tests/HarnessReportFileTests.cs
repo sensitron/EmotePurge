@@ -124,6 +124,49 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void AValidButNotYetTerminatedLastDay_IsNeverReadAndNeverSilentlyLost()
+    {
+        // Regression: RemoveDanglingTail (the write side) and ReadDays (the read side) used to
+        // disagree about what a finished record is. A process that flushed the closing "}" of a day
+        // line but died before the trailing "\n" landed left valid JSON with no terminator — ReadDays
+        // accepted it (it deserializes fine), but the next AppendDay erased it via RemoveDanglingTail
+        // (it looks exactly like the crash case that method exists to undo). A caller who had already
+        // read that day into memory then reported it in a final report whose own JSONL source no
+        // longer contained it.
+        var identity = Identity();
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+        file.AppendDay(Day(new DateOnly(2026, 9, 2)));
+        file.AppendDay(Day(new DateOnly(2026, 9, 3)));
+
+        // Strip the trailing "\n" that AppendDay just wrote for the second day — valid JSON, but not
+        // yet a complete record by the file's own rule.
+        var bytes = File.ReadAllBytes(file.Path);
+        Assert.Equal((byte)'\n', bytes[^1]);
+        File.WriteAllBytes(file.Path, bytes[..^1]);
+
+        var firstRead = file.ReadDays();
+        var sawDay2Before = firstRead.Days.Any(d => d.Day == new DateOnly(2026, 9, 3));
+
+        file.AppendDay(Day(new DateOnly(2026, 9, 4)));
+
+        var secondRead = file.ReadDays();
+        var day2SurvivesOnDisk = secondRead.Days.Any(d => d.Day == new DateOnly(2026, 9, 3));
+
+        // The consistency property: a day that was read as present must still be present, or it must
+        // never have been read in the first place. A state in between — read once, gone the next
+        // time — is exactly the defect.
+        Assert.False(sawDay2Before && !day2SurvivesOnDisk);
+
+        // With the fix, the not-yet-terminated line is not accepted by the read side either, so day 1
+        // and day 4 are the only ones that ever existed as far as any reader can tell.
+        Assert.False(sawDay2Before);
+        Assert.Equal(2, secondRead.Days.Count);
+        Assert.Equal(new DateOnly(2026, 9, 2), secondRead.Days[0].Day);
+        Assert.Equal(new DateOnly(2026, 9, 4), secondRead.Days[1].Day);
+    }
+
+    [Fact]
     public void ADamagedLineInTheMiddle_IsRefusedRatherThanSilentlySkipped()
     {
         // Unlike a truncated last line, this is not an unfinished day — skipping it would leave a
