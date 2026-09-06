@@ -33,7 +33,12 @@ export function buildPurgeRunProtocol(input: {
   emoteSetId: string;
   startedAt: number;
   finishedAt: number;
-  items: readonly RunQueueItem[];
+  // Narrowed rather than plain RunQueueItem: since #70 a queue row's emoteId is optional (an
+  // import run has no internal guid for the target channel), but PurgeRunRow.emoteId is required.
+  // Demanding it here makes an unprotocollable run a compile error at the call site instead of a
+  // silently short download — and keeps `counts` below, which is derived from every item, in step
+  // with `rows`.
+  items: readonly (RunQueueItem & { emoteId: string })[];
 }): PurgeRunProtocol {
   const statuses = input.items.map((item) => item.status);
   return buildEnvelope({

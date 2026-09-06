@@ -18,14 +18,30 @@ public static class EmoteEndpoints
         // navigating, and this policy is the app's ordinary-navigation budget. UsageStatsAccessAuthorization-
         // Filter can reach 7TV for a caller who is neither admin, broadcaster nor mod — but that is a
         // cache miss on an authorization answer, not a per-request cost a request budget could bound
-        // (see the policy comments in Program.cs). The two sync-* bookkeeping endpoints override the
-        // group below, and that override is the point: they must survive a spent read budget.
+        // (see the policy comments in Program.cs). The three sync-* bookkeeping endpoints override
+        // the group below, and that override is the point: they must survive a spent read budget.
         var group = app.MapGroup("/api/channels/{channelName}/emotes")
             .RequireAuthorization()
             // Ahead of the authorization filter on purpose — see ChannelNameValidationFilter.
             .AddEndpointFilter<ChannelNameValidationFilter>()
             .AddEndpointFilter<UsageStatsAccessAuthorizationFilter>()
             .RequireRateLimiting(RateLimitPolicyNames.InteractiveRead);
+
+        // The group root: a slim, unpaginated list of the channel's currently active emotes (7TV id
+        // and name only — no usage numbers, no time range, no Emote.Id, which is channel-scoped and
+        // meaningless across channels). The import dialog uses it to answer "already in the target
+        // set?" and "name collision?" against a source channel or file; both questions are cheap
+        // enough over the whole set (~900 emotes at most) that a page of results would only get in
+        // the way. Stays on the group's InteractiveRead policy: this is an ordinary navigation read,
+        // not a bookkeeping call like the two sync-* routes below it.
+        group.MapGet("", async (
+            string channelName,
+            IEmoteListQueryService emoteListQueryService,
+            CancellationToken ct) =>
+        {
+            var emotes = await emoteListQueryService.ListActiveAsync(channelName, ct);
+            return emotes is null ? Results.NotFound() : Results.Ok(new { emotes });
+        });
 
         group.MapPost("/sync-deleted", async (
             string channelName,
@@ -95,6 +111,62 @@ public static class EmoteEndpoints
         })
         // Same reasoning as sync-deleted: the emotes are already back on 7TV, a dropped call here
         // costs the paper trail and leaves the database stale until the next sync.
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
+
+        // The import dialog's after-the-fact bookkeeping call. Unlike its two neighbors it never
+        // touches an Emote row: an import creates and un-archives nothing here, the target channel's
+        // own resync does that once it runs next (the design's "Nachlauf-Gate"). Its only reason to
+        // exist is the emotes.syncImported audit entry — without it, an import would look like an
+        // anonymous channel.resync in the log, or nothing at all under the resync cooldown.
+        group.MapPost("/sync-imported", async (
+            string channelName,
+            SyncImportedRequest request,
+            HttpContext httpContext,
+            IEmoteService emoteService,
+            CancellationToken ct) =>
+        {
+            if (request.SevenTvEmoteIds is null || request.SevenTvEmoteIds.Count == 0)
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.EmoteIdsEmpty });
+            }
+
+            // Ordinal and strictly lower-case (F3, import plan): the only caller is our own
+            // frontend, so a silent case-insensitive fallback would hide a frontend bug rather than
+            // surfacing it.
+            if (request.SourceKind is not ("channel" or "file"))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidSourceKind });
+            }
+
+            // SourceChannelName is attacker-controlled free text that ends up in jsonb forever
+            // (R6, import plan) — validated like every other inbound channel name, but only when the
+            // caller actually set one; the kind-versus-name agreement is checked just below.
+            if (request.SourceChannelName is not null && !ChannelNameValidation.IsValid(request.SourceChannelName))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidChannelName });
+            }
+
+            // The kind and the name have to agree, in both directions. Audit rows are write-once and
+            // kept forever, so an inconsistent body would leave a permanently wrong entry: "channel"
+            // without a name claims an origin it cannot name, and "file" with one gets filed under a
+            // channel origin the import never had. Rejecting beats guessing which half was meant.
+            if (string.IsNullOrWhiteSpace(request.SourceChannelName) != (request.SourceKind == "file"))
+            {
+                return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidSourceKind });
+            }
+
+            var actor = httpContext.User.TryBuildAuditActor();
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var written = await emoteService.MarkImportedAsync(
+                channelName, request.SevenTvEmoteIds, request.SourceChannelName, request.SourceKind, actor, ct);
+            return written ? Results.NoContent() : Results.NotFound();
+        })
+        // Same reasoning as its two neighbors above: the emotes were already imported on 7TV by the
+        // time this call runs, so a 429 here would only cost the paper trail, not correctness.
         .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
 
         group.MapGet("/set-warning", async (
@@ -175,3 +247,5 @@ public static class EmoteEndpoints
 internal sealed record SyncDeletedRequest(IReadOnlyList<string> EmoteIds);
 
 internal sealed record SyncRestoredRequest(IReadOnlyList<string> EmoteIds);
+
+internal sealed record SyncImportedRequest(IReadOnlyList<string> SevenTvEmoteIds, string? SourceChannelName, string SourceKind);

@@ -531,13 +531,16 @@
       "voteSessionDelete": "Abstimmung gelöscht",
       "emotesSyncDeleted": "Emotes als gelöscht markiert",
       "emotesSyncRestored": "Emotes wiederhergestellt",
+      "emotesSyncImported": "Emotes importiert",
       "userRevokeSessions": "User-Sessions widerrufen",
       "userInvalidateRoleCache": "Rollen-Cache geleert"
     },
     "details": {
       "emoteCount": "{{count}} Emotes",
       "removedEntries": "{{count}} Einträge entfernt",
-      "title": "„{{title}}“"
+      "title": "„{{title}}“",
+      "importedFromChannel": "{{count}} Emotes aus {{title}}",
+      "importedFromFile": "{{count}} Emotes aus einer Datei"
     }
   },
   "emoteCount": {
@@ -933,6 +936,7 @@
       "channel_not_joined": "Der Bot ist diesem Channel nicht beigetreten.",
       "emote_id_empty": "Kein Emote ausgewählt.",
       "invalid_vote_type": "Ungültiger Vote-Typ.",
+      "invalid_source_kind": "Ungültige Import-Quelle.",
       "channel_not_found": "Channel nicht gefunden.",
       "channel_not_on_twitch": "Diesen Channel gibt es auf Twitch nicht (mehr). Bitte prüf die Schreibweise.",
       "vote_session_not_found": "Abstimmung nicht gefunden.",

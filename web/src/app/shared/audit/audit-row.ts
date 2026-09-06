@@ -44,14 +44,25 @@ export function toAuditRows(entries: readonly AuditLogEntry[], locale: string): 
   }));
 }
 
+/**
+ * Builds the interpolation params conditionally, one per field that is actually set, rather than
+ * picking either-or: `importedFromChannel` is the one kind that carries both a count and a title
+ * at once (R1 in the #71 import plan), and the three older kinds each set exactly one of the two
+ * fields anyway, so this stays a no-op change for them.
+ */
 function renderDetail(detail: AuditLogDetail | null): RenderedDetail | null {
   const key = detail && DETAIL_KEYS[detail.kind];
   if (!detail || !key) {
     return null;
   }
 
-  return {
-    key,
-    params: detail.count !== null ? { count: detail.count } : { title: detail.text ?? '' },
-  };
+  const params: Record<string, string | number> = {};
+  if (detail.count !== null) {
+    params['count'] = detail.count;
+  }
+  if (detail.text !== null) {
+    params['title'] = detail.text;
+  }
+
+  return { key, params };
 }

@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Signal, computed, signal } from '@angular/core';
 import { TranslocoService } from '@jsverse/transloco';
 import {
+  EMPTY,
   Observable,
   Subscription,
   catchError,
@@ -45,7 +46,15 @@ const MAX_RATE_LIMIT_RETRIES = 5;
 const RATE_LIMIT_PACING_MARGIN = 1.1;
 
 export interface RunQueueEmote {
-  emoteId: string; // internal id — used for the closing bookkeeping and optimistic list updates.
+  /** Identity of this row within one run's queue — what `setStatus` matches on and what
+   *  `RunResult.doneKeys` reports. Set by the calling service: delete/restore mirror it from
+   *  `emoteId`, an import run (K2) mints its own. Must be unique within a run; the engine never
+   *  deduplicates (that is the importing parser's job). */
+  key: string;
+  /** Internal id — used for the closing bookkeeping (`RunResult.doneIds`) and optimistic list
+   *  updates. Present for delete/restore; absent for an import run, which has nothing to look up
+   *  yet (the emote does not exist in our database before the import succeeds). */
+  emoteId?: string;
   sevenTvEmoteId: string;
   name: string;
 }
@@ -69,16 +78,45 @@ export interface RunOperation {
     query: string;
     variables: Record<string, unknown>;
   };
+  /**
+   * Called once per row that ends up `failed` — after its status is set on the queue, before the
+   * run paces itself for the next row. Returning `true` aborts the run synchronously: no further
+   * request is sent, every remaining `pending`/`in-progress` row becomes `cancelled`, and
+   * `onComplete` fires exactly once, immediately — no `RUN_DELAY_MS` wait, not even when the failed
+   * row was the run's last one.
+   *
+   * `message` is the raw 7TV GQL error text when 7TV rejected the mutation itself (untranslated —
+   * matching on it is the caller's job), the already-translated text for an HTTP-layer failure
+   * (`401`/`403`/`429`/network/generic — see `describeHttpError`), and the translated give-up text
+   * once the rate-limit retries are exhausted. `httpStatus` is the HTTP status of a transport
+   * failure — including Angular's `0` for a network error — and `null` for a GQL-level rejection or
+   * a rate-limit give-up.
+   *
+   * Not called for a successful row, for a rate-limited attempt that is still being retried (only
+   * the retry's final outcome reaches this hook), or for a row that is `cancelled`. A hook that
+   * throws is treated as `false` (the run continues) and the exception is reported via
+   * `console.error` — a broken hook is a reason to log, not to leave the queue half-finished.
+   *
+   * Delete and restore leave this unset, which reproduces today's behaviour exactly: every failure
+   * is recorded and the run keeps going.
+   */
+  abortOn?(failure: { message: string; httpStatus: number | null }): boolean;
 }
 
 export interface RunResult {
+  /** Internal guids of the 'done' rows, in queue order. A row without an `emoteId` (import) does
+   *  not contribute here — see `doneKeys` for the identity that always exists. */
   doneIds: string[];
+  /** Queue keys (`RunQueueEmote.key`) of every 'done' row, in queue order. Unlike `doneIds` this
+   *  never omits a row, which is what makes it the closing identity for an import run. */
+  doneKeys: string[];
   items: RunQueueItem[];
   startedAt: number;
   finishedAt: number;
 }
 
-type RunOneResult = { success: true } | { success: false; errorMessage: string };
+type RunOneResult =
+  { success: true } | { success: false; errorMessage: string; httpStatus: number | null };
 
 /** The rate-limit numbers 7TV mirrors into a rejected mutation's `extensions.headers`. All values
  *  arrive as strings; `reset` is in seconds. Any of them can be missing. */
@@ -94,6 +132,12 @@ interface RateLimitInfo {
 class RateLimitHit {
   constructor(readonly info: RateLimitInfo) {}
 }
+
+/** Thrown internally when an `abortOn` hook asks to stop the run. Caught right after the
+ *  `concatMap` (see `start`) so it never reaches the outer subscription's `error:` callback — that
+ *  path is the pre-existing one that leaves non-terminal rows behind (see docs/DECISIONS.md). Not an
+ *  `Error` subclass, same reasoning as `RateLimitHit`: a control-flow signal, never surfaced. */
+class AbortRequested {}
 
 interface SevenTvGqlError {
   message?: string;
@@ -204,19 +248,37 @@ export class SevenTvRunEngine {
     this.runSubscription = from(emotes)
       .pipe(
         concatMap((emote) => {
-          this.setStatus(emote.emoteId, 'in-progress');
+          this.setStatus(emote.key, 'in-progress');
           return this.runWithBackoff(setId, emote, operation, token).pipe(
-            tap((result) =>
+            tap((result) => {
               this.setStatus(
-                emote.emoteId,
+                emote.key,
                 result.success ? 'done' : 'failed',
                 result.success ? undefined : result.errorMessage,
-              ),
-            ),
+              );
+              if (!result.success) {
+                // Throws when the hook asks to stop — caught right below, never by the plain
+                // `error:` callback further down.
+                this.evaluateAbort(operation, result);
+              }
+            }),
             // delayWhen, not delay: the pace is re-derived mid-run once 7TV tells us its real quota,
-            // and a plain delay() would have captured the starting value forever.
+            // and a plain delay() would have captured the starting value forever. An abort throws
+            // before this runs, so the aborting row never waits out the pacing delay either.
             delayWhen(() => timer(this.currentDelayMs)),
           );
+        }),
+        catchError((error) => {
+          if (!(error instanceof AbortRequested)) {
+            return throwError(() => error);
+          }
+          // Turn the abort into a graceful completion *here*, one level above the outer
+          // subscription: stop any rate-limit countdown, cancel the rest of the queue ourselves,
+          // then let `complete:` — not `error:` — call `finish()` exactly once, the same way every
+          // normal run ends.
+          this.endPause();
+          this.cancelRemainingRows();
+          return EMPTY;
         }),
       )
       .subscribe({
@@ -236,13 +298,7 @@ export class SevenTvRunEngine {
     this.runSubscription = null;
     // Unsubscribing already kills a pending backoff timer; this only clears its countdown display.
     this.endPause();
-    this.queue.update((items) =>
-      items.map((item) =>
-        item.status === 'pending' || item.status === 'in-progress'
-          ? { ...item, status: 'cancelled' }
-          : item,
-      ),
-    );
+    this.cancelRemainingRows();
     this.finish();
   }
 
@@ -273,9 +329,11 @@ export class SevenTvRunEngine {
       }),
       catchError(() =>
         // Only a RateLimitHit can get here — runOne turns everything else into a result value.
+        // httpStatus is null: this is a give-up after retries, not a single transport failure.
         of({
           success: false as const,
           errorMessage: this.translocoService.translate('massDelete.errors.rateLimitedGaveUp'),
+          httpStatus: null,
         }),
       ),
     );
@@ -311,9 +369,12 @@ export class SevenTvRunEngine {
             if (isRateLimitError(gqlError)) {
               throw new RateLimitHit(readRateLimitInfo(gqlError));
             }
+            // httpStatus is null: 7TV rejected the mutation itself over HTTP 200, there is no
+            // transport status to report.
             return {
               success: false,
               errorMessage: gqlError.message ?? '',
+              httpStatus: null,
             };
           }),
           catchError((error) => {
@@ -328,9 +389,12 @@ export class SevenTvRunEngine {
                 () => new RateLimitHit({ limit: null, remaining: null, reset: null, used: null }),
               );
             }
+            // httpStatus carries Angular's real status here, including 0 for a network error —
+            // describeHttpError has already consumed it for the message, this just passes it along.
             return of<RunOneResult>({
               success: false,
               errorMessage: this.describeHttpError(httpError),
+              httpStatus: httpError.status,
             });
           }),
         );
@@ -481,9 +545,46 @@ export class SevenTvRunEngine {
     });
   }
 
-  private setStatus(emoteId: string, status: RunItemStatus, errorMessage?: string): void {
+  private setStatus(key: string, status: RunItemStatus, errorMessage?: string): void {
     this.queue.update((items) =>
-      items.map((item) => (item.emoteId === emoteId ? { ...item, status, errorMessage } : item)),
+      items.map((item) => (item.key === key ? { ...item, status, errorMessage } : item)),
+    );
+  }
+
+  /** Runs the operation's `abortOn` hook, if any, for a row that just became `failed`, and throws
+   *  `AbortRequested` when it says to stop — caught one operator up (see `start`). A throwing hook
+   *  is logged and treated as `false`: a broken hook must not corrupt the run, only be visible. */
+  private evaluateAbort(
+    operation: RunOperation,
+    result: { success: false; errorMessage: string; httpStatus: number | null },
+  ): void {
+    if (!operation.abortOn) {
+      return;
+    }
+    let shouldAbort: boolean;
+    try {
+      shouldAbort = operation.abortOn({
+        message: result.errorMessage,
+        httpStatus: result.httpStatus,
+      });
+    } catch (error) {
+      console.error('[EmotePurge] 7TV run abortOn hook threw — continuing the run', error);
+      shouldAbort = false;
+    }
+    if (shouldAbort) {
+      throw new AbortRequested();
+    }
+  }
+
+  /** Shared by `cancel()` and the `abortOn` detour in `start()`: every row still `pending` or
+   *  `in-progress` becomes `cancelled`, terminal rows keep their outcome. */
+  private cancelRemainingRows(): void {
+    this.queue.update((items) =>
+      items.map((item) =>
+        item.status === 'pending' || item.status === 'in-progress'
+          ? { ...item, status: 'cancelled' }
+          : item,
+      ),
     );
   }
 
@@ -494,8 +595,12 @@ export class SevenTvRunEngine {
     this.logRunSummary();
 
     const items = this.queue();
+    const doneItems = items.filter((item) => item.status === 'done');
     const result: RunResult = {
-      doneIds: items.filter((item) => item.status === 'done').map((item) => item.emoteId),
+      doneIds: doneItems
+        .filter((item): item is RunQueueItem & { emoteId: string } => item.emoteId !== undefined)
+        .map((item) => item.emoteId),
+      doneKeys: doneItems.map((item) => item.key),
       items,
       startedAt: this.runStartedAt,
       finishedAt: Date.now(),

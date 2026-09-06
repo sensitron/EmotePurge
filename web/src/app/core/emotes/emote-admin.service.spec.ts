@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DuplicateEmoteName } from './duplicate-emote-name.model';
 import { EmoteAdminService } from './emote-admin.service';
+import { EmoteListItem } from './emote-list-item.model';
 import { EmoteSetStatus } from './emote-set-status.model';
 
 describe('EmoteAdminService', () => {
@@ -119,5 +120,62 @@ describe('EmoteAdminService', () => {
     expect(result).toHaveLength(1);
     expect(result?.[0].name).toBe('ApuDrums');
     expect(result?.[0].emotes).toHaveLength(2);
+  });
+
+  it('listEmotes GETs the emotes endpoint and unwraps the response', () => {
+    let result: EmoteListItem[] | undefined;
+    service.listEmotes('sensitron').subscribe((value) => (result = value));
+
+    const req = httpMock.expectOne('/api/channels/sensitron/emotes');
+    expect(req.request.method).toBe('GET');
+    req.flush({
+      emotes: [
+        { sevenTvEmoteId: '7tv-1', name: 'ApuDrums' },
+        { sevenTvEmoteId: '7tv-2', name: 'PogChamp' },
+      ],
+    });
+
+    expect(result).toEqual([
+      { sevenTvEmoteId: '7tv-1', name: 'ApuDrums' },
+      { sevenTvEmoteId: '7tv-2', name: 'PogChamp' },
+    ]);
+  });
+
+  it('syncImported POSTs the exact body to the sync-imported endpoint', () => {
+    service
+      .syncImported('sensitron', {
+        sevenTvEmoteIds: ['7tv-1', '7tv-2'],
+        sourceChannelName: 'other-channel',
+        sourceKind: 'channel',
+      })
+      .subscribe();
+
+    const req = httpMock.expectOne('/api/channels/sensitron/emotes/sync-imported');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({
+      sevenTvEmoteIds: ['7tv-1', '7tv-2'],
+      sourceChannelName: 'other-channel',
+      sourceKind: 'channel',
+    });
+    req.flush(null, { status: 204, statusText: 'No Content' });
+  });
+
+  it('syncImported sends an explicit null sourceChannelName for a file import', () => {
+    service
+      .syncImported('sensitron', {
+        sevenTvEmoteIds: ['7tv-1'],
+        sourceChannelName: null,
+        sourceKind: 'file',
+      })
+      .subscribe();
+
+    const req = httpMock.expectOne('/api/channels/sensitron/emotes/sync-imported');
+    expect(req.request.body).toEqual({
+      sevenTvEmoteIds: ['7tv-1'],
+      sourceChannelName: null,
+      sourceKind: 'file',
+    });
+    expect('sourceChannelName' in req.request.body).toBe(true);
+    req.flush(null, { status: 204, statusText: 'No Content' });
   });
 });

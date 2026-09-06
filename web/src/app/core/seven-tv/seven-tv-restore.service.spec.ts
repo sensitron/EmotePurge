@@ -5,8 +5,10 @@ import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
 import { firstValueFrom } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RUN_DELAY_MS, RunQueueEmote } from './seven-tv-run-engine';
+import { DELETE_DELAY_MS, DeleteQueueEmote, SevenTvDeleteService } from './seven-tv-delete.service';
+import { RUN_DELAY_MS } from './seven-tv-run-engine';
 import { SevenTvRestoreService } from './seven-tv-restore.service';
+import { SevenTvRunArbiter } from './seven-tv-run-arbiter';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
 const DE_TRANSLATIONS = {
@@ -25,7 +27,7 @@ const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
 const RESYNC_ENDPOINT = '/api/channels/sensitron/resync';
 const SYNC_RESTORED_ENDPOINT = '/api/channels/sensitron/emotes/sync-restored';
 
-const EMOTES: RunQueueEmote[] = [
+const EMOTES: DeleteQueueEmote[] = [
   { emoteId: 'internal-1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
   { emoteId: 'internal-2', sevenTvEmoteId: '7tv-2', name: 'KEKW' },
 ];
@@ -59,6 +61,19 @@ describe('SevenTvRestoreService', () => {
     httpMock.verify();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('keys every queue row by its emoteId', () => {
+    service.startRestore('set-1', 'sensitron', EMOTES);
+
+    expect(service.queue().map((item) => item.key)).toEqual(['internal-1', 'internal-2']);
+
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+    httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 2, notFoundIds: [] });
+    httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
   });
 
   it('sends the ADD mutation with set id, emote id and the alias to restore under', () => {
@@ -182,5 +197,77 @@ describe('SevenTvRestoreService', () => {
     expect(service.queue()).toEqual([]);
     expect(service.syncReport()).toBe('idle');
     expect(service.resyncTrigger()).toBe('idle');
+  });
+
+  // The arbiter (#70, Task 4) has no lock of its own — it reads this service's own isRunning
+  // signal, so these cases pin the invariants a hand-kept tryAcquire/release could not have
+  // guaranteed (see R1 in docs/DECISIONS.md): the derived state can never outlive the run it
+  // describes, not even across cancel(), a start the engine itself refused, or a hand-off to the
+  // sibling delete service once this run has ended.
+  describe('run arbiter', () => {
+    let arbiter: SevenTvRunArbiter;
+
+    beforeEach(() => {
+      arbiter = TestBed.inject(SevenTvRunArbiter);
+    });
+
+    it('reports "restore" as the active run while this service runs, then null once it ends', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+
+      expect(arbiter.activeRun()).toBe('restore');
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+
+      expect(arbiter.activeRun()).toBeNull();
+    });
+
+    it('clears the active run once cancel() ends it', () => {
+      service.startRestore('set-1', 'sensitron', EMOTES);
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+
+      service.cancel();
+
+      expect(arbiter.activeRun()).toBeNull();
+
+      // Drain the closing sync-restored/resync calls so afterEach's httpMock.verify() stays green.
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('leaves no active run when the engine refuses the start for a cleared token', () => {
+      tokenService.clearToken();
+
+      service.startRestore('set-1', 'sensitron', EMOTES);
+
+      expect(service.isRunning()).toBe(false);
+      expect(arbiter.activeRun()).toBeNull();
+    });
+
+    it('lets a delete start once this restore has ended — the cross-service invariant a held lock could not guarantee', () => {
+      const deleteService = TestBed.inject(SevenTvDeleteService);
+
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+      expect(arbiter.activeRun()).toBe('restore');
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+
+      expect(arbiter.activeRun()).toBeNull();
+
+      deleteService.startDelete('set-1', 'sensitron', [EMOTES[1]]);
+
+      expect(arbiter.activeRun()).toBe('delete');
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(DELETE_DELAY_MS);
+      httpMock
+        .expectOne('/api/channels/sensitron/emotes/sync-deleted')
+        .flush({ archivedCount: 1, notFoundIds: [] });
+    });
   });
 });

@@ -214,4 +214,76 @@ public class EmoteServiceTests(PostgresFixture fixture)
         Assert.True(await db.Emotes.Where(e => e.Id == foreignEmote.Id).Select(e => e.IsArchived).SingleAsync());
         Assert.Equal(0, await db.AuditLogEntries.CountAsync(a => a.ChannelName == "syncrestoretest_c"));
     }
+
+    [Fact]
+    public async Task MarkImportedAsync_WritesOneAuditEntry_WithCountAndSourceInTheDetails()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = new Channel { ChannelName = "syncimporttest_a", TwitchChannelId = "4201", ActiveEmoteSetId = "set-ia" };
+        db.Channels.Add(channel);
+        await db.SaveChangesAsync();
+
+        var service = new EmoteService(db);
+        var written = await service.MarkImportedAsync(
+            "syncimporttest_a", ["7tv-ia1", "7tv-ia2"], "SourceChannel", "channel", Actor);
+
+        Assert.True(written);
+        var audit = await db.AuditLogEntries.SingleAsync(a =>
+            a.ChannelName == "syncimporttest_a" && a.Action == AuditActions.EmotesSyncImported);
+        Assert.Contains("\"emoteCount\":2", audit.DetailsJson);
+        // Stored normalized (Regel 9), not as the caller typed it.
+        Assert.Contains("\"sourceChannelName\":\"sourcechannel\"", audit.DetailsJson);
+        Assert.Contains("\"sourceKind\":\"channel\"", audit.DetailsJson);
+    }
+
+    [Fact]
+    public async Task MarkImportedAsync_TouchesNoEmoteRow()
+    {
+        // The whole point of R10: this call is audit-only, the target channel's rows are unchanged
+        // until its own resync runs.
+        await using var db = fixture.CreateDbContext();
+        var channel = new Channel { ChannelName = "syncimporttest_b", TwitchChannelId = "4202", ActiveEmoteSetId = "set-ib" };
+        var emote = new Emote { ChannelId = channel.Id, Channel = channel, Name = "Untouched", SevenTvEmoteId = "7tv-ib1", ImageUrl = "https://cdn/ib1" };
+        db.Channels.Add(channel);
+        db.Emotes.Add(emote);
+        await db.SaveChangesAsync();
+
+        var service = new EmoteService(db);
+        await service.MarkImportedAsync("syncimporttest_b", ["7tv-ib1"], null, "file", Actor);
+
+        var row = await db.Emotes.Where(e => e.Id == emote.Id)
+            .Select(e => new { e.IsArchived, e.ArchivedAt })
+            .SingleAsync();
+        Assert.False(row.IsArchived);
+        Assert.Null(row.ArchivedAt);
+        Assert.Equal(1, await db.Emotes.CountAsync(e => e.ChannelId == channel.Id));
+    }
+
+    [Fact]
+    public async Task MarkImportedAsync_DeduplicatesTheReportedIds_BeforeCounting()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = new Channel { ChannelName = "syncimporttest_c", TwitchChannelId = "4203", ActiveEmoteSetId = "set-ic" };
+        db.Channels.Add(channel);
+        await db.SaveChangesAsync();
+
+        var service = new EmoteService(db);
+        await service.MarkImportedAsync("syncimporttest_c", ["7tv-ic1", "7tv-ic1"], null, "file", Actor);
+
+        var audit = await db.AuditLogEntries.SingleAsync(a =>
+            a.ChannelName == "syncimporttest_c" && a.Action == AuditActions.EmotesSyncImported);
+        Assert.Contains("\"emoteCount\":1", audit.DetailsJson);
+    }
+
+    [Fact]
+    public async Task MarkImportedAsync_ReportsUnknownChannel_AndWritesNoAuditRow()
+    {
+        await using var db = fixture.CreateDbContext();
+
+        var service = new EmoteService(db);
+        var written = await service.MarkImportedAsync("syncimporttest_unknown", ["7tv-id1"], null, "channel", Actor);
+
+        Assert.False(written);
+        Assert.Equal(0, await db.AuditLogEntries.CountAsync(a => a.ChannelName == "syncimporttest_unknown"));
+    }
 }

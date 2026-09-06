@@ -27,4 +27,14 @@ public interface IEmoteService
     // the given emotes after the browser re-added them to the 7TV set. Same idempotence and audit
     // semantics as MarkDeletedAsync, with emotes.syncRestored as the audit action.
     Task<SyncRestoredResultDto> MarkRestoredAsync(string channelName, IReadOnlyList<string> emoteIds, AuditActor actor, CancellationToken cancellationToken = default);
+
+    // Unlike MarkDeletedAsync/MarkRestoredAsync, this touches no Emote row at all: an import never
+    // creates or un-archives anything here, the target channel's own resync does that afterwards
+    // (the "Nachlauf-Gate" in the import design). This call exists purely to leave the one thing a
+    // resync cannot reconstruct — an emotes.syncImported audit entry naming how many 7TV ids were
+    // reported and where they came from. sevenTvEmoteIds is deduplicated ordinally before counting
+    // (a client that reported the same id twice did not import it twice); sourceChannelName is the
+    // normalized source channel, or null for a file import that did not carry one; sourceKind is
+    // "channel" or "file". Returns false — writing nothing — for an unknown target channel.
+    Task<bool> MarkImportedAsync(string channelName, IReadOnlyList<string> sevenTvEmoteIds, string? sourceChannelName, string sourceKind, AuditActor actor, CancellationToken cancellationToken = default);
 }

@@ -24,11 +24,13 @@ export type AuditAction =
   | 'voteSession.delete'
   | 'emotes.syncDeleted'
   | 'emotes.syncRestored'
+  | 'emotes.syncImported'
   | 'user.revokeSessions'
   | 'user.invalidateRoleCache';
 
 /** The recognized `AuditLogDetail.kind` values, mirroring `AuditLogDetail.Kinds` on the server. */
-export type AuditDetailKind = 'emoteCount' | 'removedEntries' | 'title';
+export type AuditDetailKind =
+  'emoteCount' | 'removedEntries' | 'title' | 'importedFromChannel' | 'importedFromFile';
 
 /**
  * The renderable part of an entry's details, already reduced to a closed set of shapes by the

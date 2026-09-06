@@ -43,8 +43,17 @@ const REMOVE_OPERATION: RunOperation = {
   }),
 };
 
+/** The public input contract for a delete/restore run — deliberately its own interface, not an
+ *  alias of the engine's `RunQueueEmote`: since #70 that engine type also serves import runs and
+ *  carries an optional `emoteId` and a queue `key`, neither of which a caller here should have to
+ *  think about. `startDelete`/`startRestore` mint the `key` themselves (mirrored from `emoteId` —
+ *  see R3 in docs/DECISIONS.md), so every existing call site keeps building this exact shape. */
+export interface DeleteQueueEmote {
+  emoteId: string;
+  sevenTvEmoteId: string;
+  name: string;
+}
 /** Historical aliases — the panel and both host pages import these names. */
-export type DeleteQueueEmote = RunQueueEmote;
 export type DeleteItemStatus = RunItemStatus;
 export type DeleteQueueItem = RunQueueItem;
 
@@ -82,7 +91,10 @@ export class SevenTvDeleteService {
   readonly lastRun = signal<{ setId: string; channelName: string; result: RunResult } | null>(null);
 
   startDelete(setId: string, channelName: string, emotes: DeleteQueueEmote[]): void {
-    const started = this.engine.start(setId, emotes, REMOVE_OPERATION, (result) =>
+    // key mirrors emoteId — the two services and the panels only ever build fully-populated rows,
+    // so the queue key and the internal id are the same value here (see R3 in docs/DECISIONS.md).
+    const queueEmotes: RunQueueEmote[] = emotes.map((emote) => ({ ...emote, key: emote.emoteId }));
+    const started = this.engine.start(setId, queueEmotes, REMOVE_OPERATION, (result) =>
       this.onRunComplete(setId, channelName, result),
     );
     if (!started) {
