@@ -10,10 +10,11 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
-### 2026-09-07 — Welche Fläche welches Kommando trägt (§8.7), und die Dock-Kurzform als Einzelfall auf Probe
+### 2026-09-07 — Welche Fläche welches Kommando trägt (§8.7), und die Dock-Kurzform als Einzelfall auf Widerruf
 
 **Betrifft:** `docs/UI-Designsprache.md` (§8.7 neu, Verweise in §2.5, §4.2, §7.2) ·
-`docs/designs/Aktionszeile-80-2026-09-06.md` (Entwurf, drei Prüfrunden und ein Schiedsspruch) —
+`docs/designs/Aktionszeile-80-2026-09-06.md` (Entwurf, drei Prüfrunden und ein Schiedsspruch) ·
+`web/src/app/features/usage-stats/usage-stats-page.ts` (Kommentar an `importShortcutLocked`) —
 außerdem, als von der Regel künftig regierte, in diesem Commit aber unveränderte Stellen:
 `web/src/app/features/usage-stats/usage-stats-page.html`,
 `web/src/app/shared/seven-tv/mass-delete-panel.ts`,
@@ -61,15 +62,18 @@ deshalb als „darf" im Abschnitt und nicht als „muss". Eine Klick-Ersparnis i
 nicht: die Bereichs-Radiogruppe erscheint ohnehin nur bei vorhandener Auswahl und steht dann
 bereits auf „Auswahl".
 
-**Die Kurzform ist damit ein Einzelfall auf Probe bis #68.** Erste unabhängige Beobachtung ist die
-Mod-Discord-Vorstellung: es wird nicht erklärt, wo im Dock welcher Weg sitzt, sondern beobachtet,
-ob jemand fragt. Fällt das Urteil gegen sie aus, wird sie zurückgenommen — und **das bricht keine
-Regel**, weil §8.7 sie erlaubt und nicht verlangt. Es fällt dann ein Auslöser weg, der Abschnitt
-bleibt wortgleich stehen. Umgekehrt gilt derselbe Satz als Sperre nach vorn: aus der Erlaubnis
-wird keine Gewohnheit, die künftige Kommandos automatisch in zwei Einstiege zwingt. Das Beispiel
-dafür steht in §8.7 selbst — der Export bekommt bewusst **keine** Kurzform, weil seine
-Bereichsvorgabe `visible` ist und eine Kurzform mit erzwungenem `selection` sie stillschweigend in
-ihr Gegenteil verkehrte.
+**Die Kurzform ist damit ein Einzelfall auf Widerruf.** Kein Termin und keine Instanz entscheidet
+über sie: sie bleibt, solange sie sich bewährt, und fällt das Urteil gegen sie aus, wird sie
+zurückgenommen — und **das bricht keine Regel**, weil §8.7 sie erlaubt und nicht verlangt. Es
+fällt dann ein Auslöser weg, der Abschnitt bleibt wortgleich stehen. Der Entwurf hatte dafür die
+Mod-Discord-Vorstellung (#68) als erste unabhängige Beobachtung vorgesehen — beobachten, ob jemand
+fragt, wo im Dock welcher Weg sitzt. Das ist verworfen: eine ausbleibende Frage ist kein Urteil,
+sie entsteht ebenso aus Höflichkeit wie aus einem Termin mit wenigen Anwesenden, und bis dahin
+hinge eine Entscheidung fest, die ohnehin jederzeit umkehrbar ist. Umgekehrt gilt derselbe Satz
+als Sperre nach vorn: aus der Erlaubnis wird keine Gewohnheit, die künftige Kommandos automatisch
+in zwei Einstiege zwingt. Das Beispiel dafür steht in §8.7 selbst — der Export bekommt bewusst
+**keine** Kurzform, weil seine Bereichsvorgabe `visible` ist und eine Kurzform mit erzwungenem
+`selection` sie stillschweigend in ihr Gegenteil verkehrte.
 
 **Ein Verb, zwingend — der Punkt, an dem der Schiedsspruch die Begründung korrigiert hat.** Der
 interne Prüfer sah in der Kurzform eine verkleidete Doppelung, Codex sah sie als legitim; nach
