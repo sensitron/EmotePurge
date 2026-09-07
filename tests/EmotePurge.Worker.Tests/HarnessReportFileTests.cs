@@ -324,10 +324,10 @@ public class HarnessReportFileTests : IDisposable
             0,
             0,
             0,
-            new Dictionary<string, int>(),
-            new Dictionary<string, int>(),
-            new Dictionary<string, int>(),
-            new Dictionary<string, int>(),
+            new Dictionary<string, int>(), // HumanCounts
+            new Dictionary<string, int>(), // BotCounts
+            new Dictionary<string, int>(), // SharedChatCounts
+            new Dictionary<string, int>(), // UnmatchedByReason
             0,
             [],
             0,

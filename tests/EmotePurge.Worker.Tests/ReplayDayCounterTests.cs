@@ -183,6 +183,26 @@ public class ReplayDayCounterTests
     }
 
     [Fact]
+    public void ForeignAndIndeterminateMessages_StillMoveMessageCountAndOutsideDayCount()
+    {
+        // Decision B names exactly which counters a non-own message must still move: MessageCount,
+        // OutsideDayCount, its own message counter, and SharedChatCounts — nothing else. The
+        // SharedChat branch in Count returns right after those are updated, one line away from
+        // silently dropping this if the outside-day check ever moved below the classification.
+        var counter = Counter([Emote("e1", "Kappa", Known)]);
+
+        Say(counter, "Kappa", sourceRoomId: "other-room"); // foreign, on-day
+        Say(
+            counter, "Kappa", sourceRoomId: null, hasOtherSourceMarkers: true,
+            at: Day.ToDateTime(new TimeOnly(0, 0)).AddMinutes(-1)); // indeterminate, outside the day
+
+        var line = Finish(counter);
+
+        Assert.Equal(2, line.MessageCount);
+        Assert.Equal(1, line.OutsideDayCount);
+    }
+
+    [Fact]
     public void IndeterminateMessage_CountsIntoSharedChatCountsAndItsOwnCounter()
     {
         // Shared Chat markers present, but no usable source-room-id: the room cannot be told apart.

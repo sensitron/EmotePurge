@@ -105,6 +105,18 @@ public static class ReplayGateIneligibleReasons
 /// separately built lines are never <c>Equals</c>. Only <see cref="ReplayFinalReport"/> carries a
 /// value-equality guarantee (it is the reproducibility contract of the run).
 /// </para>
+/// <para>
+/// <see cref="SharedChatMessageCount"/> and <see cref="SharedChatCounts"/> (#73) are easy to
+/// confuse and count different things. The former is a message-level control number and counts
+/// only unambiguously foreign messages (<c>MessageOrigin.Foreign</c>) — it does not move for an
+/// indeterminate one, which has its own counter, <see cref="IndeterminateMessageCount"/>. The
+/// latter is an emote-hit dictionary and receives hits from <b>both</b> foreign and indeterminate
+/// messages (<c>UsageCategory.SharedChat</c> folds the two together, D2/B2), because the rule that
+/// hides the shared-chat *component* from being counted as this channel's own use is the same for
+/// both — a hit is a hit. The control sum: <c>Σ SharedChatCounts &gt; 0</c> implies
+/// <c>SharedChatMessageCount + IndeterminateMessageCount &gt; 0</c>, never
+/// <c>SharedChatMessageCount &gt; 0</c> alone.
+/// </para>
 /// </summary>
 public sealed record ReplayDayLine(
     DateOnly Day,

@@ -378,8 +378,10 @@ public class HarnessRunnerTests : IDisposable
         // ratedDays is 2, not 3 (harness-2, #73 — the case is deliberately inverted here, see below):
         // day 2's PogChamp hit now moves SharedChatCounts instead of HumanCounts, so its human log
         // total drops to 0 while its live total (UseCount=1 plus the fixture's BotUseCount=7) stays
-        // 8 — a ratio far enough from the other two days' 1:1 that BuildDayFacts (unchanged by this
-        // task, Task 7) flags day 2 as CoverageQuestionable and excludes it from the rated set.
+        // 8. Days 1 and 3 have the same live total of 8 against a log total of 1, i.e. a ratio of
+        // 0.125 each — day 2's ratio of 0 (log=0) is far enough below that median that
+        // BuildDayFacts (unchanged by this task, Task 7) flags it as CoverageQuestionable and
+        // excludes it from the rated set.
         Assert.Contains("\"ratedDays\": 2", json);
         // Befund 2 (Abschluss-Review): these values, not just their key names, pin the mapping seams
         // between the query DTOs and the harness's own replay types. Each was verified to fail under
@@ -405,10 +407,26 @@ public class HarnessRunnerTests : IDisposable
     {
         // Regression guard for the harness-2 bump (#73): a "harness-1" file left over from before the
         // shared-chat rule counted every message as own. FindFrozenWindow's AlgorithmVersion
-        // comparison must not treat it as a resume candidate — inheriting its window and then
-        // counting the days in it under the new rule would silently mix two countings in one file.
+        // comparison must exclude it from window discovery.
+        //
+        // The leftover's own file identity can never be the file this run ends up writing to —
+        // AlgorithmVersion is itself part of the identity BuildFileName hashes, so a "harness-1"
+        // header always produces a different digest/path than this ("harness-2") run computes for
+        // itself, whether or not the version check exists. Asserting on file count or fetch count
+        // alone would therefore prove nothing (a run without a single day line to inherit fetches
+        // every day again regardless of whether a window was "inherited").
+        //
+        // What the version check actually guards is FindFrozenWindow's separate WINDOW discovery: it
+        // only borrows (WindowFrom, WindowTo) from a matching candidate, not the whole identity. So
+        // the leftover's window is set one day earlier than the window this run would freshly derive
+        // (2026-09-01..2026-09-03 instead of 2026-09-02..2026-09-04) — still a same-length, still
+        // resumable-age candidate. If the AlgorithmVersion comparison were ever removed, this stale
+        // window would be adopted and the report would carry "windowFrom": "2026-09-01"; with the
+        // check intact, the run must derive its own fresh window instead.
+        var staleWindowFrom = Day1.AddDays(-1);
+        var staleWindowTo = Day3.AddDays(-1);
         var leftoverIdentity = new HarnessRunIdentity(
-            ChannelId, TwitchChannelId, ChannelName, Day1, Day3, new DateOnly(2026, 9, 1),
+            ChannelId, TwitchChannelId, ChannelName, staleWindowFrom, staleWindowTo, new DateOnly(2026, 9, 1),
             ["19264788"], "harness-1", new string('a', 64));
         var leftover = new HarnessReportFile(Path.Combine(_directory, "leftover-harness-1.jsonl"));
         leftover.WriteHeader(new HarnessReportHeader(leftoverIdentity, DateTime.UtcNow));
@@ -421,9 +439,10 @@ public class HarnessRunnerTests : IDisposable
 
         Assert.Equal(0, await Run(3));
 
-        // The run completed with its own, freshly derived window rather than inheriting the
-        // harness-1 file's — a second file next to the untouched leftover, not an appended one, and
-        // every day fetched fresh.
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"windowFrom\": \"2026-09-02\"", json);
+        Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
+
         Assert.True(File.Exists(leftover.Path));
         Assert.Equal(2, Directory.GetFiles(_directory, "*.jsonl").Length);
         Assert.Equal(3, _archive.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IChatLogArchiveClient.ReadDayAsync)));
@@ -460,6 +479,38 @@ public class HarnessRunnerTests : IDisposable
 
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
         Assert.Contains("| Distinkte Chatter im Fenster | 1 |", markdown);
+    }
+
+    [Fact]
+    public async Task AnIndeterminateMessage_IsMappedThroughFromTheArchiveMessageToTheReport()
+    {
+        // Pins the HasOtherSourceMarkers wiring at the runner boundary, not just inside
+        // ReplayDayCounter: the callback in HarnessRunner.RunAsync must pass
+        // message.HasOtherSourceMarkers through to counter.Count(...) rather than a literal false.
+        // A hardcoded false would silently reclassify every indeterminate message as this channel's
+        // own usage — every test elsewhere in this class leaves HasOtherSourceMarkers at Message()'s
+        // default of false, so nothing but this case would catch that regression.
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day2)
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp", hasOtherSourceMarkers: true));
+            }
+            else
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp"));
+            }
+
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var jsonl = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
+        Assert.Contains("\"indeterminateMessageCount\":1", jsonl);
+
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"indeterminateMessages\": 1", json);
     }
 
     [Fact]
@@ -778,14 +829,15 @@ public class HarnessRunnerTests : IDisposable
     private static ChatLogDayResult CompleteDay(int messageCount, long bytes = 1024) =>
         new(ChatLogDayStatus.Complete, bytes, "deadbeef", messageCount, 0, 0, 200);
 
-    private static ChatLogMessage Message(DateOnly day, string userId, string text, string? sourceRoomId = null) =>
+    private static ChatLogMessage Message(
+        DateOnly day, string userId, string text, string? sourceRoomId = null, bool hasOtherSourceMarkers = false) =>
         new(
             day.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc),
             userId,
             [new KeyValuePair<string, string>("subscriber", "1")],
             TwitchChannelId,
             sourceRoomId,
-            false,
+            hasOtherSourceMarkers,
             text);
 
     private static Channel NewChannel(
