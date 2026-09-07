@@ -208,7 +208,7 @@ test.describe('push flow: picker to confirmation dialog', () => {
     await expect(
       picker.getByRole('radio', { name: /^#untrackedbuddy \(Kanal muss erst beitreten\)$/ }),
     ).toBeDisabled();
-    await expect(picker.getByRole('radio', { name: /als Datei speichern/ })).toBeVisible();
+    await expect(picker.getByRole('radio', { name: /Als Datei speichern/ })).toBeVisible();
     await expect(picker.getByText('#modonly')).toHaveCount(0);
     await expect(picker.getByText('#sensitron', { exact: true })).toHaveCount(0);
 

@@ -14,10 +14,11 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 **Betrifft:** `web/public/i18n/de.json` (`import.copyButton`, `import.dockCopyButton`,
 `restore.import.trigger`, `restore.import.title`, `restore.import.fileLabel`,
-`dateRange.presetCustom`) ·
+`dateRange.presetCustom`, `import.target.saveAsFile`) ·
 `web/public/i18n/en.json` (dieselben Schlüssel außer `restore.import.title`, s. u.) ·
 `web/src/app/shared/seven-tv/file-import-trigger.spec.ts` ·
 `web/src/app/shared/seven-tv/file-import-dialog.spec.ts` ·
+`web/src/app/shared/seven-tv/import-target-dialog.spec.ts` ·
 `web/e2e/emote-import.e2e.spec.ts` ·
 `web/e2e/audit/ui-audit.audit.ts` ·
 `web/src/app/shared/seven-tv/import-shortcut.ts` ·
@@ -87,6 +88,26 @@ musste nur der neue Wortlaut in den erklärenden Kommentar nachgezogen werden. R
 (kein Prüfwert) in `import-shortcut.ts`, `file-import-trigger-gate.ts`, `file-import-trigger.ts`,
 `usage-stats-page.html` und `ui-audit.audit.ts` wurden ebenfalls nachgezogen, damit sie keine
 Zeichenketten mehr nennen, die im Produkt nicht mehr vorkommen.
+
+**Nachtrag: die führende Ellipse von `import.target.saveAsFile`.** Der Ziel-Dialog trägt in
+seiner Radiogruppe „Zielkanal" eine letzte Option „… als Datei speichern" — hier stand die
+Ellipse **vorne**, nicht hinten, und markierte ein anderes Idiom als die vier Zeichenketten
+oben: nicht „ein Dialog folgt", sondern „kein Kanal, sondern stattdessen eine Datei". Genau
+deshalb fiel sie zunächst aus der Regel heraus. Eine unabhängige Zweitmeinung (Codex Sol) hat
+sie als Widerspruch zur app-weiten Formulierung „Knöpfe und Menüeinträge tragen keine Ellipse"
+benannt, und der Betreiber hat entschieden, die Regel wörtlich zu nehmen: **keine Ellipse auf
+Knöpfen und Auswahloptionen, auch keine führende.** `import.target.saveAsFile` wird zu „Als
+Datei speichern" (en: „Save as a file") — durch den Wegfall der vorangestellten Ellipse steht
+das Label am Zeilenanfang und wird deshalb großgeschrieben, wo es vorher mitten im (gedachten)
+Satz stand. Betroffen: `web/public/i18n/de.json` und `en.json`, die beiden Testanker in
+`import-target-dialog.spec.ts` (Übersetzungs-Stub und `toContain`-Zusicherung) sowie die
+`getByRole`-Regex in `emote-import.e2e.spec.ts` — dort war eine Anpassung nötig, nicht nur
+kosmetisch: die Regex `/als Datei speichern/` ist ohne `i`-Flag case-sensitiv, und mit der neuen
+Großschreibung „Als Datei speichern" hätte sie **nicht mehr** getroffen, kein Teilstring-Rest
+hin oder her. `docs/UI-Designsprache.md` §Ziel-Picker zitierte den alten Wortlaut ebenfalls und
+wurde nachgezogen (Ist-Stand-Prinzip). `docs/plans/Plan-72-Import-UI.md` und
+`docs/designs/Emote-Import-38-2026-09-05.md` zitieren denselben Wortlaut, bleiben aber als
+Plan-/Entwurfsdokumente unangetastet.
 
 **Was absichtlich nicht angefasst wurde.** `usageStats.presetCustom` gehört zu einem anderen
 Feature und trägt ohnehin keine Ellipse.

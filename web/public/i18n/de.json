@@ -904,7 +904,7 @@
       "title": "Emotes übertragen",
       "label": "Zielkanal",
       "notTracked": "Kanal muss erst beitreten",
-      "saveAsFile": "… als Datei speichern",
+      "saveAsFile": "Als Datei speichern",
       "none": "Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.",
       "listIncomplete": "Die Kanalliste ist gerade unvollständig — fehlende Kanäle erscheinen nach einem erneuten Laden.",
       "reauthRequired": "Deine Twitch-Anmeldung ist abgelaufen oder wurde widerrufen — Zielkanäle gibt es erst nach einem neuen Login.",

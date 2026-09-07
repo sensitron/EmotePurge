@@ -320,7 +320,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
      „Erneut laden"), sonst `listIncomplete` (info).
   3. Ziel-Radiogruppe: ein Radio je Kanal, in dem der Nutzer Broadcaster oder 7TV-Editor ist
      (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle,
-     zuletzt ein Radio „… als Datei speichern".
+     zuletzt ein Radio „Als Datei speichern".
   4. Abbrechen / Weiter.
 - **Scope-Default `selection` bricht bewusst mit dem Export-Dialog** (der dort `visible` vorbelegt):
   ein Export läuft Gefahr, unbemerkt zu **verengen**; ein Kopieren in ein fremdes 7TV-Set läuft

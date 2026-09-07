@@ -27,7 +27,7 @@ const DE_TRANSLATIONS = {
       title: 'Emotes übertragen',
       label: 'Zielkanal',
       notTracked: 'Kanal muss erst beitreten',
-      saveAsFile: '… als Datei speichern',
+      saveAsFile: 'Als Datei speichern',
       none: 'Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.',
       listIncomplete:
         'Die Kanalliste ist gerade unvollständig — fehlende Kanäle erscheinen nach einem erneuten Laden.',
@@ -431,7 +431,7 @@ describe('ImportTargetDialog', () => {
       );
       expect(inputs).toHaveLength(2);
       expect(inputs[1]).toBe(dialog.fileInput());
-      expect(dialog.text()).toContain('… als Datei speichern');
+      expect(dialog.text()).toContain('Als Datei speichern');
     });
 
     it('renders only the file option when the account has no eligible channel', async () => {
