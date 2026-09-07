@@ -111,7 +111,7 @@ public class HarnessRunnerTests : IDisposable
     {
         RespondWith(async (day, onMessage) =>
         {
-            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, "PogChamp"));
+            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, false, "PogChamp"));
             return CompleteDay(1);
         });
 
@@ -136,7 +136,7 @@ public class HarnessRunnerTests : IDisposable
         // instead of what this already-spent request actually cost.
         RespondWith(async (day, onMessage) =>
         {
-            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, "PogChamp"));
+            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, false, "PogChamp"));
             return CompleteDay(1, bytes: 900_000);
         });
 
@@ -513,7 +513,7 @@ public class HarnessRunnerTests : IDisposable
             if (day == Day2)
             {
                 await onMessage(new ChatLogMessage(
-                    day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), "chatter-1", null!, TwitchChannelId, null, "PogChamp"));
+                    day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), "chatter-1", null!, TwitchChannelId, null, false, "PogChamp"));
             }
             else
             {
@@ -713,6 +713,7 @@ public class HarnessRunnerTests : IDisposable
             [new KeyValuePair<string, string>("subscriber", "1")],
             TwitchChannelId,
             sourceRoomId,
+            false,
             text);
 
     private static Channel NewChannel(

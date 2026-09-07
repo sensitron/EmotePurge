@@ -39,3 +39,10 @@ updates:
     ignore:
       - dependency-name: "Microsoft.OpenApi"
         update-types: ["version-update:semver-major"]
+      # A TwitchLib update could type source-room-id (or one of the other Shared Chat markers)
+      # instead of leaving it in UndocumentedTags — the live extraction (SharedChatRule.FromTags)
+      # would then stop seeing it, every session message would silently count as "own", and
+      # neither the report head nor the InputHash would move to show it. Frozen for the duration
+      # of #73's measurement window; remove once the bindable #69 run has closed. See the
+      # DECISIONS.md entry "Shared Chat" (2026-09-06).
+      - dependency-name: "TwitchLib.*"
