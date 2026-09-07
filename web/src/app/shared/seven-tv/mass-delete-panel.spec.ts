@@ -15,8 +15,9 @@ import { DeletableEmote, MassDeletePanel } from './mass-delete-panel';
  * Only the row-composition contract (design doc §8.7): constructive group before the destructive
  * action, a neutral exit after it, and no leftover gap when the host page has nothing to project —
  * checked through accessible button names/order, never through the Tailwind classes that produce
- * the spacing (Regel 12). The delete/restore *flows* this panel also drives are exercised
- * elsewhere-equivalent components (`restore-panel.spec.ts`), not here.
+ * the spacing (Regel 12). The delete/restore *flows* this panel also drives are exercised in the
+ * specs of the pieces that own them (`restore-flow.spec.ts`, `file-import-trigger.spec.ts`), not
+ * here.
  */
 
 const DE_TRANSLATIONS = {

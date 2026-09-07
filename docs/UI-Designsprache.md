@@ -112,8 +112,8 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Der Sidecar lädt nie pro Zelle nach.** Seine Tagesreihe kommt aus **einem** Aufruf pro (Channel, Zeitraum) — `GET /usage-stats/series`. Eine Fläche, die am Mauszeiger hängt, darf keine Requests erzeugen; das Durchfahren eines Bandes wäre sonst ein Lastprofil.
 - **`.app-dock` erscheint nur, solange es etwas zu tun oder zu lesen gibt:** eine Auswahl, oder ein 7TV-Lauf (Delete, Restore, Import), der läuft oder gerade fertig geworden ist — dessen Zusammenfassung trägt das Protokoll zum Herunterladen und muss den letzten Löschvorgang überleben. Eine dauerhaft geparkte Aktionsleiste ist ein Bedienelement, an dem der Erstbesuch vorbeilesen muss. Der Dock trägt als einzige Fläche der App eine Linie in der Leitfarbe — sie markiert die Grenze eines lebenden, umkehrbaren Zustands. Welche Kommandos darin stehen dürfen und welche in den Seitenkopf gehören, regelt §8.7.
 - **Das aktive Emote-Set gated nur die Markier-Hälfte des Docks, nicht den Dock selbst.** Zählzeile, Mass-Delete-Panel und der Stimmzettel-Knopf handeln vom Set *dieses* Kanals und brauchen eines; die Import-Sektion zeigt einen Lauf in ein **fremdes** Set (§7.2) und ist deshalb außerhalb dieses Gates montiert. Andernfalls verschwände auf einer Usage-Seite ohne aktives Set ein schreibender Lauf samt seinem Abbrechen-Knopf, während er weiterläuft.
-- **Selektion, Dock und der 20-px-Verlaufs-Trigger sind zusätzlich hinter `PointerModeService.isCoarse` gegated — kein 7TV-Schreibzugriff ohne Maus.** Das 7TV-Schreib-Token lässt sich nur aus den Entwicklertools auf 7tv.app kopieren, die ein Telefon nicht hat; das Gate ist deshalb die Zeigerart, nicht die Breite (`(pointer: coarse)`, nicht `any-pointer` — ein Desktop mit angestecktem Touchscreen behält alles, weil DevTools bleiben). Auf `coarse` markiert ein Klick auf die Zelle nichts mehr, sondern öffnet direkt den Drilldown-Dialog (§7.1), und Mass-Delete- wie Restore-Panel rendern gar nicht erst.
-- **Was auf `coarse` wegfällt, wird nicht erklärt — was auf `coarse` ins Leere zeigt, schon.** Dock, Mass-Delete- und Restore-Panel verschwinden kommentarlos: visuell fehlt nichts, also gibt es nichts zu sagen. Ein *Verweis* auf eine dieser Fähigkeiten ist der andere Fall — er bleibt sichtbar stehen und verspricht etwas, das sein Ziel dort nicht einlösen kann. Einziges Beispiel bisher: der Link „Nur bestimmte Emotes zur Wahl stellen?" unter dem Erstellen-Formular der Voting-Liste, der auf coarse einem Satz weicht (`voting.list.wholeSetHintDesktopOnly`). Rein visuelles Umschalten dieser Art gehört ins Variantenpaar `pointer-coarse:hidden` / `hidden pointer-coarse:inline`, nicht in `PointerModeService` — der Dienst ist für Entscheidungen, die der Code trifft.
+- **Selektion, Dock und der 20-px-Verlaufs-Trigger sind zusätzlich hinter `PointerModeService.isCoarse` gegated — kein 7TV-Schreibzugriff ohne Maus.** Das 7TV-Schreib-Token lässt sich nur aus den Entwicklertools auf 7tv.app kopieren, die ein Telefon nicht hat; das Gate ist deshalb die Zeigerart, nicht die Breite (`(pointer: coarse)`, nicht `any-pointer` — ein Desktop mit angestecktem Touchscreen behält alles, weil DevTools bleiben). Auf `coarse` markiert ein Klick auf die Zelle nichts mehr, sondern öffnet direkt den Drilldown-Dialog (§7.1), das Mass-Delete-Panel rendert gar nicht erst, und im Seitenkopf der Nutzungsseite verschwindet mit demselben Gate der ganze `@if`-Block der 7TV-Schreibwege — der Übertragen-Knopf **und** der Datei-Einspiel-Trigger (§7.3).
+- **Was auf `coarse` wegfällt, wird nicht erklärt — was auf `coarse` ins Leere zeigt, schon.** Dock, Mass-Delete-Panel und die beiden 7TV-Schreibwege des Seitenkopfs verschwinden kommentarlos: visuell fehlt nichts, also gibt es nichts zu sagen. Ein *Verweis* auf eine dieser Fähigkeiten ist der andere Fall — er bleibt sichtbar stehen und verspricht etwas, das sein Ziel dort nicht einlösen kann. Einziges Beispiel bisher: der Link „Nur bestimmte Emotes zur Wahl stellen?" unter dem Erstellen-Formular der Voting-Liste, der auf coarse einem Satz weicht (`voting.list.wholeSetHintDesktopOnly`). Rein visuelles Umschalten dieser Art gehört ins Variantenpaar `pointer-coarse:hidden` / `hidden pointer-coarse:inline`, nicht in `PointerModeService` — der Dienst ist für Entscheidungen, die der Code trifft.
 - **Tastatur ist gleichwertig, nicht nachgereicht:** Roving-Tabindex über den Bogen, Pfeile bewegen, Leertaste markiert, Enter öffnet den Verlauf, Umschalt+Klick überträgt den Zustand der zuletzt angeklickten Zelle auf einen ganzen Bereich — er markiert ihn also, oder hebt die Markierung wieder auf, wenn der letzte Klick eine aufgehoben hat. Eine *Gruppen*aktion darf das nicht: „alle markieren" bleibt rein additiv, weil ein zweiter Druck sonst eine handgebaute Auswahl in einem Klick vernichtet. Der Hinweistext dazu ist übersetzt und steht sichtbar an der Seite — eine Tastaturbedienung, die niemand erwähnt, existiert für die meisten nicht.
 - **Hover-Flächen tragen keine Klickziele.** Was nur beim Überfahren erscheint, ist per Touch nicht erreichbar; jede Aktion des Bogens hat einen Weg ohne Mauszeiger.
 - **Referenz:** `web/src/app/shared/emotes/usage-bands.ts` (+ `usage-bands.spec.ts`), `usage-series.ts`, `usage-sparkline.ts`, `web/src/styles.css` (`.app-sprite-cell*`, `.app-dock`), `web/src/app/features/usage-stats/usage-stats-page.html`; Flow-Test `web/e2e/usage-atlas.e2e.spec.ts`.
@@ -180,8 +180,8 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
 - **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen. Auf welcher Fläche der Auslöser sitzt und an welcher Stelle einer Aktionszeile, sagt §8.7 — diese Stufung sagt nur, wie er aussieht.
 - **Schwere rechtfertigt keine Ausnahme von der Wiederholungsregel.** Auch Purge und Session-Revoke laufen in den Admin-Listen als `danger-quiet` — je länger die Liste, desto schlimmer die Farbleiter. Abgesichert wird eine unwiderrufliche Aktion durch die typisierte Namensbestätigung, nicht durch einen roten Rahmen, den man fünfundzwanzigmal untereinander sieht.
-- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „Übertragen…" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) — gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports.
-- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, Header-Button `web/src/app/features/usage-stats/usage-stats-page.html`; in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
+- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „Übertragen…" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) und seit #91 für den Datei-Einspiel-Trigger daneben (`shared/seven-tv/file-import-trigger-gate.ts`) — beide gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports. Der Trigger erbt dabei nicht alle Sperren seines Nachbarn: `atlasOrder().length === 0` gilt für ihn bewusst nicht, weil die Datei ihre Zeilen selbst mitbringt (§7.3).
+- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, Header-Buttons `web/src/app/features/usage-stats/usage-stats-page.html` und `web/src/app/shared/seven-tv/file-import-trigger.ts` (+ `file-import-trigger-gate.ts`); in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
 
@@ -362,6 +362,47 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Referenz:** `web/src/app/shared/seven-tv/import-target-dialog.ts`, `import-confirm-dialog.ts`,
   `import-target-options.ts`, `import-preview.ts`, `slot-projection.ts`,
   `web/src/app/core/emotes/import-target-loader.ts`; Aufrufer `web/src/app/shared/seven-tv/import-flow.ts`.
+
+### 7.3 Einspiel-Dialog (#91)
+
+- **Was gilt:** Der Datei-Weg der Nutzungsseite — ein Purge-Protokoll wiederherstellen, eine
+  Emote-Liste oder einen Nutzungs-Export in **diesen** Kanal kopieren — beginnt im Seitenkopf mit
+  dem Trigger `<app-file-import-trigger>` (§8.7 regelt die Fläche, §4.2 die Sperren) und läuft über
+  **einen** Dialog: `FileImportDialog` (`shared/seven-tv/file-import-dialog.ts`,
+  `openFileImportDialog`). Er **liest und prüft** die Datei — mehr nicht.
+- **Zeilenreihenfolge im Body (Vertrag):**
+  1. Überschrift (`dialogTitle`, damit `ariaLabelledBy` greift — s. §7 „Benennung").
+  2. Die **Liste der drei zulässigen Dateisorten**, je ein eigener Listeneintrag mit dem Zusatz
+     „als JSON": Purge-Protokoll (Wiederherstellen) · Emote-Liste (Kopieren) · Nutzungs-Export
+     (Kopieren). Sie steht **über** dem Bedienelement, das sie erklärt, und ist eine Liste und kein
+     Satz mit Kommas — die deutschen Fassungen brächen sonst auf 360 px an willkürlicher Stelle
+     (§12).
+  3. Das **Datei-Bedienelement**: sichtbar beschrifteter Knopf plus verstecktes
+     `<input type="file" accept="application/json">`. Der Knopf ist das **erste fokussierbare
+     Element** des Dialogs, damit der `first-tabbable`-Default des CDK von selbst darauf landet —
+     kein `cdkFocusInitial`. §7 „Abbrechen steht immer zuerst" gilt für die Aktionszeile und bleibt
+     davon unberührt.
+  4. Das Fehlerbanner (`NoticeBanner` `error`) — nur im Fehlerfall.
+  5. Aktionszeile mit **nur** Abbrechen. Es gibt keinen „Weiter"-Knopf: die Dateiauswahl selbst ist
+     der Vollzug.
+- **Ergebnisvertrag:** Der Dialog schließt bei Erfolg mit einem diskriminierten Ergebnis — „Restore"
+  mit den restaurierbaren Zeilen des Protokolls oder „Import" mit der `ImportSource` —, bei
+  Abbrechen/Escape/Backdrop mit `undefined`. Er startet **keinen** Lauf, wählt **kein** Importziel
+  und öffnet **keinen** weiteren Dialog. Im Fehlerfall bleibt er offen und zeigt das Banner; jeder
+  neue Versuch setzt es zurück, und das Input wird nach jeder Auswahl geleert, damit dieselbe
+  korrigierte Datei erneut ein `change` auslöst.
+- **Die Ketten laufen nacheinander, nicht ineinander.** Erst schließt der Einspiel-Dialog mit seinem
+  Ergebnis, dann startet der Auslöser die passende Kette — `startRestoreFlow` (Token → Bestätigung)
+  oder `startImportFlow` (Bestätigung → Token, §7.2). Kein Dialog dieser Ketten wird aus einem
+  offenen Dialog heraus geöffnet; der Ein-Dialog-Vertrag aus §7 bleibt gewahrt und beide
+  Reihenfolgen bleiben, wie sie sind.
+- **Das File-Input gehört in den Dialog, nicht hinter ihn.** Ein programmatischer Klick auf ein
+  `<input type="file">` **nach** dem `closed` eines CDK-Dialogs läuft außerhalb der Nutzergeste; der
+  Browser öffnet das Dateifenster dann stumm nicht. Innerhalb des offenen Dialogs ist der Klick
+  (oder Enter/Leertaste auf dem Knopf) eine frische Aktivierung.
+- **Referenz:** `web/src/app/shared/seven-tv/file-import-dialog.ts`, `file-import-trigger.ts`,
+  `file-import-trigger-gate.ts`, `restore-flow.ts`; Parser `shared/export/read-envelope.ts`,
+  `purge-run-export.ts`, `import-source-parser.ts`.
 
 ## 8. Navigation
 

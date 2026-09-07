@@ -1,4 +1,4 @@
-import { Page, expect, test } from '@playwright/test';
+import { Locator, Page, expect, test } from '@playwright/test';
 
 import {
   AUTH_USER,
@@ -128,6 +128,37 @@ const copyButton = (page: Page) => page.getByRole('button', { name: 'Übertragen
 // scope radiogroup in the dialog it opens, count baked into the accessible name.
 const dockCopyButton = (page: Page, count: number) =>
   page.getByRole('button', { name: `Übertragen… (${count})`, exact: true });
+
+/**
+ * Opens the file-import dialog (#91) via the header trigger and returns the file input sitting
+ * inside it. Locale-independent by position, same reasoning as `ui-audit.audit.ts:858-864` for its
+ * neighbour: the trigger's label is translated and shares no word with the other header buttons, so
+ * this goes by position instead — `main header button` `.nth(2)`, after `.nth(0)` (Exportieren) and
+ * `.nth(1)` (Übertragen…). Scoped to `main` because the app shell has its own top-level `<header>`
+ * (the account menu) that an unscoped `header button` would count first.
+ */
+async function openFileImportDialog(page: Page): Promise<Locator> {
+  const dialog = page.getByRole('dialog');
+  await page.locator('main header button').nth(2).click();
+  await expect(dialog.locator('#app-dialog-title')).toHaveText('Datei einspielen');
+  return dialog.locator('input[type="file"]');
+}
+
+/**
+ * Waits past the still-open file-import dialog (plan §1.1, task-5 "Falle 1"): after
+ * `setInputFiles`, that dialog stays open until `file.text()` resolves, only then closing and
+ * handing off to the confirm dialog. A bare wait on `#app-dialog-title` resolves immediately
+ * against the file-import dialog's OWN title (still attached at that instant) rather than waiting
+ * for the confirm dialog to replace it — the following click on "Abbrechen" would then land on the
+ * wrong dialog, and the failure would look like a timing flake. `toHaveText` instead polls until the
+ * title reads as the import-confirm dialog's own ("N Emote(s) nach <channel> kopieren?"), so it
+ * survives the transition between the two dialogs.
+ */
+async function waitForImportConfirmDialog(page: Page): Promise<Locator> {
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('#app-dialog-title')).toHaveText(/kopieren\?$/);
+  return dialog;
+}
 
 test.describe('push flow: picker to confirmation dialog', () => {
   test('a channel target shows origin, target, an already-present row and a name collision', async ({
@@ -333,9 +364,10 @@ test.describe('push flow: picker to confirmation dialog', () => {
 
 test.describe('push flow: the file path', () => {
   // Both an emote-list and a usage export lead into the same confirmation dialog, uploaded through
-  // the restore panel's file input (not the picker's "save as file" option) — the panel dispatches
-  // on the envelope's `kind` (RestorePanel.onFileSelected). The target here is always the CURRENT
-  // channel: the restore panel always imports into `channelName()`.
+  // the file-import dialog opened from the header trigger (not the picker's "save as file" option)
+  // — the dialog dispatches on the envelope's `kind` (FileImportDialog.onFileSelected) and, on
+  // success, closes and hands the result to the trigger. The target here is always the CURRENT
+  // channel: FileImportTrigger.openDialog always imports into the `channelName` it was opened with.
   test('an emote-list file and a usage-export file both reach the confirm dialog', async ({
     page,
   }) => {
@@ -356,10 +388,9 @@ test.describe('push flow: the file path', () => {
 
     await gotoUsageStats(page, SOURCE_CHANNEL);
 
-    const fileInput = page.locator('input[type="file"]');
-
     // File 1: an emote-list export from THIS channel, both rows already in the target — both
     // sameChannelFile and nothingToAdd apply, and the execute button is locked.
+    let fileInput = await openFileImportDialog(page);
     await fileInput.setInputFiles({
       name: 'emotepurge_sensitron_emote-list_2026-09-01.json',
       mimeType: 'application/json',
@@ -380,8 +411,7 @@ test.describe('push flow: the file path', () => {
         'utf-8',
       ),
     });
-    let dialog = page.getByRole('dialog');
-    await dialog.locator('#app-dialog-title').waitFor();
+    let dialog = await waitForImportConfirmDialog(page);
     await expect(dialog.getByText('Diese Liste stammt aus diesem Kanal.')).toBeVisible();
     await expect(dialog.getByText('Alle 2 Emotes sind bereits im Zielset.')).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Kopieren' })).toBeDisabled();
@@ -390,6 +420,7 @@ test.describe('push flow: the file path', () => {
 
     // File 2: a usage export with no `exportedAt` at all — the date reads as unknown rather than
     // crashing or silently defaulting to "now".
+    fileInput = await openFileImportDialog(page);
     await fileInput.setInputFiles({
       name: 'emotepurge_sensitron_usage_2026-08-01_2026-08-30.json',
       mimeType: 'application/json',
@@ -422,8 +453,7 @@ test.describe('push flow: the file path', () => {
         'utf-8',
       ),
     });
-    dialog = page.getByRole('dialog');
-    await dialog.locator('#app-dialog-title').waitFor();
+    dialog = await waitForImportConfirmDialog(page);
     await expect(dialog.getByText('Export aus sensitron, Datum unbekannt')).toBeVisible();
     await dialog.getByRole('button', { name: 'Abbrechen' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -433,6 +463,7 @@ test.describe('push flow: the file path', () => {
     // measured against the claimed count (5 - 3 structurally valid = 2, R6/2.7), independent of
     // duplicatesCollapsed (1, from the dedup that runs after validity filtering) — and the
     // contract (T5) puts the discarded-rows line before the duplicates-collapsed line.
+    fileInput = await openFileImportDialog(page);
     await fileInput.setInputFiles({
       name: 'emotepurge_sensitron_emote-list_2026-09-02.json',
       mimeType: 'application/json',
@@ -455,8 +486,7 @@ test.describe('push flow: the file path', () => {
         'utf-8',
       ),
     });
-    dialog = page.getByRole('dialog');
-    await dialog.locator('#app-dialog-title').waitFor();
+    dialog = await waitForImportConfirmDialog(page);
     await expect(dialog.getByText('2 ungültige Zeilen in der Quelle verworfen.')).toBeVisible();
     await expect(dialog.getByText('1 doppelte Zeile in der Quelle zusammengefasst.')).toBeVisible();
     const dialogText = await dialog.innerText();
@@ -465,6 +495,55 @@ test.describe('push flow: the file path', () => {
       dialogText.indexOf('ungültige Zeilen in der Quelle verworfen'),
     );
     await expect(dialog.getByRole('button', { name: 'Kopieren' })).toBeEnabled();
+  });
+});
+
+test.describe('file import dialog: shell contract', () => {
+  test('opening the dialog focuses the file control, not the cancel button', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    const fileInput = await openFileImportDialog(page);
+
+    // Plan §1.1 / design-language §7.3, open question 6: the file control is deliberately the
+    // dialog's first focusable element, so the CDK's own `first-tabbable` default lands there with
+    // no explicit `cdkFocusInitial`. A hidden `<input type="file">` cannot itself receive focus, so
+    // the visible button in front of it is what the CDK actually focuses.
+    await expect(page.getByRole('button', { name: 'Datei auswählen…' })).toBeFocused();
+    // The input stays reachable through that button; asserted here so the two locators are not
+    // silently talking about different elements.
+    await expect(fileInput).toBeAttached();
+  });
+
+  test('lists the three acceptable file sorts before the file control', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    await openFileImportDialog(page);
+
+    // §7.3's body-order contract (plan §1.1: heading, the three file-sort list items, THEN the file
+    // control): the first list entry's own text must precede the file control's label in the
+    // rendered DOM order, same pattern as the discardedRows/duplicatesCollapsed ordering check above
+    // (`:492-496`).
+    const dialogText = await page.getByRole('dialog').innerText();
+    const sortsIndex = dialogText.indexOf('Purge-Protokoll (Wiederherstellen) als JSON');
+    const controlIndex = dialogText.indexOf('Datei auswählen…');
+    expect(sortsIndex).toBeGreaterThan(-1);
+    expect(controlIndex).toBeGreaterThan(sortsIndex);
   });
 });
 
@@ -482,10 +561,13 @@ test.describe('push flow: rejection', () => {
 
     await gotoUsageStats(page, SOURCE_CHANNEL);
 
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = await openFileImportDialog(page);
+    const dialog = page.getByRole('dialog');
 
     // A voting export: no import path exists for it at all — parseImportSource's votingExport
-    // branch runs before the emote-list/usage dispatch even applies.
+    // branch runs before the emote-list/usage dispatch even applies. Unlike the success path
+    // (`push flow: the file path`), a rejection keeps the file-import dialog OPEN with the error as
+    // a banner inside it — there is exactly one dialog throughout, never zero.
     await fileInput.setInputFiles({
       name: 'emotepurge_sensitron_voting_2026-08-01.json',
       mimeType: 'application/json',
@@ -503,14 +585,15 @@ test.describe('push flow: rejection', () => {
         'utf-8',
       ),
     });
-    await expect(page.getByRole('alert')).toContainText(
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(dialog.getByRole('alert')).toContainText(
       'Das ist ein Export einer Abstimmung, kein Purge-Protokoll.',
     );
-    await expect(page.getByRole('dialog')).toHaveCount(0);
 
     // Regression guard for the restore branch (unchanged by #72): a purge protocol from THIS
     // channel but a DIFFERENT (now inactive) emote set is rejected as wrongSet, not silently routed
-    // through the new import path.
+    // through the new import path. Still the SAME dialog — a second failure does not need (and does
+    // not get) a fresh open.
     await fileInput.setInputFiles({
       name: 'emotepurge_sensitron_purge_202608011200.json',
       mimeType: 'application/json',
@@ -541,10 +624,10 @@ test.describe('push flow: rejection', () => {
         'utf-8',
       ),
     });
-    await expect(page.getByRole('alert')).toContainText(
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(dialog.getByRole('alert')).toContainText(
       'Das Protokoll gehört zu einem anderen Emote-Set — der Channel hat das aktive Set gewechselt.',
     );
-    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
 

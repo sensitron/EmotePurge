@@ -821,9 +821,14 @@
       "failed": "Synchronisierung konnte nicht angestoßen werden — der periodische Sync holt es innerhalb einer Minute nach."
     },
     "import": {
-      "trigger": "Datei importieren",
-      "hint": "Ein Purge-Protokoll (Wiederherstellen), eine Emote-Liste oder einen Nutzungs-Export (Kopieren) als JSON einspielen.",
-      "fileLabel": "Protokoll, Emote-Liste oder Nutzungs-Export auswählen",
+      "trigger": "Datei einspielen…",
+      "title": "Datei einspielen",
+      "sorts": {
+        "purgeRun": "Purge-Protokoll (Wiederherstellen) als JSON",
+        "emoteList": "Emote-Liste (Kopieren) als JSON",
+        "usageExport": "Nutzungs-Export (Kopieren) als JSON"
+      },
+      "fileLabel": "Datei auswählen…",
       "errors": {
         "notJson": "Die Datei ist kein gültiges JSON.",
         "csvInsteadOfJson": "Das ist die CSV-Fassung. Der Import braucht dieselbe Datei als JSON — beim Export das Format JSON wählen.",
