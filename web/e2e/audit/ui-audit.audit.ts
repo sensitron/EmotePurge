@@ -1281,6 +1281,33 @@ for (const theme of THEMES) {
         const contentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
         await page.setViewportSize({ width: vp.width, height: Math.max(vp.height, contentHeight) });
         await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: false });
+
+        // A viewport-sized screenshot is exactly what leaves emulation intact (see above), but it
+        // is also, by construction, only `vp.width` wide -- horizontally overflowing content is
+        // simply outside the captured frame, not composited in and cropped. That is the one thing
+        // this audit exists to catch (collectMetrics()'s `horizontalOverflowPx`, below), so silently
+        // clipping it out of the screenshot would hide the defect from anyone reading the images.
+        // `fullPage: true` would show it, but re-triggers the composition-path emulation reset this
+        // fix works around, and a raw CDP `Page.captureScreenshot({ captureBeyondViewport: true })`
+        // does too -- the reset lives in Chromium's capture-beyond-viewport path itself, not in
+        // Playwright's wrapper, so there is no capture mode that gets both in one shot (measured,
+        // not assumed -- see the comment above `assertEmulatedState()`'s CDP note).
+        //
+        // Scrolling, by contrast, does not touch emulation at all -- it is plain page state, not a
+        // capture mode -- so a second viewport-sized screenshot taken after scrolling to the
+        // horizontal end reveals the clipped-off content without the trade-off. Only take it when
+        // there is actually something past the right edge, so a clean scenario does not grow a
+        // second, identical-looking image for no reason.
+        const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+        if (scrollWidth > vp.width) {
+          await page.evaluate((w) => window.scrollTo(w, 0), scrollWidth);
+          await page.screenshot({
+            path: path.join(OUT, 'shots', `${base}--right.png`),
+            fullPage: false,
+          });
+          await page.evaluate(() => window.scrollTo(0, 0));
+        }
+
         await page.setViewportSize({ width: vp.width, height: vp.height });
 
         // The gate that actually matters: collectMetrics() below is what the audit's pass/fail

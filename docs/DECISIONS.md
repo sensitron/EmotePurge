@@ -57,11 +57,26 @@ Farbe allein von `@media (pointer: coarse)` abhängt — im Bild trägt er die F
 `matchMedia` unmittelbar davor grob meldete. Damit war **auch jeder bisherige Screenshot** im
 falschen Zustand, und die naheliegende Reparatur (Metriken vor dem Bild erheben) hätte das Bild nicht
 geheilt. Über Playwright-Kontexte (`hasTouch`/`isMobile`) statt CDP tritt derselbe Verlust auf — der
-Weg ist deshalb geprüft und verworfen, nicht übersehen. Stattdessen wird der Viewport kurz auf
+Weg ist deshalb geprüft und verworfen, nicht übersehen. **Auch ein roher CDP-Aufruf
+`Page.captureScreenshot({ captureBeyondViewport: true })` verliert sie** — der Reset sitzt damit in
+Chromiums Aufnahmepfad selbst, nicht in Playwrights Wiederherstellungsschritt, wie zuerst vermutet.
+Das ist der Grund, diese Sackgasse hier festzuhalten: die Vermutung „Playwrights Wrapper ist schuld"
+ist naheliegend, falsch, und kostet einen halben Tag. Stattdessen wird der Viewport kurz auf
 `document.documentElement.scrollHeight` vergrößert, normal aufgenommen und wieder verkleinert.
 **Gegenprobe gegen ein Artefakt daraus:** von den 34 veränderten Szenarien liegt **keines** außerhalb
 von `mobile` — hätte das Vergrößern etwa Virtual-Scrolling-Zeilen nachgerendert, wären Tablet und
 Desktop mitgewandert.
+
+**Der Preis dafür ist ein zweites Bild, und den zahlt der Harness bewusst.** Eine viewportgroße
+Aufnahme ist per Konstruktion nur `vp.width` breit — horizontal überlaufender Inhalt liegt außerhalb
+des Rahmens, und das ist genau der Befund, den der Audit sucht. Von Codex Sol als P2 gemeldet, am
+Code bestätigt. Da sich „richtiger Zeigerzustand" und „Aufnahme über den Viewport hinaus" in diesem
+Chromium ausschließen, löst es ein dritter Weg: **Scrollen** ist Seitenzustand, kein Aufnahmemodus,
+und lässt die Emulation unangetastet. Bei `scrollWidth > vp.width` entsteht deshalb zusätzlich
+`<basis>--right.png`, aufgenommen am rechten Ende — der Überlauf wird sichtbar, und zwar im
+korrekten Zeigerzustand, was weder `fullPage` noch der CDP-Weg leisten. Ohne Überlauf entsteht kein
+zweites Bild. **Gegenprobe:** die Metriken sind vor und nach dieser Ergänzung über alle 426
+Szenarien identisch — das Zusatzbild verschiebt nichts, es zeigt nur.
 
 **Die Selbstprüfung steht jetzt dort, wo sie den Fehler fangen kann:** unmittelbar **vor**
 `collectMetrics()`. Die Prüfung vor der Navigation bleibt als billiger Test, ob die CDP-Aufrufe
