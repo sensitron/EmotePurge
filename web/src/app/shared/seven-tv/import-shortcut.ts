@@ -5,7 +5,7 @@
  *
  * The shortcut forces `scope: 'selection'` (design doc §8.7, "erzwungener Bereich"): there is no
  * radiogroup in the target dialog to fall back to `visible`, so an empty selection is nothing to
- * act on. Beyond that it inherits every lock the header button ("Übertragen…") already
+ * act on. Beyond that it inherits every lock the header button ("Übertragen") already
  * carries: `importScopeCurrent()` — a capture mid-channel-switch would copy channel A's emotes out
  * of A's set under B's name, see `importScopeIsCurrent` — and `SevenTvRunArbiter.activeRun()`, any
  * of the three 7TV-writing runs, not just this button's own kind.

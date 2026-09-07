@@ -26,7 +26,7 @@ import { FileImportTrigger } from './file-import-trigger';
  */
 
 // Only the key this trigger itself renders.
-const DE_TRANSLATIONS = { restore: { import: { trigger: 'Datei einspielen…' } } };
+const DE_TRANSLATIONS = { restore: { import: { trigger: 'Importieren' } } };
 
 const CURRENT_CHANNEL = 'somechannel';
 const CURRENT_SET = 'set-current';

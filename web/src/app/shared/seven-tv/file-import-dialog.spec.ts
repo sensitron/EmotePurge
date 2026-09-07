@@ -18,13 +18,13 @@ const DE_TRANSLATIONS = {
   common: { cancel: 'Abbrechen' },
   restore: {
     import: {
-      title: 'Datei einspielen',
+      title: 'Datei importieren',
       sorts: {
         purgeRun: 'Purge-Protokoll (Wiederherstellen) als JSON',
         emoteList: 'Emote-Liste (Kopieren) als JSON',
         usageExport: 'Nutzungs-Export (Kopieren) als JSON',
       },
-      fileLabel: 'Datei auswählen…',
+      fileLabel: 'Datei auswählen',
       errors: {
         notJson: 'Die Datei ist kein gültiges JSON.',
         csvInsteadOfJson:
@@ -366,14 +366,14 @@ describe('FileImportDialog', () => {
     it('gives the dialog an accessible name via the DialogShell heading', () => {
       const dialog = render();
 
-      expect(dialog.heading()?.textContent?.trim()).toBe('Datei einspielen');
+      expect(dialog.heading()?.textContent?.trim()).toBe('Datei importieren');
     });
 
     it('gives the file control an accessible name and makes it the first focusable element', () => {
       const dialog = render();
 
       const picker = dialog.pickerButton();
-      expect(picker.textContent?.trim()).toBe('Datei auswählen…');
+      expect(picker.textContent?.trim()).toBe('Datei auswählen');
       expect(dialog.focusableInOrder()[0]).toBe(picker);
     });
 

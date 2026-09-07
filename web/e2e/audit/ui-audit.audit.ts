@@ -855,10 +855,10 @@ const SCENARIOS: Scenario[] = [
       ]);
     },
     afterLoad: async (page) => {
-      // Locale-independent handle: the visible label is translated ("Übertragen…" / "Transfer…")
+      // Locale-independent handle: the visible label is translated ("Übertragen" / "Transfer")
       // with no shared word and no aria-label of its own, unlike the export trigger next
       // to it — so this goes by position in the header action row instead (export, then import,
-      // then the file-import trigger "Datei einspielen…" / "Import file…" (#91, `.nth(2)` below),
+      // then the file-import trigger "Importieren" / "Import" (#91, `.nth(2)` below),
       // then refresh; see usage-stats-page.html). Scoped to `main` because the app shell has its
       // own top-level `<header>` (the account menu) — an unscoped `header button` counts that one
       // first and silently opens the export dialog instead.

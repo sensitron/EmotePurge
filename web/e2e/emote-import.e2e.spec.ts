@@ -119,28 +119,28 @@ const cell = (page: Page, name: string) =>
   page.getByRole('button', { name: new RegExp(`^${name} ·`) });
 
 // Exact match, not the Playwright default (substring): the dock's shortcut (#80, §8.7) carries the
-// same verb plus a trailing count — "Übertragen… (2)" — which would otherwise also match
+// same verb plus a trailing count — "Übertragen (2)" — which would otherwise also match
 // this name and turn every use below into a strict-mode violation. This locator is always the
 // HEADER trigger; see dockCopyButton for the dock's second entry point into openImportTarget().
-const copyButton = (page: Page) => page.getByRole('button', { name: 'Übertragen…', exact: true });
+const copyButton = (page: Page) => page.getByRole('button', { name: 'Übertragen', exact: true });
 
 // The dock's shortcut into openImportTarget('selection') (#80, §8.7): same verb as copyButton, no
 // scope radiogroup in the dialog it opens, count baked into the accessible name.
 const dockCopyButton = (page: Page, count: number) =>
-  page.getByRole('button', { name: `Übertragen… (${count})`, exact: true });
+  page.getByRole('button', { name: `Übertragen (${count})`, exact: true });
 
 /**
  * Opens the file-import dialog (#91) via the header trigger and returns the file input sitting
  * inside it. Locale-independent by position, same reasoning as `ui-audit.audit.ts:858-864` for its
  * neighbour: the trigger's label is translated and shares no word with the other header buttons, so
  * this goes by position instead — `main header button` `.nth(2)`, after `.nth(0)` (Exportieren) and
- * `.nth(1)` (Übertragen…). Scoped to `main` because the app shell has its own top-level `<header>`
+ * `.nth(1)` (Übertragen). Scoped to `main` because the app shell has its own top-level `<header>`
  * (the account menu) that an unscoped `header button` would count first.
  */
 async function openFileImportDialog(page: Page): Promise<Locator> {
   const dialog = page.getByRole('dialog');
   await page.locator('main header button').nth(2).click();
-  await expect(dialog.locator('#app-dialog-title')).toHaveText('Datei einspielen');
+  await expect(dialog.locator('#app-dialog-title')).toHaveText('Datei importieren');
   return dialog.locator('input[type="file"]');
 }
 
@@ -516,7 +516,7 @@ test.describe('file import dialog: shell contract', () => {
     // dialog's first focusable element, so the CDK's own `first-tabbable` default lands there with
     // no explicit `cdkFocusInitial`. A hidden `<input type="file">` cannot itself receive focus, so
     // the visible button in front of it is what the CDK actually focuses.
-    await expect(page.getByRole('button', { name: 'Datei auswählen…' })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Datei auswählen' })).toBeFocused();
     // The input stays reachable through that button; asserted here so the two locators are not
     // silently talking about different elements.
     await expect(fileInput).toBeAttached();
@@ -541,7 +541,7 @@ test.describe('file import dialog: shell contract', () => {
     // (`:492-496`).
     const dialogText = await page.getByRole('dialog').innerText();
     const sortsIndex = dialogText.indexOf('Purge-Protokoll (Wiederherstellen) als JSON');
-    const controlIndex = dialogText.indexOf('Datei auswählen…');
+    const controlIndex = dialogText.indexOf('Datei auswählen');
     expect(sortsIndex).toBeGreaterThan(-1);
     expect(controlIndex).toBeGreaterThan(sortsIndex);
   });
