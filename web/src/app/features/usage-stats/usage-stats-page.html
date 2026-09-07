@@ -5,7 +5,7 @@
 <div [class]="'flex flex-col gap-5 ' + (dockVisible() ? 'pb-40' : '')">
   <header class="flex flex-wrap items-center justify-between gap-3">
     <h2 class="text-lg font-semibold">{{ 'usageStats.title' | transloco }}</h2>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <!-- Header action, mirroring the voting-detail page: export is a command, not a filter.
            The export dialog itself states that it exports the currently filtered list. -->
       <button
