@@ -24,7 +24,7 @@ const DE_TRANSLATIONS = {
   },
   import: {
     target: {
-      title: 'Emotes in einen Kanal kopieren',
+      title: 'Emotes übertragen',
       label: 'Zielkanal',
       notTracked: 'Kanal muss erst beitreten',
       saveAsFile: '… als Datei speichern',

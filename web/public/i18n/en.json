@@ -850,7 +850,7 @@
     "scopeVisible": "Filtered list ({{count}})",
     "scopeSelection": "Selection ({{count}})",
     "formatCsv": "CSV (spreadsheet)",
-    "formatJson": "JSON",
+    "formatJson": "JSON (data extract)",
     "withheldTallies": "This vote runs with hidden results — the vote columns are not included.",
     "withheldUsage": "Usage figures are not visible to you and therefore not included.",
     "formatLabel": "Format",
@@ -893,10 +893,10 @@
     }
   },
   "import": {
-    "copyButton": "Copy to channel…",
-    "dockCopyButton": "Copy to channel… ({{ count }})",
+    "copyButton": "Transfer…",
+    "dockCopyButton": "Transfer… ({{ count }})",
     "target": {
-      "title": "Copy emotes to a channel",
+      "title": "Transfer emotes",
       "label": "Target channel",
       "notTracked": "Channel has to join first",
       "saveAsFile": "… save as a file",

@@ -180,7 +180,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
 - **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen. Auf welcher Fläche der Auslöser sitzt und an welcher Stelle einer Aktionszeile, sagt §8.7 — diese Stufung sagt nur, wie er aussieht.
 - **Schwere rechtfertigt keine Ausnahme von der Wiederholungsregel.** Auch Purge und Session-Revoke laufen in den Admin-Listen als `danger-quiet` — je länger die Liste, desto schlimmer die Farbleiter. Abgesichert wird eine unwiderrufliche Aktion durch die typisierte Namensbestätigung, nicht durch einen roten Rahmen, den man fünfundzwanzigmal untereinander sieht.
-- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „In Kanal kopieren…" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) — gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports.
+- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „Übertragen…" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) — gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports.
 - **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, Header-Button `web/src/app/features/usage-stats/usage-stats-page.html`; in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
@@ -306,7 +306,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 
 ### 7.2 Ziel-Picker und Bestätigungsdialog (Import, #72)
 
-- **Was gilt:** Der Kopier-Fluss „In Kanal kopieren…" läuft über zwei Dialoge, beide über
+- **Was gilt:** Der Fluss hinter „Übertragen…" läuft über zwei Dialoge, beide über
   `openAppDialog` (s. o.): `ImportTargetDialog` (`shared/seven-tv/import-target-dialog.ts`,
   `openImportTargetDialog`) wählt Bereich und Ziel, `ImportConfirmDialog`
   (`shared/seven-tv/import-confirm-dialog.ts`, `openImportConfirmDialog`) zeigt die Vorschau und
