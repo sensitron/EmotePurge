@@ -69,6 +69,7 @@ describe('EmoteAdminService', () => {
       syncFailureReason: null,
       lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
       botsExcludedSince: '2026-09-01',
+      sharedChatSeparatedSince: '2026-09-07',
     });
 
     expect(status).toEqual({
@@ -79,6 +80,7 @@ describe('EmoteAdminService', () => {
       syncFailureReason: null,
       lastSyncAttemptAtUtc: '2026-08-29T12:00:00Z',
       botsExcludedSince: '2026-09-01',
+      sharedChatSeparatedSince: '2026-09-07',
     });
   });
 

@@ -50,6 +50,9 @@ async function openAtlas(
   page: Page,
   emotes: MockEmoteUsage[] = EMOTES,
   botsExcludedSince: string | null = null,
+  // A fourth positional parameter rather than an options object: reshaping the signature would
+  // touch every existing caller for no gain here.
+  sharedChatSeparatedSince: string | null = null,
 ): Promise<void> {
   await mockAuthMe(page, AUTH_USER);
   await mockWorkerHealth(page);
@@ -64,6 +67,7 @@ async function openAtlas(
     capacity: 1000,
     occupiedSlots: 10,
     botsExcludedSince,
+    sharedChatSeparatedSince,
   });
   await mockUsageTotals(page, 'sensitron', emotes);
 
