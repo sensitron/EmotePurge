@@ -131,7 +131,7 @@ const dockCopyButton = (page: Page, count: number) =>
 
 /**
  * Opens the file-import dialog (#91) via the header trigger and returns the file input sitting
- * inside it. Locale-independent by position, same reasoning as `ui-audit.audit.ts:801-806` for its
+ * inside it. Locale-independent by position, same reasoning as `ui-audit.audit.ts:858-864` for its
  * neighbour: the trigger's label is translated and shares no word with the other header buttons, so
  * this goes by position instead — `main header button` `.nth(2)`, after `.nth(0)` (Exportieren) and
  * `.nth(1)` (Übertragen…). Scoped to `main` because the app shell has its own top-level `<header>`

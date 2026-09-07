@@ -316,7 +316,7 @@ describe('FileImportDialog', () => {
     });
   });
 
-  describe('grenzfälle (plan §1.5)', () => {
+  describe('edge cases (plan §1.5)', () => {
     it('stays open with no banner when the native file dialog is cancelled (no file chosen)', async () => {
       const dialog = render();
 

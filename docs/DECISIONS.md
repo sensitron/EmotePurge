@@ -17,6 +17,7 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 `web/src/app/shared/seven-tv/file-import-trigger.ts` + `file-import-trigger.spec.ts` (neu) ·
 `web/src/app/shared/seven-tv/file-import-trigger-gate.ts` + `file-import-trigger-gate.spec.ts` (neu) ·
 `web/src/app/shared/seven-tv/restore-flow.ts` + `restore-flow.spec.ts` (neu) ·
+`web/src/app/shared/seven-tv/mass-delete-panel.spec.ts` ·
 `web/src/app/features/usage-stats/usage-stats-page.html` ·
 `web/src/app/features/usage-stats/usage-stats-page.ts` ·
 `web/public/i18n/de.json` · `web/public/i18n/en.json` ·
