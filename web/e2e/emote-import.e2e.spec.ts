@@ -119,16 +119,15 @@ const cell = (page: Page, name: string) =>
   page.getByRole('button', { name: new RegExp(`^${name} ·`) });
 
 // Exact match, not the Playwright default (substring): the dock's shortcut (#80, §8.7) carries the
-// same verb plus a trailing count — "In Kanal kopieren… (2)" — which would otherwise also match
+// same verb plus a trailing count — "Übertragen… (2)" — which would otherwise also match
 // this name and turn every use below into a strict-mode violation. This locator is always the
 // HEADER trigger; see dockCopyButton for the dock's second entry point into openImportTarget().
-const copyButton = (page: Page) =>
-  page.getByRole('button', { name: 'In Kanal kopieren…', exact: true });
+const copyButton = (page: Page) => page.getByRole('button', { name: 'Übertragen…', exact: true });
 
 // The dock's shortcut into openImportTarget('selection') (#80, §8.7): same verb as copyButton, no
 // scope radiogroup in the dialog it opens, count baked into the accessible name.
 const dockCopyButton = (page: Page, count: number) =>
-  page.getByRole('button', { name: `In Kanal kopieren… (${count})`, exact: true });
+  page.getByRole('button', { name: `Übertragen… (${count})`, exact: true });
 
 test.describe('push flow: picker to confirmation dialog', () => {
   test('a channel target shows origin, target, an already-present row and a name collision', async ({
@@ -168,7 +167,7 @@ test.describe('push flow: picker to confirmation dialog', () => {
     await copyButton(page).click();
 
     const picker = page.getByRole('dialog');
-    await expect(picker.locator('#app-dialog-title')).toHaveText('Emotes in einen Kanal kopieren');
+    await expect(picker.locator('#app-dialog-title')).toHaveText('Emotes übertragen');
 
     // Scope defaults to the selection (R12), not to the visible list.
     await expect(picker.getByRole('radio', { name: 'Auswahl (2)' })).toBeChecked();
@@ -254,7 +253,7 @@ test.describe('push flow: picker to confirmation dialog', () => {
     await dockCopyButton(page, 2).click();
 
     const picker = page.getByRole('dialog');
-    await expect(picker.locator('#app-dialog-title')).toHaveText('Emotes in einen Kanal kopieren');
+    await expect(picker.locator('#app-dialog-title')).toHaveText('Emotes übertragen');
     // The scope question itself is gone, not just pre-answered — contrast with the header path's
     // "Auswahl (2)" radio checked by default in the test above.
     await expect(picker.getByRole('radiogroup', { name: 'Exportumfang' })).toHaveCount(0);

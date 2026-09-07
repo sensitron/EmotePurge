@@ -10,6 +10,86 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-07 — Ein Verb für die Übertragung, und die JSON-Option ist ein Datenauszug
+
+**Betrifft:** `web/public/i18n/de.json` · `web/public/i18n/en.json` ·
+`docs/UI-Designsprache.md` (§4.2, §7.2) ·
+`web/src/app/shared/seven-tv/import-shortcut.ts` ·
+`web/src/app/features/usage-stats/usage-stats-page.html` ·
+`web/src/app/shared/seven-tv/import-target-dialog.spec.ts` ·
+`web/e2e/emote-import.e2e.spec.ts` · `web/e2e/audit/ui-audit.audit.ts`
+
+**Der Fall.** §8.7 sagt seit dem Eintrag von heute früh, dass sich zwei Kommandos im Seitenkopf nicht in der Absicht
+überlappen dürfen, und definiert Überlappung als *zwei Kommandos mit verschiedenem Namen für
+dieselbe Absicht*. Genau das stand dort: „In Kanal kopieren… → Ziel **Datei**" und
+„Exportieren → Format **JSON**" erzeugten je eine JSON-Datei, und derselbe Importer frisst beide
+(`restore-panel.ts`). Der Befund kam vom Betreiber beim Durchsprechen von #80 — *„die json datei
+die raus kommt kann man aber auch wo anders importieren. Es gibt also mehrdeutige Befehle."* —
+und nicht aus der Entwurfsarbeit; beide Dialoge waren zu dem Zeitpunkt gelesen und die
+Überlappung übersehen worden. §8.7 selbst schreibt bewusst kein Verb vor („es verlangt ein Verb je
+Absicht, es schreibt keines vor"), deshalb entscheidet dieser Eintrag den Wortlaut.
+
+**„Übertragen…", an beiden Orten wortgleich.** `import.copyButton` und `import.dockCopyButton`
+heißen jetzt „Übertragen…" bzw. „Übertragen… ({{ count }})" (en: „Transfer…"), der Titel des
+Ziel-Dialogs `import.target.title` „Emotes übertragen" (en: „Transfer emotes"). Die Gleichheit ist
+**Bedingung, nicht Kosmetik**: sie ist das einzige, was die Dock-Kurzform von einer Doppelung
+trennt (Schiedsspruch vom 2026-09-07). Seitenkopf und Kurzform werden deshalb zusammen umbenannt
+oder keiner — eine halbe Umbenennung bräche §8.7 sofort.
+
+**Warum „Übertragen…" und nicht „In Kanal kopieren…".** Der alte Name war schlicht falsch: das
+Kommando kann als Ziel einen Kanal *oder* eine Datei haben (`import-target-dialog.ts`,
+`target: {kind:'channel'} | {kind:'file'}`), und der Datei-Zweig kopiert in keinen Kanal. „Übertragen"
+deckt beide Ziele. Gegen die längere Variante „Emotes übertragen…" entschieden, weil die Nachbarn
+im Seitenkopf und im Dock bare Verben tragen („Exportieren", „Löschen") und weil die Dock-Kurzform
+die Anzahl im Text führt — jedes zusätzliche Wort arbeitet dort gegen offene Frage 4 des Entwurfs
+(vier Knöpfe brechen auf schmalen Fenstern um).
+
+**Der Zeitpunkt war der Grund, es jetzt zu tun.** Das Kommando ist seit dem 2026-09-06 live. Eine
+Umbenennung trifft heute niemanden, der sich daran gewöhnt hat; in drei Monaten wäre das eine
+andere Rechnung.
+
+**Die JSON-Option im Export-Dialog bleibt und heißt „JSON (Datenauszug)"** (en: „JSON (data
+extract)"). Entfernen wäre der sauberste Schnitt und ist **verworfen**: es wäre ein Bruch ohne
+jeden Beleg, dass sie niemand nutzt — wer sie mit einem Skript ausliest, merkt es erst, wenn sie
+weg ist. Sie bleibt damit auch einspielbar; das Erfolgskriterium lautet nicht „genau eine richtige
+Antwort", sondern **genau ein Kommando bewirbt den Transportweg**. Die Klammerform ist keine
+Erfindung, sondern die Form der Schwester-Option `export.formatCsv` („CSV (Tabellenkalkulation)"):
+beide sagen jetzt in Klammern, wofür das Format da ist, statt nur wie es heißt.
+
+**Was ausdrücklich *nicht* umbenannt wurde: die Mechanik-Strings.** `import.confirm.execute`
+(„Kopieren"), `import.progress` („… kopiert"), `import.summary.counts` und
+`import.leaveWhileRunning` sagen weiterhin „kopieren", und die Kommentare im Import-Pfad ebenso.
+Das ist kein Rest, sondern die Unterscheidung selbst: der *Lauf* in ein fremdes 7TV-Set **ist** ein
+Kopiervorgang — die Quelle bleibt unverändert, das Ziel bekommt eine Kopie. Falsch war nie das
+Wort, sondern es als Namen des **Einstiegs** zu führen, der auch eine Datei erzeugen kann. Am Code
+nachgeprüft, nicht bloß plausibel: der Datei-Zweig kehrt in `usage-stats-page.ts` früh zurück
+(`if (choice.target.kind === 'file') { … return; }`) und erreicht `ImportConfirmDialog` nie — jeder
+dieser Strings gehört ausschließlich zum Kanal-Zweig, wo „kopieren" die Sache exakt benennt. Wer
+hier später „vereinheitlicht", macht die Beschreibung des Vorgangs ungenauer, nicht konsistenter.
+
+**Gemessene Nebenwirkung: der Mobil-Überlauf der Kopfzeile ist damit weg.** Der UI-Audit-Harness
+(§12) meldete auf `main` acht `usage-stats-*`-Szenarien mit `horizontalOverflowPx = 20` bei 360 px
+Breite — Ticket #107. Ursache war die Aktionszeile selbst: „Exportieren · In Kanal kopieren… ·
+Aktualisieren" passte nicht, und `beyondRightEdge` benannte den herausgeschobenen Knopf namentlich
+(„Aktualisieren", `x = 274`, `w = 106`). Mit dem kürzeren Verb passt die Zeile. Vergleichslauf
+gegen `main`, beide Läufe 432 Szenarien: Überlauf **160 px → 22 px**, `beyondRightEdge`
+**15 → 2**; `contrastViolations` bleibt bei 20 (das ist #106 und hat mit dieser Änderung nichts zu
+tun) und `smallTargetsUnder24` unverändert bei 2647. **#107 ist damit nicht erledigt**, sondern hat
+einen zweiten, unabhängigen Grund: „alle markieren" im Dead-Band-Abschnitt steht weiterhin 17 px
+über der Kante, und zwar nur auf Deutsch — das englische „mark all" passt. Dass eine Umbenennung
+eine Layout-Metrik verbessert, ist hier Nebenwirkung und **keine Begründung** für den Wortlaut: die
+Wahl fiel aus §8.7 heraus, die Messung kam danach.
+
+**Ältere Einträge dieses Logs bleiben wortgleich stehen**, auch wo sie „In Kanal kopieren…"
+zitieren (der Eintrag vom 2026-09-06 zum dritten Dispatch-Zweig und der vom 2026-09-07 zu §8.7).
+Sie halten fest, was damals entschieden wurde, und ein Log, das seine Vergangenheit nachbessert,
+verliert genau die Eigenschaft, für die es geführt wird. Nachgezogen wird nur, was den **Ist-Stand**
+führt: `docs/UI-Designsprache.md` §4.2 und §7.2, die Code-Kommentare, die den Namen als Zitat
+tragen, und die E2E-Locators, die den deutschen String hart matchen
+(`emote-import.e2e.spec.ts` — sie wären sonst rot, nicht bloß veraltet).
+
+---
+
 ### 2026-09-07 — Welche Fläche welches Kommando trägt (§8.7), und die Dock-Kurzform als Einzelfall auf Widerruf
 
 **Betrifft:** `docs/UI-Designsprache.md` (§8.7 neu, Verweise in §2.5, §4.2, §7.2) ·

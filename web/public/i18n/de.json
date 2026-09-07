@@ -850,7 +850,7 @@
     "scopeVisible": "Gefilterte Liste ({{count}})",
     "scopeSelection": "Auswahl ({{count}})",
     "formatCsv": "CSV (Tabellenkalkulation)",
-    "formatJson": "JSON",
+    "formatJson": "JSON (Datenauszug)",
     "withheldTallies": "Diese Abstimmung läuft mit verdeckten Ergebnissen — die Stimmenspalten sind nicht enthalten.",
     "withheldUsage": "Nutzungszahlen sind für dich nicht sichtbar und daher nicht enthalten.",
     "formatLabel": "Format",
@@ -893,10 +893,10 @@
     }
   },
   "import": {
-    "copyButton": "In Kanal kopieren…",
-    "dockCopyButton": "In Kanal kopieren… ({{ count }})",
+    "copyButton": "Übertragen…",
+    "dockCopyButton": "Übertragen… ({{ count }})",
     "target": {
-      "title": "Emotes in einen Kanal kopieren",
+      "title": "Emotes übertragen",
       "label": "Zielkanal",
       "notTracked": "Kanal muss erst beitreten",
       "saveAsFile": "… als Datei speichern",
