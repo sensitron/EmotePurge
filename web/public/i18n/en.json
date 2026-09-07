@@ -828,7 +828,7 @@
         "emoteList": "Emote list (copy) as JSON",
         "usageExport": "Usage export (copy) as JSON"
       },
-      "fileLabel": "Choose a protocol, emote list or usage export",
+      "fileLabel": "Choose file…",
       "errors": {
         "notJson": "The file is not valid JSON.",
         "csvInsteadOfJson": "That is the CSV version. The import needs the same file as JSON — pick the JSON format when exporting.",

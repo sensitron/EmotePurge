@@ -516,9 +516,7 @@ test.describe('file import dialog: shell contract', () => {
     // dialog's first focusable element, so the CDK's own `first-tabbable` default lands there with
     // no explicit `cdkFocusInitial`. A hidden `<input type="file">` cannot itself receive focus, so
     // the visible button in front of it is what the CDK actually focuses.
-    await expect(
-      page.getByRole('button', { name: 'Protokoll, Emote-Liste oder Nutzungs-Export auswählen' }),
-    ).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Datei auswählen…' })).toBeFocused();
     // The input stays reachable through that button; asserted here so the two locators are not
     // silently talking about different elements.
     await expect(fileInput).toBeAttached();
@@ -543,9 +541,7 @@ test.describe('file import dialog: shell contract', () => {
     // (`:492-496`).
     const dialogText = await page.getByRole('dialog').innerText();
     const sortsIndex = dialogText.indexOf('Purge-Protokoll (Wiederherstellen) als JSON');
-    const controlIndex = dialogText.indexOf(
-      'Protokoll, Emote-Liste oder Nutzungs-Export auswählen',
-    );
+    const controlIndex = dialogText.indexOf('Datei auswählen…');
     expect(sortsIndex).toBeGreaterThan(-1);
     expect(controlIndex).toBeGreaterThan(sortsIndex);
   });

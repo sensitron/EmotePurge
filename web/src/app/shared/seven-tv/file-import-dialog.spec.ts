@@ -24,7 +24,7 @@ const DE_TRANSLATIONS = {
         emoteList: 'Emote-Liste (Kopieren) als JSON',
         usageExport: 'Nutzungs-Export (Kopieren) als JSON',
       },
-      fileLabel: 'Protokoll, Emote-Liste oder Nutzungs-Export auswählen',
+      fileLabel: 'Datei auswählen…',
       errors: {
         notJson: 'Die Datei ist kein gültiges JSON.',
         csvInsteadOfJson:
@@ -373,9 +373,7 @@ describe('FileImportDialog', () => {
       const dialog = render();
 
       const picker = dialog.pickerButton();
-      expect(picker.textContent?.trim()).toBe(
-        'Protokoll, Emote-Liste oder Nutzungs-Export auswählen',
-      );
+      expect(picker.textContent?.trim()).toBe('Datei auswählen…');
       expect(dialog.focusableInOrder()[0]).toBe(picker);
     });
 
