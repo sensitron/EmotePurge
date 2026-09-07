@@ -10,6 +10,52 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Der Match-Cache wird aus Postgres vorgewärmt, bevor 7TV gefragt wird
+
+**Betrifft:** `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs` (`SyncChannelAsync`) ·
+`src/EmotePurge.Infrastructure/Services/EmoteMatchCache.cs` (unverändert, aber betroffen) ·
+`tests/EmotePurge.Infrastructure.Tests/Integration/SevenTvSyncServiceTests.cs` ·
+`docs/Architectur.md` (Umsetzungsstand Modul A) ·
+`docs/superpowers/plans/2026-09-08-worker-erfassungsfehler.md` (Task 1)
+
+**Der Fall: eine stille Zähllücke, die niemand meldet.** Der `EmoteMatchCache` ist rein
+In-Memory und wird ausschließlich aus einem *erfolgreichen* 7TV-Abruf gefüllt — einziger Aufrufer
+von `ReplaceChannel` ist `RefreshMatchCacheAsync`, und die läuft erst nach einem geglückten
+Vollsync bzw. nach einem angewendeten Delta. Nach einem Worker-Neustart joint der Bot den Chat
+(Boot-Recovery) **bevor** der Sync durch ist; antwortet 7TV in diesem Moment nicht, endet
+`SyncChannelAsync` in `RecordFailedAttemptAsync` und lässt den Cache leer. `OnMessageReceived`
+steigt bei leerem Set stumm aus — **nach** der Watchdog-Buchführung, die Lücke ist für Watchdog
+und Health also unsichtbar. Es gibt keinen Retry mit Backoff; erst der periodische Resync
+(Default 60 s) versucht es erneut. Zwischen Join und erstem erfolgreichen Sync zählt der Kanal
+nichts, ohne dass irgendwo ein Fehler steht — und im Messfenster von #69 ist genau das teuer.
+
+**Die Entscheidung.** `SyncChannelAsync` füllt den Cache für den Channel aus den aktiven
+Postgres-Zeilen, wenn er für diesen Channel leer ist — über dieselbe `RefreshMatchCacheAsync`,
+also dieselbe Abfrage, dieselbe `EmoteNameMatching.Coalesce`-Koaleszierung und denselben
+Duplikat-Tracker. Kein zweiter Ladepfad, kein neues Core-Interface.
+
+**Warum an dieser Stelle.** Im Sync-Service und nicht im Worker (E1): ein Aufruf deckt
+Boot-Recovery, JOIN, RESYNC, periodischen Resync und den Gap-Filling-Sync des EventAPI-Clients
+auf einmal ab, läuft unter demselben `ChannelSyncGate` wie der Sync selbst (kann also nie einen
+schreibenden Sync überholen) und braucht keine neue Schichtdurchbrechung — `AppDbContext` und
+`IEmoteMatchCache` sind hier ohnehin injiziert. Und **vor** dem ersten 7TV-Call statt erst im
+Fehlerpfad (E2): beide 7TV-Aufrufe laufen mit 10-s-Timeout, ein Warmstart erst danach verlöre
+genau diese Sekunden im lautesten Moment (Boot). Vor dem Call kostet er eine Postgres-Abfrage,
+die der erfolgreiche Sync ohnehin gleich noch einmal macht.
+
+**Die Asymmetrie bleibt erhalten.** Bedingung ist „Cache leer für diesen Channel", nicht „Prozess
+frisch" (E3). Damit gilt weiter, was der Kommentar bei den 0-Emote-Guards schon festhält: ein
+*gefüllter* Cache wird bei einem Sync-Fehler nie angefasst. Ein veralteter DB-Stand kann einen
+erfolgreichen Sync nicht zurücksetzen — der Erfolgspfad überschreibt am Ende ohnehin über
+`RefreshMatchCacheAsync`. Preis: ein Channel mit legitim null aktiven Emotes zahlt eine billige
+Abfrage pro Resync-Tick. Akzeptiert; die Alternative wäre ein zweiter Zustand („schon einmal
+versucht"), der genau die Asymmetrie wieder aufweicht, die hier der Punkt ist.
+
+**Nicht Teil der Entscheidung.** Kein Retry/Backoff für einen fehlgeschlagenen ersten 7TV-Sync —
+der Warmstart macht ihn unkritisch, der periodische Resync holt ihn nach. Kein Warmstart im
+Delta-Pfad (`ApplyEmoteSetUpdateAsync`): ein Dispatch setzt einen Zustand voraus, den der nächste
+Vollsync ohnehin herstellt. Keine Konfigurierbarkeit.
+
 ### 2026-09-07 — Knöpfe ohne Ellipse: die drei Punkte fallen, „Datei einspielen…" wird „Importieren"
 
 **Betrifft:** `web/public/i18n/de.json` (`import.copyButton`, `import.dockCopyButton`,

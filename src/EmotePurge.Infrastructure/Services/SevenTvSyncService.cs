@@ -41,6 +41,31 @@ public class SevenTvSyncService(
             return null;
         }
 
+        // The bot joins a channel's chat as soon as it is added, well before this method ever runs
+        // successfully — and if the very first 7TV call after a worker restart fails (timeout,
+        // outage), the match cache for this channel stays empty. OnMessageReceived bails out
+        // silently on an empty set with no retry of its own, so the channel would count nothing
+        // until the periodic resync happens to succeed. Warming the cache from Postgres here, right
+        // after the row gate (so channel.ChannelName is the re-read, current login) and before
+        // either 7TV call below, closes that gap: both calls can hang for up to 10s (see the
+        // client timeout), and a warm-up that only ran after such a timeout would lose exactly
+        // those seconds in the loudest moment — right after boot. The condition is "cache empty for
+        // this channel", not "process just started" — that keeps the existing asymmetry intact: a
+        // cache a previous successful sync already filled is never touched by a failed one, here or
+        // below (RecordFailedAttemptAsync).
+        if (emoteMatchCache.GetChannelEmotes(channel.ChannelName).Count == 0)
+        {
+            await RefreshMatchCacheAsync(channel, cancellationToken);
+
+            var warmedCount = emoteMatchCache.GetChannelEmotes(channel.ChannelName).Count;
+            if (warmedCount > 0)
+            {
+                logger.LogInformation(
+                    "Match-Cache für {Channel} aus Postgres vorgewärmt ({Count} Namen) — 7TV-Sync folgt.",
+                    channel.ChannelName, warmedCount);
+            }
+        }
+
         var twitchUserId = channel.TwitchChannelId;
         if (twitchUserId is null)
         {
