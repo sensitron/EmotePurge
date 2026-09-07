@@ -823,6 +823,12 @@
     "import": {
       "trigger": "Import file",
       "hint": "Load a purge protocol (restore), an emote list or a usage export (copy) as JSON.",
+      "title": "Import file",
+      "sorts": {
+        "purgeRun": "Purge protocol (restore) as JSON",
+        "emoteList": "Emote list (copy) as JSON",
+        "usageExport": "Usage export (copy) as JSON"
+      },
       "fileLabel": "Choose a protocol, emote list or usage export",
       "errors": {
         "notJson": "The file is not valid JSON.",
