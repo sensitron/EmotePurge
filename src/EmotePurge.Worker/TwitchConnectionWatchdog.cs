@@ -31,6 +31,7 @@ public class TwitchConnectionWatchdog(
         {
             var now = DateTime.UtcNow;
             var decision = TwitchWatchdogPolicy.Decide(
+                twitchChatManager.IsClientSpent,
                 twitchChatManager.IsConnected,
                 Elapsed(now, twitchChatManager.ConnectAttemptedUtc),
                 Elapsed(now, twitchChatManager.LastFrameReceivedUtc),

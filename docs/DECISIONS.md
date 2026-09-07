@@ -10,6 +10,70 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Nach jedem Reconnect am selben Objekt wird der TwitchLib-Client ersetzt (#114)
+
+**Betrifft:** `src/EmotePurge.Worker/ReconnectPolicy.cs` ·
+`src/EmotePurge.Worker/TwitchWatchdogPolicy.cs` ·
+`src/EmotePurge.Worker/TwitchConnectionWatchdog.cs` ·
+`src/EmotePurge.Worker/TwitchChatManager.cs` (`OnReconnected`, `IsClientSpent`) ·
+`src/EmotePurge.Worker/ITwitchChatManager.cs` ·
+`tests/EmotePurge.Worker.Tests/ReconnectPolicyTests.cs` ·
+`tests/EmotePurge.Worker.Tests/TwitchWatchdogPolicyTests.cs` ·
+`CLAUDE.md` (Architektur-Absatz zum Worker) ·
+`docs/superpowers/plans/2026-09-08-worker-erfassungsfehler.md` (Tasks 2–4)
+
+**Der Mechanismus (vollständig in Issue #114).** TwitchLib.Client behandelt Twitchs `RECONNECT`
+**inline aus der eigenen Lese-Schleife heraus**: der Handler, der die Zeile liest, ruft im selben
+Aufrufpfad `ReconnectAsync()` auf. Danach läuft am selben Client-Objekt eine **zweite**
+Lese-Schleife am selben Socket, während die erste nie beendet wurde. Zwei Schleifen, die
+unabhängig voneinander vom Socket lesen, können eine IRC-Zeile mitten im Tag-Block zerschneiden
+und die Hälften mit fremden Zeilen zusammensetzen — Erkennungsmerkmal ist ein **zweites `@` im
+Tag-Block** einer Zeile, die mit `@` beginnt. Eine so gespleißte Zeile kann eine `room-id` des
+einen und einen Nachrichtentext des anderen Kanals tragen: Nutzung wird dann dem falschen Kanal
+zugeschrieben. Beobachtet wurde genau eine `UsageStat`-Zeile mit `SharedChatUseCount = 1`, wo
+keine sein durfte.
+
+**Die Entscheidung: ersetzen statt weiterverwenden.** Jedes `OnReconnected` markiert den Client in
+`ReconnectPolicy` als *verbraucht* (`RegisterInPlaceReconnect`); nur `RegisterClientReplaced`
+löscht die Marke. `TwitchWatchdogPolicy.Decide` prüft sie als **erste** Bedingung und erzwingt
+einen `ForceReconnect`, unabhängig von Verbindungszustand, Frame-Alter und beiden Cooldowns; der
+läuft über den seit 2026-07-26 produktiven Pfad `ForceReconnectAsync → RecreateClientAsync`, der
+den alten Client unwired, ihn trennt und einen frischen `WebSocketClient` mit genau **einer**
+Schleife aufbaut. Kein neuer Transportweg, kein Versionswechsel — nur ein Zustand und ein Zweig.
+
+**Warum nicht inline im Handler (E4).** Der Ersatz läuft im nächsten Watchdog-Tick (≤ 60 s), nicht
+sofort. Der Versatz trennt TwitchLibs eigenen, **ungedrosselten** Rejoin (den es im Reconnect
+inline schon gefahren hat) von unserem gedrosselten — Twitch erlaubt 20 JOINs pro 10 s, und beide
+Rejoin-Wellen im selben Moment wären genau der Sturm, den der Watchdog anschließend behandeln
+müsste. Außerdem läuft `OnReconnected` in der Schleife, die das Problem *ist*; der Handler bleibt
+deshalb synchron, allokationsarm und exception-frei.
+
+**Warum jedes `OnReconnected`, auch unser eigenes (E5).** Der Doppelschleifen-Mechanismus hängt am
+**Objekt**, nicht am Auslöser: auch ein von uns angestoßener `ReconnectAsync` am bestehenden
+Client hinterlässt ihn. `ReconnectAction.Reconnect` heißt damit faktisch „reconnect jetzt, recreate
+einen Tick später". Das ist die eigentliche Topologie-Aussage dieses Eintrags.
+
+**„Genau ein langlebiger Client" bleibt wahr** — im Sinn von *einer zur Zeit*. Was sich ändert:
+er wird nach einem Reconnect **ersetzt statt repariert**. Die alte Regel „nie pro Channel/Join neu
+instanziieren" gilt unverändert; der Auslöser für einen Neuaufbau ist weiterhin ausschließlich
+eine Verbindungsentscheidung, nie ein Join.
+
+**Nachweisinstrument statt Vertrauen.** `IrcLineSpliceRule` erkennt eine gespleißte Zeile am
+zweiten `@` im Tag-Block der Rohzeile (`ChatMessage.RawIRC`, nicht `UndocumentedTags`: liegt der
+Schnitt im Wert eines *typisierten* Tags, schluckt TwitchLibs Parser das `@`, und nur die Rohzeile
+ist vollständig). Treffer werden gewarnt und je Flush summiert — **nie verworfen**: die Zählregel
+im laufenden #69-Messfenster bleibt unangetastet. Bekannte Untergrenze: ein Spleiß, der die Zeile
+unparsebar macht, erreicht `OnMessageReceived` nie und wird nicht gezählt.
+
+**Freeze-Bezug.** Der Fix **umgeht** den Bibliotheksfehler, statt ihn zu beheben; die
+`TwitchLib.*`-`ignore`-Regel in `.github/dependabot.yml` bis zum Ende des bindenden #69-Laufs
+(2026-10-08) bleibt unangetastet. Kein Versionswechsel.
+
+**Offen zum Zeitpunkt dieses Eintrags:** Die Live-Verifikation (Task 6 des Plans — provozierter
+Reconnect auf einem lauten Kanal, Negativ- und Positivlauf über je 30 min) steht noch aus und ist
+das **Merge-Gate**. Bis dahin wird der Branch nicht gemergt. Ob der 2–6-%-Überhang der Log-Seite
+aus #69 auf diese Doppelschleife zurückgeht, entscheidet erst der bindende Lauf nach dem Deploy.
+
 ### 2026-09-08 — Der Match-Cache wird aus Postgres vorgewärmt, bevor 7TV gefragt wird
 
 **Betrifft:** `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs` (`SyncChannelAsync`) ·

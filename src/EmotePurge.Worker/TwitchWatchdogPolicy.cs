@@ -29,6 +29,15 @@ public static class TwitchWatchdogPolicy
     /// </summary>
     public static readonly TimeSpan DisconnectedCooldown = TimeSpan.FromMinutes(1);
 
+    /// <param name="clientSpent">
+    /// Whether the current TwitchLib client object has lived through an in-place reconnect
+    /// (issue #114) and must be replaced. Checked first and overrides every other signal —
+    /// <paramref name="isConnected"/>, frame age and both cooldowns — because a spent client is a
+    /// wrong-object problem, not a staleness problem: it can be perfectly "connected" and still be
+    /// running two racing read loops. No cooldown applies to this branch either: replacing it
+    /// clears the state via <c>ReconnectPolicy.RegisterClientReplaced</c>, so a failed new open
+    /// cannot turn this branch into a tick loop.
+    /// </param>
     /// <param name="sinceOpenAttempt">
     /// Elapsed since the last connect/reconnect attempt started, or <c>null</c> if none was ever
     /// made — in which case there is nothing to watch over yet.
@@ -45,11 +54,19 @@ public static class TwitchWatchdogPolicy
     /// frames — the 2026-07-26 reconnect storm, kept from the previous design.
     /// </param>
     public static WatchdogDecision Decide(
+        bool clientSpent,
         bool isConnected,
         TimeSpan? sinceOpenAttempt,
         TimeSpan? sinceLastFrame,
         TimeSpan? sinceLastForcedReconnect)
     {
+        if (clientSpent)
+        {
+            return new WatchdogDecision(
+                true,
+                "TwitchClient wurde durch einen In-Place-Reconnect verbraucht (TwitchLib-Doppelschleife, Issue #114).");
+        }
+
         if (!isConnected)
         {
             if (sinceOpenAttempt is null || IsInCooldown(sinceLastForcedReconnect, DisconnectedCooldown))

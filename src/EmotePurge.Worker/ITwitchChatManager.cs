@@ -42,6 +42,12 @@ public interface ITwitchChatManager
     // first chat message, which used to make a worker that never connected undetectable.
     DateTime? ConnectAttemptedUtc { get; }
 
+    // True once the current client object has lived through an in-place TwitchLib reconnect
+    // (issue #114): TwitchLib's own reconnect handling leaves it with two racing read loops, so
+    // the watchdog must replace it rather than reconnect it again. Delegates to ReconnectPolicy —
+    // see there for the mechanism.
+    bool IsClientSpent { get; }
+
     // Every desired channel with its confirmation and traffic state, for the admin roster. Ordered
     // by name so the published snapshot is stable across ticks and diffs cleanly in a log.
     IReadOnlyList<TwitchRosterEntry> GetRoster();

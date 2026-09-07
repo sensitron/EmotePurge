@@ -72,6 +72,8 @@ public class TwitchChatManager(
 
     public DateTime? ConnectAttemptedUtc => ReadTimestamp(ref _connectAttemptedUtcTicks);
 
+    public bool IsClientSpent => _reconnectPolicy.IsClientSpent;
+
     public IReadOnlyList<TwitchRosterEntry> GetRoster()
     {
         // Built from the desired set, not from the message dictionary: a channel we want and never
@@ -422,12 +424,18 @@ public class TwitchChatManager(
     {
         _isConnected = true;
         _reconnectPolicy.RegisterConnected();
+        _reconnectPolicy.RegisterInPlaceReconnect();
 
         // No rejoin here: TwitchLib has already done it in the very code path that raises this event
         // (see OnConnected). Rejoining anyway doubled every JOIN on every reconnect — harmless at six
         // channels, but Twitch allows 20 joins per 10 seconds, and exceeding that drops the
-        // connection, which is exactly what the watchdog then reacts to.
-        logger.LogInformation("TwitchClient reconnected.");
+        // connection, which is exactly what the watchdog then reacts to. And the replacement below
+        // deliberately does not happen here either: this handler runs inline in the read loop that
+        // issue #114 is about, so the client is only marked spent — the watchdog's next tick (≤ 60s)
+        // does the actual RecreateClientAsync, keeping TwitchLib's unthrottled rejoin and our
+        // throttled one (JOIN limit, see the class-level comment above) from colliding.
+        logger.LogInformation(
+            "TwitchClient reconnected — wird beim nächsten Watchdog-Durchlauf komplett ersetzt (Issue #114).");
         return Task.CompletedTask;
     }
 
