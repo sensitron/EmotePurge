@@ -10,6 +10,101 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-07 — Der Audit-Harness maß 360 px mit einer Maus, und seine Mobil-Gates waren zur Hälfte Einbildung
+
+**Betrifft:** `web/e2e/audit/ui-audit.audit.ts` · `docs/UI-Designsprache.md` (§12) — und mittelbar
+jeden Mobil-Befund, der seit Einführung des Harness aus `*--mobile--*` stammt, darunter Ticket #107.
+
+**Der Fall.** `VIEWPORTS` setzte für `mobile` nur `{ width: 360, height: 800 }`. Chromium meldet
+unter Playwright ohne Touch-Emulation aber **immer** `(pointer: fine)`, und genau darüber entscheidet
+`PointerModeService` (`web/src/app/core/pointer/pointer-mode.service.ts`), was gerendert wird: hinter
+`!isCoarse()` liegen die 7TV-Schreibwege im Seitenkopf der Nutzungsstatistik. Der Harness rendert
+also bei 360 px Bedienelemente, die ein Telefon nie zeigt — und maß deren Überlauf, Zielgrößen und
+Position als Befund. Aufgefallen ist das nicht durch einen Fehler, sondern durch eine Frage: ob ein
+vierter Knopf in der Kopfzeile (#91) die Mobilmetrik verschlechtert. Auf einem echten Gerät hätte er
+das nicht gekonnt, weil er dort gar nicht erscheint.
+
+**Was die Korrektur wegnimmt.** Vergleichslauf über die 426 in beiden Läufen vorhandenen Szenarien:
+`smallTargetsUnder24` **2529 → 2091**, `horizontalOverflowPx` **21 → 5**, `beyondRightEdge`
+**2 → 0**. `contrastViolations` bleibt bei 20 — die stammen aus dem hellen Desktop-Lauf (#106) und
+haben mit dem Zeiger nichts zu tun. **438 gemeldete Touch-Target-Verstöße und fast der gesamte
+Mobil-Überlauf existierten also nicht**, und §12 führt beide als Gate. Die Zahlen sind belastbar,
+weil der Harness deterministisch ist: zwei unabhängige Vollläufe auf demselben Stand lieferten
+byte-identische Metriken über alle 432 Szenarien.
+
+**Zwei Chromium-Eigenheiten, die man nicht raten kann** — beide am laufenden Browser gemessen, nicht
+aus der Doku übernommen:
+
+1. `Emulation.setEmulatedMedia` **ersetzt** den Feature-Satz, statt ihn zu ergänzen. Farbschema und
+   Zeiger müssen deshalb in denselben Aufruf; ein getrenntes `page.emulateMedia({ colorScheme })`
+   löscht still, was zuerst gesetzt wurde.
+2. Die Pointer-Features sind **für sich wirkungslos** — Chromium leitet grob/fein aus der
+   Touch-Emulation ab, es braucht `Emulation.setTouchEmulationEnabled`. Und dieses Flag ist nicht
+   symmetrisch: es mit `enabled: false` zu setzen stellt den Standard **nicht** wieder her, sondern
+   hinterlässt einen Zustand, der weder `coarse` noch `fine` matcht. Für feine Viewports wird es
+   deshalb gar nicht erst gerufen.
+
+**Der Fehler, der beinahe als Lösung durchgegangen wäre.** Der erste Anlauf setzte die Emulation
+korrekt und prüfte sie selbst — aber **vor** `page.goto(...)`, also auf `about:blank`. Die Prüfung
+war grün, sechs Szenarien scheiterten plausibel, und über 426 Szenarien änderte sich trotzdem
+**keine einzige Zahl**. Genau diese Nulldifferenz war der Verdacht: bei einem deterministischen
+Werkzeug ist „nichts geändert" nach einem wirksamen Eingriff keine Beruhigung, sondern ein Befund.
+Die Sonde vor und nach der Bildaufnahme zeigte `coarse: true` → `coarse: false`.
+
+**Ursache war `page.screenshot({ fullPage: true })`**, und zwar schwerwiegender als zunächst gedacht:
+die Full-Page-Aufnahme verwirft die Emulation **während** der Aufnahme. Belegt an einem Pixel, dessen
+Farbe allein von `@media (pointer: coarse)` abhängt — im Bild trägt er die Fein-Zeiger-Farbe, obwohl
+`matchMedia` unmittelbar davor grob meldete. Damit war **auch jeder bisherige Screenshot** im
+falschen Zustand, und die naheliegende Reparatur (Metriken vor dem Bild erheben) hätte das Bild nicht
+geheilt. Über Playwright-Kontexte (`hasTouch`/`isMobile`) statt CDP tritt derselbe Verlust auf — der
+Weg ist deshalb geprüft und verworfen, nicht übersehen. **Auch ein roher CDP-Aufruf
+`Page.captureScreenshot({ captureBeyondViewport: true })` verliert sie** — der Reset sitzt damit in
+Chromiums Aufnahmepfad selbst, nicht in Playwrights Wiederherstellungsschritt, wie zuerst vermutet.
+Das ist der Grund, diese Sackgasse hier festzuhalten: die Vermutung „Playwrights Wrapper ist schuld"
+ist naheliegend, falsch, und kostet einen halben Tag. Stattdessen wird der Viewport kurz auf
+`document.documentElement.scrollHeight` vergrößert, normal aufgenommen und wieder verkleinert.
+**Gegenprobe gegen ein Artefakt daraus:** von den 34 veränderten Szenarien liegt **keines** außerhalb
+von `mobile` — hätte das Vergrößern etwa Virtual-Scrolling-Zeilen nachgerendert, wären Tablet und
+Desktop mitgewandert.
+
+**Der Preis dafür ist ein zweites Bild, und den zahlt der Harness bewusst.** Eine viewportgroße
+Aufnahme ist per Konstruktion nur `vp.width` breit — horizontal überlaufender Inhalt liegt außerhalb
+des Rahmens, und das ist genau der Befund, den der Audit sucht. Von Codex Sol als P2 gemeldet, am
+Code bestätigt. Da sich „richtiger Zeigerzustand" und „Aufnahme über den Viewport hinaus" in diesem
+Chromium ausschließen, löst es ein dritter Weg: **Scrollen** ist Seitenzustand, kein Aufnahmemodus,
+und lässt die Emulation unangetastet. Bei `scrollWidth > vp.width` entsteht deshalb zusätzlich
+`<basis>--right.png`, aufgenommen am rechten Ende — der Überlauf wird sichtbar, und zwar im
+korrekten Zeigerzustand, was weder `fullPage` noch der CDP-Weg leisten. Ohne Überlauf entsteht kein
+zweites Bild. **Gegenprobe:** die Metriken sind vor und nach dieser Ergänzung über alle 426
+Szenarien identisch — das Zusatzbild verschiebt nichts, es zeigt nur.
+
+**Die Selbstprüfung steht jetzt dort, wo sie den Fehler fangen kann:** unmittelbar **vor**
+`collectMetrics()`. Die Prüfung vor der Navigation bleibt als billiger Test, ob die CDP-Aufrufe
+überhaupt greifen, und ihr Kommentar sagt ausdrücklich, dass sie diesen Defekt nicht sehen kann. Die
+Lehre ist allgemeiner: eine Selbstprüfung am falschen Ort ist **schlechter als keine**, weil sie den
+Defekt nicht nur nicht findet, sondern beglaubigt.
+
+**Drei Szenarien werden auf groben Viewports übersprungen** — `usage-stats-restore-import-error`,
+`usage-stats-import-target-dialog`, `usage-stats-import-confirm-dialog`. Ihr `afterLoad` steuert
+Bedienelemente an, die es dort nicht gibt; sie liefen bisher nur, weil der Harness falsch maß. Das
+Merkmal heißt `requiresFinePointer` und hängt am Zeiger des Viewports, nicht an seinem Namen: ein
+künftiger zweiter grober Viewport gilt ohne Nacharbeit mit. Abdeckung geht dabei keine verloren —
+gemessen wurde vorher ein Zustand, den es nicht gab.
+
+**Folge für #107.** Der dort beschriebene 20-px-Überlauf der Kopfzeile war ein Artefakt dieser
+Fehlmessung: er entstand aus drei Knöpfen, von denen zwei auf einem Telefon nicht erscheinen. Der
+zweite dort genannte Fall („alle markieren", Dead-Band) fällt mit **17 px → 1 px** ebenfalls fast
+ganz weg. Übrig bleiben 5 × 1 px auf Mobil-Szenarien, zu denen `beyondRightEdge` **kein** Element
+benennt — vermutlich Sub-Pixel-Rundung, ungeklärt, und weiterhin gegen das „muss 0 sein" aus §12.
+#107 wird dadurch nicht erledigt, aber seine Begründung stimmt nicht mehr.
+
+**Was das für #91 heißt.** Die Ausgangsfrage ist damit beantwortet: ein vierter Knopf im
+`!isCoarse()`-Block kann die Mobilmetrik nicht mehr verschlechtern, weil er dort nicht gerendert
+wird. Der Umzug des Datei-Wegs braucht deshalb keine Sonderbehandlung und keinen wegerklärten roten
+Wert.
+
+---
+
 ### 2026-09-07 — Ein Verb für die Übertragung, und die JSON-Option ist ein Datenauszug
 
 **Betrifft:** `web/public/i18n/de.json` · `web/public/i18n/en.json` ·

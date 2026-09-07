@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import AxeBuilder from '@axe-core/playwright';
-import { Page, test } from '@playwright/test';
+import { Page, expect, test } from '@playwright/test';
 
 import {
   AUTH_USER,
@@ -39,8 +39,14 @@ import {
 const OUT = path.resolve(__dirname, '../../.audit-out');
 
 const VIEWPORTS = [
-  { name: 'mobile', width: 360, height: 800 },
-  { name: 'tablet', width: 768, height: 1024 },
+  // `pointerCoarse` matches what the viewport ships with, not what the runner defaults to:
+  // Chromium under Playwright reports `(pointer: fine)` regardless of viewport size unless touch
+  // emulation is switched on. `PointerModeService` (core/pointer/pointer-mode.service.ts) gates the
+  // 7TV mass-delete write paths on exactly that media query, so an unemulated `mobile` run rendered
+  // a state no phone ever produces -- 360px with a mouse. Everything from `tablet` up keeps a fine
+  // pointer on purpose: those are real trackpad/mouse widths, not just "not mobile".
+  { name: 'mobile', width: 360, height: 800, pointerCoarse: true },
+  { name: 'tablet', width: 768, height: 1024, pointerCoarse: false },
   // Two desktop cases, because one cannot cover both ends of the lg range.
   // `desktop-narrow` is lg at its tightest: 1024 is exactly Tailwind's lg breakpoint, so both atlas
   // pages open their 16rem sidecar while the shell's 80rem cap does not bind yet -- 992px of content,
@@ -49,8 +55,8 @@ const VIEWPORTS = [
   // `desktop` is the capped state: wider than the cap on purpose, because at 1280 the 80rem column
   // (#93) would fill the viewport edge to edge and the state that actually ships would appear in no
   // scenario at all. 1536 is the operator's own screen (1080p at 125%). Raise it with the cap.
-  { name: 'desktop-narrow', width: 1024, height: 900 },
-  { name: 'desktop', width: 1536, height: 900 },
+  { name: 'desktop-narrow', width: 1024, height: 900, pointerCoarse: false },
+  { name: 'desktop', width: 1536, height: 900, pointerCoarse: false },
 ] as const;
 
 // Theme is the fourth dimension of the matrix. Running it in full would double a run that is
@@ -316,6 +322,23 @@ interface Scenario {
    * exactly the kind of locale-dependent break the mobile viewport is here to catch.
    */
   afterLoad?: (page: Page) => Promise<void>;
+  /**
+   * Marks a scenario whose `afterLoad` drives a control that only renders behind
+   * `!isCoarse()` — the 7TV write paths in the usage-stats header (`PointerModeService`,
+   * core/pointer/pointer-mode.service.ts) are gated on `matchMedia('(pointer: coarse)')` because
+   * there is no write token off a phone. Before the CDP pointer emulation above this file's
+   * `mobile` viewport measured `(pointer: fine)` regardless of its 360px width, so these scenarios
+   * used to "work" only because the harness itself was rendering a control no touch device ever
+   * sees. Now that `mobile` actually reports `coarse`, that control never mounts, its `afterLoad`
+   * never finds it and the test hangs to its timeout — correctly, because the state the scenario
+   * describes does not exist on a coarse pointer.
+   *
+   * This is a pointer condition, not a width one: deliberately not a `skipViewports: ['mobile']`
+   * list, so a future coarse-pointer viewport (a tablet in touch mode, say) is covered without
+   * editing this file again. Skipping it does not shrink coverage — the scenario was never a real
+   * mobile state to begin with, only an artifact of the harness's former pointer bug.
+   */
+  requiresFinePointer?: boolean;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -673,6 +696,7 @@ const SCENARIOS: Scenario[] = [
     // banner under the import trigger — deterministic (no token prompt, no dialog).
     slug: 'usage-stats-restore-import-error',
     path: '/channels/sensitron/usage-stats',
+    requiresFinePointer: true,
     setup: async (page) => {
       await authedShell(page);
       await channelWorkspace(page);
@@ -791,6 +815,7 @@ const SCENARIOS: Scenario[] = [
     // picker is in most often.
     slug: 'usage-stats-import-target-dialog',
     path: '/channels/sensitron/usage-stats',
+    requiresFinePointer: true,
     setup: async (page) => {
       await authedShell(page);
       await channelWorkspace(page);
@@ -817,6 +842,7 @@ const SCENARIOS: Scenario[] = [
     // (R8/T5's row-order contract).
     slug: 'usage-stats-import-confirm-dialog',
     path: '/channels/sensitron/usage-stats',
+    requiresFinePointer: true,
     setup: async (page) => {
       await authedShell(page);
       await channelWorkspace(page);
@@ -1095,6 +1121,101 @@ async function collectContrastViolations(page: Page) {
   );
 }
 
+/**
+ * Reads the live pointer/colour-scheme state from the page and asserts it matches what
+ * `emulateViewportMedia()` set up. Factored out so the exact same check can run twice: once right
+ * after the CDP calls (inside `emulateViewportMedia()`, on `about:blank`, before navigation -- pure
+ * sanity check that the CDP calls themselves took), and once more immediately before
+ * `collectMetrics()` in the test body -- see that call site for why the first check alone is not
+ * enough. `hint` is appended to the failure message so each call site can name what it is actually
+ * ruling out, instead of both failures reading as a generic "expected true got false".
+ */
+async function assertEmulatedState(
+  page: Page,
+  vp: (typeof VIEWPORTS)[number],
+  theme: (typeof THEMES)[number],
+  hint: string,
+): Promise<void> {
+  const actual = await page.evaluate(() => ({
+    coarse: matchMedia('(pointer: coarse)').matches,
+    dark: matchMedia('(prefers-color-scheme: dark)').matches,
+  }));
+  expect(
+    actual.coarse,
+    `pointer emulation is not in effect for viewport "${vp.name}": expected ` +
+      `matchMedia('(pointer: coarse)').matches === ${vp.pointerCoarse}, got ${actual.coarse}. ${hint}`,
+  ).toBe(vp.pointerCoarse);
+  expect(
+    actual.dark,
+    `colour-scheme emulation is not in effect for viewport "${vp.name}" [${theme}]: expected ` +
+      `matchMedia('(prefers-color-scheme: dark)').matches === ${theme === 'dark'}, got ${actual.dark}. ${hint}`,
+  ).toBe(theme === 'dark');
+}
+
+/**
+ * Emulates viewport-appropriate pointer/hover media features together with the colour scheme, via
+ * a single CDP `Emulation.setEmulatedMedia` call, then asserts the emulation actually took.
+ *
+ * Why CDP instead of `page.emulateMedia()`: Playwright's `emulateMedia()` has no `pointer`/`hover`
+ * option at all, which is exactly how the `mobile` scenario used to measure `pointer: fine` --
+ * PointerModeService (core/pointer/pointer-mode.service.ts) gates the 7TV write paths on
+ * `matchMedia('(pointer: coarse)')`, so the 360px run rendered controls no phone can reach (#107).
+ *
+ * Two things had to be gotten right, both found by probing this Playwright/Chromium build directly
+ * rather than assumed from docs:
+ * - `Emulation.setEmulatedMedia` replaces the whole feature set per call, it does not merge into a
+ *   previous one. Calling `page.emulateMedia({ colorScheme })` separately (before or after) would
+ *   silently drop whichever override was applied first, so colour-scheme and pointer/hover must go
+ *   in through the same call.
+ * - The `pointer`/`hover` feature values are inert on their own: Chromium derives coarse-vs-fine
+ *   from whether touch emulation is active, not from the media-feature override. `coarse` viewports
+ *   therefore also need `Emulation.setTouchEmulationEnabled`. Calling it with `enabled: false` for
+ *   fine-pointer viewports does not restore the default -- once touch emulation has been toggled in
+ *   a context, disabling it leaves pointer matching neither `coarse` nor `fine`. The fix is to never
+ *   call it for fine-pointer viewports at all and rely on Chromium's untouched default, which is
+ *   `pointer: fine`. Each Playwright test gets its own browser context, so there is no state to
+ *   leak between scenarios.
+ *
+ * Note this only proves the CDP calls above took effect on the current (pre-navigation) page. It
+ * does NOT prove the emulation survives navigation, `afterLoad`, or -- critically -- the screenshot
+ * call: see the second `assertEmulatedState()` call right before `collectMetrics()` in the test body
+ * for the check that actually guards the state this harness measures and ships.
+ */
+async function emulateViewportMedia(
+  page: Page,
+  vp: (typeof VIEWPORTS)[number],
+  theme: (typeof THEMES)[number],
+): Promise<void> {
+  const client = await page.context().newCDPSession(page);
+  if (vp.pointerCoarse) {
+    await client.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  }
+  await client.send('Emulation.setEmulatedMedia', {
+    media: 'screen',
+    features: [
+      { name: 'prefers-color-scheme', value: theme },
+      { name: 'pointer', value: vp.pointerCoarse ? 'coarse' : 'fine' },
+      { name: 'any-pointer', value: vp.pointerCoarse ? 'coarse' : 'fine' },
+      { name: 'hover', value: vp.pointerCoarse ? 'none' : 'hover' },
+      { name: 'any-hover', value: vp.pointerCoarse ? 'none' : 'hover' },
+    ],
+  });
+
+  // Hard self-check, not a nice-to-have: this is the exact failure mode this function exists to
+  // fix, so a silent regression here (a Chromium/Playwright upgrade that changes how emulated media
+  // features compose, say) must fail loudly instead of quietly going back to measuring a state
+  // nothing ships. Only covers the CDP call itself, on about:blank -- it cannot see a reset that
+  // happens later (that is what the pre-collectMetrics check is for).
+  await assertEmulatedState(
+    page,
+    vp,
+    theme,
+    'Checked right after Emulation.setEmulatedMedia/setTouchEmulationEnabled, before navigation ' +
+      '(about:blank) -- Emulation.setTouchEmulationEnabled/setEmulatedMedia may not be composing ' +
+      'pointer + prefers-color-scheme the way emulateViewportMedia() assumes in this Chromium build.',
+  );
+}
+
 // --- test matrix -----------------------------------------------------------
 
 fs.mkdirSync(path.join(OUT, 'shots'), { recursive: true });
@@ -1108,12 +1229,18 @@ for (const theme of THEMES) {
         // English pass only in mobile (worst-case overflow) + desktop to keep the matrix sane.
         test.skip(locale === 'en' && vp.name === 'tablet', 'en only in mobile+desktop');
         test.skip(theme === 'light' && vp.name !== 'desktop', 'light only at the widest viewport');
+        test.skip(
+          Boolean(sc.requiresFinePointer) && vp.pointerCoarse,
+          'shows a control off the coarse-pointer write path (isCoarse) — this state has no ' +
+            'coarse-pointer equivalent to measure',
+        );
 
         await page.setViewportSize({ width: vp.width, height: vp.height });
-        // Both, and deliberately: emulateMedia covers the system-preference path, the storage seed
-        // covers the explicit-choice path, and together they make the state independent of which
-        // one the app happens to read first.
-        await page.emulateMedia({ colorScheme: theme });
+        // Both, and deliberately: media emulation covers the system-preference path, the storage
+        // seed covers the explicit-choice path, and together they make the state independent of
+        // which one the app happens to read first. Pointer/hover ride along with colour-scheme here
+        // (see emulateViewportMedia) because they have to be set in the same CDP call.
+        await emulateViewportMedia(page, vp, theme);
         await page.addInitScript(
           (value) => localStorage.setItem('emotepurge.theme', value),
           theme as string,
@@ -1132,7 +1259,71 @@ for (const theme of THEMES) {
         }
 
         const base = `${sc.slug}--${vp.name}--${locale}--${theme}`;
-        await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: true });
+
+        // `page.screenshot({ fullPage: true })` does not just leave the CDP overrides reset once it
+        // *returns* -- measured directly (a data: URL whose colour is driven by a pure-CSS
+        // `@media (pointer: coarse)` rule, so no app/JS latency can confound it): a plain
+        // viewport-sized screenshot preserves both `Emulation.setEmulatedMedia` and
+        // `Emulation.setTouchEmulationEnabled` across the call, but `fullPage: true` does not -- the
+        // composed PNG itself came back showing the fine-pointer/light-touch default, even though
+        // `matchMedia()` still reported the emulated state the instant before `screenshot()` was
+        // called. So the reset happens *during* Playwright's full-page composition, not afterwards,
+        // and reordering `collectMetrics()` before the screenshot (the previous attempt at this fix)
+        // could not have helped: the screenshot itself would still ship the wrong state. Switching
+        // the pointer emulation to Playwright's context-level `hasTouch`/`isMobile` instead of CDP
+        // does not sidestep this either (verified the same way) -- the reset lives in the
+        // `fullPage: true` capture path itself, independent of how the emulation was established.
+        //
+        // The workaround: never invoke that composition path. Grow the viewport to the page's actual
+        // content height and take a normal, viewport-sized screenshot instead -- confirmed to survive
+        // the call, pixels included -- then shrink back so collectMetrics() below runs at the same
+        // viewport size as the rest of the scenario (and every other viewport in the matrix).
+        const contentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+        await page.setViewportSize({ width: vp.width, height: Math.max(vp.height, contentHeight) });
+        await page.screenshot({ path: path.join(OUT, 'shots', `${base}.png`), fullPage: false });
+
+        // A viewport-sized screenshot is exactly what leaves emulation intact (see above), but it
+        // is also, by construction, only `vp.width` wide -- horizontally overflowing content is
+        // simply outside the captured frame, not composited in and cropped. That is the one thing
+        // this audit exists to catch (collectMetrics()'s `horizontalOverflowPx`, below), so silently
+        // clipping it out of the screenshot would hide the defect from anyone reading the images.
+        // `fullPage: true` would show it, but re-triggers the composition-path emulation reset this
+        // fix works around, and a raw CDP `Page.captureScreenshot({ captureBeyondViewport: true })`
+        // does too -- the reset lives in Chromium's capture-beyond-viewport path itself, not in
+        // Playwright's wrapper, so there is no capture mode that gets both in one shot (measured,
+        // not assumed -- see the comment above `assertEmulatedState()`'s CDP note).
+        //
+        // Scrolling, by contrast, does not touch emulation at all -- it is plain page state, not a
+        // capture mode -- so a second viewport-sized screenshot taken after scrolling to the
+        // horizontal end reveals the clipped-off content without the trade-off. Only take it when
+        // there is actually something past the right edge, so a clean scenario does not grow a
+        // second, identical-looking image for no reason.
+        const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+        if (scrollWidth > vp.width) {
+          await page.evaluate((w) => window.scrollTo(w, 0), scrollWidth);
+          await page.screenshot({
+            path: path.join(OUT, 'shots', `${base}--right.png`),
+            fullPage: false,
+          });
+          await page.evaluate(() => window.scrollTo(0, 0));
+        }
+
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+
+        // The gate that actually matters: collectMetrics() below is what the audit's pass/fail
+        // reading is based on, so this is the check that must catch a regression -- e.g. a future
+        // Chromium/Playwright upgrade that resets emulation on the resized-viewport screenshot too,
+        // or someone reintroducing `fullPage: true` above without reading the comment.
+        await assertEmulatedState(
+          page,
+          vp,
+          theme,
+          'Checked immediately before collectMetrics() -- if this fires, something between ' +
+            'navigation and here reset the CDP pointer/colour-scheme overrides. The known cause is ' +
+            'page.screenshot({ fullPage: true }), which resets Emulation.setEmulatedMedia/' +
+            'setTouchEmulationEnabled mid-capture; that is why the screenshot above no longer uses ' +
+            'fullPage: true. If that comment is still true, look for a new source of the same reset.',
+        );
         const metrics = await collectMetrics(page);
         const contrastViolations = await collectContrastViolations(page);
         fs.writeFileSync(
