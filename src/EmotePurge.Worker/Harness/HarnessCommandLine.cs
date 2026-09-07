@@ -24,8 +24,14 @@ public abstract record HarnessCommandLineResult
     /// there is no configuration yet, and the configured default (<c>Harness:WindowDays</c>) is
     /// applied by the entry point instead.
     /// </para>
+    /// <para>
+    /// <see cref="Diagnostic"/> is the escape hatch from the shared-chat cutover's fail-closed rule
+    /// (D4): a run without <c>--diagnostic</c> and without a parsable
+    /// <c>Harness:SharedChatCutover</c> refuses to start at all, and only a diagnostic run may. It
+    /// is not part of the run identity — see the remark at its use in <c>HarnessRunner</c>.
+    /// </para>
     /// </summary>
-    public sealed record RunHarness(string ChannelName, int? Days) : HarnessCommandLineResult;
+    public sealed record RunHarness(string ChannelName, int? Days, bool Diagnostic) : HarnessCommandLineResult;
 
     /// <summary>Anything else. <see cref="Message"/> is the single German line for stderr.</summary>
     public sealed record Invalid(string Message) : HarnessCommandLineResult;
@@ -41,8 +47,9 @@ public abstract record HarnessCommandLineResult
 /// <c>Program</c> nothing but the channel name, and a lenient parser would then start the full
 /// worker — a second IRC counter next to the production one, doubling every usage row through the
 /// additive UPSERT (Codex-adversarial "Fail-open CLI"). Hence: no arguments means worker, exactly
-/// <c>harness &lt;channel&gt; [--days &lt;n&gt;]</c> means harness, and every other shape is a
-/// refusal with exit code 2 rather than a guess.
+/// <c>harness &lt;channel&gt; [--days &lt;n&gt;] [--diagnostic]</c> means harness (the two options
+/// in either order, each at most once), and every other shape is a refusal with exit code 2 rather
+/// than a guess.
 /// </para>
 /// </summary>
 public static class HarnessCommandLine
@@ -50,8 +57,14 @@ public static class HarnessCommandLine
     /// <summary>The verb that selects the harness. Belongs in the compose service's entrypoint.</summary>
     public const string HarnessVerb = "harness";
 
-    /// <summary>The only option the harness takes; everything else comes from configuration.</summary>
+    /// <summary>Takes a value; everything else the harness needs comes from configuration.</summary>
     public const string DaysOption = "--days";
+
+    /// <summary>
+    /// A flag, no value. Runs the harness without an explicit shared-chat cutover and without a
+    /// gate verdict (D4) — the only case in which a run may proceed without one.
+    /// </summary>
+    public const string DiagnosticOption = "--diagnostic";
 
     public const int MinDays = 1;
 
@@ -62,7 +75,8 @@ public static class HarnessCommandLine
     /// </summary>
     public const int MaxDays = 90;
 
-    private const string Usage = "Aufruf: 'harness <kanal> [--days <n>]' oder gar kein Argument für den Worker.";
+    private const string Usage =
+        "Aufruf: 'harness <kanal> [--days <n>] [--diagnostic]' oder gar kein Argument für den Worker.";
 
     public static HarnessCommandLineResult Parse(string[] args)
     {
@@ -87,34 +101,55 @@ public static class HarnessCommandLine
             return Invalid($"'{channelName}' ist kein Kanalname. {Usage}");
         }
 
-        if (args.Length == 2)
+        int? days = null;
+        var diagnostic = false;
+
+        var index = 2;
+        while (index < args.Length)
         {
-            return new HarnessCommandLineResult.RunHarness(channelName, null);
+            var token = args[index];
+
+            if (string.Equals(token, DaysOption, StringComparison.Ordinal))
+            {
+                if (days is not null)
+                {
+                    return Invalid($"'{DaysOption}' darf nur einmal angegeben werden. {Usage}");
+                }
+
+                if (index + 1 >= args.Length)
+                {
+                    return Invalid($"'{DaysOption}' braucht eine Zahl von {MinDays} bis {MaxDays}. {Usage}");
+                }
+
+                var value = args[index + 1];
+                if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedDays)
+                    || parsedDays < MinDays
+                    || parsedDays > MaxDays)
+                {
+                    return Invalid($"'{value}' ist keine Fensterlänge von {MinDays} bis {MaxDays} Tagen. {Usage}");
+                }
+
+                days = parsedDays;
+                index += 2;
+                continue;
+            }
+
+            if (string.Equals(token, DiagnosticOption, StringComparison.Ordinal))
+            {
+                if (diagnostic)
+                {
+                    return Invalid($"'{DiagnosticOption}' darf nur einmal angegeben werden. {Usage}");
+                }
+
+                diagnostic = true;
+                index += 1;
+                continue;
+            }
+
+            return Invalid($"Unbekanntes Argument '{token}'. {Usage}");
         }
 
-        if (!string.Equals(args[2], DaysOption, StringComparison.Ordinal))
-        {
-            return Invalid($"Unbekanntes Argument '{args[2]}'. {Usage}");
-        }
-
-        if (args.Length == 3)
-        {
-            return Invalid($"'{DaysOption}' braucht eine Zahl von {MinDays} bis {MaxDays}. {Usage}");
-        }
-
-        if (args.Length > 4)
-        {
-            return Invalid($"Zu viele Argumente ab '{args[4]}'. {Usage}");
-        }
-
-        if (!int.TryParse(args[3], NumberStyles.None, CultureInfo.InvariantCulture, out var days)
-            || days < MinDays
-            || days > MaxDays)
-        {
-            return Invalid($"'{args[3]}' ist keine Fensterlänge von {MinDays} bis {MaxDays} Tagen. {Usage}");
-        }
-
-        return new HarnessCommandLineResult.RunHarness(channelName, days);
+        return new HarnessCommandLineResult.RunHarness(channelName, days, diagnostic);
     }
 
     private static HarnessCommandLineResult.Invalid Invalid(string message) => new(message);

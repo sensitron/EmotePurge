@@ -5,10 +5,11 @@ using EmotePurge.Worker.Harness;
 
 // The very first statement of the image, before any host exists. The worker image has two entry
 // points, and this is the only thing between them: no arguments means the long-running worker,
-// exactly "harness <kanal> [--days <n>]" means one accuracy run, and anything else is refused with
-// exit code 2 instead of guessed. A lenient parser here would let a harness container whose verb
-// went missing (docker compose run replaces command, not entrypoint) start the full worker beside
-// the production one and double every usage row — Codex-adversarial "Fail-open CLI".
+// exactly "harness <kanal> [--days <n>] [--diagnostic]" means one accuracy run, and anything else
+// is refused with exit code 2 instead of guessed. A lenient parser here would let a harness
+// container whose verb went missing (docker compose run replaces command, not entrypoint) start
+// the full worker beside the production one and double every usage row — Codex-adversarial
+// "Fail-open CLI".
 switch (HarnessCommandLine.Parse(args))
 {
     case HarnessCommandLineResult.Invalid invalid:
@@ -91,7 +92,8 @@ async Task<int> RunHarnessAsync(HarnessCommandLineResult.RunHarness request)
 
     // The parser cannot see the configuration (it runs before the builder), so the configured
     // default window is applied here.
-    return await runner.RunAsync(request.ChannelName, request.Days ?? options.WindowDays, cancellation.Token);
+    return await runner.RunAsync(
+        request.ChannelName, request.Days ?? options.WindowDays, request.Diagnostic, cancellation.Token);
 
     void StopRun(PosixSignalContext context)
     {

@@ -11,6 +11,8 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
     {
         var normalized = ChannelName.Normalize(channelName);
 
+        // Deliberately still UseCount alone, not the transitional D5 sum: this is a debug raw
+        // list, not a product read path, so it is out of scope for #73.
         return await db.UsageStats
             .Where(u => u.Emote.Channel.ChannelName == normalized)
             .OrderByDescending(u => u.Date).ThenByDescending(u => u.UseCount)
@@ -52,23 +54,31 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         var windowLength = to.DayNumber - from.DayNumber + 1;
         var previousFrom = from.AddDays(-windowLength);
 
-        // One pass, three aggregates, all served by the covering index (EmoteId, Date) INCLUDE
-        // (UseCount) as an index-only scan — the UseCount > 0 predicate below is evaluated on that
-        // same include column, so it stays in the index-only scan too. Deliberately unbounded in
-        // time: the max is the emote's last use ever, and clipping it to the range would make it a
-        // restatement of the total. The two sums need no predicate: they already sum UseCount, and a
-        // bot-only row (UseCount = 0, BotUseCount > 0) contributes nothing on its own. LastUsedDate
-        // does need one — a row's mere existence is no longer proof of human use once the flush can
-        // write UseCount = 0 rows, so a bot-only day must not read as "last used".
+        // One pass, three aggregates. Transitionally (D5, #73) summed and filtered over
+        // UseCount + SharedChatUseCount rather than UseCount alone, so the grid keeps showing the
+        // familiar total until Zug 2 turns the read path around and explains the split — a
+        // shared-only row (UseCount = 0, SharedChatUseCount > 0) reads as used, same as a mixed
+        // one. That expression leaves the covering index (EmoteId, Date) INCLUDE (UseCount): only
+        // UseCount is an include column, so this query no longer runs as an index-only scan, and
+        // the difference against the local dev DB's largest channel over 30 days was well under
+        // the 20 ms extension threshold (Task 4 measurement, docs/DECISIONS.md) — the heap access
+        // is accepted for the transition period rather than rewriting the index now to revert it
+        // again in Zug 2. Deliberately unbounded in time: the max is the emote's last use ever, and
+        // clipping it to the range would make it a restatement of the total. The two sums need no
+        // date-independent predicate: they already sum the transitional total, and a bot-only row
+        // (UseCount = 0, BotUseCount > 0, SharedChatUseCount = 0) contributes nothing on its own.
+        // LastUsedDate does need one — a row's mere existence is no longer proof of use once the
+        // flush can write UseCount = 0 rows, so a bot-only day must not read as "last used", while
+        // a shared-only day must.
         var aggregates = await db.UsageStats
             .Where(u => emoteIds.Contains(u.EmoteId))
             .GroupBy(u => u.EmoteId)
             .Select(g => new
             {
                 EmoteId = g.Key,
-                TotalUseCount = g.Sum(u => u.Date >= from && u.Date <= to ? u.UseCount : 0),
-                PreviousWindowUseCount = g.Sum(u => u.Date >= previousFrom && u.Date < from ? u.UseCount : 0),
-                LastUsedDate = g.Max(u => u.UseCount > 0 ? (DateOnly?)u.Date : null)
+                TotalUseCount = g.Sum(u => u.Date >= from && u.Date <= to ? u.UseCount + u.SharedChatUseCount : 0),
+                PreviousWindowUseCount = g.Sum(u => u.Date >= previousFrom && u.Date < from ? u.UseCount + u.SharedChatUseCount : 0),
+                LastUsedDate = g.Max(u => u.UseCount + u.SharedChatUseCount > 0 ? (DateOnly?)u.Date : null)
             })
             .ToDictionaryAsync(g => g.EmoteId, cancellationToken);
 
@@ -116,21 +126,22 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             return null;
         }
 
-        // Sparse on purpose (only days with usage) — served by the covering index
-        // (EmoteId, Date) INCLUDE (UseCount) as an index-only scan. UseCount > 0 keeps a bot-only
-        // row (UseCount = 0, BotUseCount > 0) out of this list — it is evaluated on the include
-        // column, so the scan stays index-only.
+        // Sparse on purpose (only days with usage). Transitionally (D5, #73) both the value and the
+        // predicate run over UseCount + SharedChatUseCount, same reasoning as GetUsageContextAsync
+        // — a shared-only day counts as used, a bot-only day does not. Single-emote scope keeps this
+        // one cheap regardless: see the index note on the channel-wide queries for the covering
+        // index's index-only scan, which this predicate also leaves.
         var days = await db.UsageStats
-            .Where(u => u.EmoteId == emote.Id && u.Date >= from && u.Date <= to && u.UseCount > 0)
+            .Where(u => u.EmoteId == emote.Id && u.Date >= from && u.Date <= to && u.UseCount + u.SharedChatUseCount > 0)
             .OrderBy(u => u.Date)
-            .Select(u => new EmoteDailyUsageDto(u.Date, u.UseCount))
+            .Select(u => new EmoteDailyUsageDto(u.Date, u.UseCount + u.SharedChatUseCount))
             .ToListAsync(cancellationToken);
 
         // First/last use ever, unbounded in time — same reasoning as LastUsedDate in
-        // GetUsageContextAsync, including the UseCount > 0 predicate against bot-only rows.
-        // Single-table GroupBy, so rule 10 is not even touched.
+        // GetUsageContextAsync, including the transitional UseCount + SharedChatUseCount predicate
+        // against bot-only rows. Single-table GroupBy, so rule 10 is not even touched.
         var bounds = await db.UsageStats
-            .Where(u => u.EmoteId == emote.Id && u.UseCount > 0)
+            .Where(u => u.EmoteId == emote.Id && u.UseCount + u.SharedChatUseCount > 0)
             .GroupBy(u => u.EmoteId)
             .Select(g => new
             {
@@ -199,19 +210,22 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             return new ChannelUsageSeriesDto(from, to, liveDayOffsets, []);
         }
 
-        // One index-only scan over (EmoteId, Date) INCLUDE (UseCount) for the whole channel, then
-        // grouped in memory. Deliberately not a GroupBy in SQL: the grouping here is pure
-        // partitioning with no aggregate to push down, so the database would do the same work and
-        // hand back the same number of rows either way — and rule 10 makes a navigation-joined
-        // GroupBy the fragile shape to reach for. Ordering by (EmoteId, Date) is what lets the
-        // in-memory GroupBy below emit each emote's days already ascending. UseCount > 0 excludes
-        // bot-only rows (UseCount = 0, BotUseCount > 0) — evaluated on the include column, so the
-        // scan stays index-only — which keeps a bot-only emote out of Emotes entirely, the same way
-        // an emote with no rows at all would be.
+        // One scan over the whole channel, then grouped in memory. Deliberately not a GroupBy in
+        // SQL: the grouping here is pure partitioning with no aggregate to push down, so the
+        // database would do the same work and hand back the same number of rows either way — and
+        // rule 10 makes a navigation-joined GroupBy the fragile shape to reach for. Ordering by
+        // (EmoteId, Date) is what lets the in-memory GroupBy below emit each emote's days already
+        // ascending. Transitionally (D5, #73) both the summed value and the predicate run over
+        // UseCount + SharedChatUseCount — a bot-only row (UseCount = 0, BotUseCount > 0,
+        // SharedChatUseCount = 0) keeps excluding a bot-only emote from Emotes entirely, the same
+        // way an emote with no rows at all would be, while a shared-only row now stays in. Once
+        // this predicate reads SharedChatUseCount, the covering index (EmoteId, Date)
+        // INCLUDE (UseCount) can no longer serve it as an index-only scan — see the index note on
+        // GetUsageContextAsync, which the Task 4 measurement covers for this query too.
         var rows = await db.UsageStats
-            .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to && u.UseCount > 0)
+            .Where(u => emoteIds.Contains(u.EmoteId) && u.Date >= from && u.Date <= to && u.UseCount + u.SharedChatUseCount > 0)
             .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
-            .Select(u => new { u.EmoteId, u.Date, u.UseCount })
+            .Select(u => new { u.EmoteId, u.Date, UseCount = u.UseCount + u.SharedChatUseCount })
             .ToListAsync(cancellationToken);
 
         var emotes = rows
@@ -238,13 +252,14 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
         }
 
         // Materialized list rather than the caller's collection: the same rule-10 reason as above,
-        // the grouped query has to stay scoped to a single table.
+        // the grouped query has to stay scoped to a single table. Transitionally (D5, #73) the sum
+        // runs over UseCount + SharedChatUseCount, same reasoning as GetUsageContextAsync.
         var ids = emoteIds.ToList();
 
         return await db.UsageStats
             .Where(u => ids.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
             .GroupBy(u => u.EmoteId)
-            .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount) })
+            .Select(g => new { EmoteId = g.Key, TotalUseCount = g.Sum(u => u.UseCount + u.SharedChatUseCount) })
             .ToDictionaryAsync(g => g.EmoteId, g => g.TotalUseCount, cancellationToken);
     }
 
@@ -313,7 +328,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .AsNoTracking()
             .Where(u => ids.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
             .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
-            .Select(u => new UsageStatRowDto(u.EmoteId, u.Date, u.UseCount, u.BotUseCount))
+            .Select(u => new UsageStatRowDto(u.EmoteId, u.Date, u.UseCount, u.BotUseCount, u.SharedChatUseCount))
             .ToListAsync(cancellationToken);
     }
 }

@@ -1,3 +1,4 @@
+using EmotePurge.Core.Chat;
 using EmotePurge.Core.Matching;
 
 namespace EmotePurge.Worker.Harness;
@@ -42,6 +43,7 @@ public sealed class ReplayDayCounter
     private readonly Dictionary<string, string> _channelMap;
     private readonly Dictionary<string, int> _humanCounts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _botCounts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _sharedChatCounts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _unmatchedByReason = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _cells = new(StringComparer.Ordinal);
     private readonly HashSet<string> _humanChatters = new(StringComparer.Ordinal);
@@ -49,6 +51,7 @@ public sealed class ReplayDayCounter
     private int _messageCount;
     private int _botMessageCount;
     private int _sharedChatMessageCount;
+    private int _indeterminateMessageCount;
     private int _outsideDayCount;
     private int _firstSeenUnknownHits;
     private bool _finished;
@@ -92,49 +95,80 @@ public sealed class ReplayDayCounter
     }
 
     /// <summary>
-    /// Counts one chat message of the archive day. The six values are the fields of a parsed log
-    /// line; the message record of the log client is deliberately not referenced here, so that this
-    /// half of the harness does not depend on the fetching half.
+    /// Counts one chat message of the archive day and returns the category it fell into. The seven
+    /// values are the fields of a parsed log line; the message record of the log client is
+    /// deliberately not referenced here, so that this half of the harness does not depend on the
+    /// fetching half.
     /// <para>
     /// A message whose timestamp falls on another day still counts — the day file is the archive's
-    /// truth and <see cref="ReplayDayLine.OutsideDayCount"/> is diagnostics. A shared-chat message
-    /// also still counts, the way the live worker counts it today, and is marked.
+    /// truth and <see cref="ReplayDayLine.OutsideDayCount"/> is diagnostics. A message from a
+    /// foreign or indeterminate room (<see cref="SharedChatRule"/>) is not "still counted the same
+    /// way" any more: its hits move <see cref="ReplayDayLine.SharedChatCounts"/> instead of
+    /// <see cref="ReplayDayLine.HumanCounts"/> or <see cref="ReplayDayLine.BotCounts"/> — the way the
+    /// live worker has counted since #73 — and it is not tokenized any further: it moves nothing but
+    /// its own message counter and that one shared-chat hit, never
+    /// <see cref="ReplayDayLine.FirstSeenUnknownHits"/>, a k-distribution cell, or the human-chatter
+    /// set, because those exist to explain this channel's own day map and its own chatters, not a
+    /// foreign channel's coincidental name overlap with it.
     /// </para>
     /// </summary>
-    public void Count(
+    public UsageCategory Count(
         DateTime sentAtUtc,
         string? userId,
         IReadOnlyList<KeyValuePair<string, string>> badges,
         string? roomId,
         string? sourceRoomId,
+        bool hasOtherSourceMarkers,
         string text)
     {
         ThrowIfFinished();
 
         _messageCount++;
 
-        if (!string.IsNullOrEmpty(sourceRoomId) && !string.Equals(sourceRoomId, roomId, StringComparison.Ordinal))
-        {
-            _sharedChatMessageCount++;
-        }
-
         if (DateOnly.FromDateTime(sentAtUtc) != _day)
         {
             _outsideDayCount++;
         }
 
-        var isBot = _isBot(userId, badges);
-        var chatter = string.IsNullOrEmpty(userId) ? UnknownChatter : userId;
-        if (isBot)
+        var origin = SharedChatRule.Classify(roomId, sourceRoomId, hasOtherSourceMarkers);
+        if (origin == MessageOrigin.Foreign)
         {
-            _botMessageCount++;
+            _sharedChatMessageCount++;
         }
-        else
+        else if (origin == MessageOrigin.Indeterminate)
+        {
+            _indeterminateMessageCount++;
+        }
+
+        // _isBot is a call into the live bot classifier per message. UsageCategoryRule.Resolve
+        // ignores isBot for anything but Own, so the call is skipped for foreign/indeterminate
+        // messages — but Resolve is still called with false, so the room-vs-bot precedence stays
+        // decided at this one spot (Plan decision 5) instead of a second "is this even own" check
+        // creeping in here.
+        var isBot = origin == MessageOrigin.Own && _isBot(userId, badges);
+        var category = UsageCategoryRule.Resolve(origin, isBot);
+        var chatter = string.IsNullOrEmpty(userId) ? UnknownChatter : userId;
+
+        if (category == UsageCategory.Human)
         {
             _humanChatters.Add(chatter);
         }
+        else if (category == UsageCategory.Bot)
+        {
+            _botMessageCount++;
+        }
 
-        var counts = isBot ? _botCounts : _humanCounts;
+        if (category == UsageCategory.SharedChat)
+        {
+            foreach (var emoteId in EmoteNameMatching.MatchEmoteIds(text, _dayMap))
+            {
+                _sharedChatCounts[emoteId] = _sharedChatCounts.GetValueOrDefault(emoteId) + 1;
+            }
+
+            return category;
+        }
+
+        var counts = category == UsageCategory.Bot ? _botCounts : _humanCounts;
         foreach (var emoteId in EmoteNameMatching.MatchEmoteIds(text, _dayMap))
         {
             counts[emoteId] = counts.GetValueOrDefault(emoteId) + 1;
@@ -144,7 +178,7 @@ public sealed class ReplayDayCounter
                 _firstSeenUnknownHits++;
             }
 
-            if (!isBot)
+            if (category == UsageCategory.Human)
             {
                 if (!_cells.TryGetValue(emoteId, out var chatters))
                 {
@@ -156,6 +190,8 @@ public sealed class ReplayDayCounter
         }
 
         ClassifyTokens(text);
+
+        return category;
     }
 
     /// <summary>
@@ -190,11 +226,13 @@ public sealed class ReplayDayCounter
             _messageCount,
             _botMessageCount,
             _sharedChatMessageCount,
+            _indeterminateMessageCount,
             nonPrivmsg,
             malformed,
             _outsideDayCount,
             new Dictionary<string, int>(_humanCounts, StringComparer.Ordinal),
             new Dictionary<string, int>(_botCounts, StringComparer.Ordinal),
+            new Dictionary<string, int>(_sharedChatCounts, StringComparer.Ordinal),
             new Dictionary<string, int>(_unmatchedByReason, StringComparer.Ordinal),
             _firstSeenUnknownHits,
             histogram,

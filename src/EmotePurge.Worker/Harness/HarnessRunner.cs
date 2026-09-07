@@ -55,9 +55,13 @@ public sealed class HarnessRunner(
 {
     /// <summary>
     /// Part of the run identity: a changed counting rule must not resume a file counted by the old
-    /// one. Bump it whenever the matching, the day boundaries or the day-line shape change.
+    /// one. Bump it whenever the matching, the day boundaries or the day-line shape change — as it
+    /// just did for the day-line shape and the shared-chat rule (#73): a message from a foreign or
+    /// indeterminate room now moves <see cref="ReplayDayLine.SharedChatCounts"/> instead of
+    /// <see cref="ReplayDayLine.HumanCounts"/> or <see cref="ReplayDayLine.BotCounts"/>, so a
+    /// "harness-1" file must not be silently resumed under the new rule.
     /// </summary>
-    public const string AlgorithmVersion = "harness-1";
+    public const string AlgorithmVersion = "harness-2";
 
     /// <summary>The window covered completely; both final reports were written.</summary>
     public const int ExitSuccess = 0;
@@ -107,11 +111,11 @@ public sealed class HarnessRunner(
     /// a one-shot container gets a German line and a defined code, never a stack trace with an
     /// exit status invented by the runtime.
     /// </summary>
-    public async Task<int> RunAsync(string channelName, int days, CancellationToken ct)
+    public async Task<int> RunAsync(string channelName, int days, bool diagnostic, CancellationToken ct)
     {
         try
         {
-            return await ExecuteAsync(channelName, days, ct);
+            return await ExecuteAsync(channelName, days, diagnostic, ct);
         }
         catch (OperationCanceledException)
         {
@@ -130,7 +134,7 @@ public sealed class HarnessRunner(
         }
     }
 
-    private async Task<int> ExecuteAsync(string channelName, int days, CancellationToken ct)
+    private async Task<int> ExecuteAsync(string channelName, int days, bool diagnostic, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
 
@@ -143,6 +147,39 @@ public sealed class HarnessRunner(
                 "Die Fensterlänge {Tage} liegt außerhalb der erlaubten {Min} bis {Max} Tage; per '--days' oder über 'Harness:WindowDays' korrigieren.",
                 days, HarnessCommandLine.MinDays, HarnessCommandLine.MaxDays);
             return ExitPreconditionViolated;
+        }
+
+        // Fail-closed (D4, Plan-Entscheidung 6): missing, blank or unparsable are all the same
+        // failure. Runs before any database or archive access — a forgotten configuration value and
+        // a deliberate diagnostic run are otherwise indistinguishable once both end in exit 0, and
+        // the binding run is read weeks later by someone who is not the person who started it.
+        // '--diagnostic' is the only escape, and only when the value is genuinely absent: a value
+        // that IS set but does not parse stays an error even in diagnostic mode, so a typo never
+        // silently reads as "no cutover".
+        DateOnly? sharedChatCutover = null;
+        if (string.IsNullOrWhiteSpace(options.SharedChatCutover))
+        {
+            if (!diagnostic)
+            {
+                logger.LogError(
+                    "'Harness:SharedChatCutover' fehlt oder ist leer; ohne diesen Stichtag kann kein Gate-Urteil gefällt werden. Erwartet ist ein UTC-Datum der Form 'yyyy-MM-dd' — der Tag nach dem Prod-Deploy, nicht der Deploy-Tag selbst —, oder '--diagnostic' für einen Lauf ohne Urteil.");
+                return ExitPreconditionViolated;
+            }
+
+            logger.LogWarning(
+                "'Harness:SharedChatCutover' fehlt oder ist leer; der Diagnoselauf misst ohne Stichtag und weist kein Gate-Urteil aus.");
+        }
+        else if (!DateOnly.TryParseExact(
+            options.SharedChatCutover, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCutover))
+        {
+            logger.LogError(
+                "'Harness:SharedChatCutover' = '{Wert}' ist kein Datum der Form 'yyyy-MM-dd' (der Tag nach dem Prod-Deploy, nicht der Deploy-Tag selbst); ein Tippfehler darf nie still als 'kein Stichtag' durchgehen.",
+                options.SharedChatCutover);
+            return ExitPreconditionViolated;
+        }
+        else
+        {
+            sharedChatCutover = parsedCutover;
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -204,6 +241,7 @@ public sealed class HarnessRunner(
             from,
             to,
             botSplitCutover,
+            sharedChatCutover,
             [.. botAccountIds.Order(StringComparer.Ordinal)],
             AlgorithmVersion,
             HarnessInputHash.Compute(lifetimes, liveRowDtos, botAccountIds, from));
@@ -242,9 +280,9 @@ public sealed class HarnessRunner(
             .Select(e => new ReplayEmote(e.Id, e.Name, e.IsArchived, e.FirstSeenAt, e.ArchivedAt, e.LastSyncedAt))
             .ToList();
         var liveRows = liveRowDtos
-            .Select(r => new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount))
+            .Select(r => new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount, r.SharedChatUseCount))
             .ToList();
-        var window = new ReplayWindow(from, to, botSplitCutover);
+        var window = new ReplayWindow(from, to, botSplitCutover, sharedChatCutover);
 
         var dayLines = existing.Days.ToDictionary(d => d.Day);
         // Both finished days and aborted-but-received attempts count against the cap: a day that
@@ -293,7 +331,6 @@ public sealed class HarnessRunner(
                         if (!string.IsNullOrEmpty(message.UserId))
                         {
                             sawUserId = true;
-                            distinctChatters?.Add(message.UserId);
                         }
 
                         if (message.Badges.Count > 0)
@@ -301,8 +338,19 @@ public sealed class HarnessRunner(
                             sawBadges = true;
                         }
 
-                        counter.Count(
-                            message.SentAtUtc, message.UserId, message.Badges, message.RoomId, message.SourceRoomId, message.Text);
+                        // Classify first, add second (Spec B5): the window-wide chatter set has to
+                        // follow the same own/foreign rule as the per-day counter's own chatter set,
+                        // so the category must be known before the Add, not derived from it. Both
+                        // "distinct chatters" numbers in the report mean own human chatters as of
+                        // harness-2.
+                        var category = counter.Count(
+                            message.SentAtUtc, message.UserId, message.Badges, message.RoomId, message.SourceRoomId,
+                            message.HasOtherSourceMarkers, message.Text);
+                        if (category == UsageCategory.Human && !string.IsNullOrEmpty(message.UserId))
+                        {
+                            distinctChatters?.Add(message.UserId);
+                        }
+
                         return ValueTask.CompletedTask;
                     },
                     ct);
@@ -388,7 +436,7 @@ public sealed class HarnessRunner(
         var resumePoint = allDays.Count == 0 ? (DateOnly?)null : allDays[^1].Day;
 
         var report = ReplayFidelityCalculator.Compute(
-            window, emotes, liveRows, allDays, days, runComplete: true, bytesUsed, rateLimitedDays, resumePoint);
+            window, emotes, liveRows, allDays, days, runComplete: true, bytesUsed, rateLimitedDays, resumePoint, diagnostic);
 
         file.WriteFinalReportAtomically(report, BuildMarkdown(
             identity, report, allDays, liveRows, loadedAtUtc, timeProvider.GetUtcNow().UtcDateTime,
@@ -551,6 +599,8 @@ public sealed class HarnessRunner(
         Row(text, "Kanal", Invariant($"{identity.ChannelName} (`{identity.ChannelId}`, Twitch-ID `{identity.TwitchChannelId}`)"));
         Row(text, "Fenster", Invariant($"{identity.WindowFrom:yyyy-MM-dd} bis {identity.WindowTo:yyyy-MM-dd} ({report.Run.WindowDays} Tage)"));
         Row(text, "Bot-Split-Stichtag", identity.BotSplitCutover?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "keiner (kein Bot je gesehen)");
+        Row(text, "Shared-Chat-Stichtag", identity.SharedChatCutover?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "keiner (Diagnoselauf)");
+        Row(text, "Lauf-Modus", report.Run.Diagnostic ? "Diagnose" : "bindend");
         Row(text, "Human-only-Tage im Fenster", Invariant($"{diagnostics.HumanOnlyDays}"));
         Row(text, "Tage mit Log / ohne Log", Invariant($"{diagnostics.LogDays} / {diagnostics.NoLogDays}"));
         Row(text, "Bot-IDs", identity.BotAccountIds.Count == 0 ? "keine" : string.Join(", ", identity.BotAccountIds.Select(id => "`" + id + "`")));
@@ -576,6 +626,10 @@ public sealed class HarnessRunner(
         Row(text, "Gewertete Tage",
             Invariant($"{gate.RatedDays} (davon {diagnostics.SignallessRatedDays} signallos)"), "≥ 20");
         Row(text, "Fensterlänge", Invariant($"{report.Run.WindowDays}"), "= 30");
+        // Below the pre-registered rows and without a threshold of its own: the two sides of the
+        // #73 split are an eligibility condition (D3), not a fourth published figure.
+        Row(text, "Shared Chat ΣLog / ΣLive (bewertete Tage)",
+            Invariant($"{gate.SharedChatLogTotal} / {gate.SharedChatLiveTotal}"), "Eignungsbedingung, kein Gate");
 
         text.Append(Invariant($"\nImport-Population: {gate.PopulationSize} Emotes · ΣLog (human) {gate.HumanLogTotal} · ΣLive (human) {gate.HumanLiveTotal}"));
         text.Append(Invariant($" · Top-20-Größe {gate.Top20Size} · Quartilsgröße {gate.BottomQuartileSize}"));
@@ -606,8 +660,8 @@ public sealed class HarnessRunner(
             $"{diagnostics.UnknownNameHits} / {diagnostics.AmbiguousNameHits} / {diagnostics.BeforeFirstSeenHits} / {diagnostics.AfterArchivedHits}"));
         Row(text, "FirstSeenAt unbekannt (gezählt und markiert) / mehrdeutige Namen / archiviert ohne Datum", Invariant(
             $"{diagnostics.FirstSeenUnknownHits} / {diagnostics.AmbiguousNameCount} / {diagnostics.ArchivedWithoutDateCount}"));
-        Row(text, "Nachrichten gesamt / Bots / Shared Chat / außerhalb des Tages", Invariant(
-            $"{diagnostics.TotalMessages} / {diagnostics.BotMessages} / {diagnostics.SharedChatMessages} / {diagnostics.OutsideDayCount}"));
+        Row(text, "Nachrichten gesamt / Bots / Shared Chat / unbestimmbar / außerhalb des Tages", Invariant(
+            $"{diagnostics.TotalMessages} / {diagnostics.BotMessages} / {diagnostics.SharedChatMessages} / {diagnostics.IndeterminateMessages} / {diagnostics.OutsideDayCount}"));
         Row(text, "Nicht-PRIVMSG-Zeilen / unlesbare Zeilen", Invariant(
             $"{diagnostics.NonPrivmsgLines} / {diagnostics.MalformedLines}"));
         Row(text, "Datenschutz: Anteil (Emote, Tag)-Zellen mit k = 1", Invariant(
@@ -621,18 +675,27 @@ public sealed class HarnessRunner(
             ? "keine"
             : string.Join(", ", diagnostics.CoverageQuestionableDays.Select(d => d.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))));
 
+        // Two day cards, not one: the human column stays UseCount alone (the target contract the
+        // gate measures), and the shared-chat column is its own SharedChatUseCount sum, so the three
+        // signatures of D3 can be read off the table day by day — a rollback day would show the
+        // middle one.
         var liveByDay = new Dictionary<DateOnly, long>();
+        var sharedChatLiveByDay = new Dictionary<DateOnly, long>();
         foreach (var row in liveRows)
         {
             liveByDay[row.Date] = liveByDay.GetValueOrDefault(row.Date) + row.UseCount;
+            sharedChatLiveByDay[row.Date] = sharedChatLiveByDay.GetValueOrDefault(row.Date) + row.SharedChatUseCount;
         }
 
-        text.Append("\n## Tage\n\n| Tag | Status | Bytes | Nachrichten | davon Bots | Log-Treffer (human) | Live (human) |\n| --- | --- | --- | --- | --- | --- | --- |\n");
+        text.Append(
+            "\n## Tage\n\n| Tag | Status | Bytes | Nachrichten | davon Bots | Log-Treffer (human) | Live (human) "
+            + "| Shared Chat (Log) | Shared Chat (Live) |\n"
+            + "| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         foreach (var day in days)
         {
             var logHits = day.HumanCounts.Values.Sum();
             text.Append(Invariant(
-                $"| {day.Day:yyyy-MM-dd} | {day.Status} | {day.Bytes} | {day.MessageCount} | {day.BotMessageCount} | {logHits} | {liveByDay.GetValueOrDefault(day.Day)} |\n"));
+                $"| {day.Day:yyyy-MM-dd} | {day.Status} | {day.Bytes} | {day.MessageCount} | {day.BotMessageCount} | {logHits} | {liveByDay.GetValueOrDefault(day.Day)} | {day.SharedChatCounts.Values.Sum()} | {sharedChatLiveByDay.GetValueOrDefault(day.Day)} |\n"));
         }
 
         return text.ToString();

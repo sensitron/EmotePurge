@@ -7,6 +7,10 @@ namespace EmotePurge.Core.ChatLogArchive;
 /// empty on purpose: the archive can omit both without that being a client error (see
 /// <c>JustlogRawLineParser</c>'s class comment) — deciding what an absence means is the harness's
 /// job (design doc, "Rückfall ohne Badges"), not this client's.
+/// <paramref name="HasOtherSourceMarkers"/> carries only the *presence* of the Shared Chat markers
+/// other than <see cref="EmotePurge.Core.Chat.SharedChatRule.SourceRoomIdTag"/> — see
+/// <see cref="EmotePurge.Core.Chat.SharedChatRule"/>, which this field feeds together with
+/// <paramref name="RoomId"/> and <paramref name="SourceRoomId"/>.
 /// </summary>
 public record ChatLogMessage(
     DateTime SentAtUtc,
@@ -14,6 +18,7 @@ public record ChatLogMessage(
     IReadOnlyList<KeyValuePair<string, string>> Badges,
     string? RoomId,
     string? SourceRoomId,
+    bool HasOtherSourceMarkers,
     string Text);
 
 /// <summary>Outcome of one <see cref="IChatLogArchiveClient.ReadDayAsync"/> call.</summary>

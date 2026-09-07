@@ -80,4 +80,18 @@ public class WorkerStatsTests
         Assert.Equal(later, stats.LastFlushSuccessUtc);
         Assert.Equal(0, stats.LastFlushRowCount);
     }
+
+    [Fact]
+    public void RecordIndeterminateSharedChatMessage_AccumulatesUntilTaken()
+    {
+        // The take resets to zero atomically (Interlocked.Exchange) — a second Take right after
+        // must see 0, not the same count again.
+        var stats = new WorkerStats();
+
+        stats.RecordIndeterminateSharedChatMessage();
+        stats.RecordIndeterminateSharedChatMessage();
+
+        Assert.Equal(2, stats.TakeIndeterminateSharedChatMessagesSinceLastFlush());
+        Assert.Equal(0, stats.TakeIndeterminateSharedChatMessagesSinceLastFlush());
+    }
 }

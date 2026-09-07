@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using EmotePurge.Core.Chat;
 using EmotePurge.Core.ChatLogArchive;
 
 namespace EmotePurge.Infrastructure.ChatLogArchive;
@@ -123,6 +124,7 @@ public static class JustlogRawLineParser
             ParseBadges(badgesRaw),
             string.IsNullOrEmpty(roomId) ? null : roomId,
             string.IsNullOrEmpty(sourceRoomId) ? null : sourceRoomId,
+            SharedChatRule.HasOtherSourceMarkers(tags),
             UnpackAction(trailingText));
 
         return true;

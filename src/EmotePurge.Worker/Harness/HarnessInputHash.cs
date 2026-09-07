@@ -7,8 +7,11 @@ namespace EmotePurge.Worker.Harness;
 
 /// <summary>
 /// A fingerprint of everything a run compares against: the emote lifetimes, the live usage rows of
-/// the window and the bot account ids. Part of the run identity, and therefore of the report file's
-/// name.
+/// the window — own, bot and shared-chat counts alike — and the bot account ids. Part of the run
+/// identity, and therefore of the report file's name. The shared-chat column moving is as much a
+/// reason to start a new run as a changed <c>BotUseCount</c>: it is live data the harness reads and
+/// compares against, and a stale hash would let a resume continue against a snapshot Postgres has
+/// since moved past.
 /// <para>
 /// It exists because of the Codex-adversarial finding "JSONL-Kopf identifiziert den Datensnapshot
 /// nicht": the live worker keeps writing while the harness runs, so a resume two days later would
@@ -71,6 +74,7 @@ public static class HarnessInputHash
                 .Append('|').Append(row.Date.ToString("o", CultureInfo.InvariantCulture))
                 .Append('|').Append(row.UseCount.ToString(CultureInfo.InvariantCulture))
                 .Append('|').Append(row.BotUseCount.ToString(CultureInfo.InvariantCulture))
+                .Append('|').Append(row.SharedChatUseCount.ToString(CultureInfo.InvariantCulture))
                 .Append('\n');
         }
 

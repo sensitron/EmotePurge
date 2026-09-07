@@ -21,13 +21,13 @@ public class HarnessInputHashTests
     {
         var forward = HarnessInputHash.Compute(
             [Emote("a"), Emote("b")],
-            [Row("a", 1, 5, 0), Row("b", 2, 7, 1)],
+            [Row("a", 1, 5, 0, 0), Row("b", 2, 7, 1, 3)],
             new HashSet<string> { "1", "2" },
             WindowFrom);
 
         var backward = HarnessInputHash.Compute(
             [Emote("b"), Emote("a")],
-            [Row("b", 2, 7, 1), Row("a", 1, 5, 0)],
+            [Row("b", 2, 7, 1, 3), Row("a", 1, 5, 0, 0)],
             new HashSet<string> { "2", "1" },
             WindowFrom);
 
@@ -43,10 +43,10 @@ public class HarnessInputHashTests
     public void LastSyncedAtMovingWithinTheSameSideOfTheWindow_DoesNotChangeTheHash()
     {
         var before = HarnessInputHash.Compute(
-            [Emote("a")], [Row("a", 1, 5, 0)], new HashSet<string> { "1" }, WindowFrom);
+            [Emote("a")], [Row("a", 1, 5, 0, 0)], new HashSet<string> { "1" }, WindowFrom);
         var after = HarnessInputHash.Compute(
             [Emote("a") with { LastSyncedAt = Synced.AddHours(10) }],
-            [Row("a", 1, 5, 0)],
+            [Row("a", 1, 5, 0, 0)],
             new HashSet<string> { "1" },
             WindowFrom);
 
@@ -60,10 +60,10 @@ public class HarnessInputHashTests
     public void LastSyncedAtCrossingTheWindowBoundary_ChangesTheHash()
     {
         var before = HarnessInputHash.Compute(
-            [Emote("a")], [Row("a", 1, 5, 0)], new HashSet<string> { "1" }, WindowFrom);
+            [Emote("a")], [Row("a", 1, 5, 0, 0)], new HashSet<string> { "1" }, WindowFrom);
         var after = HarnessInputHash.Compute(
             [Emote("a") with { LastSyncedAt = WindowFrom.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) }],
-            [Row("a", 1, 5, 0)],
+            [Row("a", 1, 5, 0, 0)],
             new HashSet<string> { "1" },
             WindowFrom);
 
@@ -74,9 +74,9 @@ public class HarnessInputHashTests
     public void AnAdditionalBotId_ChangesTheHash()
     {
         var before = HarnessInputHash.Compute(
-            [Emote("a")], [Row("a", 1, 5, 0)], new HashSet<string> { "1" }, WindowFrom);
+            [Emote("a")], [Row("a", 1, 5, 0, 0)], new HashSet<string> { "1" }, WindowFrom);
         var after = HarnessInputHash.Compute(
-            [Emote("a")], [Row("a", 1, 5, 0)], new HashSet<string> { "1", "2" }, WindowFrom);
+            [Emote("a")], [Row("a", 1, 5, 0, 0)], new HashSet<string> { "1", "2" }, WindowFrom);
 
         Assert.NotEqual(before, after);
     }
@@ -85,9 +85,23 @@ public class HarnessInputHashTests
     public void AChangedBotUseCount_ChangesTheHash()
     {
         var before = HarnessInputHash.Compute(
-            [Emote("a")], [Row("a", 1, 5, 0)], new HashSet<string> { "1" }, WindowFrom);
+            [Emote("a")], [Row("a", 1, 5, 0, 0)], new HashSet<string> { "1" }, WindowFrom);
         var after = HarnessInputHash.Compute(
-            [Emote("a")], [Row("a", 1, 5, 1)], new HashSet<string> { "1" }, WindowFrom);
+            [Emote("a")], [Row("a", 1, 5, 1, 0)], new HashSet<string> { "1" }, WindowFrom);
+
+        Assert.NotEqual(before, after);
+    }
+
+    [Fact]
+    public void AChangedSharedChatUseCount_ChangesTheHash()
+    {
+        // The #73 addition: the third column has to move the hash exactly like BotUseCount does
+        // above, or a resume could continue against a snapshot whose foreign-room usage has since
+        // moved in Postgres.
+        var before = HarnessInputHash.Compute(
+            [Emote("a")], [Row("a", 1, 5, 0, 0)], new HashSet<string> { "1" }, WindowFrom);
+        var after = HarnessInputHash.Compute(
+            [Emote("a")], [Row("a", 1, 5, 0, 1)], new HashSet<string> { "1" }, WindowFrom);
 
         Assert.NotEqual(before, after);
     }
@@ -114,6 +128,6 @@ public class HarnessInputHashTests
     private static EmoteLifetimeDto Emote(string id) =>
         new(id, "Name" + id, false, FirstSeen, null, Synced);
 
-    private static UsageStatRowDto Row(string emoteId, int day, int useCount, int botUseCount) =>
-        new(emoteId, new DateOnly(2026, 9, day), useCount, botUseCount);
+    private static UsageStatRowDto Row(string emoteId, int day, int useCount, int botUseCount, int sharedChatUseCount) =>
+        new(emoteId, new DateOnly(2026, 9, day), useCount, botUseCount, sharedChatUseCount);
 }
