@@ -18,6 +18,11 @@ export interface ImportTargetDialogData {
   visibleCount: number;
   /** Size of the page's grid selection; 0 means the scope radiogroup is not offered at all. */
   selectionCount: number;
+  /** Set by a caller that has already decided the scope for the user (the dock's copy shortcut,
+   *  design doc §8.7, always forces `'selection'`) — no radiogroup at all, and the dialog closes
+   *  with exactly this scope regardless of `selectionCount`. `undefined` keeps today's behaviour:
+   *  the radiogroup shown/hidden and pre-selected purely from `selectionCount`. */
+  forcedScope?: ExportScope;
 }
 
 /** What was chosen: a scope over the source rows, plus where they should go. */
@@ -46,7 +51,7 @@ type TargetSelection = { kind: 'channel'; channelName: string } | { kind: 'file'
   imports: [Button, DialogShell, NoticeBanner, SkeletonRows, TranslocoPipe],
   template: `
     <app-dialog-shell [dialogTitle]="'import.target.title' | transloco">
-      @if (data.selectionCount > 0) {
+      @if (data.forcedScope === undefined && data.selectionCount > 0) {
         <div
           class="flex flex-wrap gap-4 text-sm text-fg-secondary"
           role="radiogroup"
@@ -174,8 +179,10 @@ export class ImportTargetDialog {
   // Pre-selected to 'selection' when a selection exists (R12) — see the class doc for why this is
   // the opposite default from the export dialog. Without a selection there is no radiogroup at all
   // and the scope is 'visible' unconditionally (read via the getter below, never surfaced as UI).
+  // A caller-forced scope (design doc §8.7) wins over both: there is no radiogroup to change it
+  // away from, so the value set here is also the value the dialog closes with.
   protected readonly scope = signal<ExportScope>(
-    this.data.selectionCount > 0 ? 'selection' : 'visible',
+    this.data.forcedScope ?? (this.data.selectionCount > 0 ? 'selection' : 'visible'),
   );
 
   // No pre-selected target: "Weiter" stays disabled until the user picks one, and the radio itself
