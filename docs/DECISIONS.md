@@ -10,6 +10,111 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-07 — Welche Fläche welches Kommando trägt (§8.7), und die Dock-Kurzform als Einzelfall auf Probe
+
+**Betrifft:** `docs/UI-Designsprache.md` (§8.7 neu, Verweise in §2.5, §4.2, §7.2) ·
+`docs/designs/Aktionszeile-80-2026-09-06.md` (Entwurf, drei Prüfrunden und ein Schiedsspruch) —
+außerdem, als von der Regel künftig regierte, in diesem Commit aber unveränderte Stellen:
+`web/src/app/features/usage-stats/usage-stats-page.html`,
+`web/src/app/shared/seven-tv/mass-delete-panel.ts`,
+`web/src/app/shared/seven-tv/import-target-dialog.ts`,
+`web/src/app/features/voting/vote-session-detail-page.html`.
+
+**Der Fall.** #80 fragte, ob „In Kanal kopieren…" ins Dock gehört statt in den Seitenkopf. Die
+Frage war nicht zu beantworten, weil es keine Regel gab, gegen die man sie hätte prüfen können —
+und sie ist im Entwurf auch nicht die eigentliche Frage geblieben: die Prämisse des Issues stimmte
+nicht (der Kopfknopf wirkt nicht auf die Auswahl, er friert `selection` **und** `visible` ein und
+übergibt beide an eine Bereichswahl), dafür standen zwei anders benannte Kommandos für dieselbe
+Absicht nebeneinander. §8.7 schreibt jetzt auf, was die drei Flächen unterscheidet: der Seitenkopf
+scrollt weg, die Sticky-Leiste ist voll und trägt die Angaben, die man *während* des Markierens
+braucht, das Dock ist da, solange es etwas zu tun gibt. Aus diesen Sichtbarkeiten folgt die
+Rollenverteilung, nicht aus Geschmack.
+
+**Warum die Regel zu §8 gehört und nicht dorthin, wo die Frage aufkam.** Drei naheliegende Orte
+scheiden aus, jeder aus einem eigenen Grund. §2.5 beginnt mit „Was für sie gilt, gilt für nichts
+anderes in der App" — eine app-weite Regel dort einzutragen hebelt genau diesen Satz aus. §7.2
+beschreibt die Zeilenreihenfolge zweier konkreter Dialoge, nicht die Platzwahl von Kommandos. Und
+Kapitel 4 heißt „Buttons, Badges, Banner" und enthält Primitive, keine Platzierungsregeln — die
+Reihenfolge-Anweisung in §8.7 sagt etwas über die *Position* eines Auslösers, während §4.2
+weiterhin allein bestimmt, wie er aussieht. Was übrig bleibt, ist eine Aussage darüber, welche
+Fläche welches Kommando trägt: dieselbe Art Aussage wie §8.4a (Inhaltsbreite) und §8.5
+(Sticky-Ebenen), also steht sie neben ihnen. §2.5, §4.2 und §7.2 tragen je einen Verweis dorthin,
+mehr nicht.
+
+**Der Abschnitt heißt §8.7 und nicht §8.6.** §8.6 ist seit dem 2026-08-01 „Rücknavigation"
+(`UI-Designsprache.md:452`) und wird aus sechs Stellen namentlich referenziert:
+`web/src/app/shared/ui/back-link.ts:10`, `web/src/app/app.config.ts:65`,
+`web/src/app/features/voting/vote-session-detail-page.html:4`,
+`web/src/app/features/admin/admin-layout.ts:19`,
+`web/src/app/features/my-votings/my-votings-page.ts:42` und dieses Log (der Eintrag vom
+2026-08-01, der den Abschnitt angelegt hat, sowie der vom 2026-08-07 zu den fehlenden zugänglichen
+Namen beim Bootstrap). Eine zweite §8.6 machte diese Verweise mehrdeutig, ein stilles
+Umnummerieren machte sie falsch. Gefunden hat das Codex Sol in der dritten Prüfrunde; zwei
+interne Runden hatten die Nummer durchgewinkt.
+
+**Regel und Erlaubnis sind getrennt, und das ist der Grund, dass §8.7 überhaupt heute geschrieben
+werden darf.** Seitenkopf, Dock und Reihenfolge beschreiben gelebte Praxis — sie halten fest, was
+die beiden Bogen-Seiten ohnehin tun, und brauchen deshalb keinen weiteren Beleg. Die
+**Dock-Kurzform** ist der andere Fall: ihre Begründung ist Auffindbarkeit im Moment des
+Markierens, und die ist unbelegt (n = 1, und die Person war am Entwurf beteiligt). Sie steht
+deshalb als „darf" im Abschnitt und nicht als „muss". Eine Klick-Ersparnis ist sie ausdrücklich
+nicht: die Bereichs-Radiogruppe erscheint ohnehin nur bei vorhandener Auswahl und steht dann
+bereits auf „Auswahl".
+
+**Die Kurzform ist damit ein Einzelfall auf Probe bis #68.** Erste unabhängige Beobachtung ist die
+Mod-Discord-Vorstellung: es wird nicht erklärt, wo im Dock welcher Weg sitzt, sondern beobachtet,
+ob jemand fragt. Fällt das Urteil gegen sie aus, wird sie zurückgenommen — und **das bricht keine
+Regel**, weil §8.7 sie erlaubt und nicht verlangt. Es fällt dann ein Auslöser weg, der Abschnitt
+bleibt wortgleich stehen. Umgekehrt gilt derselbe Satz als Sperre nach vorn: aus der Erlaubnis
+wird keine Gewohnheit, die künftige Kommandos automatisch in zwei Einstiege zwingt. Das Beispiel
+dafür steht in §8.7 selbst — der Export bekommt bewusst **keine** Kurzform, weil seine
+Bereichsvorgabe `visible` ist und eine Kurzform mit erzwungenem `selection` sie stillschweigend in
+ihr Gegenteil verkehrte.
+
+**Ein Verb, zwingend — der Punkt, an dem der Schiedsspruch die Begründung korrigiert hat.** Der
+interne Prüfer sah in der Kurzform eine verkleidete Doppelung, Codex sah sie als legitim; nach
+Projektregel hat Fable entschieden (2026-09-07). Ergebnis: nicht der *Ort* trennt einen zweiten
+Einstieg von einer Doppelung, sondern der **Name**. Überlappung heißt zwei Kommandos mit
+verschiedenem Namen für dieselbe Absicht; dieselbe Aktion unter demselben Verb an zwei Orten ist
+ein zweiter Einstieg. Deshalb heißt die Kurzform wortgleich wie der Kopfknopf, solange die
+Umbenennung in #92 liegt — umbenannt werden später beide zusammen oder keiner.
+
+**Abgelehnt: Codex' Gegenvorschlag** (Dock fest `selection`, Seitenkopf fest `visible`,
+Bereichswahl ganz weg). Zwei gleich benannte Knöpfe, die ohne Rückfrage verschieden große Mengen
+übertragen, sind die härtere Mehrdeutigkeit — wer oben mit bestehender Auswahl klickt, bekommt
+mehrere hundert Emotes vorgesetzt. Er hebelte zudem die Vorbelegung aus, die einen Tag zuvor mit
+Begründung eingebaut worden ist — `import-target-dialog.ts:40` sagt es im Code selbst („do not
+'fix' this to match export — the asymmetry is the decision, not an oversight"), §7.2 hält es als
+Vertrag fest („Nicht angleichen").
+
+**Nachtrag zu §7.2: eine Aufrufstelle darf den Bereich des Ziel-Dialogs erzwingen.** §7.2 hält als
+Vertrag fest: „Bereichs-Radiogruppe `visible`/`selection` — nur, wenn eine Grid-Auswahl
+existiert." Die Dock-Kurzform ruft denselben `openImportTarget()`-Pfad mit fest vorgegebenem
+Bereich `selection`; der Dialog zeigt dann **trotz** vorhandener Auswahl keine Radiogruppe. Der
+Vertrag lautet damit: sichtbar ist die Gruppe, wenn eine Auswahl existiert *und* die Aufrufstelle
+den Bereich nicht vorgibt. `ImportTargetDialogData` bekommt dafür ein eigenes Feld —
+`selectionCount` allein kann die Frage nicht mehr beantworten —, und `import-target-dialog.spec.ts`
+zieht mit. Die Vorbelegung selbst bleibt unangetastet: `selection` als Standard und seine bewusste
+Gegenläufigkeit zum Export-Dialog (`visible`) sind die Entscheidung von #72 und werden hier nicht
+angeglichen. Jeder neue Kopier-Auslöser erbt außerdem die Sperren des Kopfknopfs — die
+`importScopeCurrent()`-Bedingung gegen den Kanalwechsel-Wettlauf und die Arbiter-Sperre während
+jedes 7TV-Laufs (§4.2) —, weil er denselben Pfad ruft und nicht einen zweiten baut.
+
+**Präzisierung des Eintrags vom 2026-08-06 („Visuelle Neuausrichtung, Zug 2") zum Ort des
+Restore-Panels — kein Supersede.** Dort
+steht: „`RestorePanel` bleibt im Fluss, weil es eine Wiederherstellungs-Hilfe ist und nicht Teil
+des Markierens." Der Gegensatz, den der Satz zieht, ist *Fluss ↔ Dock*, und in diesem Gegensatz
+bleibt er gültig: das Panel gehört weiterhin nicht ins Dock. Der Seitenkopf **ist** Fluss. Was der
+Satz nicht beantwortet, ist die Frage, an welcher Stelle des Flusses — und unter dem Raster ist es
+bei einem großen Set unauffindbar. Dieser Eintrag beantwortet diese Frage und lässt den alten
+stehen; der Umzug selbst ist ein eigenes Issue (#91), weil er ein Komponentenschnitt mit zwei
+verschachtelten Dialogketten ist und kein Verschieben eines Knopfes.
+
+**Was §8.7 bewusst nicht regelt.** Die Inhaltsbreite der App (#93) — sie entschärft beide Seiten
+des Entwurfs, ändert aber an der Rangfolge der Flächen nichts, weil der Seitenkopf auch breit noch
+wegscrollt. Und die Benennung der Kommandos (#92): §8.7 verlangt ein Verb je Absicht, es schreibt
+keines vor.
+
 ### 2026-09-06 — Der Harness ist ein zweiter Einstiegspunkt des Worker-Images, kein Hosted Service
 
 **Betrifft:** `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`,
