@@ -129,7 +129,7 @@ keines vor.
 `web/src/app/features/usage-stats/usage-stats-page.ts`,
 `web/src/app/features/voting/vote-session-detail-page.ts`,
 `web/src/app/shared/grid/grid-columns.ts` (Kommentare) ·
-`web/e2e/audit/ui-audit.audit.ts` (Viewport)
+`web/e2e/audit/ui-audit.audit.ts` (Viewports) · `docs/UI-Designsprache.md` (§8.5, §12)
 
 **Der Anlass ist ein Bildschirm, nicht ein Gefühl.** Issue #93, Nebenbefund aus #80: der Betreiber
 arbeitet auf 1080p mit 125 % Skalierung, also ~1536 CSS-Pixeln. Bei `max-w-5xl` (64 rem) blieben
@@ -164,14 +164,29 @@ die zitierte Metazeile bezog sich auf 96 rem (1536 px), nicht auf die 80 rem, di
 werden. §8.4a hält deshalb ab jetzt getrennt, was es verbietet: nicht das Anheben der Zahl, allein
 die zweite Zahl.
 
-**Der Audit-Harness musste mit, sonst hätte er stillschweigend aufgehört zu messen.** Seine
-Viewport-Matrix ist 360/768/1280, und der breiteste war bisher *breiter als der Deckel* — auf 1280
-war die 1024er-Spalte mit Rand zu sehen, also genau der ausgelieferte Zustand. Mit 80 rem greift
-der Deckel auf 1280 nicht mehr: jede Aufnahme dort wäre randlos, und der gedeckelte Zustand käme
-in keinem einzigen Szenario mehr vor. Der `desktop`-Viewport ist deshalb auf **1536** angehoben —
-dieselbe Zahl, auf der der Betreiber arbeitet. Das kostet keine Laufzeit (die Matrix behält ihre
-Größe, die Dateinamen ihr `--desktop--`) und stellt die Eigenschaft wieder her, die den Viewport
-überhaupt nützlich macht. Wer die Breite künftig anfasst, prüft diesen Wert mit.
+**Der Audit-Harness musste mit, sonst hätte er stillschweigend aufgehört zu messen — und zwar an
+beiden Enden.** Seine Viewport-Matrix war 360/768/1280, und der breiteste war *breiter als der
+Deckel*: auf 1280 gegen 64 rem waren 992 px Inhalt zu sehen, also der ausgelieferte Zustand. Mit
+80 rem greift der Deckel dort nicht mehr — jede Aufnahme wäre randlos, und der gedeckelte Zustand
+käme in keinem Szenario mehr vor. Ihn allein auf 1536 zu heben war aber der halbe Schritt und hat
+eine Lücke gerissen, die erst die Zweitmeinung gesehen hat: `lg` beginnt bei 1024, und zwischen
+1024 und 1312 ist der Sidecar da, während der Deckel noch nicht greift. Das ist die **engste**
+Desktop-Geometrie, in der ein Umbruch zuerst bricht, und sie wäre danach von keinem Viewport mehr
+berührt worden. Die Matrix hat deshalb jetzt **vier** Viewports: `desktop-narrow` (1024, 992 px
+Inhalt) misst genau das, was der alte 1280er-Fall gegen den alten Deckel gemessen hat — seine
+Metriken bleiben damit vergleichbar —, `desktop` (1536, die Zahl, auf der der Betreiber arbeitet)
+misst den gedeckelten Zustand. Ein Viewport kann nur eines von beidem zeigen. §12 hält das fest,
+samt der Pflicht, beide Werte mitzuziehen, wenn die Breite sich wieder ändert.
+
+**§8.4a nennt keine Vorgeschichte, und das ist nicht Nachlässigkeit, sondern die Regel des
+Dokuments.** Der erste Entwurf dieses Commits schrieb „bis zum 2026-09-07 war die Breite
+`max-w-5xl`" in die Designsprache — genau das, was ihre eigene Präambel untersagt („keine
+Vorgeschichte, keine Zwischenstufe und kein ‚bis dahin galt'"). Dort steht jetzt nur die Norm:
+verboten ist die zweite Zahl, nicht eine andere; wer sie ändert, ändert sie an allen neun Stellen,
+zieht §12 mit und schreibt den Grund hierher. Ebenfalls von der Zweitmeinung gefunden: §8.5 trug in
+seiner Begründung zum Selektionsring ein lebendes `<main class="mx-auto max-w-5xl px-4">` als
+Beispiel. Ein Ist-Stand-Dokument, in dem zwei verschiedene Breiten stehen, ist schlimmer als eines,
+das schweigt.
 
 **Nicht mitgezogen, geprüft:** die `sizes`/`ngSrcset`-Angaben der Emote-Bilder. Sie sind zellfest
 (64 px) bzw. viewport-basiert und kennen die Shell-Breite nicht — die naheliegende Vermutung,
