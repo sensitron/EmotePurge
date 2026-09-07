@@ -454,7 +454,7 @@ public class HarnessRunnerTests : IDisposable
 
         // One live usage row changes; everything else stays.
         _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
-            .Returns<IReadOnlyList<UsageStatRowDto>>([new("e1", Day1, 99, 0), new("e1", Day2, 1, 0), new("e1", Day3, 1, 0)]);
+            .Returns<IReadOnlyList<UsageStatRowDto>>([new("e1", Day1, 99, 0, 0), new("e1", Day2, 1, 0, 0), new("e1", Day3, 1, 0, 0)]);
         _archive.ClearReceivedCalls();
 
         Assert.Equal(0, await Run(3));
@@ -756,9 +756,9 @@ public class HarnessRunnerTests : IDisposable
     // 3 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
     private static IReadOnlyList<UsageStatRowDto> Rows() =>
     [
-        new("e1", Day1, 1, 7),
-        new("e1", Day2, 1, 7),
-        new("e1", Day3, 1, 7)
+        new("e1", Day1, 1, 7, 0),
+        new("e1", Day2, 1, 7, 0),
+        new("e1", Day3, 1, 7, 0)
     ];
 
     private sealed class FakeClock(DateTimeOffset now) : TimeProvider

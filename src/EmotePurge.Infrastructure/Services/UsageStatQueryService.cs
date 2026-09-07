@@ -313,7 +313,7 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .AsNoTracking()
             .Where(u => ids.Contains(u.EmoteId) && u.Date >= from && u.Date <= to)
             .OrderBy(u => u.EmoteId).ThenBy(u => u.Date)
-            .Select(u => new UsageStatRowDto(u.EmoteId, u.Date, u.UseCount, u.BotUseCount))
+            .Select(u => new UsageStatRowDto(u.EmoteId, u.Date, u.UseCount, u.BotUseCount, u.SharedChatUseCount))
             .ToListAsync(cancellationToken);
     }
 }

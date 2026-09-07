@@ -22,6 +22,12 @@ public sealed class WorkerStats
     private DateTime? _lastFlushSuccessUtc;
     private int? _lastFlushRowCount;
 
+    // Interlocked rather than the lock above: this is a per-message hot-path counter (one increment
+    // per chat message with an indeterminate room, called from TwitchChatManager.OnMessageReceived),
+    // a much higher frequency than the three flush fields, which are read/written together only
+    // once per 30s flush. A single long needs no torn-read protection of its own.
+    private long _indeterminateSharedChatMessages;
+
     public int ConsecutiveFlushFailures
     {
         get
@@ -77,4 +83,18 @@ public sealed class WorkerStats
             return ++_consecutiveFlushFailures;
         }
     }
+
+    /// <summary>
+    /// Called once per chat message whose room could not be determined (<c>MessageOrigin.Indeterminate</c>,
+    /// #73). No logging here — a log line per message on this hot path would be its own incident;
+    /// <see cref="UsageFlushWorker"/> logs the accumulated count once per flush instead.
+    /// </summary>
+    public void RecordIndeterminateSharedChatMessage() => Interlocked.Increment(ref _indeterminateSharedChatMessages);
+
+    /// <summary>
+    /// Reads and zeroes the count in one step, so two overlapping callers can never double-count or
+    /// drop the difference between them.
+    /// </summary>
+    public long TakeIndeterminateSharedChatMessagesSinceLastFlush() =>
+        Interlocked.Exchange(ref _indeterminateSharedChatMessages, 0);
 }

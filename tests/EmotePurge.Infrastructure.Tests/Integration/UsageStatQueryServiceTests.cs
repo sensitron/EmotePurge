@@ -785,6 +785,27 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetRowsAsync_IncludesSharedChatOnlyRows_WithTheColumnPassedThroughRaw()
+    {
+        // GetRowsAsync is the raw pass-through the #73 design's B4 requires: unlike the produced
+        // UI queries (D5, still bridged via UseCount + SharedChatUseCount at this point in the
+        // rollout), the harness needs SharedChatUseCount itself, unfiltered.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "rowstest-sharedonly");
+        var emote = await SeedEmoteAsync(db, channel.Id, "SharedOnly");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 7, 3), UseCount = 0, BotUseCount = 0, SharedChatUseCount = 4 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var rows = await service.GetRowsAsync([emote.Id], new DateOnly(2026, 7, 1), new DateOnly(2026, 7, 7));
+
+        var row = Assert.Single(rows);
+        Assert.Equal(0, row.UseCount);
+        Assert.Equal(0, row.BotUseCount);
+        Assert.Equal(4, row.SharedChatUseCount);
+    }
+
+    [Fact]
     public async Task GetRowsAsync_ForEmptyIdList_ReturnsEmptyWithoutQuerying()
     {
         await using var db = fixture.CreateDbContext();

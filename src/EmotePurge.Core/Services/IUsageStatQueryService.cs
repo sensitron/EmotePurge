@@ -135,7 +135,7 @@ public record EmoteLifetimeDto(string Id, string Name, bool IsArchived, DateTime
 /// <summary>
 /// One raw <c>UsageStat</c> row, unfiltered, for the chat-log backfill harness (issue #69).
 /// </summary>
-public record UsageStatRowDto(string EmoteId, DateOnly Date, int UseCount, int BotUseCount);
+public record UsageStatRowDto(string EmoteId, DateOnly Date, int UseCount, int BotUseCount, int SharedChatUseCount);
 
 public interface IUsageStatQueryService
 {
@@ -201,7 +201,8 @@ public interface IUsageStatQueryService
     /// its human-only and its bot-inclusive total for the window. Unlike every other query in this
     /// interface, this deliberately does not filter on <c>UseCount &gt; 0</c>: a bot-only row
     /// (<c>UseCount = 0</c>, <c>BotUseCount &gt; 0</c>) is exactly what the harness's bot-inclusive
-    /// total needs and the human-only total is expected to exclude on its own.
+    /// total needs and the human-only total is expected to exclude on its own — and the same holds
+    /// for <c>SharedChatUseCount</c>, needed raw for the harness's shared-chat total (#73).
     /// </summary>
     Task<IReadOnlyList<UsageStatRowDto>> GetRowsAsync(
         IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);

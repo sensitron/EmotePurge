@@ -55,6 +55,16 @@ public class UsageFlushWorker(
             // Bookkeeping moved to the shared WorkerStats so GET /api/admin/health can report it;
             // the requeue/drop behaviour below is unchanged.
             stats.RecordFlushSuccess(counts.Count, DateTime.UtcNow);
+
+            // Not per-message logging (WorkerStats.RecordIndeterminateSharedChatMessage stays
+            // silent) — once per flush, and only when there is something to say.
+            var indeterminate = stats.TakeIndeterminateSharedChatMessagesSinceLastFlush();
+            if (indeterminate > 0)
+            {
+                logger.LogInformation(
+                    "{Count} Chat-Nachrichten seit dem letzten Flush hatten keinen bestimmbaren Ursprungsraum und wurden als fremd (Shared Chat) gezählt.",
+                    indeterminate);
+            }
         }
         catch (Exception ex)
         {
@@ -84,9 +94,9 @@ public class UsageFlushWorker(
         // the flush is committed. If a Redis outage were allowed to fall into the catch above, a
         // successful flush would be booked as a failure and its counts requeued — the next flush
         // would then add them a second time onto the same (EmoteId, Date) row (ON CONFLICT DO UPDATE
-        // ... + EXCLUDED, now for both UseCount and BotUseCount), i.e. silently double-count chat
-        // usage. A missed notification only costs the browser its automatic refresh; every page
-        // still has its refresh button.
+        // ... + EXCLUDED, now for all three columns — UseCount, BotUseCount and SharedChatUseCount),
+        // i.e. silently double-count chat usage. A missed notification only costs the browser its
+        // automatic refresh; every page still has its refresh button.
         try
         {
             foreach (var channelName in affectedChannels)
