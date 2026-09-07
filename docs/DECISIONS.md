@@ -36,13 +36,17 @@ ihre Tests unter `tests/EmotePurge.Infrastructure.Tests/{Unit,Integration}/` und
 `EmoteUsageCounterTests`, `WorkerStatsTests`, `HarnessRunnerTests`, `HarnessInputHashTests`),
 `docs/Architectur.md`, `src/EmotePurge.Worker/Harness/ReplayDayCounter.cs`,
 `src/EmotePurge.Worker/Harness/ReplayModels.cs` (`ReplayUsageRow`, `ReplayDayLine`,
-`ReplayDiagnostics`; Task 6: `ReplayWindow`, `ReplayRunInfo`, `ReplayGateIneligibleReasons`),
+`ReplayDiagnostics`; Task 6: `ReplayWindow`, `ReplayRunInfo`, `ReplayGateIneligibleReasons`;
+Task 7: `ReplayGateMetrics`, `ReplayPlausibility`-Docstring, `ReplayDiagnostics.SharedChatByDay`,
+`ReplayGateIneligibleReasons.SharedChatAsymmetric`),
 `src/EmotePurge.Worker/Harness/HarnessRunner.cs` (`AlgorithmVersion` auf
 `harness-2`, Zählaufruf im Callback, Zeilen-Mapping, Diagnostikzeile im Markdown-Bericht;
 Task 6: `RunAsync`/`ExecuteAsync`, Identität, `ReplayWindow`, `Compute`-Aufruf, `BuildMarkdown`),
 `src/EmotePurge.Worker/Harness/ReplayFidelityCalculator.cs` (Task 5: nur `BuildDiagnostics`;
 Task 6: `Compute`-Signatur, `BuildDayFacts.HumanOnly`, `BuildGate`-Grund,
-`BuildPopulation`-Docstring; den Rest hält Task 7), sowie `tests/EmotePurge.Worker.Tests/ReplayDayCounterTests.cs`,
+`BuildPopulation`-Docstring; Task 7: `MaxSharedChatAsymmetry`, `BuildDayFacts`-Tagessummen,
+`BuildGate` samt `SharedChatSymmetric`, `BuildPlausibility`, `SharedChatRatios`, `DayFact`),
+sowie `tests/EmotePurge.Worker.Tests/ReplayDayCounterTests.cs`,
 `tests/EmotePurge.Worker.Tests/HarnessReportFileTests.cs` und
 `tests/EmotePurge.Worker.Tests/ReplayFidelityCalculatorTests.cs` (Task 5: nur die Helfer, die
 `ReplayDayLine`/`ReplayUsageRow` bauen; Task 6: weitere Fälle für den Shared-Chat-Stichtag und den
@@ -52,7 +56,10 @@ Diagnosemodus). **Task 6 (Stichtag, fail-closed, Diagnosemodus):** zusätzlich
 Grammatik), `src/EmotePurge.Worker/Program.cs`, `src/EmotePurge.Worker/Harness/HarnessReportFile.cs`
 (`HarnessRunIdentity.SharedChatCutover`), `docker-compose.yml`, `docker-compose.prod.yml`,
 `.env.example` (`HARNESS_SHARED_CHAT_CUTOVER`), `tests/EmotePurge.Worker.Tests/HarnessCommandLineTests.cs`
-und `tests/EmotePurge.Worker.Tests/WorkerServiceRegistrationTests.cs`.
+und `tests/EmotePurge.Worker.Tests/WorkerServiceRegistrationTests.cs`. **Task 7 (Tagessummen über
+drei Komponenten, Shared Chat beidseitig berichtet, Symmetrie als Eignungsbedingung):** zusätzlich
+`src/EmotePurge.Worker/Harness/HarnessRunner.cs` (`BuildMarkdown`: Shared-Chat-Zeile unter den
+präregistrierten Kennzahlen und zwei Spalten in der Tagestabelle).
 
 **Der Fall.** Twitch spiegelt in einer Stream-Together-Session ("Shared Chat") die Nachrichten
 aller beteiligten Kanäle in jeden dieser Chats. Bisher zählt unser Worker jede empfangene

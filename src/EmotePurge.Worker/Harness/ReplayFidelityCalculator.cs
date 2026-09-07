@@ -12,11 +12,24 @@ namespace EmotePurge.Worker.Harness;
 /// are published in issue #69 and are read against these numbers by a human. Deliberately no
 /// verdict is computed here.
 /// </para>
+/// <para>
+/// Since #73 the numbers rest on three components instead of two — own humans, own bots and shared
+/// chat. Which of them a figure sums differs per figure and is stated at each builder: the day
+/// totals and the plausibility check take all three, the pre-registered gate stays human-only, and
+/// the shared-chat share of both sides is reported apart with a symmetry condition of its own.
+/// </para>
 /// </summary>
 public static class ReplayFidelityCalculator
 {
     private const int RequiredWindowDays = 30;
     private const int RequiredRatedDays = 20;
+
+    // The same figure as the pre-registered deviation threshold of #69, but a different kind of
+    // rule: an eligibility condition like RequiredRatedDays, not a fourth pre-registered gate with
+    // a threshold of its own (D3). It therefore has to be registered publicly in #69 before the
+    // binding run, exactly like the criteria already standing there (DoD, Task 8).
+    private const double MaxSharedChatAsymmetry = 0.10;
+
     private const int TopSize = 20;
     private const int RequiredQualifiedEmotes = 30;
     private const int MinLiveUsesPerThirtyDays = 20;
@@ -83,7 +96,14 @@ public static class ReplayFidelityCalculator
         var logDays = DaySet(facts, f => f.HasLog);
 
         var population = BuildPopulation(days, liveRows, ratedDays);
-        var gate = BuildGate(population, ratedDays.Count, windowDays, runComplete, diagnostic);
+        var gate = BuildGate(
+            population,
+            ratedDays.Count,
+            facts.Where(f => f.Rated).Sum(f => f.SharedChatLogTotal),
+            facts.Where(f => f.Rated).Sum(f => f.SharedChatLiveTotal),
+            windowDays,
+            runComplete,
+            diagnostic);
         var plausibility = BuildPlausibility(days, liveRows, logDays);
         var diagnostics = BuildDiagnostics(
             window, emotes, days, liveRows, facts, population, ambiguousNames, humanOnlyLogDays, dayRatioMedian);
@@ -108,6 +128,17 @@ public static class ReplayFidelityCalculator
     /// Classifies every day: does it have a log, is it comparable human-only, what is its
     /// log-to-live ratio, is a live gap suspected, is its coverage questionable, does it count.
     /// <para>
+    /// Both totals sum <b>all three</b> components (D3, first pair): human + bot + shared chat
+    /// against <c>UseCount + BotUseCount + SharedChatUseCount</c>. The question this day total
+    /// answers is "does the archive have this day at all", and for that question the day total is
+    /// the right one precisely because it is <i>invariant</i> against both splits — a split moves
+    /// mass between columns, it neither creates nor destroys any. That is why <c>Ratio</c> stays
+    /// meaningful even on days before the live deploy, where the live row still carries foreign
+    /// hits inside <c>UseCount</c> that the replay side already books apart. A human-only day total
+    /// would read those days as missing coverage and drop them out of the rated set; the binding
+    /// gate below is human-only for the opposite reason and needs the cutover of D4 to survive it.
+    /// </para>
+    /// <para>
     /// The median that the coverage check (Codex-adversarial D2) compares against is taken over the
     /// days that <b>have a log</b> and a defined ratio. Days without a log have a log total of zero
     /// and would drag the median towards zero, which would then flag the intact days as
@@ -121,15 +152,19 @@ public static class ReplayFidelityCalculator
         IReadOnlyList<ReplayUsageRow> liveRows)
     {
         var liveByDay = new Dictionary<DateOnly, long>();
+        var sharedChatLiveByDay = new Dictionary<DateOnly, long>();
         foreach (var row in liveRows)
         {
-            liveByDay[row.Date] = liveByDay.GetValueOrDefault(row.Date) + row.UseCount + row.BotUseCount;
+            liveByDay[row.Date] =
+                liveByDay.GetValueOrDefault(row.Date) + row.UseCount + row.BotUseCount + row.SharedChatUseCount;
+            sharedChatLiveByDay[row.Date] = sharedChatLiveByDay.GetValueOrDefault(row.Date) + row.SharedChatUseCount;
         }
 
         var facts = new List<DayFact>(days.Count);
         foreach (var line in days.OrderBy(d => d.Day))
         {
-            var logTotal = Sum(line.HumanCounts) + Sum(line.BotCounts);
+            var sharedChatLogTotal = Sum(line.SharedChatCounts);
+            var logTotal = Sum(line.HumanCounts) + Sum(line.BotCounts) + sharedChatLogTotal;
             var liveTotal = liveByDay.GetValueOrDefault(line.Day);
             facts.Add(new DayFact
             {
@@ -141,6 +176,8 @@ public static class ReplayFidelityCalculator
                 HumanOnly = window.SharedChatCutover is { } cutover && line.Day >= cutover,
                 LogTotal = logTotal,
                 LiveTotal = liveTotal,
+                SharedChatLogTotal = sharedChatLogTotal,
+                SharedChatLiveTotal = sharedChatLiveByDay.GetValueOrDefault(line.Day),
                 Ratio = liveTotal == 0 ? null : (double)logTotal / liveTotal,
                 LiveGapSuspected = liveTotal == 0 && logTotal > 0,
             });
@@ -215,9 +252,17 @@ public static class ReplayFidelityCalculator
             .ToList();
     }
 
+    /// <summary>
+    /// The pre-registered numbers, human-only (D3, third pair), plus the shared-chat window sums of
+    /// both sides over the same rated days and the symmetry condition they feed.
+    /// </summary>
+    /// <param name="sharedChatLogTotal">Σ shared-chat hits of the replay side over the rated days.</param>
+    /// <param name="sharedChatLiveTotal">Σ <c>SharedChatUseCount</c> of the live rows on the rated days.</param>
     private static ReplayGateMetrics BuildGate(
         List<PopulationEntry> population,
         int ratedDays,
+        long sharedChatLogTotal,
+        long sharedChatLiveTotal,
         int windowDays,
         bool runComplete,
         bool diagnostic)
@@ -266,6 +311,11 @@ public static class ReplayFidelityCalculator
             reasons.Add(ReplayGateIneligibleReasons.LiveTotalZero);
         }
 
+        if (!SharedChatSymmetric(sharedChatLogTotal, sharedChatLiveTotal))
+        {
+            reasons.Add(ReplayGateIneligibleReasons.SharedChatAsymmetric);
+        }
+
         if (diagnostic)
         {
             // Unconditional, in addition to whatever else applies: the numbers above are computed
@@ -278,6 +328,8 @@ public static class ReplayFidelityCalculator
             count,
             logTotal,
             liveTotal,
+            sharedChatLogTotal,
+            sharedChatLiveTotal,
             Round(totalDeviation),
             Round(top20Recall),
             topSize,
@@ -287,6 +339,33 @@ public static class ReplayFidelityCalculator
             logTieCount,
             reasons.Count == 0,
             new ValueList<string>(reasons));
+    }
+
+    /// <summary>
+    /// Whether the two sides agree about the shared-chat volume of the rated days, within
+    /// <see cref="MaxSharedChatAsymmetry"/> of the live figure.
+    /// <para>
+    /// Three cases, in this order. Both sides zero is symmetric: a channel that never had a single
+    /// Stream-Together session satisfies the condition emptily. A live figure of zero while the
+    /// replay side saw something is <b>not</b> symmetric — that is precisely the pre-deploy
+    /// signature of D3, and it must refuse a run, not pass one for lack of a denominator. Otherwise
+    /// the relative difference is measured against the live side, the same denominator the
+    /// pre-registered deviation uses.
+    /// </para>
+    /// </summary>
+    private static bool SharedChatSymmetric(long logTotal, long liveTotal)
+    {
+        if (logTotal == 0 && liveTotal == 0)
+        {
+            return true;
+        }
+
+        if (liveTotal == 0)
+        {
+            return false;
+        }
+
+        return (double)Math.Abs(logTotal - liveTotal) / liveTotal <= MaxSharedChatAsymmetry;
     }
 
     /// <summary>
@@ -308,6 +387,12 @@ public static class ReplayFidelityCalculator
         return ordered.Count(e => rankedValue(e) == boundaryValue);
     }
 
+    /// <summary>
+    /// Plausibility check (a), over every day that has a log and with bots and shared chat on both
+    /// sides (D3, second pair). The field names of <see cref="ReplayPlausibility"/> keep saying
+    /// "WithBots" although they carry three components — the report's field names are a frozen
+    /// contract; see the remark there.
+    /// </summary>
     private static ReplayPlausibility BuildPlausibility(
         IReadOnlyList<ReplayDayLine> days,
         IReadOnlyList<ReplayUsageRow> liveRows,
@@ -318,7 +403,7 @@ public static class ReplayFidelityCalculator
         {
             if (logDays.Contains(line.Day))
             {
-                log += Sum(line.HumanCounts) + Sum(line.BotCounts);
+                log += Sum(line.HumanCounts) + Sum(line.BotCounts) + Sum(line.SharedChatCounts);
             }
         }
 
@@ -327,7 +412,7 @@ public static class ReplayFidelityCalculator
         {
             if (logDays.Contains(row.Date))
             {
-                live += row.UseCount + row.BotUseCount;
+                live += row.UseCount + row.BotUseCount + row.SharedChatUseCount;
             }
         }
 
@@ -425,7 +510,8 @@ public static class ReplayFidelityCalculator
             facts.Count(f => f is { Rated: true, LogTotal: 0, LiveTotal: 0 }),
             Round(dayRatioMedian),
             Ratios(facts, f => f.LiveGapSuspected),
-            Ratios(facts, f => f.CoverageQuestionable));
+            Ratios(facts, f => f.CoverageQuestionable),
+            SharedChatRatios(facts));
     }
 
     /// <summary>
@@ -675,6 +761,22 @@ public static class ReplayFidelityCalculator
             .OrderBy(f => f.Day)
             .Select(f => new ReplayDayRatio(f.Day, f.LogTotal, f.LiveTotal, Round(f.Ratio))));
 
+    /// <summary>
+    /// The shared-chat share of both sides, one entry per day <b>that has a log</b> and ascending by
+    /// day — not restricted to the rated days, unlike the two window sums the gate carries, so the
+    /// three signatures of D3 stay readable across the cutover. A day without a log has no replay
+    /// side to compare against and is left out even when its live rows carry shared chat.
+    /// </summary>
+    private static ValueList<ReplayDayRatio> SharedChatRatios(List<DayFact> facts)
+        => new(facts
+            .Where(f => f.HasLog)
+            .OrderBy(f => f.Day)
+            .Select(f => new ReplayDayRatio(
+                f.Day,
+                f.SharedChatLogTotal,
+                f.SharedChatLiveTotal,
+                Round(f.SharedChatLiveTotal == 0 ? null : (double?)f.SharedChatLogTotal / f.SharedChatLiveTotal))));
+
     private static HashSet<DateOnly> DaySet(List<DayFact> facts, Func<DayFact, bool> predicate)
         => facts.Where(predicate).Select(f => f.Day).ToHashSet();
 
@@ -709,6 +811,10 @@ public static class ReplayFidelityCalculator
         public long LogTotal { get; init; }
 
         public long LiveTotal { get; init; }
+
+        public long SharedChatLogTotal { get; init; }
+
+        public long SharedChatLiveTotal { get; init; }
 
         public double? Ratio { get; init; }
 

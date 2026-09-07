@@ -626,6 +626,10 @@ public sealed class HarnessRunner(
         Row(text, "Gewertete Tage",
             Invariant($"{gate.RatedDays} (davon {diagnostics.SignallessRatedDays} signallos)"), "≥ 20");
         Row(text, "Fensterlänge", Invariant($"{report.Run.WindowDays}"), "= 30");
+        // Below the pre-registered rows and without a threshold of its own: the two sides of the
+        // #73 split are an eligibility condition (D3), not a fourth published figure.
+        Row(text, "Shared Chat ΣLog / ΣLive (bewertete Tage)",
+            Invariant($"{gate.SharedChatLogTotal} / {gate.SharedChatLiveTotal}"), "Eignungsbedingung, kein Gate");
 
         text.Append(Invariant($"\nImport-Population: {gate.PopulationSize} Emotes · ΣLog (human) {gate.HumanLogTotal} · ΣLive (human) {gate.HumanLiveTotal}"));
         text.Append(Invariant($" · Top-20-Größe {gate.Top20Size} · Quartilsgröße {gate.BottomQuartileSize}"));
@@ -671,18 +675,27 @@ public sealed class HarnessRunner(
             ? "keine"
             : string.Join(", ", diagnostics.CoverageQuestionableDays.Select(d => d.Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))));
 
+        // Two day cards, not one: the human column stays UseCount alone (the target contract the
+        // gate measures), and the shared-chat column is its own SharedChatUseCount sum, so the three
+        // signatures of D3 can be read off the table day by day — a rollback day would show the
+        // middle one.
         var liveByDay = new Dictionary<DateOnly, long>();
+        var sharedChatLiveByDay = new Dictionary<DateOnly, long>();
         foreach (var row in liveRows)
         {
             liveByDay[row.Date] = liveByDay.GetValueOrDefault(row.Date) + row.UseCount;
+            sharedChatLiveByDay[row.Date] = sharedChatLiveByDay.GetValueOrDefault(row.Date) + row.SharedChatUseCount;
         }
 
-        text.Append("\n## Tage\n\n| Tag | Status | Bytes | Nachrichten | davon Bots | Log-Treffer (human) | Live (human) |\n| --- | --- | --- | --- | --- | --- | --- |\n");
+        text.Append(
+            "\n## Tage\n\n| Tag | Status | Bytes | Nachrichten | davon Bots | Log-Treffer (human) | Live (human) "
+            + "| Shared Chat (Log) | Shared Chat (Live) |\n"
+            + "| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
         foreach (var day in days)
         {
             var logHits = day.HumanCounts.Values.Sum();
             text.Append(Invariant(
-                $"| {day.Day:yyyy-MM-dd} | {day.Status} | {day.Bytes} | {day.MessageCount} | {day.BotMessageCount} | {logHits} | {liveByDay.GetValueOrDefault(day.Day)} |\n"));
+                $"| {day.Day:yyyy-MM-dd} | {day.Status} | {day.Bytes} | {day.MessageCount} | {day.BotMessageCount} | {logHits} | {liveByDay.GetValueOrDefault(day.Day)} | {day.SharedChatCounts.Values.Sum()} | {sharedChatLiveByDay.GetValueOrDefault(day.Day)} |\n"));
         }
 
         return text.ToString();

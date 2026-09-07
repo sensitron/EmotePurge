@@ -45,7 +45,11 @@ public class HarnessRunnerTests : IDisposable
         _usage.GetEmoteLifetimesAsync(ChannelId, Arg.Any<CancellationToken>()).Returns(Lifetimes());
         _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
             .Returns(Rows());
-        _usage.GetEarliestBotUsageDateAsync(ChannelId, Arg.Any<CancellationToken>()).Returns(new DateOnly(2026, 9, 1));
+        // Deliberately NOT the Run helper's default shared-chat cutover ("2026-09-01"): the two
+        // cutovers land in adjacent markdown rows, and while they shared a value an assertion on
+        // either date was satisfied by the other one's cell — hardcoding a cutover cell would have
+        // gone unnoticed.
+        _usage.GetEarliestBotUsageDateAsync(ChannelId, Arg.Any<CancellationToken>()).Returns(new DateOnly(2026, 8, 30));
         _bots.KnownBotAccountIds.Returns(new HashSet<string> { "19264788" });
         _bots.IsBot(Arg.Any<string?>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>()).Returns(false);
     }
@@ -143,8 +147,11 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"sharedChatCutover\": null", json);
 
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
-        Assert.Contains("Shared-Chat-Stichtag", markdown);
-        Assert.Contains("Diagnoselauf", markdown);
+        Assert.Contains("| Shared-Chat-Stichtag | keiner (Diagnoselauf) |", markdown);
+        // The run-mode cell has its own wording ("Diagnose"), and only this assertion reaches it:
+        // "Diagnoselauf" above is the cutover row's text and would stay green even if the run-mode
+        // cell were hardcoded to "bindend" — a diagnostic report claiming to be binding.
+        Assert.Contains("| Lauf-Modus | Diagnose |", markdown);
     }
 
     [Fact]
@@ -456,6 +463,10 @@ public class HarnessRunnerTests : IDisposable
             await onMessage(Message(day, "chatter-1", "PogChamp", sourceRoomId: day == Day2 ? "other-room" : null));
             return CompleteDay(1);
         });
+        // The live side saw the same foreign hit on the same day (#73 Task 7): both sides report one
+        // shared-chat hit, so the symmetry condition is satisfied and the run stays certifiable.
+        _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(Rows(day2SharedChatUseCount: 1));
 
         Assert.Equal(0, await Run(3));
 
@@ -471,21 +482,26 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"windowFrom\": \"2026-09-02\"", json);
         Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
         Assert.Contains("\"runComplete\": true", json);
-        // ratedDays is 2, not 3 (harness-2, #73 — the case is deliberately inverted here, see below):
-        // day 2's PogChamp hit now moves SharedChatCounts instead of HumanCounts, so its human log
-        // total drops to 0 while its live total (UseCount=1 plus the fixture's BotUseCount=7) stays
-        // 8. Days 1 and 3 have the same live total of 8 against a log total of 1, i.e. a ratio of
-        // 0.125 each — day 2's ratio of 0 (log=0) is far enough below that median that
-        // BuildDayFacts (unchanged by this task, Task 7) flags it as CoverageQuestionable and
-        // excludes it from the rated set.
-        Assert.Contains("\"ratedDays\": 2", json);
+        // All three days are rated (harness-2, #73 Task 7). Day 2's PogChamp hit sits in
+        // SharedChatCounts rather than HumanCounts, but the *day total* counts all three components
+        // on both sides, so day 2 reads 1 against 9 (UseCount 1 + BotUseCount 7 +
+        // SharedChatUseCount 1) where days 1 and 3 read 1 against 8 — close enough to the median
+        // that CoverageQuestionable stays clear. Under the two-component day total this task
+        // replaced, day 2's log total was 0 and the coverage check dropped it, which is exactly the
+        // interaction that would have cost a heavily-shared channel its rated days.
+        Assert.Contains("\"ratedDays\": 3", json);
         // Befund 2 (Abschluss-Review): these values, not just their key names, pin the mapping seams
         // between the query DTOs and the harness's own replay types. Each was verified to fail under
         // its corresponding one-line mutation at the HarnessRunner call sites (see the final-fix
         // report) before this test was written this way.
-        Assert.Contains("\"humanLogTotal\": 2", json); // one PogChamp hit per rated day (1 and 3)
-        Assert.Contains("\"humanLiveTotal\": 2", json); // UseCount=1 per rated day; BotUseCount=7 must not leak in
+        Assert.Contains("\"humanLogTotal\": 2", json); // day 2's hit is foreign, so only days 1 and 3 contribute
+        Assert.Contains("\"humanLiveTotal\": 3", json); // UseCount=1 per rated day; BotUseCount=7 must not leak in
         Assert.Contains("\"sharedChatMessages\": 1", json); // only day 2's message carries a foreign SourceRoomId
+        // Both sides of the split, reported apart so a reader sees it instead of inferring it.
+        Assert.Contains("\"sharedChatLogTotal\": 1", json);
+        Assert.Contains("\"sharedChatLiveTotal\": 1", json);
+        Assert.Contains("\"sharedChatByDay\"", json);
+        Assert.DoesNotContain(ReplayGateIneligibleReasons.SharedChatAsymmetric, json);
         // The Run helper's default cutover ("2026-09-01", before Day1) reaches the identity and the
         // report unchanged — the fixture setting it, not a derived value, is what "ratedDays": 2
         // above stands on now that HumanOnly keys off this field instead of BotSplitCutover.
@@ -501,10 +517,48 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("Replay-Treue", markdown);
         Assert.Contains("Uptime Kuma", markdown);
         Assert.Contains(ChannelName, markdown);
-        Assert.Contains("Shared-Chat-Stichtag", markdown);
-        Assert.Contains("2026-09-01", markdown);
-        Assert.Contains("Lauf-Modus", markdown);
-        Assert.Contains("bindend", markdown);
+        // Both cutover cells carry distinct dates, so neither assertion can be satisfied by the
+        // other row (see the fixture remark at GetEarliestBotUsageDateAsync).
+        Assert.Contains("| Shared-Chat-Stichtag | 2026-09-01 |", markdown);
+        Assert.Contains("| Bot-Split-Stichtag | 2026-08-30 |", markdown);
+        Assert.Contains("| Lauf-Modus | bindend |", markdown);
+        // The human reads the split off the markdown, not only off the JSON.
+        Assert.Contains("Shared Chat ΣLog / ΣLive (bewertete Tage) | 1 / 1", markdown);
+        Assert.Contains("Shared Chat (Log)", markdown);
+        Assert.Contains("Shared Chat (Live)", markdown);
+        // Day 2's row: the foreign hit on both sides, next to the human columns that stay at 0.
+        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 1 | 1 | 1 |", markdown);
+    }
+
+    [Fact]
+    public async Task ACompleteRun_WithoutTheLiveSideOfTheSharedChatSplit_IsNotCertifiable()
+    {
+        // The negative of the run above and the whole point of the condition (D3): the replay side
+        // classified one hit as foreign, the live side classified none. That disagreement is about
+        // the classification #73 introduced — the one thing this run exists to certify — so the run
+        // is refused rather than being handed a fidelity number computed on top of it. The default
+        // Rows() fixture carries SharedChatUseCount = 0 throughout, which is exactly the pre-deploy
+        // signature of D3.
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp", sourceRoomId: day == Day2 ? "other-room" : null));
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"sharedChatLogTotal\": 1", json);
+        Assert.Contains("\"sharedChatLiveTotal\": 0", json);
+        Assert.Contains(ReplayGateIneligibleReasons.SharedChatAsymmetric, json);
+
+        // The two shared-chat day columns are asserted here rather than in the symmetric run above:
+        // there both carry 1, so a swap of the two would be invisible. Day 2 is the only day with a
+        // foreign hit, and only on the log side.
+        var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
+        Assert.Contains("Shared Chat ΣLog / ΣLive (bewertete Tage) | 1 / 0", markdown);
+        Assert.Contains("| 2026-09-02 | Complete | 1024 | 1 | 0 | 1 | 1 | 0 | 0 |", markdown);
+        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 1 | 1 | 0 |", markdown);
     }
 
     [Fact]
@@ -997,10 +1051,10 @@ public class HarnessRunnerTests : IDisposable
     // used to be invisible — zeroing an already-zero BotUseCount changes nothing a test can see.
     // With BotUseCount nonzero, the swap inflates the human-live side (the gate's denominator) from
     // 3 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
-    private static IReadOnlyList<UsageStatRowDto> Rows() =>
+    private static IReadOnlyList<UsageStatRowDto> Rows(int day2SharedChatUseCount = 0) =>
     [
         new("e1", Day1, 1, 7, 0),
-        new("e1", Day2, 1, 7, 0),
+        new("e1", Day2, 1, 7, day2SharedChatUseCount),
         new("e1", Day3, 1, 7, 0)
     ];
 
