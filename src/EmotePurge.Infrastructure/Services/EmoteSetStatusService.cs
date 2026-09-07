@@ -17,19 +17,23 @@ public class EmoteSetStatusService(AppDbContext db, IUsageStatQueryService usage
 
         // Skipped entirely while no set is known: that is exactly the window the usage-stats page
         // polls this endpoint in a loop waiting for the first sync, and counting rows that cannot
-        // exist yet would put a query behind every one of those polls for two guaranteed nulls —
-        // occupiedSlots and botsExcludedSince share this one gate, not two copies of it.
+        // exist yet would put a query behind every one of those polls for guaranteed nulls —
+        // occupiedSlots, botsExcludedSince and sharedChatSeparatedSince share this one gate, not
+        // three copies of it.
         int occupiedSlots;
         DateOnly? botsExcludedSince;
+        DateOnly? sharedChatSeparatedSince;
         if (channel.ActiveEmoteSetId.Length == 0)
         {
             occupiedSlots = 0;
             botsExcludedSince = null;
+            sharedChatSeparatedSince = null;
         }
         else
         {
             occupiedSlots = await db.Emotes.CountAsync(e => e.ChannelId == channel.Id && !e.IsArchived, cancellationToken);
             botsExcludedSince = await usageStatQueryService.GetEarliestBotUsageDateAsync(channel.Id, cancellationToken);
+            sharedChatSeparatedSince = await usageStatQueryService.GetEarliestSharedChatUsageDateAsync(channel.Id, cancellationToken);
         }
 
         return new EmoteSetStatusDto(
@@ -39,6 +43,7 @@ public class EmoteSetStatusService(AppDbContext db, IUsageStatQueryService usage
             TrackingCoverage.TrackedSince(channel.TrackingResumedAt, channel.CreatedAt),
             channel.LastSyncFailureReason,
             channel.LastSyncAttemptAtUtc,
-            botsExcludedSince);
+            botsExcludedSince,
+            sharedChatSeparatedSince);
     }
 }

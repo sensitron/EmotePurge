@@ -198,6 +198,17 @@ public interface IUsageStatQueryService
     Task<DateOnly?> GetEarliestBotUsageDateAsync(string channelId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// The earliest day across all of the channel's emotes — including archived ones — with a
+    /// <c>UsageStat</c> row that has <c>SharedChatUseCount &gt; 0</c>, or <c>null</c> if no mirrored
+    /// shared-chat message has ever been seen here. The twin of
+    /// <see cref="GetEarliestBotUsageDateAsync"/>, deliberately a separate method rather than a
+    /// parameterized generalization of it: that would make the frozen bot method touchable for the
+    /// sake of two callers. See <see cref="EmoteSetStatusDto.SharedChatSeparatedSince"/> for what
+    /// "seen" means (first sighting, not the deploy day the separation itself started).
+    /// </summary>
+    Task<DateOnly?> GetEarliestSharedChatUsageDateAsync(string channelId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Every emote of the channel — including archived ones — sorted by <see cref="EmoteLifetimeDto.Id"/>
     /// (ordinal). Consumed by the chat-log backfill harness (issue #69), which needs a deterministic
     /// order to hash the returned list as part of its input fingerprint (Task 6). Unlike

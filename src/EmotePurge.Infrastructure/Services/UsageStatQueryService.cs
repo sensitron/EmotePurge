@@ -284,6 +284,25 @@ public class UsageStatQueryService(AppDbContext db) : IUsageStatQueryService
             .MinAsync(cancellationToken);
     }
 
+    public async Task<DateOnly?> GetEarliestSharedChatUsageDateAsync(string channelId, CancellationToken cancellationToken = default)
+    {
+        // The twin of GetEarliestBotUsageDateAsync, and identical in shape for the same reasons:
+        // rule 10 (resolve the emote ids to a plain scalar list before aggregating over UsageStats
+        // alone), archived emotes deliberately included (a shared-chat sighting on an emote since
+        // deleted from 7TV still tells us when the separation started for this channel), and the
+        // projection to DateOnly? because a non-nullable Min throws on the empty result set that
+        // "no shared chat ever seen" produces.
+        var emoteIds = await db.Emotes
+            .Where(e => e.ChannelId == channelId)
+            .Select(e => e.Id)
+            .ToListAsync(cancellationToken);
+
+        return await db.UsageStats
+            .Where(u => emoteIds.Contains(u.EmoteId) && u.SharedChatUseCount > 0)
+            .Select(u => (DateOnly?)u.Date)
+            .MinAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<EmoteLifetimeDto>> GetEmoteLifetimesAsync(string channelId, CancellationToken cancellationToken = default)
     {
         // A plain projection over Emotes with a scalar ChannelId filter — no navigation join, no

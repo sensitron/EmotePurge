@@ -730,6 +730,78 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_IsTheEarliestSharedChatDay_NotTheEarliestRowOverall()
+    {
+        // A human-only row from before the first mirrored message must not win — the answer is
+        // "since when is shared-chat usage separated", not "since when is this emote used at all".
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest1");
+        var emoteOne = await SeedEmoteAsync(db, channel.Id, "One");
+        var emoteTwo = await SeedEmoteAsync(db, channel.Id, "Two");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10 },
+            // The normal case this query has to find: no own usage at all on that day, only mirrored.
+            new UsageStat { EmoteId = emoteTwo.Id, Date = new DateOnly(2026, 8, 15), UseCount = 0, BotUseCount = 0, SharedChatUseCount = 2 },
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 20), UseCount = 1, SharedChatUseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Equal(new DateOnly(2026, 8, 15), earliestSharedChatDate);
+    }
+
+    [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_NoSharedChatRowsAtAll_ReturnsNull()
+    {
+        // Includes a bot row on purpose: the two columns are separate, and a bot sighting must not
+        // be mistaken for a shared-chat one.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "One");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10, BotUseCount = 4, SharedChatUseCount = 0 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Null(earliestSharedChatDate);
+    }
+
+    [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_SharedChatRowOnAnArchivedEmote_StillCounts()
+    {
+        // An emote deleted from 7TV since the sighting still tells us when the separation started
+        // for this channel — archived emotes are deliberately not excluded here.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest3");
+        var archived = await SeedEmoteAsync(db, channel.Id, "GoneEmote", isArchived: true);
+        db.UsageStats.Add(new UsageStat { EmoteId = archived.Id, Date = new DateOnly(2026, 8, 5), UseCount = 0, SharedChatUseCount = 4 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Equal(new DateOnly(2026, 8, 5), earliestSharedChatDate);
+    }
+
+    [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_AnotherChannelsSharedChatRow_DoesNotCount()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest4");
+        var otherChannel = await SeedChannelAsync(db, "sharedtest4_other");
+        var otherEmote = await SeedEmoteAsync(db, otherChannel.Id, "Foreign");
+        db.UsageStats.Add(new UsageStat { EmoteId = otherEmote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 0, SharedChatUseCount = 9 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Null(earliestSharedChatDate);
+    }
+
+    [Fact]
     public async Task GetEmoteLifetimesAsync_IncludesActiveAndArchivedEmotes_WithFieldsPassedThrough()
     {
         await using var db = fixture.CreateDbContext();

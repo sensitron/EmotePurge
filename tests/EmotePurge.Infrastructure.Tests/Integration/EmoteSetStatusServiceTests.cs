@@ -220,6 +220,62 @@ public class EmoteSetStatusServiceTests(PostgresFixture fixture)
         Assert.Equal(new DateOnly(2026, 8, 5), status.BotsExcludedSince);
     }
 
+    [Fact]
+    public async Task GetAsync_SharedChatSeparatedSince_IsTheEarliestSharedChatRow_NotTheEarliestRowOverall()
+    {
+        // Same shape as the bot field, and seeded next to a bot row on purpose: the two dates are
+        // independent minima over two independent columns, and neither may leak into the other.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest13", capacity: 1000);
+        var emoteOne = await SeedEmoteAsync(db, channel.Id, "One");
+        var emoteTwo = await SeedEmoteAsync(db, channel.Id, "Two");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10, BotUseCount = 2 },
+            new UsageStat { EmoteId = emoteTwo.Id, Date = new DateOnly(2026, 8, 15), UseCount = 0, SharedChatUseCount = 3 },
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 20), UseCount = 1, SharedChatUseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db, new UsageStatQueryService(db)).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Equal(new DateOnly(2026, 8, 15), status.SharedChatSeparatedSince);
+        Assert.Equal(new DateOnly(2026, 8, 1), status.BotsExcludedSince);
+    }
+
+    [Fact]
+    public async Task GetAsync_NoSharedChatRowsAtAll_SharedChatSeparatedSinceIsNull()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest14", capacity: 1000);
+        var emote = await SeedEmoteAsync(db, channel.Id, "One");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10, SharedChatUseCount = 0 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db, new UsageStatQueryService(db)).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Null(status.SharedChatSeparatedSince);
+    }
+
+    [Fact]
+    public async Task GetAsync_BeforeTheFirstSync_SkipsTheSharedChatSeparatedSinceQueryToo()
+    {
+        // Same gate as occupiedSlots and botsExcludedSince: an empty ActiveEmoteSetId means the MIN
+        // query is not even sent. A shared-chat row existing regardless (seeded directly, bypassing
+        // the normal flush path that could never target an unsynced channel) proves the skip
+        // happened — nothing else could produce null here.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "slotstest15", capacity: null, activeEmoteSetId: "");
+        var emote = await SeedEmoteAsync(db, channel.Id, "One");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 0, SharedChatUseCount = 5 });
+        await db.SaveChangesAsync();
+
+        var status = await new EmoteSetStatusService(db, new UsageStatQueryService(db)).GetAsync(channel.ChannelName);
+
+        Assert.NotNull(status);
+        Assert.Null(status.SharedChatSeparatedSince);
+    }
+
     private static async Task<Channel> SeedChannelAsync(
         AppDbContext db, string channelName, int? capacity, string activeEmoteSetId = "64c9e0f0aa1234567890abcd")
     {
