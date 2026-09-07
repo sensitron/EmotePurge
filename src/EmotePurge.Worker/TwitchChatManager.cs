@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using EmotePurge.Core.Chat;
 using EmotePurge.Core.Matching;
 using EmotePurge.Core.Services;
 using TwitchLib.Client;
@@ -15,7 +16,8 @@ public class TwitchChatManager(
     ILoggerFactory loggerFactory,
     IEmoteMatchCache emoteMatchCache,
     IEmoteUsageCounter usageCounter,
-    IBotChatterDetector botChatterDetector) : ITwitchChatManager
+    IBotChatterDetector botChatterDetector,
+    WorkerStats stats) : ITwitchChatManager
 {
     // Bounds how long we *wait* for a connect/reconnect, not how long TwitchLib tries: the
     // reconnection policy retries indefinitely in the background and still raises
@@ -490,10 +492,11 @@ public class TwitchChatManager(
     {
         // Aktualisiert für JEDE Nachricht, nicht nur gematchte — der Watchdog erkennt so
         // auch ein stilles Einfrieren der Verbindung auf Channels ohne Emote-Nutzung. This must
-        // happen before any bot classification below: a bot message still proves the socket is
-        // alive. Moving the bot check above these two writes would make the watchdog blind to a
-        // channel whose only traffic is bots and force spurious reconnects — the exact failure
-        // mode fixed on 2026-08-03 (see TwitchWatchdogPolicy). Do not reorder.
+        // happen before any room or bot classification below: a mirrored Shared Chat message or a
+        // bot message still proves the socket is alive. Moving either check above these two writes
+        // would make the watchdog blind to a channel whose only traffic is mirrored-in or from bots
+        // and force spurious reconnects — the exact failure mode fixed on 2026-08-03 (see
+        // TwitchWatchdogPolicy). Do not reorder.
         var receivedAtTicks = DateTime.UtcNow.Ticks;
         Interlocked.Exchange(ref _lastMessageReceivedUtcTicks, receivedAtTicks);
         // Hot path: one indexer assignment, no LINQ and no allocation beyond the dictionary's own
@@ -509,11 +512,21 @@ public class TwitchChatManager(
             return Task.CompletedTask;
         }
 
-        // Classified exactly once per message, after the watchdog bookkeeping above (a bot message
-        // still proves the socket is alive — see the class-level comment on that ordering) and
-        // before the token loop, so every emote match in this message shares the same isBot result
-        // instead of re-classifying the same chatter per token.
+        // Classified exactly once per message, after the watchdog bookkeeping above (see the
+        // class-level comment on that ordering) and before the token loop, so every emote match in
+        // this message shares the same category instead of re-classifying the same chatter per
+        // token. Room comes before bot (#73, design doc D2/B2): a message mirrored in from a
+        // foreign room, or one whose room cannot be determined, is Shared Chat regardless of who
+        // sent it. SharedChatRule.FromTags is null-safe — UndocumentedTags is null for the ordinary
+        // message that carries no unknown tag at all, not an error case.
+        var origin = SharedChatRule.FromTags(e.ChatMessage.RoomId, e.ChatMessage.UndocumentedTags);
+        if (origin == MessageOrigin.Indeterminate)
+        {
+            stats.RecordIndeterminateSharedChatMessage();
+        }
+
         var isBot = botChatterDetector.IsBot(e.ChatMessage.UserId, e.ChatMessage.Badges);
+        var category = UsageCategoryRule.Resolve(origin, isBot);
 
         // Owns the set and iterates it through its concrete type below, so the struct enumerator
         // applies instead of the boxed one behind IReadOnlySet<string> — see the buffer-taking
@@ -523,7 +536,7 @@ public class TwitchChatManager(
         EmoteNameMatching.MatchEmoteIds(e.ChatMessage.Message, channelEmotes, matchedThisMessage);
         foreach (var emoteId in matchedThisMessage)
         {
-            usageCounter.Increment(emoteId, isBot);
+            usageCounter.Increment(emoteId, category);
         }
 
         return Task.CompletedTask;

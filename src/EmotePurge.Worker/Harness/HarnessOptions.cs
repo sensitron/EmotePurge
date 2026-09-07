@@ -34,4 +34,17 @@ public sealed class HarnessOptions
     /// <c>window-not-30-days</c>, so a short local run can never be read as a gate run.
     /// </summary>
     public int WindowDays { get; set; } = DefaultWindowDays;
+
+    /// <summary>
+    /// The UTC day (<c>yyyy-MM-dd</c>) from which a message no longer counts under the pre-#73
+    /// rule, bound as a raw string rather than <see cref="DateOnly"/> (Plan-Entscheidung 6):
+    /// <c>AddHarness</c> binds this class via <c>configuration.GetSection("Harness").Bind(...)</c>
+    /// before <c>host.Build()</c>, outside of any exit-code handling in <c>Program</c> — a
+    /// <see cref="DateOnly"/> property would throw right there on a typo in configuration, escaping
+    /// <c>Main</c> with an exit status the runtime invented rather than one of the six documented
+    /// ones. A <c>string?</c> always binds; <c>HarnessRunner.ExecuteAsync</c> parses it strictly
+    /// (invariant <c>yyyy-MM-dd</c>) and refuses to run without it unless <c>--diagnostic</c> was
+    /// given (D4).
+    /// </summary>
+    public string? SharedChatCutover { get; set; }
 }

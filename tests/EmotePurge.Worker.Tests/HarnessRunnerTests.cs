@@ -45,7 +45,11 @@ public class HarnessRunnerTests : IDisposable
         _usage.GetEmoteLifetimesAsync(ChannelId, Arg.Any<CancellationToken>()).Returns(Lifetimes());
         _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
             .Returns(Rows());
-        _usage.GetEarliestBotUsageDateAsync(ChannelId, Arg.Any<CancellationToken>()).Returns(new DateOnly(2026, 9, 1));
+        // Deliberately NOT the Run helper's default shared-chat cutover ("2026-09-01"): the two
+        // cutovers land in adjacent markdown rows, and while they shared a value an assertion on
+        // either date was satisfied by the other one's cell — hardcoding a cutover cell would have
+        // gone unnoticed.
+        _usage.GetEarliestBotUsageDateAsync(ChannelId, Arg.Any<CancellationToken>()).Returns(new DateOnly(2026, 8, 30));
         _bots.KnownBotAccountIds.Returns(new HashSet<string> { "19264788" });
         _bots.IsBot(Arg.Any<string?>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>()).Returns(false);
     }
@@ -82,6 +86,105 @@ public class HarnessRunnerTests : IDisposable
         Assert.Empty(Directory.GetFiles(_directory));
     }
 
+    // Fail-closed shared-chat cutover (D4, #73 Task 6): a missing, blank or unparsable cutover
+    // must abort before any database or archive access, so a forgotten configuration value can
+    // never be read weeks later as "the gate was fine". The precondition sits ahead of even the
+    // channel lookup, which is why these mock the channel service too — a passing test here must
+    // never have exercised it.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AMissingOrBlankSharedChatCutover_WithoutDiagnostic_AbortsBeforeAnyAccess(string? cutover)
+    {
+        var exitCode = await Run(3, sharedChatCutover: cutover);
+
+        Assert.Equal(HarnessRunner.ExitPreconditionViolated, exitCode);
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _archive.DidNotReceiveWithAnyArgs().ReadDayAsync(default!, default, default, default!, default);
+        await _channels.DidNotReceiveWithAnyArgs().GetByNameAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task AnUnparsableSharedChatCutover_AbortsEvenWithoutTheChannelLookup()
+    {
+        var exitCode = await Run(3, sharedChatCutover: "2026-13-01");
+
+        Assert.Equal(HarnessRunner.ExitPreconditionViolated, exitCode);
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _channels.DidNotReceiveWithAnyArgs().GetByNameAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task AnUnparsableSharedChatCutover_IsAnErrorEvenWithDiagnostic()
+    {
+        // The one case D4 insists on: a value that IS set but does not parse must never read as
+        // "no cutover", diagnostic or not — a typo must not silently pass as an intentional
+        // diagnostic run.
+        var exitCode = await Run(3, sharedChatCutover: "2026-13-01", diagnostic: true);
+
+        Assert.Equal(HarnessRunner.ExitPreconditionViolated, exitCode);
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _channels.DidNotReceiveWithAnyArgs().GetByNameAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task AMissingSharedChatCutover_WithDiagnostic_RunsAndReportsNoVerdictInsteadOfAborting()
+    {
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+
+        var exitCode = await Run(3, sharedChatCutover: null, diagnostic: true);
+
+        Assert.Equal(0, exitCode);
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("diagnostic-run", json);
+        // The final .report.json (unlike the header line) does not ignore nulls, so the field is
+        // present but null here — no cutover was ever configured for this run.
+        Assert.Contains("\"sharedChatCutover\": null", json);
+
+        var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
+        Assert.Contains("| Shared-Chat-Stichtag | keiner (Diagnoselauf) |", markdown);
+        // The run-mode cell has its own wording ("Diagnose"), and only this assertion reaches it:
+        // "Diagnoselauf" above is the cutover row's text and would stay green even if the run-mode
+        // cell were hardcoded to "bindend" — a diagnostic report claiming to be binding.
+        Assert.Contains("| Lauf-Modus | Diagnose |", markdown);
+    }
+
+    [Fact]
+    public async Task ADifferentSharedChatCutover_StartsANewFileAndLeavesTheOldOneUnfinished()
+    {
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day3)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.RateLimited, 0, null, 0, 0, 0, 429);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(4, await Run(3, sharedChatCutover: "2026-09-01"));
+        var firstFile = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(0, await Run(3, sharedChatCutover: "2026-09-02"));
+
+        var jsonlFiles = Directory.GetFiles(_directory, "*.jsonl");
+        Assert.Equal(2, jsonlFiles.Length);
+        Assert.Contains(firstFile, jsonlFiles);
+        // The first (interrupted) file never got its final report; only the second run's identity
+        // produced one.
+        Assert.Single(Directory.GetFiles(_directory, "*.report.json"));
+    }
+
     [Fact]
     public async Task AMeasurementShorterThanTheWindow_Aborts()
     {
@@ -111,7 +214,7 @@ public class HarnessRunnerTests : IDisposable
     {
         RespondWith(async (day, onMessage) =>
         {
-            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, "PogChamp"));
+            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, false, "PogChamp"));
             return CompleteDay(1);
         });
 
@@ -136,7 +239,7 @@ public class HarnessRunnerTests : IDisposable
         // instead of what this already-spent request actually cost.
         RespondWith(async (day, onMessage) =>
         {
-            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, "PogChamp"));
+            await onMessage(new ChatLogMessage(day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), null, [], "12345", null, false, "PogChamp"));
             return CompleteDay(1, bytes: 900_000);
         });
 
@@ -360,6 +463,10 @@ public class HarnessRunnerTests : IDisposable
             await onMessage(Message(day, "chatter-1", "PogChamp", sourceRoomId: day == Day2 ? "other-room" : null));
             return CompleteDay(1);
         });
+        // The live side saw the same foreign hit on the same day (#73 Task 7): both sides report one
+        // shared-chat hit, so the symmetry condition is satisfied and the run stays certifiable.
+        _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
+            .Returns(Rows(day2SharedChatUseCount: 1));
 
         Assert.Equal(0, await Run(3));
 
@@ -375,19 +482,194 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"windowFrom\": \"2026-09-02\"", json);
         Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
         Assert.Contains("\"runComplete\": true", json);
+        // All three days are rated (harness-2, #73 Task 7). Day 2's PogChamp hit sits in
+        // SharedChatCounts rather than HumanCounts, but the *day total* counts all three components
+        // on both sides, so day 2 reads 1 against 8 (UseCount 0 + BotUseCount 7 +
+        // SharedChatUseCount 1) — the same total as days 1 and 3, so the ratio lands exactly on the
+        // median and CoverageQuestionable stays clear. Under the two-component day total this task
+        // replaced, day 2's log total was 0 and the coverage check dropped it, which is exactly the
+        // interaction that would have cost a heavily-shared channel its rated days.
         Assert.Contains("\"ratedDays\": 3", json);
-        // Befund 2 (Abschluss-Review): these three values, not just their key names, pin the three
-        // mapping seams between the query DTOs and the harness's own replay types. Each was verified
-        // to fail under its corresponding one-line mutation at the HarnessRunner call sites (see the
-        // final-fix report) before this test was written this way.
-        Assert.Contains("\"humanLogTotal\": 3", json); // one PogChamp hit per day, three rated days
-        Assert.Contains("\"humanLiveTotal\": 3", json); // UseCount=1 per day; BotUseCount=7 must not leak in
+        // Befund 2 (Abschluss-Review): these values, not just their key names, pin the mapping seams
+        // between the query DTOs and the harness's own replay types. Each was verified to fail under
+        // its corresponding one-line mutation at the HarnessRunner call sites (see the final-fix
+        // report) before this test was written this way.
+        Assert.Contains("\"humanLogTotal\": 2", json); // day 2's hit is foreign, so only days 1 and 3 contribute
+        Assert.Contains("\"humanLiveTotal\": 2", json); // UseCount 1 + 0 + 1 over the rated days; BotUseCount=7 must not leak in
         Assert.Contains("\"sharedChatMessages\": 1", json); // only day 2's message carries a foreign SourceRoomId
+        // Both sides of the split, reported apart so a reader sees it instead of inferring it.
+        Assert.Contains("\"sharedChatLogTotal\": 1", json);
+        Assert.Contains("\"sharedChatLiveTotal\": 1", json);
+        Assert.Contains("\"sharedChatByDay\"", json);
+        Assert.DoesNotContain(ReplayGateIneligibleReasons.SharedChatAsymmetric, json);
+        // The Run helper's default cutover ("2026-09-01", before Day1) reaches the identity and the
+        // report unchanged — the fixture setting it, not a derived value, is what "ratedDays": 3
+        // above stands on now that HumanOnly keys off this field instead of BotSplitCutover.
+        Assert.Contains("\"sharedChatCutover\": \"2026-09-01\"", json);
+
+        var jsonl = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
+        Assert.Contains("\"algorithmVersion\":\"harness-2\"", jsonl);
+        // Day 2's foreign hit lands in the day line's own dictionary, not just the aggregated report.
+        Assert.Contains("\"sharedChatCounts\":{\"e1\":1}", jsonl);
+        Assert.Contains("\"sharedChatCutover\":\"2026-09-01\"", jsonl);
 
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
         Assert.Contains("Replay-Treue", markdown);
         Assert.Contains("Uptime Kuma", markdown);
         Assert.Contains(ChannelName, markdown);
+        // Both cutover cells carry distinct dates, so neither assertion can be satisfied by the
+        // other row (see the fixture remark at GetEarliestBotUsageDateAsync).
+        Assert.Contains("| Shared-Chat-Stichtag | 2026-09-01 |", markdown);
+        Assert.Contains("| Bot-Split-Stichtag | 2026-08-30 |", markdown);
+        Assert.Contains("| Lauf-Modus | bindend |", markdown);
+        // The human reads the split off the markdown, not only off the JSON.
+        Assert.Contains("Shared Chat ΣLog / ΣLive (bewertete Tage) | 1 / 1", markdown);
+        Assert.Contains("Shared Chat (Log)", markdown);
+        Assert.Contains("Shared Chat (Live)", markdown);
+        // Day 2's row: the foreign hit on both sides, next to the human columns that stay at 0.
+        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 0 | 1 | 1 |", markdown);
+    }
+
+    [Fact]
+    public async Task ACompleteRun_WithoutTheLiveSideOfTheSharedChatSplit_IsNotCertifiable()
+    {
+        // The negative of the run above and the whole point of the condition (D3): the replay side
+        // classified one hit as foreign, the live side classified none. That disagreement is about
+        // the classification #73 introduced — the one thing this run exists to certify — so the run
+        // is refused rather than being handed a fidelity number computed on top of it. The default
+        // Rows() fixture carries SharedChatUseCount = 0 throughout, which is exactly the pre-deploy
+        // signature of D3.
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp", sourceRoomId: day == Day2 ? "other-room" : null));
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"sharedChatLogTotal\": 1", json);
+        Assert.Contains("\"sharedChatLiveTotal\": 0", json);
+        Assert.Contains(ReplayGateIneligibleReasons.SharedChatAsymmetric, json);
+
+        // The two shared-chat day columns are asserted here rather than in the symmetric run above:
+        // there both carry 1, so a swap of the two would be invisible. Day 2 is the only day with a
+        // foreign hit, and only on the log side.
+        var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
+        Assert.Contains("Shared Chat ΣLog / ΣLive (bewertete Tage) | 1 / 0", markdown);
+        Assert.Contains("| 2026-09-02 | Complete | 1024 | 1 | 0 | 1 | 1 | 0 | 0 |", markdown);
+        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 0 | 1 | 0 |", markdown);
+    }
+
+    [Fact]
+    public async Task AFileWithTheOldAlgorithmVersion_IsNotResumed()
+    {
+        // Regression guard for the harness-2 bump (#73): a "harness-1" file left over from before the
+        // shared-chat rule counted every message as own. FindFrozenWindow's AlgorithmVersion
+        // comparison must exclude it from window discovery.
+        //
+        // The leftover's own file identity can never be the file this run ends up writing to —
+        // AlgorithmVersion is itself part of the identity BuildFileName hashes, so a "harness-1"
+        // header always produces a different digest/path than this ("harness-2") run computes for
+        // itself, whether or not the version check exists. Asserting on file count or fetch count
+        // alone would therefore prove nothing (a run without a single day line to inherit fetches
+        // every day again regardless of whether a window was "inherited").
+        //
+        // What the version check actually guards is FindFrozenWindow's separate WINDOW discovery: it
+        // only borrows (WindowFrom, WindowTo) from a matching candidate, not the whole identity. So
+        // the leftover's window is set one day earlier than the window this run would freshly derive
+        // (2026-09-01..2026-09-03 instead of 2026-09-02..2026-09-04) — still a same-length, still
+        // resumable-age candidate. If the AlgorithmVersion comparison were ever removed, this stale
+        // window would be adopted and the report would carry "windowFrom": "2026-09-01"; with the
+        // check intact, the run must derive its own fresh window instead.
+        var staleWindowFrom = Day1.AddDays(-1);
+        var staleWindowTo = Day3.AddDays(-1);
+        var leftoverIdentity = new HarnessRunIdentity(
+            ChannelId, TwitchChannelId, ChannelName, staleWindowFrom, staleWindowTo, new DateOnly(2026, 9, 1),
+            new DateOnly(2026, 9, 1), ["19264788"], "harness-1", new string('a', 64));
+        var leftover = new HarnessReportFile(Path.Combine(_directory, "leftover-harness-1.jsonl"));
+        leftover.WriteHeader(new HarnessReportHeader(leftoverIdentity, DateTime.UtcNow));
+
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"windowFrom\": \"2026-09-02\"", json);
+        Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
+
+        Assert.True(File.Exists(leftover.Path));
+        Assert.Equal(2, Directory.GetFiles(_directory, "*.jsonl").Length);
+        Assert.Equal(3, _archive.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IChatLogArchiveClient.ReadDayAsync)));
+    }
+
+    [Fact]
+    public async Task TheWindowWideChatterCount_CountsOnlyOwnHumans()
+    {
+        // Spec B5: the window-wide "distinct chatters" figure follows the same own/foreign rule as
+        // the per-day counter. Three chatters, three messages, one foreign and one bot — only the
+        // remaining own human counts.
+        _bots.IsBot(Arg.Any<string?>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>())
+            .Returns(call => call.ArgAt<string?>(0) == "bot-1");
+
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day1)
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp"));
+            }
+            else if (day == Day2)
+            {
+                await onMessage(Message(day, "chatter-2", "PogChamp", sourceRoomId: "other-room"));
+            }
+            else
+            {
+                await onMessage(Message(day, "bot-1", "PogChamp"));
+            }
+
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
+        Assert.Contains("| Distinkte Chatter im Fenster | 1 |", markdown);
+    }
+
+    [Fact]
+    public async Task AnIndeterminateMessage_IsMappedThroughFromTheArchiveMessageToTheReport()
+    {
+        // Pins the HasOtherSourceMarkers wiring at the runner boundary, not just inside
+        // ReplayDayCounter: the callback in HarnessRunner.RunAsync must pass
+        // message.HasOtherSourceMarkers through to counter.Count(...) rather than a literal false.
+        // A hardcoded false would silently reclassify every indeterminate message as this channel's
+        // own usage — every test elsewhere in this class leaves HasOtherSourceMarkers at Message()'s
+        // default of false, so nothing but this case would catch that regression.
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day2)
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp", hasOtherSourceMarkers: true));
+            }
+            else
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp"));
+            }
+
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var jsonl = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
+        Assert.Contains("\"indeterminateMessageCount\":1", jsonl);
+
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("\"indeterminateMessages\": 1", json);
     }
 
     [Fact]
@@ -454,7 +736,7 @@ public class HarnessRunnerTests : IDisposable
 
         // One live usage row changes; everything else stays.
         _usage.GetRowsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<DateOnly>(), Arg.Any<DateOnly>(), Arg.Any<CancellationToken>())
-            .Returns<IReadOnlyList<UsageStatRowDto>>([new("e1", Day1, 99, 0), new("e1", Day2, 1, 0), new("e1", Day3, 1, 0)]);
+            .Returns<IReadOnlyList<UsageStatRowDto>>([new("e1", Day1, 99, 0, 0), new("e1", Day2, 1, 0, 0), new("e1", Day3, 1, 0, 0)]);
         _archive.ClearReceivedCalls();
 
         Assert.Equal(0, await Run(3));
@@ -513,7 +795,7 @@ public class HarnessRunnerTests : IDisposable
             if (day == Day2)
             {
                 await onMessage(new ChatLogMessage(
-                    day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), "chatter-1", null!, TwitchChannelId, null, "PogChamp"));
+                    day.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), "chatter-1", null!, TwitchChannelId, null, false, "PogChamp"));
             }
             else
             {
@@ -670,18 +952,32 @@ public class HarnessRunnerTests : IDisposable
             File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json"))));
     }
 
-    private Task<int> Run(int days, CancellationToken ct = default, int maxMegabytes = 200)
+    // SharedChatCutover defaults to a day before Day1 (D4): almost every test in this file predates
+    // #73 and asserts on behaviour the fail-closed precondition would otherwise block outright. The
+    // handful of tests about the precondition itself override it explicitly.
+    private Task<int> Run(
+        int days,
+        CancellationToken ct = default,
+        int maxMegabytes = 200,
+        string? sharedChatCutover = "2026-09-01",
+        bool diagnostic = false)
     {
         var runner = new HarnessRunner(
             _channels,
             _usage,
             _archive,
             _bots,
-            new HarnessOptions { OutputDirectory = _directory, MaxMegabytesPerRun = maxMegabytes, WindowDays = 30 },
+            new HarnessOptions
+            {
+                OutputDirectory = _directory,
+                MaxMegabytesPerRun = maxMegabytes,
+                WindowDays = 30,
+                SharedChatCutover = sharedChatCutover
+            },
             _clock,
             NullLogger<HarnessRunner>.Instance);
 
-        return runner.RunAsync(ChannelName, days, ct);
+        return runner.RunAsync(ChannelName, days, diagnostic, ct);
     }
 
     private void RespondWith(
@@ -706,13 +1002,15 @@ public class HarnessRunnerTests : IDisposable
     private static ChatLogDayResult CompleteDay(int messageCount, long bytes = 1024) =>
         new(ChatLogDayStatus.Complete, bytes, "deadbeef", messageCount, 0, 0, 200);
 
-    private static ChatLogMessage Message(DateOnly day, string userId, string text, string? sourceRoomId = null) =>
+    private static ChatLogMessage Message(
+        DateOnly day, string userId, string text, string? sourceRoomId = null, bool hasOtherSourceMarkers = false) =>
         new(
             day.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc),
             userId,
             [new KeyValuePair<string, string>("subscriber", "1")],
             TwitchChannelId,
             sourceRoomId,
+            hasOtherSourceMarkers,
             text);
 
     private static Channel NewChannel(
@@ -752,12 +1050,12 @@ public class HarnessRunnerTests : IDisposable
     // HarnessRunner call site (`new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount)`)
     // used to be invisible — zeroing an already-zero BotUseCount changes nothing a test can see.
     // With BotUseCount nonzero, the swap inflates the human-live side (the gate's denominator) from
-    // 3 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
-    private static IReadOnlyList<UsageStatRowDto> Rows() =>
+    // 2 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
+    private static IReadOnlyList<UsageStatRowDto> Rows(int day2SharedChatUseCount = 0) =>
     [
-        new("e1", Day1, 1, 7),
-        new("e1", Day2, 1, 7),
-        new("e1", Day3, 1, 7)
+        new("e1", Day1, 1, 7, 0),
+        new("e1", Day2, 0, 7, day2SharedChatUseCount),
+        new("e1", Day3, 1, 7, 0)
     ];
 
     private sealed class FakeClock(DateTimeOffset now) : TimeProvider

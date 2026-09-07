@@ -23,6 +23,7 @@ public sealed record HarnessRunIdentity(
     DateOnly WindowFrom,
     DateOnly WindowTo,
     DateOnly? BotSplitCutover,
+    DateOnly? SharedChatCutover,
     IReadOnlyList<string> BotAccountIds,
     string AlgorithmVersion,
     string InputHash);

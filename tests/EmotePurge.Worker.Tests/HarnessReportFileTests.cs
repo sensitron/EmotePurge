@@ -40,6 +40,47 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void AWrittenHeader_WithASharedChatCutover_CarriesItLiterallyInTheHeaderLine()
+    {
+        var identity = Identity() with { SharedChatCutover = new DateOnly(2026, 9, 1) };
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+
+        var rawText = File.ReadAllText(file.Path);
+        Assert.Contains("\"sharedChatCutover\":\"2026-09-01\"", rawText);
+
+        var header = file.ReadHeader(identity);
+        Assert.Equal(new DateOnly(2026, 9, 1), header.Identity.SharedChatCutover);
+    }
+
+    [Fact]
+    public void AWrittenHeader_WithoutASharedChatCutover_OmitsTheFieldButStillReadsBack()
+    {
+        var identity = Identity() with { SharedChatCutover = null };
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+
+        // WhenWritingNull: the key itself is absent, not present with a null value — same contract
+        // as every other optional field in this protocol.
+        var rawText = File.ReadAllText(file.Path);
+        Assert.DoesNotContain("sharedChatCutover", rawText);
+
+        var header = file.ReadHeader(identity);
+        Assert.Null(header.Identity.SharedChatCutover);
+    }
+
+    [Fact]
+    public void TwoIdentities_DifferingOnlyInTheSharedChatCutover_ProduceDifferentFileNames()
+    {
+        var withCutover = Identity() with { SharedChatCutover = new DateOnly(2026, 9, 1) };
+        var withoutCutover = Identity() with { SharedChatCutover = null };
+
+        Assert.NotEqual(
+            HarnessReportFile.BuildFileName(withCutover),
+            HarnessReportFile.BuildFileName(withoutCutover));
+    }
+
+    [Fact]
     public void AForeignIdentity_IsRefused()
     {
         var identity = Identity();
@@ -109,15 +150,25 @@ public class HarnessReportFileTests : IDisposable
         {
             HumanCounts = new Dictionary<string, int> { ["e1"] = 4 },
             BotCounts = new Dictionary<string, int> { ["e1"] = 1 },
+            SharedChatCounts = new Dictionary<string, int> { ["e1"] = 2 },
+            IndeterminateMessageCount = 1,
             KHistogram = [0, 2, 1],
             Bytes = 1234,
             BodySha256Hex = "abc"
         });
 
+        // Assert.Contains on the raw text, not just the round-trip below, because that is what
+        // pins the camelCase JSON contract rather than only the symmetry of writing and reading.
+        var rawText = File.ReadAllText(file.Path);
+        Assert.Contains("\"sharedChatCounts\"", rawText);
+        Assert.Contains("\"indeterminateMessageCount\"", rawText);
+
         var day = Assert.Single(file.ReadDays().Days);
 
         Assert.Equal(4, day.HumanCounts["e1"]);
         Assert.Equal(1, day.BotCounts["e1"]);
+        Assert.Equal(2, day.SharedChatCounts["e1"]);
+        Assert.Equal(1, day.IndeterminateMessageCount);
         Assert.Equal(new[] { 0, 2, 1 }, day.KHistogram);
         Assert.Equal(1234, day.Bytes);
         Assert.Equal("abc", day.BodySha256Hex);
@@ -243,8 +294,8 @@ public class HarnessReportFileTests : IDisposable
         file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(identity.WindowFrom, identity.WindowTo, null), [], [], [], 3,
-            runComplete: true, totalBytes: 0, rateLimitedDays: 0, resumePoint: null);
+            new ReplayWindow(identity.WindowFrom, identity.WindowTo, null, null), [], [], [], 3,
+            runComplete: true, totalBytes: 0, rateLimitedDays: 0, resumePoint: null, diagnostic: false);
         file.WriteFinalReportAtomically(report, "# Bericht\n");
 
         Assert.True(File.Exists(file.ReportJsonPath));
@@ -297,6 +348,7 @@ public class HarnessReportFileTests : IDisposable
             new DateOnly(2026, 9, 2),
             new DateOnly(2026, 9, 4),
             new DateOnly(2026, 9, 1),
+            new DateOnly(2026, 9, 1),
             ["19264788", "402337290"],
             HarnessRunner.AlgorithmVersion,
             new string('a', 64));
@@ -313,9 +365,11 @@ public class HarnessReportFileTests : IDisposable
             0,
             0,
             0,
-            new Dictionary<string, int>(),
-            new Dictionary<string, int>(),
-            new Dictionary<string, int>(),
+            0,
+            new Dictionary<string, int>(), // HumanCounts
+            new Dictionary<string, int>(), // BotCounts
+            new Dictionary<string, int>(), // SharedChatCounts
+            new Dictionary<string, int>(), // UnmatchedByReason
             0,
             [],
             0,

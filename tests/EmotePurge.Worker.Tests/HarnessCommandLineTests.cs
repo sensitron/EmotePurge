@@ -25,6 +25,7 @@ public class HarnessCommandLineTests
         // null = "--days was not given"; the entry point then falls back to Harness:WindowDays,
         // which the parser cannot see because it runs before the configuration exists.
         Assert.Null(result.Days);
+        Assert.False(result.Diagnostic);
     }
 
     [Fact]
@@ -35,6 +36,30 @@ public class HarnessCommandLineTests
 
         Assert.Equal("foo", result.ChannelName);
         Assert.Equal(3, result.Days);
+        Assert.False(result.Diagnostic);
+    }
+
+    [Fact]
+    public void DiagnosticAlone_SetsDiagnosticWithoutAWindow()
+    {
+        var result = Assert.IsType<HarnessCommandLineResult.RunHarness>(
+            HarnessCommandLine.Parse(["harness", "foo", "--diagnostic"]));
+
+        Assert.Equal("foo", result.ChannelName);
+        Assert.Null(result.Days);
+        Assert.True(result.Diagnostic);
+    }
+
+    [Theory]
+    [InlineData("harness", "foo", "--days", "3", "--diagnostic")]
+    [InlineData("harness", "foo", "--diagnostic", "--days", "3")]
+    public void DaysAndDiagnostic_CanBeCombinedInEitherOrder(params string[] args)
+    {
+        var result = Assert.IsType<HarnessCommandLineResult.RunHarness>(HarnessCommandLine.Parse(args));
+
+        Assert.Equal("foo", result.ChannelName);
+        Assert.Equal(3, result.Days);
+        Assert.True(result.Diagnostic);
     }
 
     [Fact]
@@ -61,6 +86,10 @@ public class HarnessCommandLineTests
     [InlineData("harness", "foo", "--days", "3", "extra")]
     [InlineData("harness", "--days", "3")]
     [InlineData("harness", "")]
+    [InlineData("harness", "foo", "--diagnostic", "--diagnostic")]
+    [InlineData("harness", "foo", "--diagnostic", "5")]
+    [InlineData("harness", "foo", "--diagnose")]
+    [InlineData("harness", "foo", "--days", "3", "--days", "3")]
     public void EverythingElse_IsInvalidWithAGermanMessage(params string[] args)
     {
         var result = Assert.IsType<HarnessCommandLineResult.Invalid>(HarnessCommandLine.Parse(args));

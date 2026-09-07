@@ -25,15 +25,30 @@ public sealed record ReplayEmote(
 /// One live <c>UsageStat</c> row of the window. Same shape as <c>UsageStatRowDto</c> and, like
 /// <see cref="ReplayEmote"/>, deliberately its own type — see the remark there.
 /// </summary>
-public sealed record ReplayUsageRow(string EmoteId, DateOnly Date, int UseCount, int BotUseCount);
+public sealed record ReplayUsageRow(string EmoteId, DateOnly Date, int UseCount, int BotUseCount, int SharedChatUseCount);
 
 /// <summary>
-/// The frozen comparison window plus the channel's bot-split cutover, i.e. the earliest day whose
-/// live rows can carry a <c>BotUseCount</c> at all. Days before it cannot be compared human-only
-/// (bot messages sat inside <c>UseCount</c> back then), so they never enter the gate.
-/// <c>null</c> means the channel has no such day yet — then there is no rated day at all.
+/// The frozen comparison window plus the channel's bot-split cutover and the explicitly configured
+/// shared-chat cutover (D4).
+/// <para>
+/// <see cref="BotSplitCutover"/> is the earliest day whose live rows can carry a
+/// <c>BotUseCount</c> at all; it stays in the identity, the report header and the report line
+/// unchanged (Freeze), but as of <c>harness-2</c> it no longer decides which days the gate rates —
+/// see <see cref="SharedChatCutover"/>.
+/// </para>
+/// <para>
+/// <see cref="SharedChatCutover"/> is the day from which <c>HumanOnly</c> is true, and the only
+/// input to that decision (B5): <c>Day &gt;= SharedChatCutover</c>. This is not merely convenient,
+/// it is more correct than gating on <see cref="BotSplitCutover"/> ever was — the bot split
+/// deployed on 2026-09-01, before #73, so every day at or after the shared-chat cutover
+/// necessarily also lies after the bot-split deploy and carries bots separately, independent of
+/// when this particular channel happened to show its first bot. It is the rolled-out *contract*
+/// that decides, not the first sighting in the data — exactly the E4 imprecision the bot cutover
+/// carries. <c>null</c> means no cutover was configured; days before it (and every day if it is
+/// <c>null</c>) cannot be compared human-only and never enter the gate.
+/// </para>
 /// </summary>
-public sealed record ReplayWindow(DateOnly From, DateOnly To, DateOnly? BotSplitCutover);
+public sealed record ReplayWindow(DateOnly From, DateOnly To, DateOnly? BotSplitCutover, DateOnly? SharedChatCutover);
 
 /// <summary>Why a chat token did not count towards an emote on a given day.</summary>
 public enum UnmatchedReason
@@ -94,6 +109,24 @@ public static class ReplayGateIneligibleReasons
 
     /// <summary>No live usage at all over the rated days, so the deviation has no denominator.</summary>
     public const string LiveTotalZero = "live-total-zero";
+
+    /// <summary>
+    /// The two sides disagree about how much shared chat there was over the rated days (D3/B5).
+    /// Live and replay derive the room classification independently — IRC tags through TwitchLib
+    /// against Justlog tags through our own parser — so a divergence here is a divergence about the
+    /// classification #73 introduced, which is the one thing the run exists to certify. A fidelity
+    /// number computed on top of that would measure the wrong thing while looking healthy, hence a
+    /// refusal rather than a number.
+    /// </summary>
+    public const string SharedChatAsymmetric = "shared-chat-asymmetric";
+
+    /// <summary>
+    /// A diagnostic run (<c>--diagnostic</c>): the numbers are computed as usual, but the run had
+    /// no shared-chat cutover to gate against, or the operator explicitly asked for numbers without
+    /// a verdict. Set unconditionally on a diagnostic run, in addition to whatever other reasons
+    /// apply (D4/Plan-Entscheidung 7).
+    /// </summary>
+    public const string DiagnosticRun = "diagnostic-run";
 }
 
 /// <summary>
@@ -105,6 +138,18 @@ public static class ReplayGateIneligibleReasons
 /// separately built lines are never <c>Equals</c>. Only <see cref="ReplayFinalReport"/> carries a
 /// value-equality guarantee (it is the reproducibility contract of the run).
 /// </para>
+/// <para>
+/// <see cref="SharedChatMessageCount"/> and <see cref="SharedChatCounts"/> (#73) are easy to
+/// confuse and count different things. The former is a message-level control number and counts
+/// only unambiguously foreign messages (<c>MessageOrigin.Foreign</c>) — it does not move for an
+/// indeterminate one, which has its own counter, <see cref="IndeterminateMessageCount"/>. The
+/// latter is an emote-hit dictionary and receives hits from <b>both</b> foreign and indeterminate
+/// messages (<c>UsageCategory.SharedChat</c> folds the two together, D2/B2), because the rule that
+/// hides the shared-chat *component* from being counted as this channel's own use is the same for
+/// both — a hit is a hit. The control sum: <c>Σ SharedChatCounts &gt; 0</c> implies
+/// <c>SharedChatMessageCount + IndeterminateMessageCount &gt; 0</c>, never
+/// <c>SharedChatMessageCount &gt; 0</c> alone.
+/// </para>
 /// </summary>
 public sealed record ReplayDayLine(
     DateOnly Day,
@@ -114,11 +159,13 @@ public sealed record ReplayDayLine(
     int MessageCount,
     int BotMessageCount,
     int SharedChatMessageCount,
+    int IndeterminateMessageCount,
     int NonPrivmsgLines,
     int MalformedLines,
     int OutsideDayCount,
     IReadOnlyDictionary<string, int> HumanCounts,
     IReadOnlyDictionary<string, int> BotCounts,
+    IReadOnlyDictionary<string, int> SharedChatCounts,
     IReadOnlyDictionary<string, int> UnmatchedByReason,
     int FirstSeenUnknownHits,
     IReadOnlyList<int> KHistogram,
@@ -150,12 +197,30 @@ public sealed record ReplayDayRatio(DateOnly Day, long LogTotal, long LiveTotal,
 /// <c>BottomQuartilePrecision</c> is largely tie-break noise rather than a measured rank deviation.
 /// The pre-registered threshold and the ranking itself are unchanged; this is purely a reading aid.
 /// </para>
+/// <para>
+/// <c>SharedChatLogTotal</c> and <c>SharedChatLiveTotal</c> are the two sides of the #73 split over
+/// the same rated days, reported apart so a reader sees the split instead of inferring it — and
+/// they are the input of the <see cref="ReplayGateIneligibleReasons.SharedChatAsymmetric"/>
+/// eligibility condition. They are <b>not</b> part of any pre-registered figure: neither of them
+/// enters <c>TotalDeviation</c>, the rankings or the three published thresholds.
+/// </para>
+/// <para>
+/// What this deliberately does not check (D3, honestly): the bot/foreign boundary <i>inside</i> the
+/// foreign share. A foreign bot filed as an own bot on one side and as foreign on the other moves
+/// neither the three-component day total nor the human-only gate. That boundary is product-side
+/// inconsequential — both categories are excluded from the target grid, so no user sees it and no
+/// deletion rests on it. The boundary that does carry weight, own human against foreign human, is
+/// measured directly by the human-only gate: a foreign message counted as own live lands in
+/// <c>UseCount</c> and not in the replay's human counts, which moves <c>TotalDeviation</c>.
+/// </para>
 /// </summary>
 public sealed record ReplayGateMetrics(
     int RatedDays,
     int PopulationSize,
     long HumanLogTotal,
     long HumanLiveTotal,
+    long SharedChatLogTotal,
+    long SharedChatLiveTotal,
     double? TotalDeviation,
     double? Top20Recall,
     int Top20Size,
@@ -167,8 +232,15 @@ public sealed record ReplayGateMetrics(
     ValueList<string> GateIneligibleReasons);
 
 /// <summary>
-/// Plausibility check (a): both sides summed <b>including</b> bots over every day that has a log.
-/// Covers the days before the bot-split cutover, which the gate cannot use.
+/// Plausibility check (a): both sides summed over all three components — own humans, own bots and
+/// shared chat — over every day that has a log. Covers the days before the shared-chat cutover,
+/// which the gate cannot use.
+/// <para>
+/// The field names keep saying "WithBots" although they now also carry the shared-chat component
+/// (#73/D3). That imprecision is deliberate: the <c>.report.json</c> field names are the contract a
+/// reader compares reports across weeks with, and renaming them would break that comparison for a
+/// wording improvement.
+/// </para>
 /// </summary>
 public sealed record ReplayPlausibility(
     long LogTotalWithBots,
@@ -182,7 +254,7 @@ public sealed record ReplayPlausibility(
 /// reasons, the message-level counters and the privacy figures.
 /// <para>
 /// Two day counts here are easy to confuse. <c>HumanOnlyDays</c> counts every day of the run at or
-/// after the bot-split cutover, <b>including days without a log</b> — it says how far the
+/// after the shared-chat cutover, <b>including days without a log</b> — it says how far the
 /// human-only comparison could reach at all. How many days metric (b) actually covers is
 /// <c>FlaggedIncludedDays</c> (has a log and is human-only) and, after the coverage and gap
 /// markers, <c>ReplayGateMetrics.RatedDays</c>.
@@ -202,6 +274,14 @@ public sealed record ReplayPlausibility(
 /// raises <c>RatedDays</c> towards the pre-registered minimum of 20 without contributing a single
 /// comparison. The gate definition is published in #69 and stays as it is; this field exists so a
 /// reader can subtract those days instead of being quietly misled by the count.
+/// </para>
+/// <para>
+/// <c>SharedChatByDay</c> carries one entry per day <b>that has a log</b> — not only the rated ones,
+/// unlike the two window sums on <see cref="ReplayGateMetrics"/>. That is what makes the three
+/// signatures of D3 readable: before the live deploy the live side is 0 while the replay side is
+/// &gt; 0; on the deploy day the live side sits between the two (morning flushes under the old rule,
+/// afternoon flushes under the new one, added into the same row); afterwards both sides agree. A
+/// rollback day inside the window would show the middle signature.
 /// </para>
 /// </summary>
 public sealed record ReplayDiagnostics(
@@ -237,6 +317,7 @@ public sealed record ReplayDiagnostics(
     long TotalMessages,
     long BotMessages,
     long SharedChatMessages,
+    long IndeterminateMessages,
     long OutsideDayCount,
     long NonPrivmsgLines,
     long MalformedLines,
@@ -250,7 +331,8 @@ public sealed record ReplayDiagnostics(
     int SignallessRatedDays,
     double? DayRatioMedian,
     ValueList<ReplayDayRatio> LiveGapDays,
-    ValueList<ReplayDayRatio> CoverageQuestionableDays);
+    ValueList<ReplayDayRatio> CoverageQuestionableDays,
+    ValueList<ReplayDayRatio> SharedChatByDay);
 
 /// <summary>How the run itself went — the part of the report that is about the fetch, not the numbers.</summary>
 /// <param name="RateLimitedDays">
@@ -273,12 +355,18 @@ public sealed record ReplayRunInfo(
     DateOnly WindowFrom,
     DateOnly WindowTo,
     DateOnly? BotSplitCutover,
+    DateOnly? SharedChatCutover,
     int WindowDays,
     int DayLineCount,
     long TotalBytes,
     int RateLimitedDays,
     DateOnly? ResumePoint,
-    bool RunComplete);
+    bool RunComplete,
+    // Not part of HarnessRunIdentity (Plan-Entscheidung 7, D4): a diagnostic run counts exactly the
+    // same as a binding one, it only carries no gate verdict. A binding run may therefore resume a
+    // diagnostic file of the same identity and simply rewrite the report without this marker — that
+    // is intended, not a bug in the resume logic.
+    bool Diagnostic);
 
 /// <summary>
 /// The final report: two runs of <see cref="ReplayFidelityCalculator.Compute"/> over the same

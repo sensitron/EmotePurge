@@ -40,6 +40,20 @@ public class UsageFlushWorker(
 
     private async Task FlushOnceAsync(CancellationToken ct)
     {
+        // Drained first and unconditionally — before the early return below and outside the try/catch
+        // around the flush — because this is the only production signal for messages whose room
+        // origin could not be determined (#73), and it is exactly on a quiet window (no emote matches
+        // this cycle) or a failed flush that noticing is cheapest. Not per-message logging
+        // (WorkerStats.RecordIndeterminateSharedChatMessage stays silent) — once per call here, and
+        // only when there is something to say.
+        var indeterminate = stats.TakeIndeterminateSharedChatMessagesSinceLastFlush();
+        if (indeterminate > 0)
+        {
+            logger.LogInformation(
+                "{Count} Chat-Nachrichten seit dem letzten Durchlauf hatten keinen bestimmbaren Ursprungsraum und wurden als fremd (Shared Chat) gezählt.",
+                indeterminate);
+        }
+
         var counts = usageCounter.DrainAndReset();
         if (counts.Count == 0)
         {
@@ -84,9 +98,9 @@ public class UsageFlushWorker(
         // the flush is committed. If a Redis outage were allowed to fall into the catch above, a
         // successful flush would be booked as a failure and its counts requeued — the next flush
         // would then add them a second time onto the same (EmoteId, Date) row (ON CONFLICT DO UPDATE
-        // ... + EXCLUDED, now for both UseCount and BotUseCount), i.e. silently double-count chat
-        // usage. A missed notification only costs the browser its automatic refresh; every page
-        // still has its refresh button.
+        // ... + EXCLUDED, now for all three columns — UseCount, BotUseCount and SharedChatUseCount),
+        // i.e. silently double-count chat usage. A missed notification only costs the browser its
+        // automatic refresh; every page still has its refresh button.
         try
         {
             foreach (var channelName in affectedChannels)

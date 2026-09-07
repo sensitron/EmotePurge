@@ -110,12 +110,16 @@ public class ReplayFidelityCalculatorTests
     }
 
     [Fact]
-    public void DaysBeforeTheBotSplitCutover_CountForPlausibilityButNotForTheGate()
+    public void DaysBeforeTheSharedChatCutover_CountForPlausibilityButNotForTheGate()
     {
+        // harness-2 (#73, B5): HumanOnly is gated by the shared-chat cutover alone. The
+        // bot-split cutover this used to key off of stays at its default (From) and no longer has
+        // any bearing on RatedDays/HumanOnlyDays — Plausibility keeps summing every day with a log
+        // regardless of either cutover.
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
-        var report = Compute(emotes, rows, days, cutover: From.AddDays(10));
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(10));
 
         Assert.Equal(20, report.Gate.RatedDays);
         Assert.Equal(20, report.Diagnostics.HumanOnlyDays);
@@ -131,7 +135,7 @@ public class ReplayFidelityCalculatorTests
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
-        var report = Compute(emotes, rows, days, cutover: From.AddDays(11));
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(11));
 
         Assert.Equal(19, report.Gate.RatedDays);
         Assert.False(report.Gate.GateEligible);
@@ -163,19 +167,73 @@ public class ReplayFidelityCalculatorTests
     }
 
     [Fact]
-    public void MissingBotSplitCutover_LeavesNoRatedDay()
+    public void MissingBotSplitCutover_NoLongerBlocksAnyRatedDay()
+    {
+        // Inverted case of the pre-#73 test below (harness-2, B5): HumanOnly depends on the
+        // shared-chat cutover alone now, so a channel that never saw a bot (BotSplitCutover =
+        // null, the D2 null case) can no longer be shut out of the gate by that alone — exactly
+        // the correction D4/B5 makes over the old rule.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var report = ReplayFidelityCalculator.Compute(
+            new ReplayWindow(From, To, null, From), emotes, rows, days, 30, true, 0, 0, To, diagnostic: false);
+
+        Assert.Equal(30, report.Diagnostics.HumanOnlyDays);
+        Assert.Equal(30, report.Gate.RatedDays);
+        Assert.True(report.Gate.GateEligible);
+    }
+
+    [Fact]
+    public void MissingSharedChatCutover_LeavesNoRatedDay()
     {
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, null), emotes, rows, days, 30, true, 0, 0, To);
+            new ReplayWindow(From, To, From, null), emotes, rows, days, 30, true, 0, 0, To, diagnostic: false);
 
         Assert.Equal(0, report.Diagnostics.HumanOnlyDays);
         Assert.Equal(0, report.Gate.RatedDays);
         Assert.False(report.Gate.GateEligible);
         Assert.Null(report.Gate.TotalDeviation);
         Assert.Contains(ReplayGateIneligibleReasons.LiveTotalZero, report.Gate.GateIneligibleReasons);
+    }
+
+    [Fact]
+    public void DiagnosticMode_ComputesTheNumbersButWithholdsTheVerdict()
+    {
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var report = Compute(emotes, rows, days, diagnostic: true);
+
+        // The numbers are exactly what a binding run over the same inputs would produce...
+        Assert.Equal(30, report.Gate.RatedDays);
+        Assert.NotNull(report.Gate.TotalDeviation);
+        // ...but the gate withholds a verdict regardless of whether the numbers would otherwise
+        // have passed every threshold.
+        Assert.False(report.Gate.GateEligible);
+        Assert.Contains(ReplayGateIneligibleReasons.DiagnosticRun, report.Gate.GateIneligibleReasons);
+        Assert.True(report.Run.Diagnostic);
+    }
+
+    [Fact]
+    public void ReplayRunInfo_CarriesTheSharedChatCutoverAndTheRunMode()
+    {
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var bound = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(3));
+        // The helper's "?? From" default cannot express an explicit null, so this one calls the
+        // calculator directly — exactly why MissingSharedChatCutover_LeavesNoRatedDay does the same.
+        var diagnosticReport = ReplayFidelityCalculator.Compute(
+            new ReplayWindow(From, To, From, null), emotes, rows, days, 30, true, 0, 0, To, diagnostic: true);
+
+        Assert.Equal(From.AddDays(3), bound.Run.SharedChatCutover);
+        Assert.False(bound.Run.Diagnostic);
+        Assert.Null(diagnosticReport.Run.SharedChatCutover);
+        Assert.True(diagnosticReport.Run.Diagnostic);
     }
 
     [Fact]
@@ -201,7 +259,7 @@ public class ReplayFidelityCalculatorTests
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
-        var report = Compute(emotes, rows, days, cutover: From.AddDays(10));
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(10));
 
         // ceil(20 * 20 / 30) = 14
         Assert.Equal(20, report.Gate.RatedDays);
@@ -301,24 +359,28 @@ public class ReplayFidelityCalculatorTests
     }
 
     [Fact]
-    public void Plausibility_ComparesBothSidesIncludingBots()
+    public void Plausibility_ComparesBothSidesIncludingBotsAndSharedChat()
     {
+        // Three components on both sides (D3, second pair). Log per day: 10 human + 5 bot + 2 shared
+        // = 17, over ten days = 170. Live per day: 10 UseCount + 4 BotUseCount + 1 SharedChatUseCount
+        // = 15, over ten days = 150. The three components are deliberately all different on both
+        // sides, so dropping any one of them from either sum changes the numbers below.
         var emotes = new List<ReplayEmote> { Emote("x") };
         var days = new List<ReplayDayLine>();
         var rows = new List<ReplayUsageRow>();
         for (var i = 0; i < 10; i++)
         {
             var day = From.AddDays(i);
-            days.Add(DayLine(day, Counts(("x", 10)), Counts(("x", 5))));
-            rows.Add(new ReplayUsageRow("x", day, 10, 4));
+            days.Add(DayLine(day, Counts(("x", 10)), Counts(("x", 5)), sharedChatCounts: Counts(("x", 2))));
+            rows.Add(new ReplayUsageRow("x", day, 10, 4, 1));
         }
 
         var report = Compute(emotes, rows, days);
 
-        Assert.Equal(150, report.Plausibility.LogTotalWithBots);
-        Assert.Equal(140, report.Plausibility.LiveTotalWithBots);
-        Assert.Equal(10, report.Plausibility.Difference);
-        Assert.Equal(1.0714, report.Plausibility.Ratio!.Value, 6);
+        Assert.Equal(170, report.Plausibility.LogTotalWithBots);
+        Assert.Equal(150, report.Plausibility.LiveTotalWithBots);
+        Assert.Equal(20, report.Plausibility.Difference);
+        Assert.Equal(1.1333, report.Plausibility.Ratio!.Value, 6);
     }
 
     [Fact]
@@ -352,13 +414,15 @@ public class ReplayFidelityCalculatorTests
         {
             DayLine(From, Counts(("x", 3)), unmatched: unmatched, firstSeenUnknownHits: 4, bytes: 100,
                 messageCount: 50, botMessageCount: 6, sharedChat: 2, outsideDay: 1, nonPrivmsg: 8, malformed: 1,
-                histogram: Histogram((1, 3), (2, 1)), cellCount: 4, distinctChatters: 9),
+                histogram: Histogram((1, 3), (2, 1)), cellCount: 4, distinctChatters: 9,
+                indeterminateMessageCount: 5),
             DayLine(From.AddDays(1), Counts(("x", 3)), unmatched: unmatched, firstSeenUnknownHits: 1, bytes: 200,
                 messageCount: 10, botMessageCount: 1, sharedChat: 3, outsideDay: 2, nonPrivmsg: 1, malformed: 4,
-                histogram: Histogram((1, 1)), cellCount: 1, distinctChatters: 2),
+                histogram: Histogram((1, 1)), cellCount: 1, distinctChatters: 2,
+                indeterminateMessageCount: 6),
             DayLine(From.AddDays(2), Empty, status: ReplayDayStatuses.RateLimited, bytes: 5),
         };
-        var rows = new List<ReplayUsageRow> { new("x", From, 3, 0), new("x", From.AddDays(1), 3, 0) };
+        var rows = new List<ReplayUsageRow> { new("x", From, 3, 0, 0), new("x", From.AddDays(1), 3, 0, 0) };
 
         var report = Compute(emotes, rows, days, rateLimitedDays: 1, resumePoint: From.AddDays(2));
 
@@ -370,6 +434,10 @@ public class ReplayFidelityCalculatorTests
         Assert.Equal(60, report.Diagnostics.TotalMessages);
         Assert.Equal(7, report.Diagnostics.BotMessages);
         Assert.Equal(5, report.Diagnostics.SharedChatMessages);
+        // Its own counter, deliberately not folded into SharedChatMessages (B1/D2): a message whose
+        // tag set says "part of a session" without saying whose is counted apart, even though its
+        // hits share the shared-chat column.
+        Assert.Equal(11, report.Diagnostics.IndeterminateMessages);
         Assert.Equal(3, report.Diagnostics.OutsideDayCount);
         Assert.Equal(9, report.Diagnostics.NonPrivmsgLines);
         Assert.Equal(5, report.Diagnostics.MalformedLines);
@@ -413,8 +481,10 @@ public class ReplayFidelityCalculatorTests
     [Fact]
     public void ComputeTwice_ReturnsEqualReports()
     {
+        // Carries shared chat on both sides so the value equality actually covers SharedChatByDay —
+        // an all-zero list would be equal under any implementation, including a non-deterministic one.
         var (emotes, perDay) = BaseSet();
-        var (days, rows) = Build(30, perDay, perDay);
+        var (days, rows) = BuildWithSharedChatOnTheFirstDay(perDay, 95, 100);
 
         var first = Compute(emotes, rows, days);
         var second = Compute(emotes, rows, days);
@@ -529,8 +599,8 @@ public class ReplayFidelityCalculatorTests
         {
             var day = From.AddDays(i);
             days.Add(DayLine(day, Counts(("x", 10), ("y", 100))));
-            rows.Add(new ReplayUsageRow("x", day, liveX[i], 0));
-            rows.Add(new ReplayUsageRow("y", day, 100, 0));
+            rows.Add(new ReplayUsageRow("x", day, liveX[i], 0, 0));
+            rows.Add(new ReplayUsageRow("y", day, 100, 0, 0));
         }
 
         var report = Compute(emotes, rows, days);
@@ -558,6 +628,207 @@ public class ReplayFidelityCalculatorTests
         Assert.Equal(30, report.Gate.RatedDays);
         Assert.Equal(1, report.Diagnostics.SignallessRatedDays);
         Assert.Empty(report.Diagnostics.LiveGapDays);
+    }
+
+    [Fact]
+    public void DayTotals_CountLogAndLiveOverAllThreeComponents()
+    {
+        // D3, first pair: the day total asks "does the archive have this day at all", so it sums
+        // human + bot + shared chat against UseCount + BotUseCount + SharedChatUseCount. The middle
+        // day here carries *nothing but* shared chat on either side — under a two-component sum both
+        // of its totals would collapse to zero, the day would silently become a signalless rated day
+        // instead of a matched one, and Plausibility would lose the same five hits twice over.
+        var emotes = new List<ReplayEmote> { Emote("x") };
+        var days = new List<ReplayDayLine>
+        {
+            DayLine(From, Counts(("x", 10))),
+            DayLine(From.AddDays(1), sharedChatCounts: Counts(("x", 5))),
+            DayLine(From.AddDays(2), Counts(("x", 10))),
+        };
+        var rows = new List<ReplayUsageRow>
+        {
+            new("x", From, 10, 0, 0),
+            new("x", From.AddDays(1), 0, 0, 5),
+            new("x", From.AddDays(2), 10, 0, 0),
+        };
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(3, report.Gate.RatedDays);
+        Assert.Equal(0, report.Diagnostics.SignallessRatedDays);
+        Assert.Empty(report.Diagnostics.LiveGapDays);
+        Assert.Empty(report.Diagnostics.CoverageQuestionableDays);
+        Assert.Equal(1d, report.Diagnostics.DayRatioMedian!.Value, 6);
+        // D3, third pair: the gate itself does not move. The five foreign hits are in neither
+        // denominator nor numerator.
+        Assert.Equal(20, report.Gate.HumanLogTotal);
+        Assert.Equal(20, report.Gate.HumanLiveTotal);
+        Assert.Equal(0d, report.Gate.TotalDeviation!.Value, 6);
+        // D3, second pair: plausibility carries all three components on both sides.
+        Assert.Equal(25, report.Plausibility.LogTotalWithBots);
+        Assert.Equal(25, report.Plausibility.LiveTotalWithBots);
+        // Reported apart, symmetric, so the run stays usable.
+        Assert.Equal(5, report.Gate.SharedChatLogTotal);
+        Assert.Equal(5, report.Gate.SharedChatLiveTotal);
+        Assert.DoesNotContain(ReplayGateIneligibleReasons.SharedChatAsymmetric, report.Gate.GateIneligibleReasons);
+    }
+
+    [Fact]
+    public void APreDeployDay_KeepsItsRatioButBreaksSymmetry()
+    {
+        // The first of D3's three signatures: before the live deploy the replay side splits foreign
+        // hits out while the live row still carries them inside UseCount. The day total is invariant
+        // against that shift — mass moves between columns, none is created — so the day keeps a ratio
+        // of 1 and stays out of CoverageQuestionable. Under a log side that counted own humans only,
+        // this day would read 2 against 20, i.e. a ratio of 0.1 against a median of 1, and the
+        // coverage check would throw it out of the rated set. That is the whole reason the day total
+        // has three components while the gate has one.
+        var emotes = new List<ReplayEmote> { Emote("x") };
+        var days = new List<ReplayDayLine>
+        {
+            DayLine(From, Counts(("x", 10))),
+            DayLine(From.AddDays(1), Counts(("x", 2)), sharedChatCounts: Counts(("x", 18))),
+            DayLine(From.AddDays(2), Counts(("x", 10))),
+        };
+        var rows = new List<ReplayUsageRow>
+        {
+            new("x", From, 10, 0, 0),
+            new("x", From.AddDays(1), 20, 0, 0),
+            new("x", From.AddDays(2), 10, 0, 0),
+        };
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(3, report.Gate.RatedDays);
+        Assert.Empty(report.Diagnostics.CoverageQuestionableDays);
+        Assert.Empty(report.Diagnostics.LiveGapDays);
+        Assert.Equal(1d, report.Diagnostics.DayRatioMedian!.Value, 6);
+        // ...and the run is still not certifiable, because the two sides disagree about how much
+        // shared chat there was: Live = 0 while Log > 0 is asymmetric, not "trivially empty".
+        Assert.Equal(18, report.Gate.SharedChatLogTotal);
+        Assert.Equal(0, report.Gate.SharedChatLiveTotal);
+        Assert.Contains(ReplayGateIneligibleReasons.SharedChatAsymmetric, report.Gate.GateIneligibleReasons);
+    }
+
+    [Theory]
+    [InlineData(95, 100)]
+    [InlineData(110, 100)]
+    public void SharedChatWithinTheTolerance_LeavesTheGateEligible(int logShared, int liveShared)
+    {
+        // |95 - 100| / 100 = 0.05 is inside; |110 - 100| / 100 = 0.10 sits exactly on the boundary
+        // and is still inside — the condition is "≤", pinned here so a later "<" cannot slip in.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = BuildWithSharedChatOnTheFirstDay(perDay, logShared, liveShared);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(30, report.Gate.RatedDays);
+        Assert.Equal(logShared, report.Gate.SharedChatLogTotal);
+        Assert.Equal(liveShared, report.Gate.SharedChatLiveTotal);
+        Assert.True(report.Gate.GateEligible);
+        Assert.Empty(report.Gate.GateIneligibleReasons);
+    }
+
+    [Fact]
+    public void SharedChatOutsideTheTolerance_MakesTheGateIneligible()
+    {
+        // |80 - 100| / 100 = 0.20. Everything else about this run is perfect, so the single reason
+        // is the symmetry condition and nothing else — if the two sides disagree about the
+        // classification, the fidelity number computed on top of it measures the wrong thing while
+        // looking healthy.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = BuildWithSharedChatOnTheFirstDay(perDay, 80, 100);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(80, report.Gate.SharedChatLogTotal);
+        Assert.Equal(100, report.Gate.SharedChatLiveTotal);
+        Assert.False(report.Gate.GateEligible);
+        Assert.Equal(
+            ReplayGateIneligibleReasons.SharedChatAsymmetric,
+            Assert.Single(report.Gate.GateIneligibleReasons));
+    }
+
+    [Fact]
+    public void NoSharedChatOnEitherSide_IsTriviallySymmetric()
+    {
+        // A channel that never had a single Stream-Together session satisfies the condition emptily
+        // — 0 against 0 is symmetric, not "live is zero, therefore suspicious".
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(0, report.Gate.SharedChatLogTotal);
+        Assert.Equal(0, report.Gate.SharedChatLiveTotal);
+        Assert.True(report.Gate.GateEligible);
+        Assert.Empty(report.Gate.GateIneligibleReasons);
+    }
+
+    [Fact]
+    public void SharedChatAsymmetryBeforeTheCutover_DoesNotReachTheGate()
+    {
+        // The window sums the condition judges are taken over the *rated* days only, which is what
+        // makes the condition compatible with D4's cutover at all: every day before the cutover
+        // carries the pre-deploy signature by construction (live 0, log > 0), so a window-wide sum
+        // would declare every single first run asymmetric. The day is still reported in the
+        // diagnostics list, where a reader can see the signature.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+        days[0] = DayLine(From, perDay, sharedChatCounts: Counts(("e00", 200)));
+
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(10));
+
+        Assert.Equal(20, report.Gate.RatedDays);
+        Assert.Equal(0, report.Gate.SharedChatLogTotal);
+        Assert.Equal(0, report.Gate.SharedChatLiveTotal);
+        Assert.True(report.Gate.GateEligible);
+        Assert.Empty(report.Gate.GateIneligibleReasons);
+        var first = report.Diagnostics.SharedChatByDay[0];
+        Assert.Equal(From, first.Day);
+        Assert.Equal(200, first.LogTotal);
+        Assert.Equal(0, first.LiveTotal);
+        Assert.Null(first.Ratio);
+    }
+
+    [Fact]
+    public void SharedChatByDay_ListsEveryLogDayInOrderAndSkipsTheRest()
+    {
+        // One entry per day *with a log*, ascending, both sides side by side — the three signatures
+        // of D3 are read off this list. A day without a log has no replay side to compare against,
+        // so it is absent even though it has live rows carrying shared chat.
+        var emotes = new List<ReplayEmote> { Emote("x") };
+        var days = new List<ReplayDayLine>
+        {
+            DayLine(From.AddDays(2), Counts(("x", 4))),
+            DayLine(From, Counts(("x", 4)), sharedChatCounts: Counts(("x", 3))),
+            DayLine(From.AddDays(1), Empty, status: ReplayDayStatuses.NoLog),
+        };
+        var rows = new List<ReplayUsageRow>
+        {
+            new("x", From, 4, 0, 2),
+            new("x", From.AddDays(1), 0, 0, 5),
+            new("x", From.AddDays(2), 4, 0, 0),
+        };
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Collection(
+            report.Diagnostics.SharedChatByDay,
+            entry =>
+            {
+                Assert.Equal(From, entry.Day);
+                Assert.Equal(3, entry.LogTotal);
+                Assert.Equal(2, entry.LiveTotal);
+                Assert.Equal(1.5d, entry.Ratio!.Value, 6);
+            },
+            entry =>
+            {
+                Assert.Equal(From.AddDays(2), entry.Day);
+                Assert.Equal(0, entry.LogTotal);
+                Assert.Equal(0, entry.LiveTotal);
+                Assert.Null(entry.Ratio);
+            });
     }
 
     private static (List<ReplayEmote> Emotes, Dictionary<string, int> PerDay) BaseSet(int count = 32)
@@ -612,7 +883,9 @@ public class ReplayFidelityCalculatorTests
         int sharedChat = 0,
         int outsideDay = 0,
         int nonPrivmsg = 0,
-        int malformed = 0)
+        int malformed = 0,
+        IReadOnlyDictionary<string, int>? sharedChatCounts = null,
+        int indeterminateMessageCount = 0)
         => new(
             day,
             status,
@@ -621,11 +894,13 @@ public class ReplayFidelityCalculatorTests
             messageCount,
             botMessageCount,
             sharedChat,
+            indeterminateMessageCount,
             nonPrivmsg,
             malformed,
             outsideDay,
             human ?? Empty,
             bot ?? Empty,
+            sharedChatCounts ?? Empty,
             unmatched ?? Empty,
             firstSeenUnknownHits,
             histogram ?? new int[HistogramLength],
@@ -645,7 +920,7 @@ public class ReplayFidelityCalculatorTests
             days.Add(DayLine(day, logPerDay));
             foreach (var (id, count) in livePerDay)
             {
-                rows.Add(new ReplayUsageRow(id, day, count, 0));
+                rows.Add(new ReplayUsageRow(id, day, count, 0, 0));
             }
         }
 
@@ -656,13 +931,28 @@ public class ReplayFidelityCalculatorTests
         IReadOnlyList<ReplayEmote> emotes,
         IReadOnlyList<ReplayUsageRow> rows,
         IReadOnlyList<ReplayDayLine> days,
-        DateOnly? cutover = null,
+        DateOnly? sharedChatCutover = null,
         int windowDays = 30,
         bool runComplete = true,
         long? totalBytes = null,
         int rateLimitedDays = 0,
-        DateOnly? resumePoint = null)
+        DateOnly? resumePoint = null,
+        bool diagnostic = false)
         => ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, cutover ?? From), emotes, rows, days, windowDays, runComplete,
-            totalBytes ?? days.Sum(d => d.Bytes), rateLimitedDays, resumePoint);
+            new ReplayWindow(From, To, From, sharedChatCutover ?? From), emotes, rows, days, windowDays,
+            runComplete, totalBytes ?? days.Sum(d => d.Bytes), rateLimitedDays, resumePoint, diagnostic);
+
+    /// <summary>
+    /// The 30-day base run with one day carrying shared chat on both sides, so a hand-computed
+    /// window pair (log against live) can be put in front of the symmetry condition.
+    /// </summary>
+    private static (List<ReplayDayLine> Days, List<ReplayUsageRow> Rows) BuildWithSharedChatOnTheFirstDay(
+        IReadOnlyDictionary<string, int> perDay, int logShared, int liveShared)
+    {
+        var (days, rows) = Build(30, perDay, perDay);
+        days[0] = DayLine(From, perDay, sharedChatCounts: Counts(("e00", logShared)));
+        var index = rows.FindIndex(r => r.Date == From && r.EmoteId == "e00");
+        rows[index] = rows[index] with { SharedChatUseCount = liveShared };
+        return (days, rows);
+    }
 }

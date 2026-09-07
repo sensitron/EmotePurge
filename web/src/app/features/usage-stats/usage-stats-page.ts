@@ -711,7 +711,8 @@ export class UsageStatsPage {
   );
 
   /**
-   * Whether the dock's copy shortcut (design doc §8.7, "Erlaubnis auf Probe bis #68") is disabled.
+   * Whether the dock's copy shortcut (Designsprache §8.7, an allowance on revocation rather than a
+   * requirement) is disabled.
    * `!isCoarse()` and an active 7TV set are deliberately not part of this — the shortcut only ever
    * renders inside the dock's own `!isCoarse()` gate and the marking half's `activeEmoteSetId()`
    * gate, so re-checking either here would test a condition it can never actually violate. See

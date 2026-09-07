@@ -7,16 +7,27 @@ public class EmoteUsageCounter : IEmoteUsageCounter
 {
     private ConcurrentDictionary<string, EmoteUsageCounts> _counts = new();
 
-    // The TArg overload of AddOrUpdate is used deliberately: a plain closure over `isBot` would
+    // The TArg overload of AddOrUpdate is used deliberately: a plain closure over `category` would
     // allocate on every call, and this runs once per matched emote per chat message. Passing
-    // `isBot` as the factory argument keeps both lambdas static, so Increment allocates nothing
-    // beyond the dictionary's own first insert per emote.
-    public void Increment(string emoteId, bool isBot)
+    // `category` as the factory argument keeps both lambdas static, so Increment allocates nothing
+    // beyond the dictionary's own first insert per emote — UsageCategory is a value type and does
+    // not box across the generic TArg.
+    public void Increment(string emoteId, UsageCategory category)
         => _counts.AddOrUpdate(
             emoteId,
-            static (_, isBotHit) => isBotHit ? new EmoteUsageCounts(Human: 0, Bot: 1) : new EmoteUsageCounts(Human: 1, Bot: 0),
-            static (_, current, isBotHit) => isBotHit ? current with { Bot = current.Bot + 1 } : current with { Human = current.Human + 1 },
-            isBot);
+            static (_, cat) => cat switch
+            {
+                UsageCategory.Bot => new EmoteUsageCounts(Human: 0, Bot: 1, SharedChat: 0),
+                UsageCategory.SharedChat => new EmoteUsageCounts(Human: 0, Bot: 0, SharedChat: 1),
+                _ => new EmoteUsageCounts(Human: 1, Bot: 0, SharedChat: 0),
+            },
+            static (_, current, cat) => cat switch
+            {
+                UsageCategory.Bot => current with { Bot = current.Bot + 1 },
+                UsageCategory.SharedChat => current with { SharedChat = current.SharedChat + 1 },
+                _ => current with { Human = current.Human + 1 },
+            },
+            category);
 
     public void Merge(IReadOnlyDictionary<string, EmoteUsageCounts> counts)
     {
@@ -27,7 +38,10 @@ public class EmoteUsageCounter : IEmoteUsageCounter
             _counts.AddOrUpdate(
                 emoteId,
                 static (_, added) => added,
-                static (_, current, added) => new EmoteUsageCounts(current.Human + added.Human, current.Bot + added.Bot),
+                static (_, current, added) => new EmoteUsageCounts(
+                    current.Human + added.Human,
+                    current.Bot + added.Bot,
+                    current.SharedChat + added.SharedChat),
                 addition);
         }
     }

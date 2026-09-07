@@ -10,10 +10,11 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
-### 2026-09-07 — Welche Fläche welches Kommando trägt (§8.7), und die Dock-Kurzform als Einzelfall auf Probe
+### 2026-09-07 — Welche Fläche welches Kommando trägt (§8.7), und die Dock-Kurzform als Einzelfall auf Widerruf
 
 **Betrifft:** `docs/UI-Designsprache.md` (§8.7 neu, Verweise in §2.5, §4.2, §7.2) ·
-`docs/designs/Aktionszeile-80-2026-09-06.md` (Entwurf, drei Prüfrunden und ein Schiedsspruch) —
+`docs/designs/Aktionszeile-80-2026-09-06.md` (Entwurf, drei Prüfrunden und ein Schiedsspruch) ·
+`web/src/app/features/usage-stats/usage-stats-page.ts` (Kommentar an `importShortcutLocked`) —
 außerdem, als von der Regel künftig regierte, in diesem Commit aber unveränderte Stellen:
 `web/src/app/features/usage-stats/usage-stats-page.html`,
 `web/src/app/shared/seven-tv/mass-delete-panel.ts`,
@@ -61,15 +62,18 @@ deshalb als „darf" im Abschnitt und nicht als „muss". Eine Klick-Ersparnis i
 nicht: die Bereichs-Radiogruppe erscheint ohnehin nur bei vorhandener Auswahl und steht dann
 bereits auf „Auswahl".
 
-**Die Kurzform ist damit ein Einzelfall auf Probe bis #68.** Erste unabhängige Beobachtung ist die
-Mod-Discord-Vorstellung: es wird nicht erklärt, wo im Dock welcher Weg sitzt, sondern beobachtet,
-ob jemand fragt. Fällt das Urteil gegen sie aus, wird sie zurückgenommen — und **das bricht keine
-Regel**, weil §8.7 sie erlaubt und nicht verlangt. Es fällt dann ein Auslöser weg, der Abschnitt
-bleibt wortgleich stehen. Umgekehrt gilt derselbe Satz als Sperre nach vorn: aus der Erlaubnis
-wird keine Gewohnheit, die künftige Kommandos automatisch in zwei Einstiege zwingt. Das Beispiel
-dafür steht in §8.7 selbst — der Export bekommt bewusst **keine** Kurzform, weil seine
-Bereichsvorgabe `visible` ist und eine Kurzform mit erzwungenem `selection` sie stillschweigend in
-ihr Gegenteil verkehrte.
+**Die Kurzform ist damit ein Einzelfall auf Widerruf.** Kein Termin und keine Instanz entscheidet
+über sie: sie bleibt, solange sie sich bewährt, und fällt das Urteil gegen sie aus, wird sie
+zurückgenommen — und **das bricht keine Regel**, weil §8.7 sie erlaubt und nicht verlangt. Es
+fällt dann ein Auslöser weg, der Abschnitt bleibt wortgleich stehen. Der Entwurf hatte dafür die
+Mod-Discord-Vorstellung (#68) als erste unabhängige Beobachtung vorgesehen — beobachten, ob jemand
+fragt, wo im Dock welcher Weg sitzt. Das ist verworfen: eine ausbleibende Frage ist kein Urteil,
+sie entsteht ebenso aus Höflichkeit wie aus einem Termin mit wenigen Anwesenden, und bis dahin
+hinge eine Entscheidung fest, die ohnehin jederzeit umkehrbar ist. Umgekehrt gilt derselbe Satz
+als Sperre nach vorn: aus der Erlaubnis wird keine Gewohnheit, die künftige Kommandos automatisch
+in zwei Einstiege zwingt. Das Beispiel dafür steht in §8.7 selbst — der Export bekommt bewusst
+**keine** Kurzform, weil seine Bereichsvorgabe `visible` ist und eine Kurzform mit erzwungenem
+`selection` sie stillschweigend in ihr Gegenteil verkehrte.
 
 **Ein Verb, zwingend — der Punkt, an dem der Schiedsspruch die Begründung korrigiert hat.** Der
 interne Prüfer sah in der Kurzform eine verkleidete Doppelung, Codex sah sie als legitim; nach
@@ -174,6 +178,200 @@ Größe, die Dateinamen ihr `--desktop--`) und stellt die Eigenschaft wieder her
 responsive Bildauswahl hänge an der Inhaltsspalte, hält `emote-sprite.ts` nicht stand. Ebenso
 unverändert bleiben die `max-w-2xl`/`max-w-3xl` innerhalb der Landing-Page: das sind Prosabreiten,
 und Fließtext wird von 80 rem nicht besser.
+### 2026-09-06 — Shared Chat bekommt eine dritte Spalte, und die Oberfläche summiert übergangsweise weiter
+
+**Betrifft:** `.github/dependabot.yml`, `src/EmotePurge.Core/Chat/MessageOrigin.cs`,
+`src/EmotePurge.Core/Chat/SharedChatRule.cs`,
+`src/EmotePurge.Core/ChatLogArchive/ChatLogArchiveModels.cs`,
+`src/EmotePurge.Infrastructure/ChatLogArchive/JustlogRawLineParser.cs`,
+`src/EmotePurge.Core/Services/IUsageStatFlushService.cs` (`EmoteUsageCounts`),
+`src/EmotePurge.Core/Services/IUsageStatQueryService.cs` (`UsageStatRowDto`; Task 4: die übrigen
+Doc-Kommentare), `src/EmotePurge.Core/Entities/UsageStat.cs`,
+`src/EmotePurge.Infrastructure/Services/UsageStatFlushService.cs`,
+`src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` (Task 2: nur `GetRowsAsync`;
+Task 4: `GetUsageContextAsync`, `GetDailySeriesAsync`, `GetChannelSeriesAsync`,
+`GetTotalsByEmoteIdsAsync`), `tests/EmotePurge.Infrastructure.Tests/Integration/UsageStatQueryServiceTests.cs`
+(Task 4: `SharedOnlyRow_ReadsAsUsedUntilZug2`),
+`src/EmotePurge.Infrastructure/Migrations/20260907080507_AddUsageStatSharedChatUseCount.cs` samt
+Designer und `AppDbContextModelSnapshot.cs`, `src/EmotePurge.Worker/UsageCategory.cs`,
+`src/EmotePurge.Worker/TwitchChatManager.cs`,
+`src/EmotePurge.Worker/EmoteUsageCounter.cs`, `src/EmotePurge.Worker/IEmoteUsageCounter.cs`,
+`src/EmotePurge.Worker/WorkerStats.cs`, `src/EmotePurge.Worker/UsageFlushWorker.cs`,
+`src/EmotePurge.Worker/Harness/HarnessInputHash.cs`, sowie
+ihre Tests unter `tests/EmotePurge.Infrastructure.Tests/{Unit,Integration}/` und
+`tests/EmotePurge.Worker.Tests/` (`SharedChatRuleTests`, `SharedChatRuleTwitchLibTests`,
+`JustlogRawLineParserTests`, `UsageStatFlushServiceTests`, `UsageStatQueryServiceTests`,
+`EmoteUsageCounterTests`, `WorkerStatsTests`, `HarnessRunnerTests`, `HarnessInputHashTests`),
+`docs/Architectur.md`, `src/EmotePurge.Worker/Harness/ReplayDayCounter.cs`,
+`src/EmotePurge.Worker/Harness/ReplayModels.cs` (`ReplayUsageRow`, `ReplayDayLine`,
+`ReplayDiagnostics`; Task 6: `ReplayWindow`, `ReplayRunInfo`, `ReplayGateIneligibleReasons`;
+Task 7: `ReplayGateMetrics`, `ReplayPlausibility`-Docstring, `ReplayDiagnostics.SharedChatByDay`,
+`ReplayGateIneligibleReasons.SharedChatAsymmetric`),
+`src/EmotePurge.Worker/Harness/HarnessRunner.cs` (`AlgorithmVersion` auf
+`harness-2`, Zählaufruf im Callback, Zeilen-Mapping, Diagnostikzeile im Markdown-Bericht;
+Task 6: `RunAsync`/`ExecuteAsync`, Identität, `ReplayWindow`, `Compute`-Aufruf, `BuildMarkdown`),
+`src/EmotePurge.Worker/Harness/ReplayFidelityCalculator.cs` (Task 5: nur `BuildDiagnostics`;
+Task 6: `Compute`-Signatur, `BuildDayFacts.HumanOnly`, `BuildGate`-Grund,
+`BuildPopulation`-Docstring; Task 7: `MaxSharedChatAsymmetry`, `BuildDayFacts`-Tagessummen,
+`BuildGate` samt `SharedChatSymmetric`, `BuildPlausibility`, `SharedChatRatios`, `DayFact`),
+sowie `tests/EmotePurge.Worker.Tests/ReplayDayCounterTests.cs`,
+`tests/EmotePurge.Worker.Tests/HarnessReportFileTests.cs` und
+`tests/EmotePurge.Worker.Tests/ReplayFidelityCalculatorTests.cs` (Task 5: nur die Helfer, die
+`ReplayDayLine`/`ReplayUsageRow` bauen; Task 6: weitere Fälle für den Shared-Chat-Stichtag und den
+Diagnosemodus). **Task 6 (Stichtag, fail-closed, Diagnosemodus):** zusätzlich
+`src/EmotePurge.Worker/Harness/HarnessOptions.cs` (`SharedChatCutover`),
+`src/EmotePurge.Worker/Harness/HarnessCommandLine.cs` (`DiagnosticOption`, `RunHarness.Diagnostic`,
+Grammatik), `src/EmotePurge.Worker/Program.cs`, `src/EmotePurge.Worker/Harness/HarnessReportFile.cs`
+(`HarnessRunIdentity.SharedChatCutover`), `docker-compose.yml`, `docker-compose.prod.yml`,
+`.env.example` (`HARNESS_SHARED_CHAT_CUTOVER`), `tests/EmotePurge.Worker.Tests/HarnessCommandLineTests.cs`
+und `tests/EmotePurge.Worker.Tests/WorkerServiceRegistrationTests.cs`. **Task 7 (Tagessummen über
+drei Komponenten, Shared Chat beidseitig berichtet, Symmetrie als Eignungsbedingung):** zusätzlich
+`src/EmotePurge.Worker/Harness/HarnessRunner.cs` (`BuildMarkdown`: Shared-Chat-Zeile unter den
+präregistrierten Kennzahlen und zwei Spalten in der Tagestabelle).
+
+**Der Fall.** Twitch spiegelt in einer Stream-Together-Session ("Shared Chat") die Nachrichten
+aller beteiligten Kanäle in jeden dieser Chats. Bisher zählt unser Worker jede empfangene
+Nachricht unterschiedslos als Nutzung des gejointen Kanals — ein Emote bekommt damit Nutzung, weil
+ein *fremder* Chat es benutzt hat, und wer danach löscht, entscheidet auf Basis fremder Zahlen
+(Issue [#73](https://github.com/sensitron/EmotePurge/issues/73)). Gemessen am 2026-09-06
+(Harness-Probeläufe, Prod, 7 Tage je Kanal): `brudivoeller_tv` 84 %, `ronnyberger` 66 % gespiegelter
+Nachrichtenanteil an allen Nachrichten.
+
+**Zweiter Historienbruch.** Wie beim Bot-Split (#31, DECISIONS 2026-09-01) lassen sich
+Bestandsdaten nicht nachträglich in eigen/fremd auflösen — in den bereits geschriebenen
+`UsageStat`-Zeilen steckt keine Raum-Dimension. Zahlen aus der Zeit vor diesem Deploy enthalten
+fremde Nutzung, ununterscheidbar von eigener, dauerhaft.
+
+**D2 — Fremd hat Vorrang vor Bot, keine vierte Spalte.** Drei disjunkte Spalten: `UseCount`
+(Menschen im eigenen Raum), `BotUseCount` (Bots im eigenen Raum), `SharedChatUseCount` (alles aus
+fremden Räumen, Bots eingeschlossen, s. B1 unten). Die Raum-Frage wird zuerst gestellt, danach erst
+Mensch/Bot. **Nebenwirkung:** `BotUseCount` bedeutet ab diesem Deploy "Bots im eigenen Raum" statt
+"Bots überall", und `GetEarliestBotUsageDateAsync` (`MIN(Date)` über die gesamte Historie) sieht
+damit nur noch eigene Bots. Bestandskanäle bewegt das nicht — sie tragen bereits gespiegelte Bots
+in `BotUseCount` aus der Zeit vor #73, ihr Minimum verschiebt sich nicht. Betroffen ist ein Kanal,
+der **nach** diesem Deploy erstmals getrackt wird und dessen Bot-Nachrichten praktisch alle
+gespiegelt sind: dort bliebe das Datum `null`, und die Bot-Caption
+(`web/src/app/core/emotes/bots-excluded-caption.ts`) erschiene nie, obwohl Bots ausgeschlossen
+werden — ein stiller Bruch in einer Spalte, auf die niemand schaut, hier festgehalten, damit er
+nicht als Bug wiederentdeckt wird. Für das Harness-Gate ist dieselbe Nebenwirkung dagegen erledigt:
+B5 definiert `HumanOnly` ab `harness-2` gegen den eigenen Shared-Chat-Stichtag, nicht mehr gegen
+`BotSplitCutover`. **Begründung gegen eine vierte Spalte** `SharedChatBotUseCount` (verworfen): Sie
+erhielte beide Dimensionen verlustfrei, kostet aber eine Spalte in Migration, Upsert,
+`EmoteUsageCounts`, Harness-Tageszeile, `ReplayUsageRow`, `UsageStatRowDto`, Input-Hash und allen
+zugehörigen Tests — für eine Unterscheidung, die **keine Lesequery stellt**. E1 hat die teurere
+Struktur schon einmal verworfen (dort: eine dritte Index-Dimension für Bot/Mensch); dieser Entwurf
+wiederholt die Abwägung nicht.
+
+**D5 — Der Lesepfad summiert übergangsweise weiter.** Ohne Brücke fiele die angezeigte Nutzung bei
+einem 84-%-Kanal laut Messung entsprechend, ohne dass die Oberfläche sagt warum — in einem
+Werkzeug, mit dem über Löschungen entschieden wird, lesbar als "unbenutzt". Deshalb schreibt dieser
+Zug drei Spalten, aber `UsageStatQueryService` liefert und filtert bis Zug 2 weiterhin über
+`UseCount + SharedChatUseCount` — Summen **und** die `UseCount > 0`-Filter in
+`GetUsageContextAsync`, `GetDailySeriesAsync`, `GetChannelSeriesAsync`, `GetTotalsByEmoteIdsAsync`
+(Task 4). `GetRowsAsync` bleibt roh, für den Harness — der Lesepfad der UI und der des Harness sind
+zwei verschiedene Wege, und die 30-Tage-Uhr für #69 läuft trotzdem ab diesem Deploy, weil der
+Harness über `GetRowsAsync` bereits die getrennten Rohzeilen sieht. **Zwei Nebenwirkungen:**
+(1) Die Übergangssumme enthält nach D2 auch **fremde Bots**, die vor #73 unsichtbar in
+`BotUseCount` lagen — die angezeigte Zahl kann also in der Übergangszeit geringfügig **höher**
+liegen als vor dem Deploy, nie niedriger. (2) Der Covering-Index `INCLUDE (UseCount)`
+(`AppDbContext.cs:40-41`) deckt eine Query, die `SharedChatUseCount` mitliest, nicht mehr als
+Index-Only-Scan ab — **Messergebnis Task 4:** Die lokale Dev-DB ist mit 157 `UsageStat`-Zeilen
+(größter Kanal `brudivoeller_tv`, 155 Zeilen über 6 Tage statt der geforderten 30) zu klein, damit
+der Planer den Index überhaupt wählt (`Seq Scan` in beiden Varianten, `EXPLAIN ANALYZE` unter
+1 ms); mit `enable_seqscan = off` erzwungen, kippt die Übergangssumme den Plan wie erwartet von
+`Index Only Scan` (Heap Fetches, da UseCount das einzige Include ist) auf einen einfachen
+`Index Scan` — der Mechanismus ist damit belegt, der Zeitunterschied bleibt aber unter 0,1 ms und
+damit weit unter der 20-ms-Schwelle der Regel. Der Heap-Zugriff wird für die Übergangszeit
+hingenommen, der Index bleibt unverändert bei `INCLUDE (UseCount)`.
+**Entfernungsauslöser:** Zug 2 dreht den Lesepfad auf `UseCount` allein
+zurück und liefert Caption oder Hinweistext im selben Zug — und bricht dabei bewusst den
+Übergangstest, der die Brücke aus B7 festnagelt (der Test ist der Marker, kein Kommentar).
+
+**B5 — Zwei Chatter-Zahlen ändern ihre Bedeutung.** Sobald der Harness auf
+`AlgorithmVersion = "harness-2"` steht, zählt `ReplayDayLine.DistinctChatters`
+(`_humanChatters.Count`) nur noch **eigene menschliche** Chatter, und ebenso der fensterweite
+`distinctChatters`-Zähler in `HarnessRunner` ("Distinkte Chatter im Fenster") — beide folgen
+derselben Regel, sonst stünden zwei gleichnamige Zahlen mit zwei Populationen im selben Bericht.
+`HumanOnly` ist ab `harness-2` allein `Day >= SharedChatCutover`; `BotSplitCutover` geht in diese
+Bedingung nicht mehr ein. Zulässig, weil der Bot-Split bereits am 2026-09-01 — vor #73 — deployt
+wurde: jeder Tag ab dem Shared-Chat-Stichtag liegt zwangsläufig auch nach dem Bot-Split-Deploy, und
+seine Zeilen tragen Bots bereits getrennt.
+
+**D3 — Warum Shared Chat berichtet statt stumm ausgeschlossen wird.** Live- und Replay-Seite leiten
+die Raum-Klassifikation **unabhängig** her (IRC-Tags via TwitchLib gegen Justlog-Tags via eigenem
+Parser). Ein Auseinanderlaufen der beiden Shared-Chat-Summen macht eine falsche oder ungleich
+angewandte Regel messbar — schlösse man Shared Chat auf beiden Seiten stumm aus, bliebe eine
+falsche Regel unbemerkt, ausgerechnet in dem Lauf, der sie absegnen soll. Deshalb wird die
+Shared-Chat-Summe beider Seiten tageweise und als Fenstersumme berichtet, und ihre Symmetrie wird
+**Eignungsbedingung** des Gates (dieselbe 10-%-Toleranz wie die bestehende Abweichungsschwelle,
+keine neue Zahl) statt eines vierten präregistrierten Gates mit eigener Schwelle — eine solche
+Schwelle säße auf einer Grenze, die produktseitig folgenlos ist: weder `BotUseCount` noch
+`SharedChatUseCount` erreicht das Zielraster, also entscheidet keine der beiden über eine Löschung.
+Das bindende Gate selbst bleibt human-only (`HumanCounts` gegen `UseCount`) — es misst den
+Zielvertrag, nicht die Brücke aus D5.
+
+**D4 — Ein expliziter, fail-closed Stichtag.** `SharedChatCutover` ist ein UTC-Tag, **explizit** in
+`Harness:*` konfiguriert, gesetzt auf den Tag nach dem Prod-Deploy (D+1). Eine aus den Daten
+abgeleitete Alternative (`MIN(Date) WHERE SharedChatUseCount > 0`, das E4-Muster des
+Bot-Stichtags) wurde verworfen: In Kanälen ohne jede Shared-Chat-Session (0 %, z. B. `knirpz`,
+`papaplatte`) bliebe der Stichtag **dauerhaft** `null` — ausgerechnet die sauberen Kanäle fielen
+damit aus der Gate-Population heraus, mit einem Bericht, der nach Datenmangel statt nach sauberen
+Daten aussieht. Fehlt der Stichtag oder ist er ungültig, bricht ein Lauf **fail-closed** mit
+Exit-Code 3 ab statt mit einem stillen `ineligible`-Urteil bei Exit 0 — ein vergessener Konfigwert
+und ein gewollter Diagnoselauf sind sonst, dreißig Tage später, aus dem fertigen Bericht allein
+nicht unterscheidbar. **Rollback-Verbot:** Weil das alte Image das migrierte Schema klaglos weiter
+bedient (additive Migration, s. Schema unten — dieselbe Redeploy-Kompatibilität wie beim Bot-Split),
+liefe ein Rollback im Messfenster technisch unbemerkt durch; er ist deshalb **betrieblich
+verboten**. Passiert er doch: der Lauf ist ungültig, der Stichtag wird auf den Tag nach dem
+erneuten Deploy gesetzt, und die 30-Tage-Uhr beginnt neu.
+
+**B1 — Der unbestimmbare Fall.** Die geteilte Raum-Regel (`EmotePurge.Core.Chat.SharedChatRule`)
+hat drei Ausgänge, nicht zwei: `source-room-id` gesetzt und ordinal ungleich `room-id` → fremd;
+gesetzt und gleich, oder gar kein `source-*`-Marker vorhanden → eigen; **andere** `source-*`-Marker
+vorhanden (`source-id`, `source-badges`, `source-badge-info`), aber `source-room-id` fehlt oder ist
+leer → **unbestimmbar**. Eine unbestimmbare Nachricht sagt "ich bin Teil einer Session", verrät
+aber nicht, wessen — sie wird **nicht als eigen** gezählt: ihre Treffer landen in der
+Shared-Chat-Komponente (konservativ: fremd, bis das Gegenteil belegt ist; eine eigene fünfte
+Spalte dafür verwirft D2 aus demselben Grund wie die vierte), und der Fall wird zusätzlich als
+eigener Zähler sichtbar gemacht, live wie im Harness. Ein fehlender Marker allein ist **kein**
+Verdacht — nur ein *widersprüchlicher* Tagsatz ist einer; alles andere würde jede gewöhnliche
+Nachricht außerhalb einer Session verdächtig machen.
+
+**B8 — Zwei stille Fallen, für die Dauer des Messfensters eingefroren.** (1) Eine neue,
+nicht-listenbasierte Bot-Heuristik (z. B. über Badges oder Nachrichtenmuster) würde die Zählung
+ändern, **ohne** `InputHash` oder Berichtskopf zu bewegen — die Bot-ID-Liste steht in der
+Lauf-Identität, eine Heuristik nicht. (2) Ein **TwitchLib-Update** während des Messfensters könnte
+`source-room-id` (oder einen der anderen Marker) von "undocumented" zu typisiert machen; dann läse
+die Live-Extraktion den Marker nicht mehr aus `UndocumentedTags`, jede Session-Nachricht würde
+unbemerkt "eigen", und weder Berichtskopf noch Input-Hash bewegten sich — die TwitchLib-gebundenen
+Fixtures (`SharedChatRuleTwitchLibTests`) würden das zwar rot melden, aber nur, wenn jemand sie vor
+dem Image-Build laufen lässt. Deshalb bleiben `EmoteNameMatching`, `BotChatterDetector`, die
+statische Bot-Liste, `Twitch:AdditionalBotAccountIds`, `BotSplitCutover`, die präregistrierten
+Harness-Schwellen, die Tagesgrenzen und **`TwitchLib.Client` 4.0.1** bis zum Ende des bindenden
+Laufs eingefroren — durchgesetzt über einen Dependabot-`ignore`-Eintrag für `TwitchLib.*`
+(`.github/dependabot.yml`).
+
+**Ausdrücklich nicht gebaut in diesem Zug:** kein Frontend, keine i18n-Schlüssel, keine
+Api-Vertragsänderung; keine vierte Spalte für fremde Bots oder für Unbestimmbares; kein
+datenabgeleiteter Shared-Chat-Stichtag (D4); keine Kopplung des Stichtags an persistierte
+Writer-Versionen (D4-Restrisiko); kein viertes präregistriertes Gate mit eigener Schwelle (D3);
+keine Änderung an Matching, Bot-Erkennung, Schwellen oder TwitchLib-Version (B8); keine
+Rückwirkung auf Bestandsdaten (technisch unmöglich); kein Vergleich gegen `Channel.TwitchChannelId`,
+kein eigenes IRC-Parsing.
+
+**Schema (dieser Task, #73 Task 2).** `UsageStat.SharedChatUseCount` (`int`), additive Migration
+`AddUsageStatSharedChatUseCount`, `NOT NULL DEFAULT 0` auf der Spalte selbst — dieselbe
+Redeploy-Begründung wie beim Bot-Split (DECISIONS 2026-09-01): Postgres ≥ 11 fügt das als
+Katalog-only-Änderung ohne Table-Rewrite der größten Tabelle ein, und das noch laufende alte Image
+schreibt sein `UNNEST`-Upsert bis zum eigenen Redeploy ohne diese Spalte, es braucht den Default
+also aus dem Katalog, nicht aus Code, den es noch nicht hat. Konflikt-Target `(EmoteId, Date)`
+bleibt unverändert, der Covering-Index trägt weiterhin nur `UseCount` im `INCLUDE` (offene Frage
+für Task 4, s. D5 oben). `UsageStatFlushService` upsertet alle drei Spalten atomar über ein
+drittes `UNNEST`-Array; kein "nur eigen > 0"-Filter — ein Batch, der ein Emote ausschließlich aus
+fremden Räumen sah, erzeugt bewusst `UseCount = 0, BotUseCount = 0, SharedChatUseCount = n`
+(Negativprobe aus B6). `GetRowsAsync` reicht die Spalte roh durch, sonst bleibt
+`UsageStatQueryService` in diesem Task unangetastet — die Übergangssumme aus D5 ist Task 4 mit
+eigenem Commit.
 
 ---
 
