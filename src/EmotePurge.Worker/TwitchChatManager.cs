@@ -519,12 +519,7 @@ public class TwitchChatManager(
         if (IrcLineSpliceRule.IsSpliced(rawIrc))
         {
             stats.RecordSplicedIrcLine();
-            var tagBlockEnd = rawIrc.IndexOf(' ');
-            var tagBlock = tagBlockEnd < 0 ? rawIrc : rawIrc[..tagBlockEnd];
-            if (tagBlock.Length > 512)
-            {
-                tagBlock = tagBlock[..512];
-            }
+            var tagBlock = IrcLineSpliceRule.TagBlockForLog(rawIrc);
 
             // No message text here on purpose (data minimisation) — the tag block alone is enough
             // to diagnose the splice.

@@ -27,6 +27,12 @@ namespace EmotePurge.Worker;
 public static class IrcLineSpliceRule
 {
     /// <summary>
+    /// Default cap for <see cref="TagBlockForLog"/>: long enough to show a full, legitimate tag
+    /// block, short enough to bound a single log line even for a pathologically long splice.
+    /// </summary>
+    public const int DefaultMaxTagBlockLengthForLog = 512;
+
+    /// <summary>
     /// True if <paramref name="rawLine"/> is an IRC line whose tag block (the segment up to the
     /// first space, or the whole line if there is no space) contains a second <c>@</c> after the
     /// leading one. Allocation-free: no <c>Split</c>/<c>Substring</c>, just <see cref="string.IndexOf(char)"/>.
@@ -50,5 +56,25 @@ public static class IrcLineSpliceRule
         }
 
         return rawLine.IndexOf('@', 1, tagBlockLength - 1) >= 0;
+    }
+
+    /// <summary>
+    /// Extracts the tag block of <paramref name="rawLine"/> for logging: the segment up to the
+    /// first space, or the whole line if there is no space, capped at <paramref name="maxLength"/>
+    /// characters. Used by the splice sentinel (#114) to log enough of the line to diagnose the
+    /// defect without ever including the message text (data minimisation) or letting a
+    /// pathologically long tag block blow up a log line. <c>null</c> or empty input yields an
+    /// empty string, so callers never need to guard the result.
+    /// </summary>
+    public static string TagBlockForLog(string? rawLine, int maxLength = DefaultMaxTagBlockLengthForLog)
+    {
+        if (string.IsNullOrEmpty(rawLine))
+        {
+            return string.Empty;
+        }
+
+        var tagBlockEnd = rawLine.IndexOf(' ');
+        var tagBlock = tagBlockEnd < 0 ? rawLine : rawLine[..tagBlockEnd];
+        return tagBlock.Length > maxLength ? tagBlock[..maxLength] : tagBlock;
     }
 }
