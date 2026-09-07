@@ -1,0 +1,381 @@
+import { Dialog } from '@angular/cdk/dialog';
+import { WritableSignal, signal } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
+import { firstValueFrom, of, Subject } from 'rxjs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
+import { ImportSource } from '../../core/seven-tv/import-source';
+import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
+import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
+import { SevenTvRunArbiter, SevenTvRunKind } from '../../core/seven-tv/seven-tv-run-arbiter';
+import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { PurgeRunRow } from '../export/purge-run-export';
+import { FileImportResult } from './file-import-dialog';
+import { FileImportTrigger } from './file-import-trigger';
+
+/**
+ * `FileImportTrigger` opens every dialog through the plain `Dialog` it injects, same as
+ * `RestorePanel` did before it (see `restore-panel.spec.ts`) and `startRestoreFlow`/
+ * `startImportFlow` before that: `dialog.open` is one `vi.fn()` standing in for the file-import
+ * dialog itself, the token prompt, the restore confirmation and the import confirmation alike,
+ * distinguished by call order and by the side effects (`getSetStatus`/`startRestore`/
+ * `startImport`) each step is allowed to have triggered by the time it runs.
+ */
+
+// Only the key this trigger itself renders.
+const DE_TRANSLATIONS = { restore: { import: { trigger: 'Datei importieren' } } };
+
+const CURRENT_CHANNEL = 'somechannel';
+const CURRENT_SET = 'set-current';
+
+function rows(): PurgeRunRow[] {
+  return [
+    { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU', status: 'done', errorMessage: null },
+  ];
+}
+
+function importSource(overrides: Partial<ImportSource> = {}): ImportSource {
+  return {
+    origin: {
+      kind: 'file',
+      fileName: 'export.json',
+      exportedAt: null,
+      channelName: null,
+      envelopeKind: 'emote-list',
+    },
+    rows: [{ sevenTvEmoteId: '7tv-9', name: 'Kappa' }],
+    duplicatesCollapsed: 0,
+    discardedRows: 0,
+    ...overrides,
+  };
+}
+
+function readyStatus(overrides: Partial<EmoteSetStatus> = {}): EmoteSetStatus {
+  return {
+    activeEmoteSetId: CURRENT_SET,
+    capacity: 1000,
+    occupiedSlots: 10,
+    trackedSince: '2026-01-01T00:00:00Z',
+    syncFailureReason: null,
+    lastSyncAttemptAtUtc: null,
+    botsExcludedSince: null,
+    ...overrides,
+  };
+}
+
+interface Harness {
+  fixture: ComponentFixture<FileImportTrigger>;
+  detect(): void;
+  triggerDisabled(): boolean;
+  click(): void;
+}
+
+describe('FileImportTrigger', () => {
+  let getSetStatus: ReturnType<typeof vi.fn>;
+  let listEmotes: ReturnType<typeof vi.fn>;
+  let getSetWarning: ReturnType<typeof vi.fn>;
+  let startRestore: ReturnType<typeof vi.fn>;
+  let startImport: ReturnType<typeof vi.fn>;
+  let hasToken: WritableSignal<boolean>;
+  let activeRun: WritableSignal<SevenTvRunKind | null>;
+  let dialogOpen: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    getSetStatus = vi.fn(() => of(readyStatus()));
+    listEmotes = vi.fn(() => of([]));
+    getSetWarning = vi.fn(() =>
+      of({
+        available: true,
+        isOwnSet: true,
+        otherTrackedChannelsSharingSet: [],
+        otherModeratedChannelsSharingSet: [],
+      }),
+    );
+    startRestore = vi.fn();
+    startImport = vi.fn();
+    hasToken = signal(true);
+    activeRun = signal<SevenTvRunKind | null>(null);
+    dialogOpen = vi.fn(() => ({ closed: new Subject<unknown>() }));
+
+    await TestBed.configureTestingModule({
+      imports: [
+        FileImportTrigger,
+        TranslocoTestingModule.forRoot({
+          langs: { de: DE_TRANSLATIONS },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        {
+          provide: EmoteAdminService,
+          useValue: { getSetStatus, listEmotes, getSetWarning } as unknown as EmoteAdminService,
+        },
+        {
+          provide: SevenTvRestoreService,
+          useValue: { startRestore } as unknown as SevenTvRestoreService,
+        },
+        {
+          provide: SevenTvImportService,
+          useValue: { startImport } as unknown as SevenTvImportService,
+        },
+        { provide: SevenTvTokenService, useValue: { hasToken } as unknown as SevenTvTokenService },
+        { provide: SevenTvRunArbiter, useValue: { activeRun } as unknown as SevenTvRunArbiter },
+        { provide: Dialog, useValue: { open: dialogOpen } as unknown as Dialog },
+      ],
+    }).compileComponents();
+
+    await firstValueFrom(TestBed.inject(TranslocoService).load('de'));
+  });
+
+  function render(channelName = CURRENT_CHANNEL, setId = CURRENT_SET): Harness {
+    const fixture = TestBed.createComponent(FileImportTrigger);
+    fixture.componentRef.setInput('channelName', channelName);
+    fixture.componentRef.setInput('setId', setId);
+    fixture.detectChanges();
+    const host: HTMLElement = fixture.nativeElement;
+
+    return {
+      fixture,
+      detect: () => fixture.detectChanges(),
+      triggerDisabled: () => {
+        const button = host.querySelector('button');
+        if (!button) {
+          throw new Error('no trigger button rendered');
+        }
+        return button.disabled;
+      },
+      click: () => {
+        const button = host.querySelector('button');
+        if (!button) {
+          throw new Error('no trigger button rendered');
+        }
+        button.click();
+        fixture.detectChanges();
+      },
+    };
+  }
+
+  /** The `closed` subject a dialog was opened with — call `index` of `dialog.open`. */
+  function closedAt<T>(index: number): Subject<T> {
+    return dialogOpen.mock.results[index].value.closed as Subject<T>;
+  }
+
+  /** The `data` a call to `dialog.open` was handed. */
+  function dataAt(index: number): unknown {
+    return dialogOpen.mock.calls[index][1].data;
+  }
+
+  describe('opening the file-import dialog', () => {
+    it('opens exactly one dialog with the current channel and set frozen into its data', () => {
+      const dialog = render('achannel', 'aset');
+
+      dialog.click();
+
+      expect(dialogOpen).toHaveBeenCalledTimes(1);
+      expect(dataAt(0)).toEqual({ channelName: 'achannel', setId: 'aset' });
+    });
+
+    it('does nothing further when the file-import dialog closes with no result (cancel/Escape/backdrop)', () => {
+      const dialog = render();
+      dialog.click();
+
+      closedAt<FileImportResult | undefined>(0).next(undefined);
+
+      expect(dialogOpen).toHaveBeenCalledTimes(1);
+      expect(startRestore).not.toHaveBeenCalled();
+      expect(startImport).not.toHaveBeenCalled();
+    });
+
+    it('freezes channelName/setId at the moment of the click, not at the moment a later dialog resolves', () => {
+      const dialog = render('channel-a', 'set-a');
+      dialog.click();
+
+      // Simulate a same-route channel switch while the file-import dialog is still open.
+      dialog.fixture.componentRef.setInput('channelName', 'channel-b');
+      dialog.fixture.componentRef.setInput('setId', 'set-b');
+      dialog.detect();
+
+      closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
+      closedAt<boolean>(1).next(true);
+
+      expect(startRestore).toHaveBeenCalledWith('set-a', 'channel-a', [
+        { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
+      ]);
+    });
+  });
+
+  describe('restore result: token prompt before the confirmation', () => {
+    it('prompts for a token first when none is stored', () => {
+      hasToken.set(false);
+      const dialog = render();
+      dialog.click();
+
+      closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
+
+      // Only the token prompt has opened so far — the restore-specific work (the slot preview
+      // read) has not started, proof the confirmation is not up yet.
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+      expect(getSetStatus).not.toHaveBeenCalled();
+      expect(startRestore).not.toHaveBeenCalled();
+
+      closedAt<boolean>(1).next(true);
+
+      // The confirmation opens only now, and the slot preview is fetched for it.
+      expect(dialogOpen).toHaveBeenCalledTimes(3);
+      expect(getSetStatus).toHaveBeenCalledWith(CURRENT_CHANNEL);
+
+      closedAt<boolean>(2).next(true);
+
+      expect(startRestore).toHaveBeenCalledWith(CURRENT_SET, CURRENT_CHANNEL, [
+        { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
+      ]);
+    });
+
+    it('goes straight to the confirmation when a token is already stored', () => {
+      hasToken.set(true);
+      const dialog = render();
+      dialog.click();
+
+      closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
+
+      // One dialog beyond the file picker, and it is already the confirmation.
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+      expect(getSetStatus).toHaveBeenCalledWith(CURRENT_CHANNEL);
+
+      closedAt<boolean>(1).next(true);
+
+      expect(startRestore).toHaveBeenCalledTimes(1);
+    });
+
+    it('never restores when the token prompt is cancelled', () => {
+      hasToken.set(false);
+      const dialog = render();
+      dialog.click();
+      closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
+
+      closedAt<boolean>(1).next(false);
+
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+      expect(startRestore).not.toHaveBeenCalled();
+    });
+
+    it('never restores when the confirmation is cancelled', () => {
+      const dialog = render();
+      dialog.click();
+      closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
+
+      closedAt<boolean>(1).next(false);
+
+      expect(startRestore).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('import result: confirmation before the token prompt', () => {
+    it('opens the import confirmation first, without prompting for a token yet', () => {
+      hasToken.set(false);
+      const dialog = render();
+      dialog.click();
+
+      closedAt<FileImportResult | undefined>(0).next({
+        kind: 'import',
+        source: importSource(),
+      });
+
+      // Reversed order from the restore path: the confirmation is already open (its own target
+      // load fires getSetStatus), the token is not asked for yet.
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+      expect(getSetStatus).toHaveBeenCalledWith(CURRENT_CHANNEL);
+      expect(startImport).not.toHaveBeenCalled();
+
+      closedAt<{ targetSetId: string; rows: unknown[] }>(1).next({
+        targetSetId: CURRENT_SET,
+        rows: [{ sevenTvEmoteId: '7tv-9', name: 'Kappa' }],
+      });
+
+      // Only now, after the confirmation, does the missing-token case appear.
+      expect(dialogOpen).toHaveBeenCalledTimes(3);
+      expect(startImport).not.toHaveBeenCalled();
+
+      closedAt<boolean>(2).next(true);
+
+      // The target is always the frozen (current) channel, never the file's own origin.
+      expect(startImport).toHaveBeenCalledWith(
+        { setId: CURRENT_SET, channelName: CURRENT_CHANNEL },
+        expect.objectContaining({ kind: 'file' }),
+        [{ sevenTvEmoteId: '7tv-9', name: 'Kappa' }],
+      );
+    });
+
+    it('skips the token prompt entirely when a token is already stored', () => {
+      hasToken.set(true);
+      const dialog = render();
+      dialog.click();
+
+      closedAt<FileImportResult | undefined>(0).next({
+        kind: 'import',
+        source: importSource(),
+      });
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+
+      closedAt<{ targetSetId: string; rows: unknown[] }>(1).next({
+        targetSetId: CURRENT_SET,
+        rows: [{ sevenTvEmoteId: '7tv-9', name: 'Kappa' }],
+      });
+
+      // No third dialog: the flow's own (already-satisfied) token check does not prompt twice.
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+      expect(startImport).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start the import when the confirmation is dismissed without an outcome', () => {
+      const dialog = render();
+      dialog.click();
+      closedAt<FileImportResult | undefined>(0).next({
+        kind: 'import',
+        source: importSource(),
+      });
+
+      closedAt<undefined>(1).next(undefined);
+
+      expect(startImport).not.toHaveBeenCalled();
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('trigger lock', () => {
+    it('disables exactly while arbiter.activeRun() is not null', () => {
+      const dialog = render();
+      expect(dialog.triggerDisabled()).toBe(false);
+
+      activeRun.set('delete');
+      dialog.detect();
+      expect(dialog.triggerDisabled()).toBe(true);
+
+      activeRun.set(null);
+      dialog.detect();
+      expect(dialog.triggerDisabled()).toBe(false);
+    });
+
+    it('disables while importScopeCurrent is false', () => {
+      const fixture = TestBed.createComponent(FileImportTrigger);
+      fixture.componentRef.setInput('channelName', CURRENT_CHANNEL);
+      fixture.componentRef.setInput('setId', CURRENT_SET);
+      fixture.componentRef.setInput('importScopeCurrent', false);
+      fixture.detectChanges();
+      const button = (fixture.nativeElement as HTMLElement).querySelector('button');
+      if (!button) {
+        throw new Error('no trigger button rendered');
+      }
+
+      expect(button.disabled).toBe(true);
+    });
+
+    it('defaults importScopeCurrent to true when the caller does not pass it', () => {
+      const dialog = render();
+      expect(dialog.triggerDisabled()).toBe(false);
+    });
+  });
+});
