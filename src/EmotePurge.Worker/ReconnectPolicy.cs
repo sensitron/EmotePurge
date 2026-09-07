@@ -16,10 +16,10 @@ public readonly record struct ReconnectDecision(ReconnectAction Action, string R
 
 /// <summary>
 /// The reconnect decision of <see cref="TwitchChatManager"/>, separated from the transport. Every rule
-/// in here comes from a production outage (2026-07-26 twice, 2026-07-27), and the whole thing used to
-/// be validated by nothing but the next outage — it sat inside the project's longest file, tangled up
-/// with TwitchLib event wiring, so there was no way to test it. This class has no TwitchLib dependency
-/// and no clock: elapsed time is passed in.
+/// in here comes from a production outage (2026-07-26 twice, 2026-07-27) — issue #114 (2026-09) is the
+/// fourth — and the whole thing used to be validated by nothing but the next outage — it sat inside the
+/// project's longest file, tangled up with TwitchLib event wiring, so there was no way to test it. This
+/// class has no TwitchLib dependency and no clock: elapsed time is passed in.
 /// <para>
 /// The counters are updated from TwitchLib event handlers on arbitrary threads, hence the interlocked
 /// access. <see cref="Decide"/> itself reads a consistent-enough snapshot; the caller already
@@ -45,10 +45,19 @@ public sealed class ReconnectPolicy
 
     private int _consecutiveConnectionErrors;
     private int _openInFlight;
+    private int _clientSpent;
 
     public int ConsecutiveConnectionErrors => Volatile.Read(ref _consecutiveConnectionErrors);
 
     public bool IsOpenInFlight => Volatile.Read(ref _openInFlight) == 1;
+
+    /// <summary>
+    /// True once this client object has lived through an in-place TwitchLib reconnect (see
+    /// <see cref="RegisterInPlaceReconnect"/>) — issue #114: TwitchLib's own reconnect handling runs
+    /// inline from the read loop, and after it the same client has two read loops racing on the same
+    /// socket. The object is no longer safe to keep and must be replaced, not reconnected again.
+    /// </summary>
+    public bool IsClientSpent => Volatile.Read(ref _clientSpent) == 1;
 
     /// <summary>A connect or reconnect attempt has been started.</summary>
     public void RegisterOpenStarted() => Interlocked.Exchange(ref _openInFlight, 1);
@@ -59,7 +68,12 @@ public sealed class ReconnectPolicy
     /// </summary>
     public void RegisterOpenSettled() => Interlocked.Exchange(ref _openInFlight, 0);
 
-    /// <summary>A connection is up: clears both the in-flight marker and the error streak.</summary>
+    /// <summary>
+    /// A connection is up: clears both the in-flight marker and the error streak. Deliberately does
+    /// <b>not</b> clear <see cref="IsClientSpent"/> — TwitchLib's Handle004 fires OnConnected on the
+    /// spent client too (it is the same object that reconnected in place), and clearing the flag here
+    /// would silently swallow the pending replacement.
+    /// </summary>
     public void RegisterConnected()
     {
         Interlocked.Exchange(ref _openInFlight, 0);
@@ -73,11 +87,18 @@ public sealed class ReconnectPolicy
         return Interlocked.Increment(ref _consecutiveConnectionErrors);
     }
 
-    /// <summary>A brand-new client object: no errors against it, nothing in flight.</summary>
+    /// <summary>
+    /// TwitchLib reconnected the existing client object in place (issue #114) instead of us replacing
+    /// it. Marks the client as spent so the next <see cref="Decide"/> call recreates it.
+    /// </summary>
+    public void RegisterInPlaceReconnect() => Interlocked.Exchange(ref _clientSpent, 1);
+
+    /// <summary>A brand-new client object: no errors against it, nothing in flight, not spent.</summary>
     public void RegisterClientReplaced()
     {
         Interlocked.Exchange(ref _openInFlight, 0);
         Interlocked.Exchange(ref _consecutiveConnectionErrors, 0);
+        Interlocked.Exchange(ref _clientSpent, 0);
     }
 
     /// <param name="openRunningFor">
@@ -93,6 +114,16 @@ public sealed class ReconnectPolicy
             return new ReconnectDecision(
                 ReconnectAction.Recreate,
                 $"{errors} aufeinanderfolgende Verbindungsfehler erreicht (Schwelle {MaxConsecutiveConnectionErrors}).");
+        }
+
+        // Spent beats open-in-flight: a running open attempt belongs to the spent client object anyway,
+        // and RecreateClientAsync clears the in-flight marker as part of replacing it — so there is no
+        // in-flight state worth waiting out here.
+        if (IsClientSpent)
+        {
+            return new ReconnectDecision(
+                ReconnectAction.Recreate,
+                "Client durch einen In-Place-Reconnect verbraucht (TwitchLib-Doppelschleife, Issue #114).");
         }
 
         if (!IsOpenInFlight)
