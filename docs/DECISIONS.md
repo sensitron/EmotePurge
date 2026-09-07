@@ -117,6 +117,66 @@ keines vor.
 
 ---
 
+### 2026-09-07 — Die Inhaltsspalte wird 80 rem breit, und sie bleibt eine
+
+**Betrifft:** `docs/UI-Designsprache.md` (§8.4a) · `DESIGN.md` ·
+`web/src/app/features/shell/app-shell.ts` · `web/src/app/features/landing/landing-page.html` ·
+`web/src/app/features/usage-stats/usage-stats-page.html` (Dock) ·
+`web/src/app/features/usage-stats/usage-stats-page.ts`,
+`web/src/app/features/voting/vote-session-detail-page.ts`,
+`web/src/app/shared/grid/grid-columns.ts` (Kommentare) ·
+`web/e2e/audit/ui-audit.audit.ts` (Viewport)
+
+**Der Anlass ist ein Bildschirm, nicht ein Gefühl.** Issue #93, Nebenbefund aus #80: der Betreiber
+arbeitet auf 1080p mit 125 % Skalierung, also ~1536 CSS-Pixeln. Bei `max-w-5xl` (64 rem) blieben
+dort je ~256 px Rand ungenutzt, bei 100 % Skalierung je ~448 px — und die Filterleiste wie der
+Seitenkopf wirkten eng, weil die Shell eng war, nicht weil sie zu viel trugen. Die Spalte ist
+jetzt `max-w-7xl` (80 rem). Auf 1920 CSS-Pixeln bleiben damit immer noch je 320 px Rand; der
+Betreiber hat beide Kandidaten am laufenden Dev-Server angesehen und bei 100 % Skalierung
+ausdrücklich noch Luft gesehen.
+
+**Der Gewinn ist in Spalten messbar, und er ist am größten dort, wo heute am wenigsten Platz ist.**
+`atlasColumns` hängt an keinem Breakpoint, sondern misst den Container — alle 68 px eine Spalte
+mehr (`atlas-grid.ts`). Ohne Sidecar wächst das Blatt von 14 auf 18 Spalten. Mit geöffnetem
+Sidecar (16 rem plus `gap-5`, der Normalzustand ab `lg`, sobald der Zeiger auf einer Kachel steht)
+von **10 auf 14** — bei 900 Emotes schrumpft der Scrollbogen von ~6.120 px auf ~4.420 px, also um
+28 %. Das ist der eigentliche Grund, warum #93 aus #80 stammt: der Seitenkopf ist nicht sticky,
+und was ihn unerreichbar macht, ist die Länge des Bogens unter ihm.
+
+**Die Breite steht an neun Stellen, nicht an acht.** Entwurf und Issue nennen `app-shell.ts`
+(Header-Zeile und `<main>`) plus sechsmal `landing-page.html`. Die neunte ist der Innencontainer
+des `.app-dock` in `usage-stats-page.html` — er richtet die Aktionszeile an derselben Spalte aus.
+Wäre er zurückgeblieben, stünde die Zeile ab sofort 256 px schmaler als das Blatt, über dem sie
+sitzt, und zwar ausgerechnet auf der Seite, für die die Verbreiterung gemacht ist. §8.4a führt die
+neun jetzt einzeln auf, damit der nächste Umzug sie nicht wieder sucht.
+
+**Kein Widerspruch zum Eintrag vom 2026-08-06 („Zug 3, Breite"), und das ist zu belegen, nicht zu
+behaupten.** Dort wurde „Shell breiter" verworfen, mit dem Satz „auf 1536 px ist eine Metazeile
+keine Zeile mehr". Verworfen wurde aber die *routengesteuerte* Breite — `data.wideLayout` an zwei
+Blatt-Routen, 64 rem gegen 96 rem —, und der Eintrag sagt seine eigene Grenze dazu: „Ein erneuter
+Vorschlag über Routen-Daten ist derselbe Vorschlag." Dies ist keiner. Es bleibt bei **einer**
+Breite, app-weit, an allen neun Stellen zugleich; der Rahmen springt bei keiner Navigation. Und
+die zitierte Metazeile bezog sich auf 96 rem (1536 px), nicht auf die 80 rem, die hier gesetzt
+werden. §8.4a hält deshalb ab jetzt getrennt, was es verbietet: nicht das Anheben der Zahl, allein
+die zweite Zahl.
+
+**Der Audit-Harness musste mit, sonst hätte er stillschweigend aufgehört zu messen.** Seine
+Viewport-Matrix ist 360/768/1280, und der breiteste war bisher *breiter als der Deckel* — auf 1280
+war die 1024er-Spalte mit Rand zu sehen, also genau der ausgelieferte Zustand. Mit 80 rem greift
+der Deckel auf 1280 nicht mehr: jede Aufnahme dort wäre randlos, und der gedeckelte Zustand käme
+in keinem einzigen Szenario mehr vor. Der `desktop`-Viewport ist deshalb auf **1536** angehoben —
+dieselbe Zahl, auf der der Betreiber arbeitet. Das kostet keine Laufzeit (die Matrix behält ihre
+Größe, die Dateinamen ihr `--desktop--`) und stellt die Eigenschaft wieder her, die den Viewport
+überhaupt nützlich macht. Wer die Breite künftig anfasst, prüft diesen Wert mit.
+
+**Nicht mitgezogen, geprüft:** die `sizes`/`ngSrcset`-Angaben der Emote-Bilder. Sie sind zellfest
+(64 px) bzw. viewport-basiert und kennen die Shell-Breite nicht — die naheliegende Vermutung,
+responsive Bildauswahl hänge an der Inhaltsspalte, hält `emote-sprite.ts` nicht stand. Ebenso
+unverändert bleiben die `max-w-2xl`/`max-w-3xl` innerhalb der Landing-Page: das sind Prosabreiten,
+und Fließtext wird von 80 rem nicht besser.
+
+---
+
 ### 2026-09-06 — Der `run-actions`-Slot des Laufpanels ist post-run-only, und das ist ein Vertrag
 
 **Betrifft:** `web/src/app/shared/seven-tv/run-progress-panel.ts`, und damit alle drei Hosts, die

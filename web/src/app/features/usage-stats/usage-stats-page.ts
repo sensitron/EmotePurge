@@ -763,8 +763,9 @@ export class UsageStatsPage {
     });
 
     // The column count follows the element that actually holds the cells. The incumbent grid read
-    // window.innerWidth while the shell caps content at 1024 px, which is how a 2560 px monitor
-    // ended up with eight 113 px cards in a 992 px container.
+    // window.innerWidth while the shell capped content at 1024 px, which is how a 2560 px monitor
+    // ended up with eight 113 px cards in a 992 px container. The cap is 1280 px since #93; the
+    // numbers here are the 2026-08-06 measurement and stay as measured.
     effect((onCleanup) => {
       const element = this.sheetRef().nativeElement;
       this.sheetWidth.set(element.clientWidth);

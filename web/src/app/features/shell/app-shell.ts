@@ -33,12 +33,18 @@ import { Popover } from '../../shared/ui/popover';
            Reusing that class rather than repeating the blur: the translucency has to be denser in
            light than in dark, and --ep-sticky-alpha is where that lives. -->
       <header class="app-sticky-bar top-0 z-30 h-14 border-b border-border px-4">
-        <div class="mx-auto flex h-full max-w-5xl items-center justify-between gap-3">
-          <!-- max-w-5xl here and on <main> is ONE width for the whole app, deliberately. A
-               per-route second width for the two sprite sheets was built and taken out again the
-               same day: the extra pixels really are emote columns there, but they cost a frame that
-               jumps on every navigation between a sheet page and a list page, and that is the worse
-               deal. If the sheets get their width back, it has to be without moving the frame.
+        <div class="mx-auto flex h-full max-w-7xl items-center justify-between gap-3">
+          <!-- max-w-7xl here and on <main> is ONE width for the whole app, deliberately. Widened
+               from 64rem to 80rem on 2026-09-07 (issue #93) — still exactly one width; a
+               route-dependent variant stays excluded. The same class sits on the dock's inner
+               container and on the six landing-page sections — nine places that move together or
+               not at all; §8.4a lists them, because the dock is the one that gets forgotten and a
+               narrower action bar under a wider sheet is what that costs. A per-route second width
+               for the two sprite
+               sheets was built and taken out again the same day: the extra pixels really are emote
+               columns there, but they cost a frame that jumps on every navigation between a sheet
+               page and a list page, and that is the worse deal. If the sheets get their width back,
+               it has to be without moving the frame.
 
                Logo and the worker warning form one anchored group — a lone justify-between middle
                child would float detached between logo and menu button on narrow viewports. -->
@@ -184,7 +190,7 @@ import { Popover } from '../../shared/ui/popover';
         </div>
       </header>
 
-      <main class="mx-auto max-w-5xl px-4 py-8">
+      <main class="mx-auto max-w-7xl px-4 py-8">
         <router-outlet />
       </main>
     </div>

@@ -41,7 +41,10 @@ const OUT = path.resolve(__dirname, '../../.audit-out');
 const VIEWPORTS = [
   { name: 'mobile', width: 360, height: 800 },
   { name: 'tablet', width: 768, height: 1024 },
-  { name: 'desktop', width: 1280, height: 900 },
+  // Wider than the shell's own cap on purpose: at 1280 the 80rem column (#93) would fill the
+  // viewport edge to edge, and the capped state -- the one that actually ships -- would appear in
+  // no scenario at all. 1536 is the operator's own screen (1080p at 125%). Raise this with the cap.
+  { name: 'desktop', width: 1536, height: 900 },
 ] as const;
 
 // Theme is the fourth dimension of the matrix. Running it in full would double a run that is
@@ -1098,7 +1101,7 @@ for (const theme of THEMES) {
         const locale = testInfo.project.name;
         // English pass only in mobile (worst-case overflow) + desktop to keep the matrix sane.
         test.skip(locale === 'en' && vp.name === 'tablet', 'en only in mobile+desktop');
-        test.skip(theme === 'light' && vp.name !== 'desktop', 'light only at 1280');
+        test.skip(theme === 'light' && vp.name !== 'desktop', 'light only at the widest viewport');
 
         await page.setViewportSize({ width: vp.width, height: vp.height });
         // Both, and deliberately: emulateMedia covers the system-preference path, the storage seed

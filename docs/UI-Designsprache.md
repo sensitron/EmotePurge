@@ -426,9 +426,11 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 
 ### 8.4a Inhaltsbreite (eine, bewusst)
 
-- **Was gilt:** Die Inhaltsspalte hat **eine** Breite, app-weit: `max-w-5xl` (64 rem) an der Header-Zeile und an `<main>`. Keine Seite und keine Route setzt eine eigene.
+- **Was gilt:** Die Inhaltsspalte hat **eine** Breite, app-weit: `max-w-7xl` (80 rem). Keine Seite und keine Route setzt eine eigene.
+- **Sie steht an neun Stellen, und sie ziehen immer gemeinsam um.** `app-shell.ts` (Header-Zeile und `<main>`), `landing-page.html` (sechsmal: Navigation, Held, Schaubild, Ablauf, Abschluss, Fuß) und `usage-stats-page.html` (der Innencontainer des `.app-dock`). Die neunte ist die, die man übersieht — bleibt das Dock zurück, steht die Aktionszeile schmaler als das Blatt, über dem sie sitzt. Die `max-w-2xl`/`max-w-3xl` **innerhalb** der Landing-Page sind Prosabreiten und keine Shell-Breiten; sie bleiben, wo sie sind.
 - **Der Rahmen darf pro Route nicht springen.** Eine zweite Breite für die Sprite-Blätter (2.5) ist sachlich begründbar — dort ist Breite keine Dekoration, sondern Emote-Spalten —, aber **beim Wechsel zwischen einer Blatt- und einer Listenseite springt dann der Rahmen**, und ein Layout, das bei jeder Navigation seine Breite ändert, ist unruhiger als eine Blattseite, die 500 px verschenkt. Eine routengesteuerte Shell-Breite (`data.wideLayout` o. ä.) ist deshalb ausgeschlossen, nicht offen.
 - **Wenn ein Blatt mehr Breite braucht**, holt es sie *innerhalb* der konstanten Spalte — die Blattfläche bricht aus, die Shell-Spalte bleibt stehen.
+- **Die Zahl ist verhandelbar, die Einzahl nicht.** Bis zum 2026-09-07 war die Breite `max-w-5xl` (64 rem); #93 hat sie auf 80 rem angehoben, weil auf 1080p mit 125 % Skalierung (~1536 CSS-px) je ~256 px Rand ungenutzt blieben und bei 100 % je ~448 px. Eine Anhebung verstößt nicht gegen diesen Abschnitt — sie lässt es bei **einer** Breite. Was er verbietet, ist die zweite.
 - **Referenz:** `web/src/app/features/shell/app-shell.ts` (Kommentar an der Header-Zeile).
 
 ### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
