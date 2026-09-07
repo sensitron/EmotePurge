@@ -894,6 +894,7 @@
   },
   "import": {
     "copyButton": "Copy to channel…",
+    "dockCopyButton": "Copy to channel… ({{ count }})",
     "target": {
       "title": "Copy emotes to a channel",
       "label": "Target channel",

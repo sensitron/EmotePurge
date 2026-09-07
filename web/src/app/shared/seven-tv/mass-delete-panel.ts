@@ -48,10 +48,20 @@ export interface DeletableEmote {
   template: `
     <div class="flex flex-col gap-3">
       <div class="flex flex-wrap items-center gap-2">
-        <!-- Host-page peers acting on the same grid selection (e.g. the usage page's
-             create-vote-session button) share this row, constructive before destructive —
-             stacked rows hid that both consume one selection and cost a row of vertical space. -->
-        <ng-content select="[selection-actions]" />
+        <!-- Host-page peers acting on the same grid selection (e.g. the usage page's copy
+             shortcut and create-vote-session button) share this row, constructive before
+             destructive (design doc §8.7) — stacked rows hid that both consume one selection and
+             cost a row of vertical space. Wrapped together with its trailing gap behind
+             leadingActionsPresent(): an @if block projected into the slot still leaves a comment
+             node, so the panel cannot tell an empty slot from a populated one by inspecting the
+             projection itself (see the input's doc comment) — without the gate, the voting-detail
+             page's always-empty slot would leave this gap floating in front of a lone delete
+             button. -->
+        @if (leadingActionsPresent()) {
+          <div class="mr-2 flex flex-wrap items-center gap-2">
+            <ng-content select="[selection-actions]" />
+          </div>
+        }
         <button
           type="button"
           appButton="danger-solid"
@@ -139,6 +149,19 @@ export class MassDeletePanel {
   readonly setId = input.required<string>();
   readonly channelName = input.required<string>();
   readonly selectedEmotes = input.required<DeletableEmote[]>();
+
+  /**
+   * Whether the `[selection-actions]` slot actually has something projected into it — the panel
+   * cannot detect that reliably on its own: a projected `@if` block leaves a comment node in the
+   * slot regardless of whether its condition held, so a truthy-content check here would see
+   * "populated" even for an always-false host condition. The host page therefore feeds this from
+   * the very same conditions that gate its own projected buttons.
+   *
+   * Defaults to `false` so the voting-detail page, which mounts this panel with nothing projected
+   * (`vote-session-detail-page.html`), keeps its current layout — a lone delete button with no
+   * leading gap — without having to pass anything.
+   */
+  readonly leadingActionsPresent = input<boolean>(false);
 
   /** Ids the host page may drop from its list without a refetch — emitted only once the backend has
    *  confirmed it archived them. */
