@@ -692,8 +692,9 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // The A6 import path in its refusal state: a protocol from another channel renders the error
-    // banner under the import trigger — deterministic (no token prompt, no dialog).
+    // The A6/#91 import path in its refusal state: a protocol from another channel renders the
+    // error banner inside the file-import dialog, under the sort list and the file control
+    // (§1.1's body order) — deterministic (no token prompt, no further dialog).
     slug: 'usage-stats-restore-import-error',
     path: '/channels/sensitron/usage-stats',
     requiresFinePointer: true,
@@ -704,6 +705,12 @@ const SCENARIOS: Scenario[] = [
       await mockUsageTotals(page, 'sensitron', usageEmotes(8));
     },
     afterLoad: async (page) => {
+      // The file control now lives inside FileImportDialog (#91), not directly on the page, so the
+      // trigger has to be opened first — same position-based handle as the import-target-dialog
+      // scenario above, `.nth(2)` because the file-import trigger sits after export and import.
+      await page.locator('main header button').nth(2).click();
+      await page.locator('#app-dialog-title').waitFor();
+
       const foreignProtocol = JSON.stringify({
         source: 'emotepurge',
         kind: 'purge-run',
@@ -727,12 +734,34 @@ const SCENARIOS: Scenario[] = [
           },
         ],
       });
+      // The input stays a hidden native <input type="file"> inside the open dialog (plan §1.1) —
+      // setInputFiles works on it directly regardless of visibility.
       await page.locator('input[type="file"]').setInputFiles({
         name: 'emotepurge_handofblood_purge.json',
         mimeType: 'application/json',
         buffer: Buffer.from(foreignProtocol, 'utf-8'),
       });
       await page.getByRole('alert').waitFor();
+    },
+  },
+  {
+    // The file-import dialog (#91) in its starting state: sort list, file control, no error yet.
+    // Its own scenario because the list holds the longest new strings the cutover introduced (three
+    // full-sentence-length entries) and §12 flags longer German strings as the most common wrap
+    // break — the starting state otherwise has no screenshot of its own at all.
+    slug: 'usage-stats-file-import-dialog',
+    path: '/channels/sensitron/usage-stats',
+    requiresFinePointer: true,
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockActiveEmoteSet(page, 'sensitron');
+      await mockUsageTotals(page, 'sensitron', usageEmotes(8));
+    },
+    afterLoad: async (page) => {
+      // Same position-based handle as the scenario above: export, import, then this trigger.
+      await page.locator('main header button').nth(2).click();
+      await page.locator('#app-dialog-title').waitFor();
     },
   },
   {
@@ -829,6 +858,7 @@ const SCENARIOS: Scenario[] = [
       // Locale-independent handle: the visible label is translated ("Übertragen…" / "Transfer…")
       // with no shared word and no aria-label of its own, unlike the export trigger next
       // to it — so this goes by position in the header action row instead (export, then import,
+      // then the file-import trigger "Datei einspielen…" / "Import file…" (#91, `.nth(2)` below),
       // then refresh; see usage-stats-page.html). Scoped to `main` because the app shell has its
       // own top-level `<header>` (the account menu) — an unscoped `header button` counts that one
       // first and silently opens the export dialog instead.
