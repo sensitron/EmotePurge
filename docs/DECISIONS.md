@@ -17,10 +17,13 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 `src/EmotePurge.Core/ChatLogArchive/ChatLogArchiveModels.cs`,
 `src/EmotePurge.Infrastructure/ChatLogArchive/JustlogRawLineParser.cs`,
 `src/EmotePurge.Core/Services/IUsageStatFlushService.cs` (`EmoteUsageCounts`),
-`src/EmotePurge.Core/Services/IUsageStatQueryService.cs` (`UsageStatRowDto`),
-`src/EmotePurge.Core/Entities/UsageStat.cs`,
+`src/EmotePurge.Core/Services/IUsageStatQueryService.cs` (`UsageStatRowDto`; Task 4: die übrigen
+Doc-Kommentare), `src/EmotePurge.Core/Entities/UsageStat.cs`,
 `src/EmotePurge.Infrastructure/Services/UsageStatFlushService.cs`,
-`src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` (nur `GetRowsAsync`),
+`src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` (Task 2: nur `GetRowsAsync`;
+Task 4: `GetUsageContextAsync`, `GetDailySeriesAsync`, `GetChannelSeriesAsync`,
+`GetTotalsByEmoteIdsAsync`), `tests/EmotePurge.Infrastructure.Tests/Integration/UsageStatQueryServiceTests.cs`
+(Task 4: `SharedOnlyRow_ReadsAsUsedUntilZug2`),
 `src/EmotePurge.Infrastructure/Migrations/20260907080507_AddUsageStatSharedChatUseCount.cs` samt
 Designer und `AppDbContextModelSnapshot.cs`, `src/EmotePurge.Worker/UsageCategory.cs`,
 `src/EmotePurge.Worker/TwitchChatManager.cs`,
@@ -79,9 +82,15 @@ Harness über `GetRowsAsync` bereits die getrennten Rohzeilen sieht. **Zwei Nebe
 `BotUseCount` lagen — die angezeigte Zahl kann also in der Übergangszeit geringfügig **höher**
 liegen als vor dem Deploy, nie niedriger. (2) Der Covering-Index `INCLUDE (UseCount)`
 (`AppDbContext.cs:40-41`) deckt eine Query, die `SharedChatUseCount` mitliest, nicht mehr als
-Index-Only-Scan ab — ob die Spalte für die Übergangszeit ins `INCLUDE` kommt oder der Heap-Zugriff
-hingenommen wird, ist offen und wird in Task 4 mit `EXPLAIN` auf der Dev-DB entschieden, dieser
-Satz wird dort ergänzt. **Entfernungsauslöser:** Zug 2 dreht den Lesepfad auf `UseCount` allein
+Index-Only-Scan ab — **Messergebnis Task 4:** Die lokale Dev-DB ist mit 157 `UsageStat`-Zeilen
+(größter Kanal `brudivoeller_tv`, 155 Zeilen über 6 Tage statt der geforderten 30) zu klein, damit
+der Planer den Index überhaupt wählt (`Seq Scan` in beiden Varianten, `EXPLAIN ANALYZE` unter
+1 ms); mit `enable_seqscan = off` erzwungen, kippt die Übergangssumme den Plan wie erwartet von
+`Index Only Scan` (Heap Fetches, da UseCount das einzige Include ist) auf einen einfachen
+`Index Scan` — der Mechanismus ist damit belegt, der Zeitunterschied bleibt aber unter 0,1 ms und
+damit weit unter der 20-ms-Schwelle der Regel. Der Heap-Zugriff wird für die Übergangszeit
+hingenommen, der Index bleibt unverändert bei `INCLUDE (UseCount)`.
+**Entfernungsauslöser:** Zug 2 dreht den Lesepfad auf `UseCount` allein
 zurück und liefert Caption oder Hinweistext im selben Zug — und bricht dabei bewusst den
 Übergangstest, der die Brücke aus B7 festnagelt (der Test ist der Marker, kein Kommentar).
 

@@ -10,6 +10,12 @@ namespace EmotePurge.Infrastructure.Tests.Integration;
 // GroupBy in GetUsageContextAsync only translates cleanly because the query is pre-scoped to a
 // plain emote-ID list (see the comment in UsageStatQueryService.cs) — InMemory would happily
 // evaluate the naive, untranslatable version client-side and never catch a regression back to it.
+//
+// SharedOnlyRow_ReadsAsUsedUntilZug2 nails down the D5 transition (#73): until Zug 2 turns the
+// read path around, every query here sums and filters over UseCount + SharedChatUseCount, so a
+// shared-only row reads as used. Zug 2 is expected to deliberately break and invert this test —
+// a shared-only row will then read as unused, the same as a bot-only row does today — this test
+// is the marker for that future change, not a comment.
 [Collection("Postgres")]
 public class UsageStatQueryServiceTests(PostgresFixture fixture)
 {
@@ -159,6 +165,65 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
         var result = Assert.Single(totals);
         Assert.Null(result.LastUsedDate);
         Assert.Equal(0, result.TotalUseCount);
+    }
+
+    [Fact]
+    public async Task SharedOnlyRow_ReadsAsUsedUntilZug2()
+    {
+        // D5 transition (#73): the UI read path sums UseCount + SharedChatUseCount and filters on
+        // that sum, so a shared-only row reads as used everywhere a human row would — while a
+        // bot-only row (unaffected by this task) keeps reading as unused. Zug 2 is expected to
+        // deliberately break and invert this test.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedchat_transition");
+        var from = new DateOnly(2026, 7, 10);
+        var to = new DateOnly(2026, 7, 20);
+
+        // Older human day outside the requested range, younger shared-only day inside it — proves
+        // LastUsedDate (unbounded in time) now picks the younger, shared-only day as "used", and
+        // that the range-bounded sums pick up only the shared-only day's 3.
+        var sharedThenHuman = await SeedEmoteAsync(db, channel.Id, "SharedThenHuman");
+        var olderHumanDay = new DateOnly(2026, 7, 1);
+        var youngerSharedDay = new DateOnly(2026, 7, 15);
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = sharedThenHuman.Id, Date = olderHumanDay, UseCount = 5 },
+            new UsageStat { EmoteId = sharedThenHuman.Id, Date = youngerSharedDay, UseCount = 0, BotUseCount = 0, SharedChatUseCount = 3 });
+
+        // A mixed row: own and shared-chat usage on the same day must add up.
+        var mixed = await SeedEmoteAsync(db, channel.Id, "MixedHumanAndShared");
+        db.UsageStats.Add(new UsageStat { EmoteId = mixed.Id, Date = new DateOnly(2026, 7, 12), UseCount = 2, SharedChatUseCount = 3 });
+
+        // Regression guard: an emote with exclusively shared-only rows (no human usage, ever) must
+        // still show up with TotalUseCount > 0 — a forgotten predicate would silently drop it.
+        var sharedOnly = await SeedEmoteAsync(db, channel.Id, "ExclusivelySharedChat");
+        db.UsageStats.Add(new UsageStat { EmoteId = sharedOnly.Id, Date = new DateOnly(2026, 7, 14), UseCount = 0, SharedChatUseCount = 4 });
+
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+
+        var context = await service.GetUsageContextAsync(channel.ChannelName, from, to);
+        var sharedThenHumanContext = context.Single(c => c.EmoteId == sharedThenHuman.Id);
+        Assert.Equal(3, sharedThenHumanContext.TotalUseCount);
+        Assert.Equal(youngerSharedDay, sharedThenHumanContext.LastUsedDate);
+        Assert.Equal(5, context.Single(c => c.EmoteId == mixed.Id).TotalUseCount);
+        Assert.True(context.Single(c => c.EmoteId == sharedOnly.Id).TotalUseCount > 0);
+
+        var dailySeries = await service.GetDailySeriesAsync(channel.ChannelName, sharedThenHuman.Id, from, to);
+        Assert.NotNull(dailySeries);
+        var day = Assert.Single(dailySeries.Days);
+        Assert.Equal(youngerSharedDay, day.Date);
+        Assert.Equal(3, day.UseCount);
+        Assert.Equal(3, dailySeries.TotalUseCount);
+        Assert.Equal(youngerSharedDay, dailySeries.LastUsedDate);
+
+        var channelSeries = await service.GetChannelSeriesAsync(channel.ChannelName, from, to);
+        var sharedThenHumanEntry = channelSeries.Emotes.Single(e => e.EmoteId == sharedThenHuman.Id);
+        var sharedDayOffset = youngerSharedDay.DayNumber - from.DayNumber;
+        Assert.Equal([[sharedDayOffset, 3]], sharedThenHumanEntry.Days);
+
+        var totals = await service.GetTotalsByEmoteIdsAsync([sharedThenHuman.Id], from, to);
+        Assert.Equal(3, totals[sharedThenHuman.Id]);
     }
 
     [Fact]
