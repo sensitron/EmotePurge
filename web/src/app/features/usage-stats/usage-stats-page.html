@@ -749,10 +749,34 @@
           [setId]="setId"
           [channelName]="channelName()"
           [selectedEmotes]="selectedForDelete()"
+          [leadingActionsPresent]="true"
           (deleted)="onDeleted($event)"
           (reloadRequested)="onReloadRequested()"
           (selectionCleared)="selection.clear()"
         >
+          <!-- Dock shortcut for the header's "In Kanal kopieren…" (design doc §8.7 — same verb,
+               second entry point, not a doubled command). Rendered unconditionally rather than
+               behind an @if: it only ever exists here because the dock is already gated on
+               !isCoarse() (usage-stats-page.html's `@if (dockVisible() && !isCoarse())`) and this
+               branch is already gated on an active set (`@if (activeEmoteSetId(); as setId)`
+               above) — the header's own two rendering gates, so repeating either would test a
+               condition that can never be false at this point. The remaining locks
+               (importScopeCurrent, any active 7TV run, plus the empty-selection case that only
+               applies to this forced-scope entry point) are extracted in importShortcutDisabled —
+               see importShortcutLocked. Forces scope 'selection': there is no radiogroup here to
+               pick 'visible' from. selection-actions is a plain attribute, not ngProjectAs, since
+               this element (unlike the vote button below) is not behind an @if block itself. -->
+          <button
+            type="button"
+            selection-actions
+            appButton="neutral"
+            buttonSize="lg"
+            class="disabled:cursor-not-allowed"
+            [disabled]="importShortcutLocked()"
+            (click)="openImportTarget('selection')"
+          >
+            {{ 'import.dockCopyButton' | transloco: { count: selection.selectedKeys().length } }}
+          </button>
           <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up
                as a curated vote-session ballot. Count in the label + disabled at zero, mirroring the
                delete button's conventions; managers only (the endpoint would 403 a 7TV editor).

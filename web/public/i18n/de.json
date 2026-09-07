@@ -894,6 +894,7 @@
   },
   "import": {
     "copyButton": "In Kanal kopieren…",
+    "dockCopyButton": "In Kanal kopieren… ({{ count }})",
     "target": {
       "title": "Emotes in einen Kanal kopieren",
       "label": "Zielkanal",

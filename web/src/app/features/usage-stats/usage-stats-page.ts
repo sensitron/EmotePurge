@@ -84,7 +84,7 @@ import {
 } from '../../shared/emotes/usage-bands';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
+import { ExportDialogData, ExportScope, openExportDialog } from '../../shared/export/export-dialog';
 import {
   buildEmoteListEnvelope,
   emoteListFilename,
@@ -112,6 +112,7 @@ import { actionDockHasContent } from '../../shared/seven-tv/action-dock';
 import { ImportFlowDeps, startImportFlow } from '../../shared/seven-tv/import-flow';
 import { ImportProgressSection } from '../../shared/seven-tv/import-progress-section';
 import { importScopeIsCurrent } from '../../shared/seven-tv/import-scope';
+import { importShortcutDisabled } from '../../shared/seven-tv/import-shortcut';
 import {
   ImportTargetChoice,
   openImportTargetDialog,
@@ -692,6 +693,21 @@ export class UsageStatsPage {
     importScopeIsCurrent(this.channelName(), this.setStatusChannel(), this.totalsChannel()),
   );
 
+  /**
+   * Whether the dock's copy shortcut (design doc §8.7, "Erlaubnis auf Probe bis #68") is disabled.
+   * `!isCoarse()` and an active 7TV set are deliberately not part of this — the shortcut only ever
+   * renders inside the dock's own `!isCoarse()` gate and the marking half's `activeEmoteSetId()`
+   * gate, so re-checking either here would test a condition it can never actually violate. See
+   * importShortcutDisabled for why the remaining three locks are exactly the header button's.
+   */
+  protected readonly importShortcutLocked = computed(() =>
+    importShortcutDisabled({
+      selectionCount: this.selection.selectedKeys().length,
+      importScopeCurrent: this.importScopeCurrent(),
+      hasActiveRun: this.arbiter.activeRun() !== null,
+    }),
+  );
+
   /** Occupied slots after the pending selection would be deleted — the dock's one number. */
   protected readonly projectedSlots = computed(() => {
     const status = this.setStatus();
@@ -1132,7 +1148,11 @@ export class UsageStatsPage {
   /**
    * The push entry point (#72, K3): pick a scope and a destination, then either save the rows as a
    * file or hand them to the confirm-and-run flow. `selectionCount` gates the scope radiogroup the
-   * same way `openExport` does.
+   * same way `openExport` does — unless `forcedScope` is given, in which case the dialog skips the
+   * radiogroup entirely and closes with exactly that scope (design doc §8.7). The dock's copy
+   * shortcut is the one caller that passes `'selection'`; the header button passes nothing, keeping
+   * today's behaviour. Both calls go through this one method rather than each freezing their own
+   * scope, so the capture discipline below cannot drift between the two entry points.
    *
    * Everything the continuation needs is read *here*, before the dialog opens, and never again
    * afterwards. Unlike the export dialog, this page keeps updating while the picker is open: a
@@ -1142,7 +1162,7 @@ export class UsageStatsPage {
    * exactly like an unchanged one. The same read pairs the already-captured `emoteSetId` (and
    * channel name) with rows that may no longer belong to it.
    */
-  protected openImportTarget(): void {
+  protected openImportTarget(forcedScope?: ExportScope): void {
     const emoteSetId = this.activeEmoteSetId();
     if (emoteSetId === null || !this.importScopeCurrent()) {
       // The header button is gated on both of these, so this only guards against a click that
@@ -1157,11 +1177,18 @@ export class UsageStatsPage {
       selection: this.selection.selectedItems().map(toImportRow),
       visible: this.atlasOrder().map(toImportRow),
     };
+    if (forcedScope === 'selection' && captured.selection.length === 0) {
+      // The dock shortcut's own template disables the button on an empty selection
+      // (importShortcutLocked/importShortcutDisabled) — this only guards a click that outraces
+      // that, the same role the emoteSetId/importScopeCurrent check above plays for the header.
+      return;
+    }
 
     const data = {
       currentChannelName: captured.channelName,
       visibleCount: captured.visible.length,
       selectionCount: captured.selection.length,
+      forcedScope,
     };
     openImportTargetDialog(this.dialog, data).closed.subscribe((choice) => {
       if (!choice) {
