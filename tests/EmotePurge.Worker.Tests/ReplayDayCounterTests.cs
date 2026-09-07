@@ -64,9 +64,10 @@ public class ReplayDayCounterTests
     {
         var counter = Counter([Emote("e1", "Kappa", firstSeenAt: null)]);
 
-        Say(counter, "hello Kappa");
+        var category = Say(counter, "hello Kappa");
         var line = Finish(counter);
 
+        Assert.Equal(UsageCategory.Human, category);
         Assert.Equal(1, line.HumanCounts["e1"]);
         Assert.Equal(1, line.FirstSeenUnknownHits);
     }
@@ -111,9 +112,10 @@ public class ReplayDayCounterTests
     {
         var counter = Counter([Emote("e1", "Kappa", Known)], (_, _) => true);
 
-        Say(counter, "Kappa");
+        var category = Say(counter, "Kappa");
         var line = Finish(counter);
 
+        Assert.Equal(UsageCategory.Bot, category);
         Assert.Equal(1, line.BotCounts["e1"]);
         Assert.Empty(line.HumanCounts);
         Assert.Equal(1, line.BotMessageCount);
@@ -126,13 +128,106 @@ public class ReplayDayCounterTests
     {
         var counter = Counter([Emote("e1", "Kappa", Known)]);
 
+        // Foreign: sourceRoomId differs from roomId ("room1", Say's default).
         Say(counter, "Kappa", sourceRoomId: "other-room");
+        // Own: sourceRoomId equals roomId — a Shared Chat session's origin channel tags its own
+        // messages too, and those still count as human.
         Say(counter, "Kappa", userId: "u2", sourceRoomId: "room1");
 
         var line = Finish(counter);
 
-        Assert.Equal(2, line.HumanCounts["e1"]);
+        Assert.Equal(1, line.SharedChatCounts["e1"]);
+        Assert.Equal(1, line.HumanCounts["e1"]);
         Assert.Equal(1, line.SharedChatMessageCount);
+    }
+
+    [Fact]
+    public void ForeignBotMessage_CountsIntoSharedChatCountsOnly()
+    {
+        var counter = Counter([Emote("e1", "Kappa", Known)], (_, _) => true);
+
+        var category = Say(counter, "Kappa", sourceRoomId: "other-room");
+        var line = Finish(counter);
+
+        Assert.Equal(UsageCategory.SharedChat, category);
+        Assert.Equal(1, line.SharedChatCounts["e1"]);
+        Assert.Equal(0, line.BotMessageCount);
+        Assert.Empty(line.BotCounts);
+    }
+
+    [Fact]
+    public void ForeignChatter_DoesNotAppearInDistinctChattersOrCells()
+    {
+        var counter = Counter([Emote("e1", "Kappa", Known)]);
+
+        Say(counter, "Kappa", userId: "foreign-user", sourceRoomId: "other-room");
+        var line = Finish(counter);
+
+        Assert.Equal(0, line.DistinctChatters);
+        Assert.Equal(0, line.CellCount);
+    }
+
+    [Fact]
+    public void ForeignMessage_DoesNotAffectFirstSeenUnknownHitsOrUnknownNameReason()
+    {
+        // FirstSeenAt: null would flag every human/bot hit as FirstSeenUnknownHits; "unmatched" is an
+        // unmatched word that would flag UnknownName if this message were tokenized like an own one.
+        var counter = Counter([Emote("e1", "Kappa", firstSeenAt: null)]);
+
+        Say(counter, "Kappa unmatched", sourceRoomId: "other-room");
+        var line = Finish(counter);
+
+        Assert.Equal(1, line.SharedChatCounts["e1"]);
+        Assert.Equal(0, line.FirstSeenUnknownHits);
+        Assert.Equal(0, Reason(line, UnmatchedReason.UnknownName));
+    }
+
+    [Fact]
+    public void IndeterminateMessage_CountsIntoSharedChatCountsAndItsOwnCounter()
+    {
+        // Shared Chat markers present, but no usable source-room-id: the room cannot be told apart.
+        var counter = Counter([Emote("e1", "Kappa", Known)]);
+
+        var category = Say(counter, "Kappa", sourceRoomId: null, hasOtherSourceMarkers: true);
+        var line = Finish(counter);
+
+        Assert.Equal(UsageCategory.SharedChat, category);
+        Assert.Equal(1, line.SharedChatCounts["e1"]);
+        Assert.Equal(1, line.IndeterminateMessageCount);
+        Assert.Equal(0, line.SharedChatMessageCount);
+    }
+
+    [Fact]
+    public void MissingRoomIdWithSourceRoomIdSet_IsForeign()
+    {
+        // A comparison against nothing is never "equal" — the contract is tested rather than left to
+        // string.Equals' null semantics.
+        var counter = Counter([Emote("e1", "Kappa", Known)]);
+
+        var category = Say(counter, "Kappa", roomId: null, sourceRoomId: "other-room");
+        var line = Finish(counter);
+
+        Assert.Equal(UsageCategory.SharedChat, category);
+        Assert.Equal(1, line.SharedChatMessageCount);
+        Assert.Equal(1, line.SharedChatCounts["e1"]);
+    }
+
+    [Fact]
+    public void SharedChatHits_AlwaysHaveAMatchingMessageCounter()
+    {
+        // Control sum (Nr. 4): sum(SharedChatCounts) > 0 implies SharedChatMessageCount +
+        // IndeterminateMessageCount > 0 — a shared-chat hit can never appear with both message
+        // counters at zero.
+        var counter = Counter([Emote("e1", "Kappa", Known), Emote("e2", "PogU", Known)]);
+
+        Say(counter, "Kappa", sourceRoomId: "other-room");
+        Say(counter, "PogU", sourceRoomId: null, hasOtherSourceMarkers: true);
+        var line = Finish(counter);
+
+        Assert.True(line.SharedChatCounts.Values.Sum() > 0);
+        Assert.True(line.SharedChatMessageCount + line.IndeterminateMessageCount > 0);
+        Assert.Equal(1, line.SharedChatMessageCount);
+        Assert.Equal(1, line.IndeterminateMessageCount);
     }
 
     [Fact]
@@ -261,14 +356,16 @@ public class ReplayDayCounterTests
         Func<string?, IReadOnlyList<KeyValuePair<string, string>>?, bool>? isBot = null)
         => new(Day, emotes, isBot ?? ((_, _) => false));
 
-    private static void Say(
+    private static UsageCategory Say(
         ReplayDayCounter counter,
         string text,
         string? userId = "u1",
         DateTime? at = null,
         string? roomId = "room1",
-        string? sourceRoomId = null)
-        => counter.Count(at ?? Day.ToDateTime(new TimeOnly(12, 0)), userId, NoBadges, roomId, sourceRoomId, text);
+        string? sourceRoomId = null,
+        bool hasOtherSourceMarkers = false)
+        => counter.Count(
+            at ?? Day.ToDateTime(new TimeOnly(12, 0)), userId, NoBadges, roomId, sourceRoomId, hasOtherSourceMarkers, text);
 
     private static ReplayDayLine Finish(ReplayDayCounter counter)
         => counter.Finish(ReplayDayStatuses.Complete, 1024, "sha", 0, 0);

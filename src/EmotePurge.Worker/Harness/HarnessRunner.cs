@@ -55,9 +55,13 @@ public sealed class HarnessRunner(
 {
     /// <summary>
     /// Part of the run identity: a changed counting rule must not resume a file counted by the old
-    /// one. Bump it whenever the matching, the day boundaries or the day-line shape change.
+    /// one. Bump it whenever the matching, the day boundaries or the day-line shape change — as it
+    /// just did for the day-line shape and the shared-chat rule (#73): a message from a foreign or
+    /// indeterminate room now moves <see cref="ReplayDayLine.SharedChatCounts"/> instead of
+    /// <see cref="ReplayDayLine.HumanCounts"/> or <see cref="ReplayDayLine.BotCounts"/>, so a
+    /// "harness-1" file must not be silently resumed under the new rule.
     /// </summary>
-    public const string AlgorithmVersion = "harness-1";
+    public const string AlgorithmVersion = "harness-2";
 
     /// <summary>The window covered completely; both final reports were written.</summary>
     public const int ExitSuccess = 0;
@@ -242,7 +246,7 @@ public sealed class HarnessRunner(
             .Select(e => new ReplayEmote(e.Id, e.Name, e.IsArchived, e.FirstSeenAt, e.ArchivedAt, e.LastSyncedAt))
             .ToList();
         var liveRows = liveRowDtos
-            .Select(r => new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount))
+            .Select(r => new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount, r.SharedChatUseCount))
             .ToList();
         var window = new ReplayWindow(from, to, botSplitCutover);
 
@@ -293,7 +297,6 @@ public sealed class HarnessRunner(
                         if (!string.IsNullOrEmpty(message.UserId))
                         {
                             sawUserId = true;
-                            distinctChatters?.Add(message.UserId);
                         }
 
                         if (message.Badges.Count > 0)
@@ -301,8 +304,19 @@ public sealed class HarnessRunner(
                             sawBadges = true;
                         }
 
-                        counter.Count(
-                            message.SentAtUtc, message.UserId, message.Badges, message.RoomId, message.SourceRoomId, message.Text);
+                        // Classify first, add second (Spec B5): the window-wide chatter set has to
+                        // follow the same own/foreign rule as the per-day counter's own chatter set,
+                        // so the category must be known before the Add, not derived from it. Both
+                        // "distinct chatters" numbers in the report mean own human chatters as of
+                        // harness-2.
+                        var category = counter.Count(
+                            message.SentAtUtc, message.UserId, message.Badges, message.RoomId, message.SourceRoomId,
+                            message.HasOtherSourceMarkers, message.Text);
+                        if (category == UsageCategory.Human && !string.IsNullOrEmpty(message.UserId))
+                        {
+                            distinctChatters?.Add(message.UserId);
+                        }
+
                         return ValueTask.CompletedTask;
                     },
                     ct);
@@ -606,8 +620,8 @@ public sealed class HarnessRunner(
             $"{diagnostics.UnknownNameHits} / {diagnostics.AmbiguousNameHits} / {diagnostics.BeforeFirstSeenHits} / {diagnostics.AfterArchivedHits}"));
         Row(text, "FirstSeenAt unbekannt (gezählt und markiert) / mehrdeutige Namen / archiviert ohne Datum", Invariant(
             $"{diagnostics.FirstSeenUnknownHits} / {diagnostics.AmbiguousNameCount} / {diagnostics.ArchivedWithoutDateCount}"));
-        Row(text, "Nachrichten gesamt / Bots / Shared Chat / außerhalb des Tages", Invariant(
-            $"{diagnostics.TotalMessages} / {diagnostics.BotMessages} / {diagnostics.SharedChatMessages} / {diagnostics.OutsideDayCount}"));
+        Row(text, "Nachrichten gesamt / Bots / Shared Chat / unbestimmbar / außerhalb des Tages", Invariant(
+            $"{diagnostics.TotalMessages} / {diagnostics.BotMessages} / {diagnostics.SharedChatMessages} / {diagnostics.IndeterminateMessages} / {diagnostics.OutsideDayCount}"));
         Row(text, "Nicht-PRIVMSG-Zeilen / unlesbare Zeilen", Invariant(
             $"{diagnostics.NonPrivmsgLines} / {diagnostics.MalformedLines}"));
         Row(text, "Datenschutz: Anteil (Emote, Tag)-Zellen mit k = 1", Invariant(

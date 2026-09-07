@@ -109,15 +109,25 @@ public class HarnessReportFileTests : IDisposable
         {
             HumanCounts = new Dictionary<string, int> { ["e1"] = 4 },
             BotCounts = new Dictionary<string, int> { ["e1"] = 1 },
+            SharedChatCounts = new Dictionary<string, int> { ["e1"] = 2 },
+            IndeterminateMessageCount = 1,
             KHistogram = [0, 2, 1],
             Bytes = 1234,
             BodySha256Hex = "abc"
         });
 
+        // Assert.Contains on the raw text, not just the round-trip below, because that is what
+        // pins the camelCase JSON contract rather than only the symmetry of writing and reading.
+        var rawText = File.ReadAllText(file.Path);
+        Assert.Contains("\"sharedChatCounts\"", rawText);
+        Assert.Contains("\"indeterminateMessageCount\"", rawText);
+
         var day = Assert.Single(file.ReadDays().Days);
 
         Assert.Equal(4, day.HumanCounts["e1"]);
         Assert.Equal(1, day.BotCounts["e1"]);
+        Assert.Equal(2, day.SharedChatCounts["e1"]);
+        Assert.Equal(1, day.IndeterminateMessageCount);
         Assert.Equal(new[] { 0, 2, 1 }, day.KHistogram);
         Assert.Equal(1234, day.Bytes);
         Assert.Equal("abc", day.BodySha256Hex);
@@ -313,6 +323,8 @@ public class HarnessReportFileTests : IDisposable
             0,
             0,
             0,
+            0,
+            new Dictionary<string, int>(),
             new Dictionary<string, int>(),
             new Dictionary<string, int>(),
             new Dictionary<string, int>(),

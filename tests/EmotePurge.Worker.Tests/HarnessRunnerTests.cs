@@ -375,19 +375,91 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"windowFrom\": \"2026-09-02\"", json);
         Assert.Contains("\"windowTo\": \"2026-09-04\"", json);
         Assert.Contains("\"runComplete\": true", json);
-        Assert.Contains("\"ratedDays\": 3", json);
-        // Befund 2 (Abschluss-Review): these three values, not just their key names, pin the three
-        // mapping seams between the query DTOs and the harness's own replay types. Each was verified
-        // to fail under its corresponding one-line mutation at the HarnessRunner call sites (see the
-        // final-fix report) before this test was written this way.
-        Assert.Contains("\"humanLogTotal\": 3", json); // one PogChamp hit per day, three rated days
-        Assert.Contains("\"humanLiveTotal\": 3", json); // UseCount=1 per day; BotUseCount=7 must not leak in
+        // ratedDays is 2, not 3 (harness-2, #73 — the case is deliberately inverted here, see below):
+        // day 2's PogChamp hit now moves SharedChatCounts instead of HumanCounts, so its human log
+        // total drops to 0 while its live total (UseCount=1 plus the fixture's BotUseCount=7) stays
+        // 8 — a ratio far enough from the other two days' 1:1 that BuildDayFacts (unchanged by this
+        // task, Task 7) flags day 2 as CoverageQuestionable and excludes it from the rated set.
+        Assert.Contains("\"ratedDays\": 2", json);
+        // Befund 2 (Abschluss-Review): these values, not just their key names, pin the mapping seams
+        // between the query DTOs and the harness's own replay types. Each was verified to fail under
+        // its corresponding one-line mutation at the HarnessRunner call sites (see the final-fix
+        // report) before this test was written this way.
+        Assert.Contains("\"humanLogTotal\": 2", json); // one PogChamp hit per rated day (1 and 3)
+        Assert.Contains("\"humanLiveTotal\": 2", json); // UseCount=1 per rated day; BotUseCount=7 must not leak in
         Assert.Contains("\"sharedChatMessages\": 1", json); // only day 2's message carries a foreign SourceRoomId
+
+        var jsonl = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
+        Assert.Contains("\"algorithmVersion\":\"harness-2\"", jsonl);
+        // Day 2's foreign hit lands in the day line's own dictionary, not just the aggregated report.
+        Assert.Contains("\"sharedChatCounts\":{\"e1\":1}", jsonl);
 
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
         Assert.Contains("Replay-Treue", markdown);
         Assert.Contains("Uptime Kuma", markdown);
         Assert.Contains(ChannelName, markdown);
+    }
+
+    [Fact]
+    public async Task AFileWithTheOldAlgorithmVersion_IsNotResumed()
+    {
+        // Regression guard for the harness-2 bump (#73): a "harness-1" file left over from before the
+        // shared-chat rule counted every message as own. FindFrozenWindow's AlgorithmVersion
+        // comparison must not treat it as a resume candidate — inheriting its window and then
+        // counting the days in it under the new rule would silently mix two countings in one file.
+        var leftoverIdentity = new HarnessRunIdentity(
+            ChannelId, TwitchChannelId, ChannelName, Day1, Day3, new DateOnly(2026, 9, 1),
+            ["19264788"], "harness-1", new string('a', 64));
+        var leftover = new HarnessReportFile(Path.Combine(_directory, "leftover-harness-1.jsonl"));
+        leftover.WriteHeader(new HarnessReportHeader(leftoverIdentity, DateTime.UtcNow));
+
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        // The run completed with its own, freshly derived window rather than inheriting the
+        // harness-1 file's — a second file next to the untouched leftover, not an appended one, and
+        // every day fetched fresh.
+        Assert.True(File.Exists(leftover.Path));
+        Assert.Equal(2, Directory.GetFiles(_directory, "*.jsonl").Length);
+        Assert.Equal(3, _archive.ReceivedCalls().Count(c => c.GetMethodInfo().Name == nameof(IChatLogArchiveClient.ReadDayAsync)));
+    }
+
+    [Fact]
+    public async Task TheWindowWideChatterCount_CountsOnlyOwnHumans()
+    {
+        // Spec B5: the window-wide "distinct chatters" figure follows the same own/foreign rule as
+        // the per-day counter. Three chatters, three messages, one foreign and one bot — only the
+        // remaining own human counts.
+        _bots.IsBot(Arg.Any<string?>(), Arg.Any<IReadOnlyList<KeyValuePair<string, string>>?>())
+            .Returns(call => call.ArgAt<string?>(0) == "bot-1");
+
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day1)
+            {
+                await onMessage(Message(day, "chatter-1", "PogChamp"));
+            }
+            else if (day == Day2)
+            {
+                await onMessage(Message(day, "chatter-2", "PogChamp", sourceRoomId: "other-room"));
+            }
+            else
+            {
+                await onMessage(Message(day, "bot-1", "PogChamp"));
+            }
+
+            return CompleteDay(1);
+        });
+
+        Assert.Equal(0, await Run(3));
+
+        var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
+        Assert.Contains("| Distinkte Chatter im Fenster | 1 |", markdown);
     }
 
     [Fact]

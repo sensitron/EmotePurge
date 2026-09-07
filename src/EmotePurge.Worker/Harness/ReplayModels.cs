@@ -25,7 +25,7 @@ public sealed record ReplayEmote(
 /// One live <c>UsageStat</c> row of the window. Same shape as <c>UsageStatRowDto</c> and, like
 /// <see cref="ReplayEmote"/>, deliberately its own type — see the remark there.
 /// </summary>
-public sealed record ReplayUsageRow(string EmoteId, DateOnly Date, int UseCount, int BotUseCount);
+public sealed record ReplayUsageRow(string EmoteId, DateOnly Date, int UseCount, int BotUseCount, int SharedChatUseCount);
 
 /// <summary>
 /// The frozen comparison window plus the channel's bot-split cutover, i.e. the earliest day whose
@@ -114,11 +114,13 @@ public sealed record ReplayDayLine(
     int MessageCount,
     int BotMessageCount,
     int SharedChatMessageCount,
+    int IndeterminateMessageCount,
     int NonPrivmsgLines,
     int MalformedLines,
     int OutsideDayCount,
     IReadOnlyDictionary<string, int> HumanCounts,
     IReadOnlyDictionary<string, int> BotCounts,
+    IReadOnlyDictionary<string, int> SharedChatCounts,
     IReadOnlyDictionary<string, int> UnmatchedByReason,
     int FirstSeenUnknownHits,
     IReadOnlyList<int> KHistogram,
@@ -237,6 +239,7 @@ public sealed record ReplayDiagnostics(
     long TotalMessages,
     long BotMessages,
     long SharedChatMessages,
+    long IndeterminateMessages,
     long OutsideDayCount,
     long NonPrivmsgLines,
     long MalformedLines,

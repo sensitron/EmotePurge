@@ -310,7 +310,7 @@ public class ReplayFidelityCalculatorTests
         {
             var day = From.AddDays(i);
             days.Add(DayLine(day, Counts(("x", 10)), Counts(("x", 5))));
-            rows.Add(new ReplayUsageRow("x", day, 10, 4));
+            rows.Add(new ReplayUsageRow("x", day, 10, 4, 0));
         }
 
         var report = Compute(emotes, rows, days);
@@ -358,7 +358,7 @@ public class ReplayFidelityCalculatorTests
                 histogram: Histogram((1, 1)), cellCount: 1, distinctChatters: 2),
             DayLine(From.AddDays(2), Empty, status: ReplayDayStatuses.RateLimited, bytes: 5),
         };
-        var rows = new List<ReplayUsageRow> { new("x", From, 3, 0), new("x", From.AddDays(1), 3, 0) };
+        var rows = new List<ReplayUsageRow> { new("x", From, 3, 0, 0), new("x", From.AddDays(1), 3, 0, 0) };
 
         var report = Compute(emotes, rows, days, rateLimitedDays: 1, resumePoint: From.AddDays(2));
 
@@ -529,8 +529,8 @@ public class ReplayFidelityCalculatorTests
         {
             var day = From.AddDays(i);
             days.Add(DayLine(day, Counts(("x", 10), ("y", 100))));
-            rows.Add(new ReplayUsageRow("x", day, liveX[i], 0));
-            rows.Add(new ReplayUsageRow("y", day, 100, 0));
+            rows.Add(new ReplayUsageRow("x", day, liveX[i], 0, 0));
+            rows.Add(new ReplayUsageRow("y", day, 100, 0, 0));
         }
 
         var report = Compute(emotes, rows, days);
@@ -612,7 +612,9 @@ public class ReplayFidelityCalculatorTests
         int sharedChat = 0,
         int outsideDay = 0,
         int nonPrivmsg = 0,
-        int malformed = 0)
+        int malformed = 0,
+        IReadOnlyDictionary<string, int>? sharedChatCounts = null,
+        int indeterminateMessageCount = 0)
         => new(
             day,
             status,
@@ -621,11 +623,13 @@ public class ReplayFidelityCalculatorTests
             messageCount,
             botMessageCount,
             sharedChat,
+            indeterminateMessageCount,
             nonPrivmsg,
             malformed,
             outsideDay,
             human ?? Empty,
             bot ?? Empty,
+            sharedChatCounts ?? Empty,
             unmatched ?? Empty,
             firstSeenUnknownHits,
             histogram ?? new int[HistogramLength],
@@ -645,7 +649,7 @@ public class ReplayFidelityCalculatorTests
             days.Add(DayLine(day, logPerDay));
             foreach (var (id, count) in livePerDay)
             {
-                rows.Add(new ReplayUsageRow(id, day, count, 0));
+                rows.Add(new ReplayUsageRow(id, day, count, 0, 0));
             }
         }
 

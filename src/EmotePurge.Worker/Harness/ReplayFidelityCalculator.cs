@@ -383,6 +383,7 @@ public static class ReplayFidelityCalculator
             days.Sum(d => (long)d.MessageCount),
             days.Sum(d => (long)d.BotMessageCount),
             days.Sum(d => (long)d.SharedChatMessageCount),
+            days.Sum(d => (long)d.IndeterminateMessageCount),
             days.Sum(d => (long)d.OutsideDayCount),
             days.Sum(d => (long)d.NonPrivmsgLines),
             days.Sum(d => (long)d.MalformedLines),

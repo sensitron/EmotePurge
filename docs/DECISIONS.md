@@ -33,8 +33,16 @@ Designer und `AppDbContextModelSnapshot.cs`, `src/EmotePurge.Worker/UsageCategor
 ihre Tests unter `tests/EmotePurge.Infrastructure.Tests/{Unit,Integration}/` und
 `tests/EmotePurge.Worker.Tests/` (`SharedChatRuleTests`, `SharedChatRuleTwitchLibTests`,
 `JustlogRawLineParserTests`, `UsageStatFlushServiceTests`, `UsageStatQueryServiceTests`,
-`EmoteUsageCounterTests`, `WorkerStatsTests`, `HarnessRunnerTests`, `HarnessInputHashTests`), und
-`docs/Architectur.md`.
+`EmoteUsageCounterTests`, `WorkerStatsTests`, `HarnessRunnerTests`, `HarnessInputHashTests`),
+`docs/Architectur.md`, `src/EmotePurge.Worker/Harness/ReplayDayCounter.cs`,
+`src/EmotePurge.Worker/Harness/ReplayModels.cs` (`ReplayUsageRow`, `ReplayDayLine`,
+`ReplayDiagnostics`), `src/EmotePurge.Worker/Harness/HarnessRunner.cs` (`AlgorithmVersion` auf
+`harness-2`, Zählaufruf im Callback, Zeilen-Mapping, Diagnostikzeile im Markdown-Bericht),
+`src/EmotePurge.Worker/Harness/ReplayFidelityCalculator.cs` (Task 5: nur `BuildDiagnostics`, den
+Rest hält Task 7), sowie `tests/EmotePurge.Worker.Tests/ReplayDayCounterTests.cs`,
+`tests/EmotePurge.Worker.Tests/HarnessReportFileTests.cs` und
+`tests/EmotePurge.Worker.Tests/ReplayFidelityCalculatorTests.cs` (nur die Helfer, die
+`ReplayDayLine`/`ReplayUsageRow` bauen).
 
 **Der Fall.** Twitch spiegelt in einer Stream-Together-Session ("Shared Chat") die Nachrichten
 aller beteiligten Kanäle in jeden dieser Chats. Bisher zählt unser Worker jede empfangene
