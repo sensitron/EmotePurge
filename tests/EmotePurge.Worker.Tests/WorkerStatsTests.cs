@@ -94,4 +94,19 @@ public class WorkerStatsTests
         Assert.Equal(2, stats.TakeIndeterminateSharedChatMessagesSinceLastFlush());
         Assert.Equal(0, stats.TakeIndeterminateSharedChatMessagesSinceLastFlush());
     }
+
+    [Fact]
+    public void RecordSplicedIrcLine_AccumulatesUntilTaken()
+    {
+        // Same guarantee as the indeterminate counter above: the take resets to zero atomically
+        // (Interlocked.Exchange) — a second Take right after must see 0, not the same count again.
+        var stats = new WorkerStats();
+
+        stats.RecordSplicedIrcLine();
+        stats.RecordSplicedIrcLine();
+        stats.RecordSplicedIrcLine();
+
+        Assert.Equal(3, stats.TakeSplicedIrcLinesSinceLastFlush());
+        Assert.Equal(0, stats.TakeSplicedIrcLinesSinceLastFlush());
+    }
 }

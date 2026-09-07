@@ -511,6 +511,28 @@ public class TwitchChatManager(
         // first insert per channel.
         _lastMessageByChannelTicks[e.ChatMessage.Channel] = receivedAtTicks;
 
+        // Sentinel for the TwitchLib double-read-loop defect (#114): warn and count, never drop —
+        // the line still carries a real message and must be classified and matched like any other.
+        // Reads RawIrcMessage, not UndocumentedTags (E6, see IrcLineSpliceRule). Hot path: one
+        // call, no allocation on the (overwhelming) non-splice branch.
+        var rawIrc = e.ChatMessage.RawIrcMessage;
+        if (IrcLineSpliceRule.IsSpliced(rawIrc))
+        {
+            stats.RecordSplicedIrcLine();
+            var tagBlockEnd = rawIrc.IndexOf(' ');
+            var tagBlock = tagBlockEnd < 0 ? rawIrc : rawIrc[..tagBlockEnd];
+            if (tagBlock.Length > 512)
+            {
+                tagBlock = tagBlock[..512];
+            }
+
+            // No message text here on purpose (data minimisation) — the tag block alone is enough
+            // to diagnose the splice.
+            logger.LogWarning(
+                "Gespleißte IRC-Zeile erkannt (#114) in Channel {Channel}, RoomId {RoomId}: {TagBlock}",
+                e.ChatMessage.Channel, e.ChatMessage.RoomId, tagBlock);
+        }
+
         logger.LogDebug("[{Channel}] {Username}: {Message}",
             e.ChatMessage.Channel, e.ChatMessage.Username, e.ChatMessage.Message);
 

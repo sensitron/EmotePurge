@@ -54,6 +54,17 @@ public class UsageFlushWorker(
                 indeterminate);
         }
 
+        // Same unconditional drain as above, same reasoning — this is the only production signal
+        // for the TwitchLib double-read-loop defect (#114). Warning rather than Information: unlike
+        // the indeterminate count, a nonzero value here means chat messages could be corrupted.
+        var splicedIrcLines = stats.TakeSplicedIrcLinesSinceLastFlush();
+        if (splicedIrcLines > 0)
+        {
+            logger.LogWarning(
+                "{Count} gespleißte IRC-Zeilen seit dem letzten Durchlauf erkannt (#114) — nicht verworfen, nur markiert.",
+                splicedIrcLines);
+        }
+
         var counts = usageCounter.DrainAndReset();
         if (counts.Count == 0)
         {

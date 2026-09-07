@@ -59,9 +59,11 @@ instanziieren" gilt unverändert; der Auslöser für einen Neuaufbau ist weiterh
 eine Verbindungsentscheidung, nie ein Join.
 
 **Nachweisinstrument statt Vertrauen.** `IrcLineSpliceRule` erkennt eine gespleißte Zeile am
-zweiten `@` im Tag-Block der Rohzeile (`ChatMessage.RawIRC`, nicht `UndocumentedTags`: liegt der
-Schnitt im Wert eines *typisierten* Tags, schluckt TwitchLibs Parser das `@`, und nur die Rohzeile
-ist vollständig). Treffer werden gewarnt und je Flush summiert — **nie verworfen**: die Zählregel
+zweiten `@` im Tag-Block der Rohzeile (`ChatMessage.RawIrcMessage` — der Plan nannte sie
+`RawIRC`, so heißt sie in TwitchLib.Client 4.0.1 nicht; nicht `UndocumentedTags`: liegt der
+Schnitt im Wert eines *typisierten* Tags, endet der Tag-Wert erst am nächsten `;`, das zweite `@`
+bleibt darin verschluckt und taucht nie als eigener Schlüssel auf — nur die Rohzeile ist
+vollständig, und genau das nagelt `IrcLineSpliceRuleTwitchLibTests` fest). Treffer werden gewarnt und je Flush summiert — **nie verworfen**: die Zählregel
 im laufenden #69-Messfenster bleibt unangetastet. Bekannte Untergrenze: ein Spleiß, der die Zeile
 unparsebar macht, erreicht `OnMessageReceived` nie und wird nicht gezählt.
 
