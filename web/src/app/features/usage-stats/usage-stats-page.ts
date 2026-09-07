@@ -694,15 +694,33 @@ export class UsageStatsPage {
   );
 
   /**
+   * Count of the grid selection that would actually be captured by the dock's copy shortcut —
+   * built on `selection.selectedItems()`, NOT the raw `selection.selectedKeys()`. A silent totals
+   * reload (the `usageFlushed`/`channel.synced` live-event path or the sync-recheck poll, both via
+   * `loadTotals(..., { preserveSelection: true })`) can drop rows out of `atlasOrder()` — e.g. an
+   * emote deleted externally, which the totals query filters via `!e.IsArchived` — without ever
+   * touching the raw key set, since `preserveSelection` only skips `selection.clear()`; it does not
+   * reconcile the keys against the new rows. `selectedKeys()` stays at the old size regardless.
+   * Gating the shortcut and its label on the raw key count would let `importShortcutLocked` report
+   * "unlocked" with zero resolvable rows, so a click runs into `openImportTarget`'s
+   * `captured.selection.length === 0` guard and silently does nothing — no dialog, no feedback. If
+   * only some rows survive, the label would announce more emotes than the run actually copies.
+   */
+  protected readonly importShortcutSelectionCount = computed(
+    () => this.selection.selectedItems().length,
+  );
+
+  /**
    * Whether the dock's copy shortcut (design doc §8.7, "Erlaubnis auf Probe bis #68") is disabled.
    * `!isCoarse()` and an active 7TV set are deliberately not part of this — the shortcut only ever
    * renders inside the dock's own `!isCoarse()` gate and the marking half's `activeEmoteSetId()`
    * gate, so re-checking either here would test a condition it can never actually violate. See
-   * importShortcutDisabled for why the remaining three locks are exactly the header button's.
+   * importShortcutDisabled for why the remaining three locks are exactly the header button's, and
+   * importShortcutSelectionCount for why the count feeding it is not the raw selection size.
    */
   protected readonly importShortcutLocked = computed(() =>
     importShortcutDisabled({
-      selectionCount: this.selection.selectedKeys().length,
+      selectionCount: this.importShortcutSelectionCount(),
       importScopeCurrent: this.importScopeCurrent(),
       hasActiveRun: this.arbiter.activeRun() !== null,
     }),

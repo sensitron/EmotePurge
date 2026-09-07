@@ -3,6 +3,7 @@ import { Page, expect, test } from '@playwright/test';
 import {
   AUTH_USER,
   MockEmoteUsage,
+  emitLive,
   installLiveStub,
   mockActiveEmoteSet,
   mockAuthMe,
@@ -277,6 +278,57 @@ test.describe('push flow: picker to confirmation dialog', () => {
 
     // CatJAM and KEKW's ids, in either order, and nothing else — Pog's 7tv-3 never went out.
     expect(addedEmoteIds.sort()).toEqual(['7tv-1', '7tv-2']);
+  });
+
+  /**
+   * #80 review fix: a silent totals reload (`usage.flushed`/`channel.synced`, both routed through
+   * `loadTotals(..., { preserveSelection: true })`) can drop a marked row out of `atlasOrder()` —
+   * an emote archived on 7TV from outside this tab is the concrete cause, since the totals query
+   * filters `!e.IsArchived` — without touching `selection.selectedKeys()`, which `preserveSelection`
+   * only ever leaves alone. Before this fix the dock shortcut's count and lock followed that raw,
+   * now-stale key count: the label kept promising the old row count and the button stayed enabled,
+   * so a click ran straight into `openImportTarget`'s `captured.selection.length === 0` guard and
+   * did nothing — no dialog, no error, no feedback. This proves both the label and the lock now
+   * follow `importShortcutSelectionCount` (built on `selection.selectedItems()`) instead.
+   */
+  test('a live reload that archives every marked row relocks the dock shortcut instead of running silently into an empty capture', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    // Marks CatJAM and KEKW; Pog is deliberately left both unmarked and, below, the only row the
+    // reload still returns — its continued presence is proof the grid really reloaded rather than
+    // having gone blank.
+    await cell(page, 'CatJAM').click();
+    await cell(page, 'KEKW').click({ modifiers: ['Shift'] });
+    await expect(dockCopyButton(page, 2)).toBeEnabled();
+
+    // Re-registering the same route wins over mockWorkspace's earlier one (Playwright runs the
+    // most-recently registered handler first, and this one fulfills instead of falling back) — the
+    // next totals fetch answers as if CatJAM and KEKW had just been archived from outside this tab.
+    await mockUsageTotals(page, SOURCE_CHANNEL, [SOURCE_EMOTES[2]]);
+    await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
+    // liveReload collapses the burst over CHANNEL_RELOAD_DEBOUNCE_MS (1 s) before it reloads.
+    await page.clock.runFor(1_500);
+
+    await expect(cell(page, 'Pog')).toBeVisible();
+    await expect(cell(page, 'CatJAM')).toHaveCount(0);
+
+    // The raw selection is untouched by preserveSelection (still 2 keys — see the dock's own "2
+    // markiert", not asserted here since it is explicitly out of scope for this fix), but neither
+    // marked row resolves against the reloaded grid any more, so the shortcut must show and enforce
+    // zero, not the stale two.
+    await expect(dockCopyButton(page, 2)).toHaveCount(0);
+    await expect(dockCopyButton(page, 0)).toBeDisabled();
   });
 });
 

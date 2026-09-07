@@ -775,7 +775,7 @@
             [disabled]="importShortcutLocked()"
             (click)="openImportTarget('selection')"
           >
-            {{ 'import.dockCopyButton' | transloco: { count: selection.selectedKeys().length } }}
+            {{ 'import.dockCopyButton' | transloco: { count: importShortcutSelectionCount() } }}
           </button>
           <!-- Second consumer of the grid selection besides mass-delete: puts the picked emotes up
                as a curated vote-session ballot. Count in the label + disabled at zero, mirroring the
