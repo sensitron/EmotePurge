@@ -143,7 +143,7 @@
     "preset7Days": "7 days",
     "preset30Days": "30 days",
     "presetAll": "All time",
-    "presetCustom": "Custom range …",
+    "presetCustom": "Custom range",
     "from": "From",
     "to": "To"
   },
@@ -821,14 +821,14 @@
       "failed": "Could not trigger a sync — the periodic sync catches up within a minute."
     },
     "import": {
-      "trigger": "Import file…",
+      "trigger": "Import",
       "title": "Import file",
       "sorts": {
         "purgeRun": "Purge protocol (restore) as JSON",
         "emoteList": "Emote list (copy) as JSON",
         "usageExport": "Usage export (copy) as JSON"
       },
-      "fileLabel": "Choose file…",
+      "fileLabel": "Choose file",
       "errors": {
         "notJson": "The file is not valid JSON.",
         "csvInsteadOfJson": "That is the CSV version. The import needs the same file as JSON — pick the JSON format when exporting.",
@@ -898,13 +898,13 @@
     }
   },
   "import": {
-    "copyButton": "Transfer…",
-    "dockCopyButton": "Transfer… ({{ count }})",
+    "copyButton": "Transfer",
+    "dockCopyButton": "Transfer ({{ count }})",
     "target": {
       "title": "Transfer emotes",
       "label": "Target channel",
       "notTracked": "Channel has to join first",
-      "saveAsFile": "… save as a file",
+      "saveAsFile": "Save as a file",
       "none": "No other channel where you are broadcaster or 7TV editor.",
       "listIncomplete": "The channel list is incomplete right now — missing channels appear after a reload.",
       "reauthRequired": "Your Twitch login has expired or was revoked — target channels appear after a fresh login.",

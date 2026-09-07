@@ -30,9 +30,9 @@ import { startRestoreFlow } from './restore-flow';
  * `importScopeCurrent` is an input rather than something computed here from page state, so the
  * lock this button carries stays a pure function of two booleans (`fileImportTriggerDisabled`,
  * testable without a TestBed) — the page computes the boolean itself, the same way it already does
- * for the neighbouring "Übertragen…" button (`importScopeIsCurrent`). `atlasOrder().length === 0`
+ * for the neighbouring "Übertragen" button (`importScopeIsCurrent`). `atlasOrder().length === 0`
  * and `!isCoarse()` deliberately do NOT appear here: both are already enforced by the `@if` block
- * this trigger is placed inside on the page, alongside "Übertragen…" (plan §1.2 point 3).
+ * this trigger is placed inside on the page, alongside "Übertragen" (plan §1.2 point 3).
  */
 @Component({
   selector: 'app-file-import-trigger',

@@ -180,7 +180,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
 - **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen. Auf welcher Fläche der Auslöser sitzt und an welcher Stelle einer Aktionszeile, sagt §8.7 — diese Stufung sagt nur, wie er aussieht.
 - **Schwere rechtfertigt keine Ausnahme von der Wiederholungsregel.** Auch Purge und Session-Revoke laufen in den Admin-Listen als `danger-quiet` — je länger die Liste, desto schlimmer die Farbleiter. Abgesichert wird eine unwiderrufliche Aktion durch die typisierte Namensbestätigung, nicht durch einen roten Rahmen, den man fünfundzwanzigmal untereinander sieht.
-- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „Übertragen…" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) und seit #91 für den Datei-Einspiel-Trigger daneben (`shared/seven-tv/file-import-trigger-gate.ts`) — beide gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports. Der Trigger erbt dabei nicht alle Sperren seines Nachbarn: `atlasOrder().length === 0` gilt für ihn bewusst nicht, weil die Datei ihre Zeilen selbst mitbringt (§7.3).
+- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „Übertragen" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) und seit #91 für den Datei-Einspiel-Trigger daneben (`shared/seven-tv/file-import-trigger-gate.ts`) — beide gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports. Der Trigger erbt dabei nicht alle Sperren seines Nachbarn: `atlasOrder().length === 0` gilt für ihn bewusst nicht, weil die Datei ihre Zeilen selbst mitbringt (§7.3).
 - **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, Header-Buttons `web/src/app/features/usage-stats/usage-stats-page.html` und `web/src/app/shared/seven-tv/file-import-trigger.ts` (+ `file-import-trigger-gate.ts`); in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
@@ -306,7 +306,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 
 ### 7.2 Ziel-Picker und Bestätigungsdialog (Import, #72)
 
-- **Was gilt:** Der Fluss hinter „Übertragen…" läuft über zwei Dialoge, beide über
+- **Was gilt:** Der Fluss hinter „Übertragen" läuft über zwei Dialoge, beide über
   `openAppDialog` (s. o.): `ImportTargetDialog` (`shared/seven-tv/import-target-dialog.ts`,
   `openImportTargetDialog`) wählt Bereich und Ziel, `ImportConfirmDialog`
   (`shared/seven-tv/import-confirm-dialog.ts`, `openImportConfirmDialog`) zeigt die Vorschau und
@@ -320,7 +320,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
      „Erneut laden"), sonst `listIncomplete` (info).
   3. Ziel-Radiogruppe: ein Radio je Kanal, in dem der Nutzer Broadcaster oder 7TV-Editor ist
      (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle,
-     zuletzt ein Radio „… als Datei speichern".
+     zuletzt ein Radio „Als Datei speichern".
   4. Abbrechen / Weiter.
 - **Scope-Default `selection` bricht bewusst mit dem Export-Dialog** (der dort `visible` vorbelegt):
   ein Export läuft Gefahr, unbemerkt zu **verengen**; ein Kopieren in ein fremdes 7TV-Set läuft

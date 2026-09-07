@@ -143,7 +143,7 @@
     "preset7Days": "7 Tage",
     "preset30Days": "30 Tage",
     "presetAll": "Seit Beginn",
-    "presetCustom": "Eigener Zeitraum …",
+    "presetCustom": "Eigener Zeitraum",
     "from": "Von",
     "to": "Bis"
   },
@@ -821,14 +821,14 @@
       "failed": "Synchronisierung konnte nicht angestoßen werden — der periodische Sync holt es innerhalb einer Minute nach."
     },
     "import": {
-      "trigger": "Datei einspielen…",
-      "title": "Datei einspielen",
+      "trigger": "Importieren",
+      "title": "Datei importieren",
       "sorts": {
         "purgeRun": "Purge-Protokoll (Wiederherstellen) als JSON",
         "emoteList": "Emote-Liste (Kopieren) als JSON",
         "usageExport": "Nutzungs-Export (Kopieren) als JSON"
       },
-      "fileLabel": "Datei auswählen…",
+      "fileLabel": "Datei auswählen",
       "errors": {
         "notJson": "Die Datei ist kein gültiges JSON.",
         "csvInsteadOfJson": "Das ist die CSV-Fassung. Der Import braucht dieselbe Datei als JSON — beim Export das Format JSON wählen.",
@@ -898,13 +898,13 @@
     }
   },
   "import": {
-    "copyButton": "Übertragen…",
-    "dockCopyButton": "Übertragen… ({{ count }})",
+    "copyButton": "Übertragen",
+    "dockCopyButton": "Übertragen ({{ count }})",
     "target": {
       "title": "Emotes übertragen",
       "label": "Zielkanal",
       "notTracked": "Kanal muss erst beitreten",
-      "saveAsFile": "… als Datei speichern",
+      "saveAsFile": "Als Datei speichern",
       "none": "Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.",
       "listIncomplete": "Die Kanalliste ist gerade unvollständig — fehlende Kanäle erscheinen nach einem erneuten Laden.",
       "reauthRequired": "Deine Twitch-Anmeldung ist abgelaufen oder wurde widerrufen — Zielkanäle gibt es erst nach einem neuen Login.",
