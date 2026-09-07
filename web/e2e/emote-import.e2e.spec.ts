@@ -3,6 +3,7 @@ import { Page, expect, test } from '@playwright/test';
 import {
   AUTH_USER,
   MockEmoteUsage,
+  emitLive,
   installLiveStub,
   mockActiveEmoteSet,
   mockAuthMe,
@@ -117,7 +118,17 @@ async function gotoUsageStats(page: Page, channelName: string): Promise<void> {
 const cell = (page: Page, name: string) =>
   page.getByRole('button', { name: new RegExp(`^${name} ·`) });
 
-const copyButton = (page: Page) => page.getByRole('button', { name: 'In Kanal kopieren…' });
+// Exact match, not the Playwright default (substring): the dock's shortcut (#80, §8.7) carries the
+// same verb plus a trailing count — "In Kanal kopieren… (2)" — which would otherwise also match
+// this name and turn every use below into a strict-mode violation. This locator is always the
+// HEADER trigger; see dockCopyButton for the dock's second entry point into openImportTarget().
+const copyButton = (page: Page) =>
+  page.getByRole('button', { name: 'In Kanal kopieren…', exact: true });
+
+// The dock's shortcut into openImportTarget('selection') (#80, §8.7): same verb as copyButton, no
+// scope radiogroup in the dialog it opens, count baked into the accessible name.
+const dockCopyButton = (page: Page, count: number) =>
+  page.getByRole('button', { name: `In Kanal kopieren… (${count})`, exact: true });
 
 test.describe('push flow: picker to confirmation dialog', () => {
   test('a channel target shows origin, target, an already-present row and a name collision', async ({
@@ -191,6 +202,133 @@ test.describe('push flow: picker to confirmation dialog', () => {
     // still added — nameCollisions stays IN toAdd per the import-preview contract) = 4 of 1000.
     await expect(confirm.getByText('Das Set hätte danach 4 von 1000 Slots belegt.')).toBeVisible();
     await expect(confirm.getByRole('button', { name: 'Kopieren' })).toBeEnabled();
+  });
+
+  /**
+   * The dock's second entry point into the same flow (#80, §8.7): same verb, but `forcedScope:
+   * 'selection'` skips the scope question outright instead of merely defaulting to it. Proven two
+   * ways rather than just reading `forcedScope` off the component: the radiogroup the header path
+   * shows in the test above is entirely absent here despite a selection existing (the condition
+   * that would normally render it), and the run that follows touches only the two MARKED rows —
+   * Pog stays out of both the confirmation count and the 7TV calls, even though it is visible on
+   * the same grid and would have been included under scope `visible`.
+   */
+  test('the dock shortcut skips the scope question and copies exactly the marked rows', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+      { channelName: TARGET_CHANNEL, isSevenTvEditor: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await mockActiveEmoteSet(page, TARGET_CHANNEL, 'target-set', {
+      capacity: 1000,
+      occupiedSlots: 3,
+    });
+    await mockSetWarning(page, TARGET_CHANNEL);
+    // Empty target set: nothing to collide with, so the row count in the confirm dialog is pure
+    // proof of scope, not diluted by an already-present or name-collision filter.
+    await mockEmoteList(page, TARGET_CHANNEL, []);
+    await mockSyncImported(page, TARGET_CHANNEL);
+    await mockChannelScopedResync(page, TARGET_CHANNEL);
+
+    const addedEmoteIds: unknown[] = [];
+    await mockSevenTvGql(page, (request) => {
+      addedEmoteIds.push(request.variables['emoteId']);
+      return { data: { emoteSet: { emotes: [{ id: request.variables['emoteId'] }] } } };
+    });
+    // Frozen for the same reason as the other run-completion tests: the engine's trailing pacing
+    // delay would otherwise race a real wait.
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    // Marks CatJAM and KEKW, deliberately leaving Pog unmarked — the third SOURCE_EMOTES row that
+    // scope `visible` would have swept in.
+    await cell(page, 'CatJAM').click();
+    await cell(page, 'KEKW').click({ modifiers: ['Shift'] });
+    await expect(dockCopyButton(page, 2)).toBeEnabled();
+    await dockCopyButton(page, 2).click();
+
+    const picker = page.getByRole('dialog');
+    await expect(picker.locator('#app-dialog-title')).toHaveText('Emotes in einen Kanal kopieren');
+    // The scope question itself is gone, not just pre-answered — contrast with the header path's
+    // "Auswahl (2)" radio checked by default in the test above.
+    await expect(picker.getByRole('radiogroup', { name: 'Exportumfang' })).toHaveCount(0);
+    await expect(picker.getByRole('radio', { name: /^Auswahl/ })).toHaveCount(0);
+    await expect(picker.getByRole('radio', { name: /^Gefilterte Liste/ })).toHaveCount(0);
+
+    await picker.getByRole('radio', { name: '#aatrociity' }).check();
+    await picker.getByRole('button', { name: 'Weiter' }).click();
+
+    const confirm = page.getByRole('dialog');
+    // Two, not three: proof the forced scope actually reached the confirm step, not just the
+    // picker's own rendering.
+    await expect(confirm.locator('#app-dialog-title')).toHaveText(
+      '2 Emotes nach aatrociity kopieren?',
+    );
+    await confirm.getByRole('button', { name: 'Kopieren' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await page.clock.runFor(2000);
+    await expect(page.getByText('2 kopiert · 0 fehlgeschlagen · 0 abgebrochen')).toBeVisible();
+
+    // CatJAM and KEKW's ids, in either order, and nothing else — Pog's 7tv-3 never went out.
+    expect(addedEmoteIds.sort()).toEqual(['7tv-1', '7tv-2']);
+  });
+
+  /**
+   * #80 review fix: a silent totals reload (`usage.flushed`/`channel.synced`, both routed through
+   * `loadTotals(..., { preserveSelection: true })`) can drop a marked row out of `atlasOrder()` —
+   * an emote archived on 7TV from outside this tab is the concrete cause, since the totals query
+   * filters `!e.IsArchived` — without touching `selection.selectedKeys()`, which `preserveSelection`
+   * only ever leaves alone. Before this fix the dock shortcut's count and lock followed that raw,
+   * now-stale key count: the label kept promising the old row count and the button stayed enabled,
+   * so a click ran straight into `openImportTarget`'s `captured.selection.length === 0` guard and
+   * did nothing — no dialog, no error, no feedback. This proves both the label and the lock now
+   * follow `importShortcutSelectionCount` (built on `selection.selectedItems()`) instead.
+   */
+  test('a live reload that archives every marked row relocks the dock shortcut instead of running silently into an empty capture', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    // Marks CatJAM and KEKW; Pog is deliberately left both unmarked and, below, the only row the
+    // reload still returns — its continued presence is proof the grid really reloaded rather than
+    // having gone blank.
+    await cell(page, 'CatJAM').click();
+    await cell(page, 'KEKW').click({ modifiers: ['Shift'] });
+    await expect(dockCopyButton(page, 2)).toBeEnabled();
+
+    // Re-registering the same route wins over mockWorkspace's earlier one (Playwright runs the
+    // most-recently registered handler first, and this one fulfills instead of falling back) — the
+    // next totals fetch answers as if CatJAM and KEKW had just been archived from outside this tab.
+    await mockUsageTotals(page, SOURCE_CHANNEL, [SOURCE_EMOTES[2]]);
+    await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
+    // liveReload collapses the burst over CHANNEL_RELOAD_DEBOUNCE_MS (1 s) before it reloads.
+    await page.clock.runFor(1_500);
+
+    await expect(cell(page, 'Pog')).toBeVisible();
+    await expect(cell(page, 'CatJAM')).toHaveCount(0);
+
+    // The raw selection is untouched by preserveSelection (still 2 keys — see the dock's own "2
+    // markiert", not asserted here since it is explicitly out of scope for this fix), but neither
+    // marked row resolves against the reloaded grid any more, so the shortcut must show and enforce
+    // zero, not the stale two.
+    await expect(dockCopyButton(page, 2)).toHaveCount(0);
+    await expect(dockCopyButton(page, 0)).toBeDisabled();
   });
 });
 
@@ -554,8 +692,12 @@ test.describe('running import: channel switch', () => {
     await page.clock.runFor(1000);
 
     // On the source page, with everything current, the button is live — the baseline the two
-    // assertions below are a change from.
+    // assertions below are a change from. The CatJAM row is still selected too (nothing about
+    // finishing an import run clears the selection, unlike a delete — see onDeleted vs.
+    // startImportFromChoice), so the dock shortcut is live as well: importShortcutLocked shares
+    // importScopeCurrent with the header button, and this is the one other trigger built on it.
     await expect(copyButton(page)).toBeEnabled();
+    await expect(dockCopyButton(page, 1)).toBeEnabled();
 
     // Registered only now, so the two routes above answer normally for the confirm dialog's own
     // load and are held only for the page navigation triggered below (see deferRoute).
@@ -572,9 +714,11 @@ test.describe('running import: channel switch', () => {
     await page.waitForURL(`**/channels/${TARGET_CHANNEL}/usage-stats`);
 
     // Still mounted, because activeEmoteSetId() is the SOURCE channel's set — which is precisely
-    // the state that must not be copyable.
+    // the state that must not be copyable. The dock shortcut shares the same lock (importScopeCurrent)
+    // and must therefore be just as disabled, not only the header's own trigger.
     await expect(copyButton(page)).toBeVisible();
     await expect(copyButton(page)).toBeDisabled();
+    await expect(dockCopyButton(page, 1)).toBeDisabled();
 
     // The totals request is only issued once the set status has resolved the "all time" range, so
     // waiting for it is exact proof that the set status half has landed and the rows half has not.
@@ -584,7 +728,13 @@ test.describe('running import: channel switch', () => {
     releaseTargetStatus();
     await totalsRequested;
     await expect(copyButton(page)).toBeDisabled();
+    await expect(dockCopyButton(page, 1)).toBeDisabled();
 
+    // Only the header button is checked for "live again" below: the totals load that follows
+    // clears the selection (loadTotals without preserveSelection — see the effect above), so the
+    // dock shortcut goes on to lock for its OTHER reason, an empty selection, which is a separate,
+    // already-covered concern (importShortcutDisabled) rather than a second data point on the
+    // channel-switch lock this test is about.
     releaseTargetTotals();
     await expect(cell(page, 'Sadge')).toBeVisible();
     await expect(copyButton(page)).toBeEnabled();

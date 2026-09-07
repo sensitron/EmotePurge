@@ -247,6 +247,26 @@ describe('ImportTargetDialog', () => {
         { scope: 'visible', target: { kind: 'channel', channelName: 'chan' } },
       ]);
     });
+
+    it('omits the scope radiogroup entirely when a caller forces the scope, even with a selection', async () => {
+      const dialog = render(defaultData({ selectionCount: 5, forcedScope: 'selection' }));
+      await resolve(dialog, 0, channelsResult());
+
+      expect(dialog.scopeInputs()).toHaveLength(0);
+    });
+
+    it('submits exactly the forced scope, not whatever selectionCount would otherwise default to', async () => {
+      const dialog = render(defaultData({ selectionCount: 0, forcedScope: 'selection' }));
+      await resolve(dialog, 0, channelsResult({ channels: [channel({ isBroadcaster: true })] }));
+
+      dialog.channelInput('chan')?.click();
+      dialog.detect();
+      dialog.button(SUBMIT).click();
+
+      expect(closed).toEqual([
+        { scope: 'selection', target: { kind: 'channel', channelName: 'chan' } },
+      ]);
+    });
   });
 
   describe('post-load notice — exclusive, ranked reauthRequired > loadFailed > listIncomplete (§7.2)', () => {
