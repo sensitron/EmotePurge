@@ -50,7 +50,6 @@ import { startRestoreFlow } from './restore-flow';
         >
           {{ 'restore.import.trigger' | transloco }}
         </button>
-        <span class="text-xs text-fg-muted">{{ 'restore.import.hint' | transloco }}</span>
         <input
           #fileInput
           type="file"

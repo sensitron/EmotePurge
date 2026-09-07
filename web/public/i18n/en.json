@@ -822,7 +822,6 @@
     },
     "import": {
       "trigger": "Import file",
-      "hint": "Load a purge protocol (restore), an emote list or a usage export (copy) as JSON.",
       "title": "Import file",
       "sorts": {
         "purgeRun": "Purge protocol (restore) as JSON",

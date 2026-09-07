@@ -822,7 +822,6 @@
     },
     "import": {
       "trigger": "Datei importieren",
-      "hint": "Ein Purge-Protokoll (Wiederherstellen), eine Emote-Liste oder einen Nutzungs-Export (Kopieren) als JSON einspielen.",
       "title": "Datei einspielen",
       "sorts": {
         "purgeRun": "Purge-Protokoll (Wiederherstellen) als JSON",
