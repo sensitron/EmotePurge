@@ -82,6 +82,102 @@ public class HarnessRunnerTests : IDisposable
         Assert.Empty(Directory.GetFiles(_directory));
     }
 
+    // Fail-closed shared-chat cutover (D4, #73 Task 6): a missing, blank or unparsable cutover
+    // must abort before any database or archive access, so a forgotten configuration value can
+    // never be read weeks later as "the gate was fine". The precondition sits ahead of even the
+    // channel lookup, which is why these mock the channel service too — a passing test here must
+    // never have exercised it.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AMissingOrBlankSharedChatCutover_WithoutDiagnostic_AbortsBeforeAnyAccess(string? cutover)
+    {
+        var exitCode = await Run(3, sharedChatCutover: cutover);
+
+        Assert.Equal(HarnessRunner.ExitPreconditionViolated, exitCode);
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _archive.DidNotReceiveWithAnyArgs().ReadDayAsync(default!, default, default, default!, default);
+        await _channels.DidNotReceiveWithAnyArgs().GetByNameAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task AnUnparsableSharedChatCutover_AbortsEvenWithoutTheChannelLookup()
+    {
+        var exitCode = await Run(3, sharedChatCutover: "2026-13-01");
+
+        Assert.Equal(HarnessRunner.ExitPreconditionViolated, exitCode);
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _channels.DidNotReceiveWithAnyArgs().GetByNameAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task AnUnparsableSharedChatCutover_IsAnErrorEvenWithDiagnostic()
+    {
+        // The one case D4 insists on: a value that IS set but does not parse must never read as
+        // "no cutover", diagnostic or not — a typo must not silently pass as an intentional
+        // diagnostic run.
+        var exitCode = await Run(3, sharedChatCutover: "2026-13-01", diagnostic: true);
+
+        Assert.Equal(HarnessRunner.ExitPreconditionViolated, exitCode);
+        Assert.Empty(Directory.GetFiles(_directory));
+        await _channels.DidNotReceiveWithAnyArgs().GetByNameAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task AMissingSharedChatCutover_WithDiagnostic_RunsAndReportsNoVerdictInsteadOfAborting()
+    {
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+
+        var exitCode = await Run(3, sharedChatCutover: null, diagnostic: true);
+
+        Assert.Equal(0, exitCode);
+        var json = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json")));
+        Assert.Contains("diagnostic-run", json);
+        // The final .report.json (unlike the header line) does not ignore nulls, so the field is
+        // present but null here — no cutover was ever configured for this run.
+        Assert.Contains("\"sharedChatCutover\": null", json);
+
+        var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
+        Assert.Contains("Shared-Chat-Stichtag", markdown);
+        Assert.Contains("Diagnoselauf", markdown);
+    }
+
+    [Fact]
+    public async Task ADifferentSharedChatCutover_StartsANewFileAndLeavesTheOldOneUnfinished()
+    {
+        RespondWith(async (day, onMessage) =>
+        {
+            if (day == Day3)
+            {
+                return new ChatLogDayResult(ChatLogDayStatus.RateLimited, 0, null, 0, 0, 0, 429);
+            }
+
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(4, await Run(3, sharedChatCutover: "2026-09-01"));
+        var firstFile = Assert.Single(Directory.GetFiles(_directory, "*.jsonl"));
+
+        RespondWith(async (day, onMessage) =>
+        {
+            await onMessage(Message(day, "chatter-1", "PogChamp"));
+            return CompleteDay(1);
+        });
+        Assert.Equal(0, await Run(3, sharedChatCutover: "2026-09-02"));
+
+        var jsonlFiles = Directory.GetFiles(_directory, "*.jsonl");
+        Assert.Equal(2, jsonlFiles.Length);
+        Assert.Contains(firstFile, jsonlFiles);
+        // The first (interrupted) file never got its final report; only the second run's identity
+        // produced one.
+        Assert.Single(Directory.GetFiles(_directory, "*.report.json"));
+    }
+
     [Fact]
     public async Task AMeasurementShorterThanTheWindow_Aborts()
     {
@@ -390,16 +486,25 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"humanLogTotal\": 2", json); // one PogChamp hit per rated day (1 and 3)
         Assert.Contains("\"humanLiveTotal\": 2", json); // UseCount=1 per rated day; BotUseCount=7 must not leak in
         Assert.Contains("\"sharedChatMessages\": 1", json); // only day 2's message carries a foreign SourceRoomId
+        // The Run helper's default cutover ("2026-09-01", before Day1) reaches the identity and the
+        // report unchanged — the fixture setting it, not a derived value, is what "ratedDays": 2
+        // above stands on now that HumanOnly keys off this field instead of BotSplitCutover.
+        Assert.Contains("\"sharedChatCutover\": \"2026-09-01\"", json);
 
         var jsonl = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.jsonl")));
         Assert.Contains("\"algorithmVersion\":\"harness-2\"", jsonl);
         // Day 2's foreign hit lands in the day line's own dictionary, not just the aggregated report.
         Assert.Contains("\"sharedChatCounts\":{\"e1\":1}", jsonl);
+        Assert.Contains("\"sharedChatCutover\":\"2026-09-01\"", jsonl);
 
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
         Assert.Contains("Replay-Treue", markdown);
         Assert.Contains("Uptime Kuma", markdown);
         Assert.Contains(ChannelName, markdown);
+        Assert.Contains("Shared-Chat-Stichtag", markdown);
+        Assert.Contains("2026-09-01", markdown);
+        Assert.Contains("Lauf-Modus", markdown);
+        Assert.Contains("bindend", markdown);
     }
 
     [Fact]
@@ -427,7 +532,7 @@ public class HarnessRunnerTests : IDisposable
         var staleWindowTo = Day3.AddDays(-1);
         var leftoverIdentity = new HarnessRunIdentity(
             ChannelId, TwitchChannelId, ChannelName, staleWindowFrom, staleWindowTo, new DateOnly(2026, 9, 1),
-            ["19264788"], "harness-1", new string('a', 64));
+            new DateOnly(2026, 9, 1), ["19264788"], "harness-1", new string('a', 64));
         var leftover = new HarnessReportFile(Path.Combine(_directory, "leftover-harness-1.jsonl"));
         leftover.WriteHeader(new HarnessReportHeader(leftoverIdentity, DateTime.UtcNow));
 
@@ -793,18 +898,32 @@ public class HarnessRunnerTests : IDisposable
             File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.json"))));
     }
 
-    private Task<int> Run(int days, CancellationToken ct = default, int maxMegabytes = 200)
+    // SharedChatCutover defaults to a day before Day1 (D4): almost every test in this file predates
+    // #73 and asserts on behaviour the fail-closed precondition would otherwise block outright. The
+    // handful of tests about the precondition itself override it explicitly.
+    private Task<int> Run(
+        int days,
+        CancellationToken ct = default,
+        int maxMegabytes = 200,
+        string? sharedChatCutover = "2026-09-01",
+        bool diagnostic = false)
     {
         var runner = new HarnessRunner(
             _channels,
             _usage,
             _archive,
             _bots,
-            new HarnessOptions { OutputDirectory = _directory, MaxMegabytesPerRun = maxMegabytes, WindowDays = 30 },
+            new HarnessOptions
+            {
+                OutputDirectory = _directory,
+                MaxMegabytesPerRun = maxMegabytes,
+                WindowDays = 30,
+                SharedChatCutover = sharedChatCutover
+            },
             _clock,
             NullLogger<HarnessRunner>.Instance);
 
-        return runner.RunAsync(ChannelName, days, ct);
+        return runner.RunAsync(ChannelName, days, diagnostic, ct);
     }
 
     private void RespondWith(

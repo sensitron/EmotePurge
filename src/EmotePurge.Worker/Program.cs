@@ -91,7 +91,8 @@ async Task<int> RunHarnessAsync(HarnessCommandLineResult.RunHarness request)
 
     // The parser cannot see the configuration (it runs before the builder), so the configured
     // default window is applied here.
-    return await runner.RunAsync(request.ChannelName, request.Days ?? options.WindowDays, cancellation.Token);
+    return await runner.RunAsync(
+        request.ChannelName, request.Days ?? options.WindowDays, request.Diagnostic, cancellation.Token);
 
     void StopRun(PosixSignalContext context)
     {

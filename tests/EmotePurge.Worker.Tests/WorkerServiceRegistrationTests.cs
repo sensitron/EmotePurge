@@ -72,6 +72,7 @@ public class WorkerServiceRegistrationTests
         Assert.Equal("harness-reports", options.OutputDirectory);
         Assert.Equal(200, options.MaxMegabytesPerRun);
         Assert.Equal(30, options.WindowDays);
+        Assert.Null(options.SharedChatCutover);
     }
 
     [Fact]
@@ -83,7 +84,8 @@ public class WorkerServiceRegistrationTests
             ["Redis:ConnectionString"] = "localhost:6379",
             ["Harness:OutputDirectory"] = "/tmp/anderswo",
             ["Harness:MaxMegabytesPerRun"] = "7",
-            ["Harness:WindowDays"] = "14"
+            ["Harness:WindowDays"] = "14",
+            ["Harness:SharedChatCutover"] = "2026-09-01"
         }).Build();
         var services = new ServiceCollection();
         services.AddLogging();
@@ -97,6 +99,33 @@ public class WorkerServiceRegistrationTests
         Assert.Equal("/tmp/anderswo", options.OutputDirectory);
         Assert.Equal(7, options.MaxMegabytesPerRun);
         Assert.Equal(14, options.WindowDays);
+        // Bound as a raw string, on purpose (Plan-Entscheidung 6): Bind() runs before host.Build(),
+        // outside any exit-code handling, so a DateOnly? property would throw here on a typo.
+        Assert.Equal("2026-09-01", options.SharedChatCutover);
+    }
+
+    [Fact]
+    public void HarnessOptions_AnUnparsableSharedChatCutover_DoesNotThrowWhileBinding()
+    {
+        // The other half of Plan-Entscheidung 6: a value that will later fail HarnessRunner's
+        // strict yyyy-MM-dd parse must still bind cleanly here — the refusal belongs in
+        // ExecuteAsync (Exit 3, German line), never as an exception out of AddHarness/Bind.
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=x;Username=u;Password=p",
+            ["Redis:ConnectionString"] = "localhost:6379",
+            ["Harness:SharedChatCutover"] = "not-a-date"
+        }).Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(configuration);
+        services.AddHarness(configuration);
+        services.AddSingleton(Substitute.For<IConnectionMultiplexer>());
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<HarnessOptions>();
+
+        Assert.Equal("not-a-date", options.SharedChatCutover);
     }
 
     private static ServiceProvider BuildProvider()

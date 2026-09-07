@@ -40,6 +40,47 @@ public class HarnessReportFileTests : IDisposable
     }
 
     [Fact]
+    public void AWrittenHeader_WithASharedChatCutover_CarriesItLiterallyInTheHeaderLine()
+    {
+        var identity = Identity() with { SharedChatCutover = new DateOnly(2026, 9, 1) };
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+
+        var rawText = File.ReadAllText(file.Path);
+        Assert.Contains("\"sharedChatCutover\":\"2026-09-01\"", rawText);
+
+        var header = file.ReadHeader(identity);
+        Assert.Equal(new DateOnly(2026, 9, 1), header.Identity.SharedChatCutover);
+    }
+
+    [Fact]
+    public void AWrittenHeader_WithoutASharedChatCutover_OmitsTheFieldButStillReadsBack()
+    {
+        var identity = Identity() with { SharedChatCutover = null };
+        var file = NewFile(identity);
+        file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
+
+        // WhenWritingNull: the key itself is absent, not present with a null value — same contract
+        // as every other optional field in this protocol.
+        var rawText = File.ReadAllText(file.Path);
+        Assert.DoesNotContain("sharedChatCutover", rawText);
+
+        var header = file.ReadHeader(identity);
+        Assert.Null(header.Identity.SharedChatCutover);
+    }
+
+    [Fact]
+    public void TwoIdentities_DifferingOnlyInTheSharedChatCutover_ProduceDifferentFileNames()
+    {
+        var withCutover = Identity() with { SharedChatCutover = new DateOnly(2026, 9, 1) };
+        var withoutCutover = Identity() with { SharedChatCutover = null };
+
+        Assert.NotEqual(
+            HarnessReportFile.BuildFileName(withCutover),
+            HarnessReportFile.BuildFileName(withoutCutover));
+    }
+
+    [Fact]
     public void AForeignIdentity_IsRefused()
     {
         var identity = Identity();
@@ -253,8 +294,8 @@ public class HarnessReportFileTests : IDisposable
         file.WriteHeader(new HarnessReportHeader(identity, DateTime.UtcNow));
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(identity.WindowFrom, identity.WindowTo, null), [], [], [], 3,
-            runComplete: true, totalBytes: 0, rateLimitedDays: 0, resumePoint: null);
+            new ReplayWindow(identity.WindowFrom, identity.WindowTo, null, null), [], [], [], 3,
+            runComplete: true, totalBytes: 0, rateLimitedDays: 0, resumePoint: null, diagnostic: false);
         file.WriteFinalReportAtomically(report, "# Bericht\n");
 
         Assert.True(File.Exists(file.ReportJsonPath));
@@ -306,6 +347,7 @@ public class HarnessReportFileTests : IDisposable
             "brudivoeller_tv",
             new DateOnly(2026, 9, 2),
             new DateOnly(2026, 9, 4),
+            new DateOnly(2026, 9, 1),
             new DateOnly(2026, 9, 1),
             ["19264788", "402337290"],
             HarnessRunner.AlgorithmVersion,

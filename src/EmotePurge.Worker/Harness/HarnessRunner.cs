@@ -111,11 +111,11 @@ public sealed class HarnessRunner(
     /// a one-shot container gets a German line and a defined code, never a stack trace with an
     /// exit status invented by the runtime.
     /// </summary>
-    public async Task<int> RunAsync(string channelName, int days, CancellationToken ct)
+    public async Task<int> RunAsync(string channelName, int days, bool diagnostic, CancellationToken ct)
     {
         try
         {
-            return await ExecuteAsync(channelName, days, ct);
+            return await ExecuteAsync(channelName, days, diagnostic, ct);
         }
         catch (OperationCanceledException)
         {
@@ -134,7 +134,7 @@ public sealed class HarnessRunner(
         }
     }
 
-    private async Task<int> ExecuteAsync(string channelName, int days, CancellationToken ct)
+    private async Task<int> ExecuteAsync(string channelName, int days, bool diagnostic, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(channelName);
 
@@ -147,6 +147,39 @@ public sealed class HarnessRunner(
                 "Die Fensterlänge {Tage} liegt außerhalb der erlaubten {Min} bis {Max} Tage; per '--days' oder über 'Harness:WindowDays' korrigieren.",
                 days, HarnessCommandLine.MinDays, HarnessCommandLine.MaxDays);
             return ExitPreconditionViolated;
+        }
+
+        // Fail-closed (D4, Plan-Entscheidung 6): missing, blank or unparsable are all the same
+        // failure. Runs before any database or archive access — a forgotten configuration value and
+        // a deliberate diagnostic run are otherwise indistinguishable once both end in exit 0, and
+        // the binding run is read weeks later by someone who is not the person who started it.
+        // '--diagnostic' is the only escape, and only when the value is genuinely absent: a value
+        // that IS set but does not parse stays an error even in diagnostic mode, so a typo never
+        // silently reads as "no cutover".
+        DateOnly? sharedChatCutover = null;
+        if (string.IsNullOrWhiteSpace(options.SharedChatCutover))
+        {
+            if (!diagnostic)
+            {
+                logger.LogError(
+                    "'Harness:SharedChatCutover' fehlt oder ist leer; ohne diesen Stichtag kann kein Gate-Urteil gefällt werden. Erwartet ist ein UTC-Datum der Form 'yyyy-MM-dd', oder '--diagnostic' für einen Lauf ohne Urteil.");
+                return ExitPreconditionViolated;
+            }
+
+            logger.LogWarning(
+                "'Harness:SharedChatCutover' fehlt oder ist leer; der Diagnoselauf misst ohne Stichtag und weist kein Gate-Urteil aus.");
+        }
+        else if (!DateOnly.TryParseExact(
+            options.SharedChatCutover, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCutover))
+        {
+            logger.LogError(
+                "'Harness:SharedChatCutover' = '{Wert}' ist kein Datum der Form 'yyyy-MM-dd'; ein Tippfehler darf nie still als 'kein Stichtag' durchgehen.",
+                options.SharedChatCutover);
+            return ExitPreconditionViolated;
+        }
+        else
+        {
+            sharedChatCutover = parsedCutover;
         }
 
         var stopwatch = Stopwatch.StartNew();
@@ -208,6 +241,7 @@ public sealed class HarnessRunner(
             from,
             to,
             botSplitCutover,
+            sharedChatCutover,
             [.. botAccountIds.Order(StringComparer.Ordinal)],
             AlgorithmVersion,
             HarnessInputHash.Compute(lifetimes, liveRowDtos, botAccountIds, from));
@@ -248,7 +282,7 @@ public sealed class HarnessRunner(
         var liveRows = liveRowDtos
             .Select(r => new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount, r.SharedChatUseCount))
             .ToList();
-        var window = new ReplayWindow(from, to, botSplitCutover);
+        var window = new ReplayWindow(from, to, botSplitCutover, sharedChatCutover);
 
         var dayLines = existing.Days.ToDictionary(d => d.Day);
         // Both finished days and aborted-but-received attempts count against the cap: a day that
@@ -402,7 +436,7 @@ public sealed class HarnessRunner(
         var resumePoint = allDays.Count == 0 ? (DateOnly?)null : allDays[^1].Day;
 
         var report = ReplayFidelityCalculator.Compute(
-            window, emotes, liveRows, allDays, days, runComplete: true, bytesUsed, rateLimitedDays, resumePoint);
+            window, emotes, liveRows, allDays, days, runComplete: true, bytesUsed, rateLimitedDays, resumePoint, diagnostic);
 
         file.WriteFinalReportAtomically(report, BuildMarkdown(
             identity, report, allDays, liveRows, loadedAtUtc, timeProvider.GetUtcNow().UtcDateTime,
@@ -565,6 +599,8 @@ public sealed class HarnessRunner(
         Row(text, "Kanal", Invariant($"{identity.ChannelName} (`{identity.ChannelId}`, Twitch-ID `{identity.TwitchChannelId}`)"));
         Row(text, "Fenster", Invariant($"{identity.WindowFrom:yyyy-MM-dd} bis {identity.WindowTo:yyyy-MM-dd} ({report.Run.WindowDays} Tage)"));
         Row(text, "Bot-Split-Stichtag", identity.BotSplitCutover?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "keiner (kein Bot je gesehen)");
+        Row(text, "Shared-Chat-Stichtag", identity.SharedChatCutover?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "keiner (Diagnoselauf)");
+        Row(text, "Lauf-Modus", report.Run.Diagnostic ? "Diagnose" : "bindend");
         Row(text, "Human-only-Tage im Fenster", Invariant($"{diagnostics.HumanOnlyDays}"));
         Row(text, "Tage mit Log / ohne Log", Invariant($"{diagnostics.LogDays} / {diagnostics.NoLogDays}"));
         Row(text, "Bot-IDs", identity.BotAccountIds.Count == 0 ? "keine" : string.Join(", ", identity.BotAccountIds.Select(id => "`" + id + "`")));

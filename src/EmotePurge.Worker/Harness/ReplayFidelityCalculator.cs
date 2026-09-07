@@ -49,6 +49,14 @@ public static class ReplayFidelityCalculator
     /// <param name="resumePoint">
     /// The last archive day that has a line. Equal to the window's end for a complete run.
     /// </param>
+    /// <param name="diagnostic">
+    /// Whether this run was started with <c>--diagnostic</c> (D4). Every number below is computed
+    /// exactly as for a binding run; only the gate's verdict is withheld — the gate builder adds
+    /// <see cref="ReplayGateIneligibleReasons.DiagnosticRun"/> unconditionally when this is
+    /// <c>true</c>, on top of whatever other reasons apply. Deliberately not part of
+    /// <c>HarnessRunIdentity</c> either (Plan-Entscheidung 7): it changes the verdict, not the
+    /// counting.
+    /// </param>
     public static ReplayFinalReport Compute(
         ReplayWindow window,
         IReadOnlyList<ReplayEmote> emotes,
@@ -58,7 +66,8 @@ public static class ReplayFidelityCalculator
         bool runComplete,
         long totalBytes,
         int rateLimitedDays,
-        DateOnly? resumePoint)
+        DateOnly? resumePoint,
+        bool diagnostic)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(emotes);
@@ -74,7 +83,7 @@ public static class ReplayFidelityCalculator
         var logDays = DaySet(facts, f => f.HasLog);
 
         var population = BuildPopulation(days, liveRows, ratedDays);
-        var gate = BuildGate(population, ratedDays.Count, windowDays, runComplete);
+        var gate = BuildGate(population, ratedDays.Count, windowDays, runComplete, diagnostic);
         var plausibility = BuildPlausibility(days, liveRows, logDays);
         var diagnostics = BuildDiagnostics(
             window, emotes, days, liveRows, facts, population, ambiguousNames, humanOnlyLogDays, dayRatioMedian);
@@ -83,12 +92,14 @@ public static class ReplayFidelityCalculator
             window.From,
             window.To,
             window.BotSplitCutover,
+            window.SharedChatCutover,
             windowDays,
             days.Count,
             totalBytes,
             rateLimitedDays,
             resumePoint,
-            runComplete);
+            runComplete,
+            diagnostic);
 
         return new ReplayFinalReport(run, gate, plausibility, diagnostics);
     }
@@ -124,7 +135,10 @@ public static class ReplayFidelityCalculator
             {
                 Day = line.Day,
                 HasLog = line.Status == ReplayDayStatuses.Complete,
-                HumanOnly = window.BotSplitCutover is { } cutover && line.Day >= cutover,
+                // As of harness-2 this depends on the shared-chat cutover alone (B5) — the
+                // bot-split cutover no longer enters the condition; see the remark at
+                // ReplayWindow.SharedChatCutover for why that is correct, not just permitted.
+                HumanOnly = window.SharedChatCutover is { } cutover && line.Day >= cutover,
                 LogTotal = logTotal,
                 LiveTotal = liveTotal,
                 Ratio = liveTotal == 0 ? null : (double)logTotal / liveTotal,
@@ -153,9 +167,15 @@ public static class ReplayFidelityCalculator
 
     /// <summary>
     /// The full import population over the given days, human-only on both sides: live is
-    /// <c>UseCount</c> (what the grid actually shows), log is the human hit count. Every emote that
-    /// appears on at least one side is in, log-only and live-only included — that is exactly the
-    /// case the gate must not hide (Codex-adversarial D1).
+    /// <c>UseCount</c>, log is the human hit count. Every emote that appears on at least one side
+    /// is in, log-only and live-only included — that is exactly the case the gate must not hide
+    /// (Codex-adversarial D1).
+    /// <para>
+    /// <c>UseCount</c> is the target contract (D3), not necessarily what the grid renders today:
+    /// during the D5 transition period the grid still shows <c>UseCount + SharedChatUseCount</c>,
+    /// because the harness reads raw rows and measures against the target the deletion decision is
+    /// meant to rest on, not against that bridge.
+    /// </para>
     /// </summary>
     private static List<PopulationEntry> BuildPopulation(
         IReadOnlyList<ReplayDayLine> days,
@@ -199,7 +219,8 @@ public static class ReplayFidelityCalculator
         List<PopulationEntry> population,
         int ratedDays,
         int windowDays,
-        bool runComplete)
+        bool runComplete,
+        bool diagnostic)
     {
         var logTotal = population.Sum(e => e.Log);
         var liveTotal = population.Sum(e => e.Live);
@@ -243,6 +264,13 @@ public static class ReplayFidelityCalculator
         if (totalDeviation is null)
         {
             reasons.Add(ReplayGateIneligibleReasons.LiveTotalZero);
+        }
+
+        if (diagnostic)
+        {
+            // Unconditional, in addition to whatever else applies: the numbers above are computed
+            // exactly as for a binding run, only the verdict is withheld (D4).
+            reasons.Add(ReplayGateIneligibleReasons.DiagnosticRun);
         }
 
         return new ReplayGateMetrics(

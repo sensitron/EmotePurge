@@ -110,12 +110,16 @@ public class ReplayFidelityCalculatorTests
     }
 
     [Fact]
-    public void DaysBeforeTheBotSplitCutover_CountForPlausibilityButNotForTheGate()
+    public void DaysBeforeTheSharedChatCutover_CountForPlausibilityButNotForTheGate()
     {
+        // harness-2 (#73, B5): HumanOnly is gated by the shared-chat cutover alone. The
+        // bot-split cutover this used to key off of stays at its default (From) and no longer has
+        // any bearing on RatedDays/HumanOnlyDays — Plausibility keeps summing every day with a log
+        // regardless of either cutover.
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
-        var report = Compute(emotes, rows, days, cutover: From.AddDays(10));
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(10));
 
         Assert.Equal(20, report.Gate.RatedDays);
         Assert.Equal(20, report.Diagnostics.HumanOnlyDays);
@@ -131,7 +135,7 @@ public class ReplayFidelityCalculatorTests
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
-        var report = Compute(emotes, rows, days, cutover: From.AddDays(11));
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(11));
 
         Assert.Equal(19, report.Gate.RatedDays);
         Assert.False(report.Gate.GateEligible);
@@ -163,19 +167,73 @@ public class ReplayFidelityCalculatorTests
     }
 
     [Fact]
-    public void MissingBotSplitCutover_LeavesNoRatedDay()
+    public void MissingBotSplitCutover_NoLongerBlocksAnyRatedDay()
+    {
+        // Inverted case of the pre-#73 test below (harness-2, B5): HumanOnly depends on the
+        // shared-chat cutover alone now, so a channel that never saw a bot (BotSplitCutover =
+        // null, the D2 null case) can no longer be shut out of the gate by that alone — exactly
+        // the correction D4/B5 makes over the old rule.
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var report = ReplayFidelityCalculator.Compute(
+            new ReplayWindow(From, To, null, From), emotes, rows, days, 30, true, 0, 0, To, diagnostic: false);
+
+        Assert.Equal(30, report.Diagnostics.HumanOnlyDays);
+        Assert.Equal(30, report.Gate.RatedDays);
+        Assert.True(report.Gate.GateEligible);
+    }
+
+    [Fact]
+    public void MissingSharedChatCutover_LeavesNoRatedDay()
     {
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
         var report = ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, null), emotes, rows, days, 30, true, 0, 0, To);
+            new ReplayWindow(From, To, From, null), emotes, rows, days, 30, true, 0, 0, To, diagnostic: false);
 
         Assert.Equal(0, report.Diagnostics.HumanOnlyDays);
         Assert.Equal(0, report.Gate.RatedDays);
         Assert.False(report.Gate.GateEligible);
         Assert.Null(report.Gate.TotalDeviation);
         Assert.Contains(ReplayGateIneligibleReasons.LiveTotalZero, report.Gate.GateIneligibleReasons);
+    }
+
+    [Fact]
+    public void DiagnosticMode_ComputesTheNumbersButWithholdsTheVerdict()
+    {
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var report = Compute(emotes, rows, days, diagnostic: true);
+
+        // The numbers are exactly what a binding run over the same inputs would produce...
+        Assert.Equal(30, report.Gate.RatedDays);
+        Assert.NotNull(report.Gate.TotalDeviation);
+        // ...but the gate withholds a verdict regardless of whether the numbers would otherwise
+        // have passed every threshold.
+        Assert.False(report.Gate.GateEligible);
+        Assert.Contains(ReplayGateIneligibleReasons.DiagnosticRun, report.Gate.GateIneligibleReasons);
+        Assert.True(report.Run.Diagnostic);
+    }
+
+    [Fact]
+    public void ReplayRunInfo_CarriesTheSharedChatCutoverAndTheRunMode()
+    {
+        var (emotes, perDay) = BaseSet();
+        var (days, rows) = Build(30, perDay, perDay);
+
+        var bound = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(3));
+        // The helper's "?? From" default cannot express an explicit null, so this one calls the
+        // calculator directly — exactly why MissingSharedChatCutover_LeavesNoRatedDay does the same.
+        var diagnosticReport = ReplayFidelityCalculator.Compute(
+            new ReplayWindow(From, To, From, null), emotes, rows, days, 30, true, 0, 0, To, diagnostic: true);
+
+        Assert.Equal(From.AddDays(3), bound.Run.SharedChatCutover);
+        Assert.False(bound.Run.Diagnostic);
+        Assert.Null(diagnosticReport.Run.SharedChatCutover);
+        Assert.True(diagnosticReport.Run.Diagnostic);
     }
 
     [Fact]
@@ -201,7 +259,7 @@ public class ReplayFidelityCalculatorTests
         var (emotes, perDay) = BaseSet();
         var (days, rows) = Build(30, perDay, perDay);
 
-        var report = Compute(emotes, rows, days, cutover: From.AddDays(10));
+        var report = Compute(emotes, rows, days, sharedChatCutover: From.AddDays(10));
 
         // ceil(20 * 20 / 30) = 14
         Assert.Equal(20, report.Gate.RatedDays);
@@ -661,12 +719,14 @@ public class ReplayFidelityCalculatorTests
         IReadOnlyList<ReplayUsageRow> rows,
         IReadOnlyList<ReplayDayLine> days,
         DateOnly? cutover = null,
+        DateOnly? sharedChatCutover = null,
         int windowDays = 30,
         bool runComplete = true,
         long? totalBytes = null,
         int rateLimitedDays = 0,
-        DateOnly? resumePoint = null)
+        DateOnly? resumePoint = null,
+        bool diagnostic = false)
         => ReplayFidelityCalculator.Compute(
-            new ReplayWindow(From, To, cutover ?? From), emotes, rows, days, windowDays, runComplete,
-            totalBytes ?? days.Sum(d => d.Bytes), rateLimitedDays, resumePoint);
+            new ReplayWindow(From, To, cutover ?? From, sharedChatCutover ?? From), emotes, rows, days, windowDays,
+            runComplete, totalBytes ?? days.Sum(d => d.Bytes), rateLimitedDays, resumePoint, diagnostic);
 }

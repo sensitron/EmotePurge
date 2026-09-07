@@ -28,12 +28,27 @@ public sealed record ReplayEmote(
 public sealed record ReplayUsageRow(string EmoteId, DateOnly Date, int UseCount, int BotUseCount, int SharedChatUseCount);
 
 /// <summary>
-/// The frozen comparison window plus the channel's bot-split cutover, i.e. the earliest day whose
-/// live rows can carry a <c>BotUseCount</c> at all. Days before it cannot be compared human-only
-/// (bot messages sat inside <c>UseCount</c> back then), so they never enter the gate.
-/// <c>null</c> means the channel has no such day yet — then there is no rated day at all.
+/// The frozen comparison window plus the channel's bot-split cutover and the explicitly configured
+/// shared-chat cutover (D4).
+/// <para>
+/// <see cref="BotSplitCutover"/> is the earliest day whose live rows can carry a
+/// <c>BotUseCount</c> at all; it stays in the identity, the report header and the report line
+/// unchanged (Freeze), but as of <c>harness-2</c> it no longer decides which days the gate rates —
+/// see <see cref="SharedChatCutover"/>.
+/// </para>
+/// <para>
+/// <see cref="SharedChatCutover"/> is the day from which <c>HumanOnly</c> is true, and the only
+/// input to that decision (B5): <c>Day &gt;= SharedChatCutover</c>. This is not merely convenient,
+/// it is more correct than gating on <see cref="BotSplitCutover"/> ever was — the bot split
+/// deployed on 2026-09-01, before #73, so every day at or after the shared-chat cutover
+/// necessarily also lies after the bot-split deploy and carries bots separately, independent of
+/// when this particular channel happened to show its first bot. It is the rolled-out *contract*
+/// that decides, not the first sighting in the data — exactly the E4 imprecision the bot cutover
+/// carries. <c>null</c> means no cutover was configured; days before it (and every day if it is
+/// <c>null</c>) cannot be compared human-only and never enter the gate.
+/// </para>
 /// </summary>
-public sealed record ReplayWindow(DateOnly From, DateOnly To, DateOnly? BotSplitCutover);
+public sealed record ReplayWindow(DateOnly From, DateOnly To, DateOnly? BotSplitCutover, DateOnly? SharedChatCutover);
 
 /// <summary>Why a chat token did not count towards an emote on a given day.</summary>
 public enum UnmatchedReason
@@ -94,6 +109,14 @@ public static class ReplayGateIneligibleReasons
 
     /// <summary>No live usage at all over the rated days, so the deviation has no denominator.</summary>
     public const string LiveTotalZero = "live-total-zero";
+
+    /// <summary>
+    /// A diagnostic run (<c>--diagnostic</c>): the numbers are computed as usual, but the run had
+    /// no shared-chat cutover to gate against, or the operator explicitly asked for numbers without
+    /// a verdict. Set unconditionally on a diagnostic run, in addition to whatever other reasons
+    /// apply (D4/Plan-Entscheidung 7).
+    /// </summary>
+    public const string DiagnosticRun = "diagnostic-run";
 }
 
 /// <summary>
@@ -182,7 +205,7 @@ public sealed record ReplayGateMetrics(
 
 /// <summary>
 /// Plausibility check (a): both sides summed <b>including</b> bots over every day that has a log.
-/// Covers the days before the bot-split cutover, which the gate cannot use.
+/// Covers the days before the shared-chat cutover, which the gate cannot use.
 /// </summary>
 public sealed record ReplayPlausibility(
     long LogTotalWithBots,
@@ -196,7 +219,7 @@ public sealed record ReplayPlausibility(
 /// reasons, the message-level counters and the privacy figures.
 /// <para>
 /// Two day counts here are easy to confuse. <c>HumanOnlyDays</c> counts every day of the run at or
-/// after the bot-split cutover, <b>including days without a log</b> — it says how far the
+/// after the shared-chat cutover, <b>including days without a log</b> — it says how far the
 /// human-only comparison could reach at all. How many days metric (b) actually covers is
 /// <c>FlaggedIncludedDays</c> (has a log and is human-only) and, after the coverage and gap
 /// markers, <c>ReplayGateMetrics.RatedDays</c>.
@@ -288,12 +311,18 @@ public sealed record ReplayRunInfo(
     DateOnly WindowFrom,
     DateOnly WindowTo,
     DateOnly? BotSplitCutover,
+    DateOnly? SharedChatCutover,
     int WindowDays,
     int DayLineCount,
     long TotalBytes,
     int RateLimitedDays,
     DateOnly? ResumePoint,
-    bool RunComplete);
+    bool RunComplete,
+    // Not part of HarnessRunIdentity (Plan-Entscheidung 7, D4): a diagnostic run counts exactly the
+    // same as a binding one, it only carries no gate verdict. A binding run may therefore resume a
+    // diagnostic file of the same identity and simply rewrite the report without this marker — that
+    // is intended, not a bug in the resume logic.
+    bool Diagnostic);
 
 /// <summary>
 /// The final report: two runs of <see cref="ReplayFidelityCalculator.Compute"/> over the same

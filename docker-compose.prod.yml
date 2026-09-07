@@ -155,6 +155,7 @@ services:
       - Twitch__AdditionalBotAccountIds=${TWITCH_ADDITIONAL_BOT_ACCOUNT_IDS:-}
       - Harness__OutputDirectory=/data/harness
       - Harness__MaxMegabytesPerRun=${HARNESS_MAX_MEGABYTES_PER_RUN:-200}
+      - Harness__SharedChatCutover=${HARNESS_SHARED_CHAT_CUTOVER:-}
     volumes:
       - ./harness-reports:/data/harness
     networks:
