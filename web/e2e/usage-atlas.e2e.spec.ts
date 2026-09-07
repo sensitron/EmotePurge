@@ -333,6 +333,34 @@ test.describe('emote atlas', () => {
     await expect(page.getByText(/Nachrichten bekannter Bots/)).toHaveCount(0);
   });
 
+  test('names the shared-chat separation date when the Api reports one, alongside the other honesty statements', async ({
+    page,
+  }) => {
+    await mockUsageChannelSeries(page, 'sensitron', { e1: [[3, 700]] }, [3, 4, 5, 9]);
+    await openAtlas(page, EMOTES, '2026-08-15', '2026-09-07');
+
+    await expect(
+      page.getByText(
+        /Nutzung aus dem geteilten Chat anderer Kanäle zählt seit dem 07\.09\.2026 nicht mit/,
+      ),
+    ).toBeVisible();
+    // The three sentences it shares the caption paragraph with must still be there — the wording is
+    // only how each sentence is recognized here, the subject under test is that a fourth exclusion
+    // queues up behind them rather than displacing one (Designsprache §2.5).
+    await expect(page.getByText(/Wir zählen für diesen Channel seit dem/)).toBeVisible();
+    await expect(
+      page.getByText(/Im gewählten Zeitraum war der Stream an 4 Tagen live\./),
+    ).toBeVisible();
+    await expect(page.getByText(/Nachrichten bekannter Bots zählen seit dem/)).toBeVisible();
+  });
+
+  test('says nothing about shared chat when the Api reports no date', async ({ page }) => {
+    // mockActiveEmoteSet's default (see openAtlas) — no sharedChatSeparatedSince set at all.
+    await openAtlas(page);
+
+    await expect(page.getByText(/geteilten Chat anderer Kanäle/)).toHaveCount(0);
+  });
+
   test('says nothing about live days for a range with no coverage', async ({ page }) => {
     // "0 of 57 days" would report an absence we never measured: a range older than the live poll has
     // no coverage data at all, which is not the same as a channel that never went live.

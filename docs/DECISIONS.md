@@ -10,6 +10,90 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Die Oberfläche zeigt nur noch eigene Nutzung, die D5-Übergangssumme fällt
+
+**Betrifft:** `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` ·
+`src/EmotePurge.Core/Services/IUsageStatQueryService.cs` ·
+`src/EmotePurge.Core/Services/IEmoteSetStatusService.cs` ·
+`src/EmotePurge.Infrastructure/Services/EmoteSetStatusService.cs` ·
+`src/EmotePurge.Core/Entities/UsageStat.cs` ·
+`src/EmotePurge.Worker/Harness/ReplayFidelityCalculator.cs` (nur ein veralteter Docstring-Absatz) ·
+`web/src/app/core/emotes/emote-set-status.model.ts` ·
+`web/src/app/core/emotes/shared-chat-separated-caption.ts` (neu) ·
+`web/src/app/features/usage-stats/usage-stats-page.ts` ·
+`web/src/app/features/usage-stats/usage-stats-page.html` ·
+`web/public/i18n/de.json`, `web/public/i18n/en.json` (`usageStats.sharedChatSeparatedSince`) ·
+`web/e2e/support/mocks.ts` · `web/e2e/usage-atlas.e2e.spec.ts` ·
+`tests/EmotePurge.Infrastructure.Tests/Integration/UsageStatQueryServiceTests.cs` ·
+`tests/EmotePurge.Infrastructure.Tests/Integration/EmoteSetStatusServiceTests.cs` ·
+`docs/Architectur.md` (§5) · `docs/UI-Designsprache.md` (§2.5)
+
+**Der Fall.** Zug 1 von [#73](https://github.com/sensitron/EmotePurge/issues/73) hat seit dem
+2026-09-07 drei getrennte Spalten geschrieben (`UseCount`, `BotUseCount`, `SharedChatUseCount`),
+den Lesepfad der Oberfläche aber übergangsweise weiter `UseCount + SharedChatUseCount` summieren
+und filtern lassen (Entscheidung D5) — damit beim Deploy keine angezeigte Zahl unerklärt fällt.
+Zug 2 beendet diese Brücke.
+
+**Der Lesevertrag ab jetzt.** Alle produktiven Lesequeries in `UsageStatQueryService` summieren
+und filtern über `UseCount` allein: `GetUsageContextAsync`, `GetDailySeriesAsync`,
+`GetChannelSeriesAsync` und `GetTotalsByEmoteIdsAsync`. Eine Zeile ohne eigene menschliche Nutzung
+liest sich damit als unbenutzt — **eine Shared-only-Zeile genauso wie eine Bot-only-Zeile**. Ein
+Emote, dessen Zeilen ausschließlich fremde Nutzung tragen, fällt aus `GetChannelSeriesAsync` ganz
+heraus und landet im Raster im Band „Nie benutzt". `GetRowsAsync` (roh für den Harness aus #69)
+und `GetEarliestBotUsageDateAsync` bleiben unverändert.
+
+**Zahlen fallen dadurch, und genau deshalb steht ein Satz darunter.** Die Messung vom 2026-09-06
+weist für `brudivoeller_tv` 84 % und für `ronnyberger` 66 % Anteil geteilten Chats aus; in solchen
+Kanälen sackt die angezeigte Nutzung sichtbar ab. Rückbau und Erklärung gehören deshalb in
+**dasselbe** Auslieferungspaket: Der neue Satz unter dem Bogen sagt, seit wann fremde Nutzung
+nicht mehr mitzählt und dass Zahlen davor sie noch enthalten.
+
+**Das Datum ist datenabgeleitet, nicht das Deploy-Datum.** `EmoteSetStatusDto.SharedChatSeparatedSince`
+ist der früheste Tag, an dem dieser Kanal eine `UsageStat`-Zeile mit `SharedChatUseCount > 0`
+trägt (`GetEarliestSharedChatUsageDateAsync`, Zwilling der Bot-Methode, archivierte Emotes
+eingeschlossen). Vorbild und Unschärfe sind dieselben wie bei `BotsExcludedSince` (E4, Eintrag vom
+2026-09-01): Es ist die **erste Sichtung**, nicht der Beginn der Trennung — die ist ein Ereignis
+der Deploy-Historie und im Datenbestand nicht auffindbar. Ein Deploy-Datum als Konstante im Code
+wäre die Alternative gewesen; sie pflegt niemand und sie ist pro Umgebung falsch.
+
+**`null` heißt „hier gab es nichts zu trennen", nicht „hier zählt geteilter Chat noch mit".** Ein
+Kanal ohne je gesehenen geteilten Chat sieht den Satz nicht, und für ihn ändert der Rückbau auch
+keine einzige Zahl. Die Trennung selbst gilt trotzdem überall — ein späterer Konsument darf `null`
+nicht als „keine Trennung" lesen. Die Sichtbarkeitsregel prüft ausschließlich „Datum vorhanden"
+und gleicht bewusst **nicht** gegen `trackedSince` ab; die Begründung steht wörtlich im Docblock
+von `shared-chat-separated-caption.ts` und ist dieselbe wie beim Bot-Zwilling.
+
+**Kein Toggle.** Issue #73 skizzierte ursprünglich einen Umschalter „Shared Chat anzeigen" und
+eine zweite Zahl an der Zelle (`12× (+3 Shared Chat)`). Beides ist **verworfen**, nicht vertagt:
+Der Erstbesuch soll nicht zwei Zahlenbegriffe mitlesen müssen (E3-Muster aus #31, plus die
+Leitlinie zur Frontend-Zurückhaltung); erklärt werden muss nur, warum eine Zahl kleiner wurde. Wer
+den Umschalter später will, macht ein eigenes Issue auf.
+
+**Die Nutzungsspalte der Voting-Ergebnisse fällt still mit.** Sie speist sich aus
+`GetTotalsByEmoteIdsAsync` und bekommt **keine** eigene Caption. Präzedenz: Der Bot-Split hat
+dieselbe Spalte am 2026-09-01 ebenso still verändert, und sie ist laut `docs/Architectur.md`
+ausdrücklich Manager-Kontext neben der Karte, nicht Bestandteil des Scores. Die Asymmetrie steht
+hier, damit sie eine Entscheidung bleibt und kein Versehen wird.
+
+**Der Covering-Index bleibt unangetastet.** Zug 1 hat ihn nach der `EXPLAIN`-Messung bewusst bei
+`INCLUDE (UseCount)` belassen (Eintrag vom 2026-09-06, Task 4). Mit dem Rückbau auf `UseCount`
+allein greift der Index-Only-Scan von selbst wieder — es gibt in Zug 2 **keine** Migration und
+nichts nachzuziehen.
+
+**Zug 2 ist taktneutral.** Er ändert die Zählung nicht, berührt den Harness-Rechenkern nicht
+(einzige Ausnahme: ein veralteter Docstring-Absatz in `ReplayFidelityCalculator`, keine Zeile
+Logik, kein `AlgorithmVersion`-Bump), setzt keinen neuen Stichtag und lässt die 30-Tage-Uhr aus
+[#69](https://github.com/sensitron/EmotePurge/issues/69) ungestört weiterlaufen. Die Freeze-Liste
+aus Zug 1 bleibt bis zum Ende des bindenden Laufs in Kraft.
+
+**Der Marker-Test ist umgedreht, nicht gelöscht.**
+`UsageStatQueryServiceTests.SharedOnlyRow_ReadsAsUsedUntilZug2` heißt jetzt
+`SharedOnlyRow_ReadsAsUnused_LikeBotOnly` und behauptet mit demselben Seed das umgekehrte
+Verhalten. Er war der eingebaute Beleg, dass die Brücke stand; jetzt ist er der Beleg, dass sie
+gefallen ist. Ein gelöschter Test hätte beides nicht belegt.
+
+---
+
 ### 2026-09-07 — Knöpfe ohne Ellipse: die drei Punkte fallen, „Datei einspielen…" wird „Importieren"
 
 **Betrifft:** `web/public/i18n/de.json` (`import.copyButton`, `import.dockCopyButton`,
