@@ -3,19 +3,17 @@ import { Component, ElementRef, inject, input, signal, viewChild } from '@angula
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
-import { DeleteQueueEmote } from '../../core/seven-tv/seven-tv-delete.service';
 import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { parseImportSource } from '../export/import-source-parser';
-import { PurgeRunRow, parsePurgeRunProtocol } from '../export/purge-run-export';
+import { parsePurgeRunProtocol } from '../export/purge-run-export';
 import { readEnvelope } from '../export/read-envelope';
 import { Button } from '../ui/button';
 import { NoticeBanner } from '../ui/notice-banner';
 import { startImportFlow } from './import-flow';
-import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
-import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
+import { startRestoreFlow } from './restore-flow';
 
 /**
  * One file input, three acceptable sorts of file (#72, K3) — `readEnvelope` opens the file and its
@@ -87,8 +85,6 @@ export class RestorePanel {
   private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
   protected readonly errorKey = signal<string | null>(null);
 
-  private readonly restoreSlots = signal<{ occupied: number; capacity: number } | null>(null);
-
   protected openFilePicker(): void {
     this.fileInputRef().nativeElement.click();
   }
@@ -147,43 +143,17 @@ export class RestorePanel {
       return;
     }
 
-    if (!this.tokenService.hasToken()) {
-      openSevenTvTokenPromptDialog(this.dialog).closed.subscribe((saved) => {
-        if (saved) {
-          this.openConfirm(parsed.rows);
-        }
-      });
-      return;
-    }
-    this.openConfirm(parsed.rows);
-  }
-
-  private openConfirm(rows: PurgeRunRow[]): void {
-    // Live slot view, same pattern as the delete confirm's shared-set warning.
-    this.restoreSlots.set(null);
-    this.emoteAdminService.getSetStatus(this.channelName()).subscribe({
-      next: (status) =>
-        this.restoreSlots.set(
-          status.capacity === null
-            ? null
-            : { occupied: status.occupiedSlots, capacity: status.capacity },
-        ),
-      error: () => this.restoreSlots.set(null),
-    });
-
-    const data: RestoreConfirmDialogData = {
-      names: rows.map((row) => row.name),
-      slots: this.restoreSlots.asReadonly(),
-    };
-    openRestoreConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
-      if (confirmed) {
-        const emotes: DeleteQueueEmote[] = rows.map((row) => ({
-          emoteId: row.emoteId,
-          sevenTvEmoteId: row.sevenTvEmoteId,
-          name: row.name,
-        }));
-        this.restoreService.startRestore(this.setId(), this.channelName(), emotes);
-      }
-    });
+    startRestoreFlow(
+      {
+        dialog: this.dialog,
+        emoteAdminService: this.emoteAdminService,
+        tokenService: this.tokenService,
+        restoreService: this.restoreService,
+        arbiter: this.arbiter,
+      },
+      this.channelName(),
+      this.setId(),
+      parsed.rows,
+    );
   }
 }
