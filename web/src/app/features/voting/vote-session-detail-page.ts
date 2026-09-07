@@ -148,8 +148,9 @@ export class VoteSessionDetailPage {
   protected readonly currentUser = this.authService.currentUser;
 
   // Measured, not derived from the window — see the note at CELL_WIDE_PX, and the same defect
-  // fixed on the usage atlas: the shell caps content at 1024 px while window.innerWidth kept
-  // counting to 2560, so a wide monitor got eight stretched cards in 992 px.
+  // fixed on the usage atlas: the shell capped content at 1024 px while window.innerWidth kept
+  // counting to 2560, so a wide monitor got eight stretched cards in 992 px. Widening the cap to
+  // 1280 px (#93) does not revive the defect — measuring the container is what fixed it.
   private readonly sheetRef = viewChild.required<ElementRef<HTMLElement>>('sheet');
   private readonly stickyBarRef = viewChild<ElementRef<HTMLElement>>('stickyBar');
   protected readonly sheetWidth = signal(0);

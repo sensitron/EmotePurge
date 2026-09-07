@@ -41,7 +41,16 @@ const OUT = path.resolve(__dirname, '../../.audit-out');
 const VIEWPORTS = [
   { name: 'mobile', width: 360, height: 800 },
   { name: 'tablet', width: 768, height: 1024 },
-  { name: 'desktop', width: 1280, height: 900 },
+  // Two desktop cases, because one cannot cover both ends of the lg range.
+  // `desktop-narrow` is lg at its tightest: 1024 is exactly Tailwind's lg breakpoint, so both atlas
+  // pages open their 16rem sidecar while the shell's 80rem cap does not bind yet -- 992px of content,
+  // the geometry in which the sheet is squeezed hardest and wrapping breaks first. It is also what
+  // the old 1280 case measured back when the cap was 64rem, so its metrics stay comparable.
+  // `desktop` is the capped state: wider than the cap on purpose, because at 1280 the 80rem column
+  // (#93) would fill the viewport edge to edge and the state that actually ships would appear in no
+  // scenario at all. 1536 is the operator's own screen (1080p at 125%). Raise it with the cap.
+  { name: 'desktop-narrow', width: 1024, height: 900 },
+  { name: 'desktop', width: 1536, height: 900 },
 ] as const;
 
 // Theme is the fourth dimension of the matrix. Running it in full would double a run that is
@@ -1098,7 +1107,7 @@ for (const theme of THEMES) {
         const locale = testInfo.project.name;
         // English pass only in mobile (worst-case overflow) + desktop to keep the matrix sane.
         test.skip(locale === 'en' && vp.name === 'tablet', 'en only in mobile+desktop');
-        test.skip(theme === 'light' && vp.name !== 'desktop', 'light only at 1280');
+        test.skip(theme === 'light' && vp.name !== 'desktop', 'light only at the widest viewport');
 
         await page.setViewportSize({ width: vp.width, height: vp.height });
         // Both, and deliberately: emulateMedia covers the system-preference path, the storage seed

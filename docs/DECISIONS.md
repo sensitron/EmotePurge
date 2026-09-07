@@ -121,6 +121,78 @@ keines vor.
 
 ---
 
+### 2026-09-07 — Die Inhaltsspalte wird 80 rem breit, und sie bleibt eine
+
+**Betrifft:** `docs/UI-Designsprache.md` (§8.4a) · `DESIGN.md` ·
+`web/src/app/features/shell/app-shell.ts` · `web/src/app/features/landing/landing-page.html` ·
+`web/src/app/features/usage-stats/usage-stats-page.html` (Dock) ·
+`web/src/app/features/usage-stats/usage-stats-page.ts`,
+`web/src/app/features/voting/vote-session-detail-page.ts`,
+`web/src/app/shared/grid/grid-columns.ts` (Kommentare) ·
+`web/e2e/audit/ui-audit.audit.ts` (Viewports) · `docs/UI-Designsprache.md` (§8.5, §12)
+
+**Der Anlass ist ein Bildschirm, nicht ein Gefühl.** Issue #93, Nebenbefund aus #80: der Betreiber
+arbeitet auf 1080p mit 125 % Skalierung, also ~1536 CSS-Pixeln. Bei `max-w-5xl` (64 rem) blieben
+dort je ~256 px Rand ungenutzt, bei 100 % Skalierung je ~448 px — und die Filterleiste wie der
+Seitenkopf wirkten eng, weil die Shell eng war, nicht weil sie zu viel trugen. Die Spalte ist
+jetzt `max-w-7xl` (80 rem). Auf 1920 CSS-Pixeln bleiben damit immer noch je 320 px Rand; der
+Betreiber hat beide Kandidaten am laufenden Dev-Server angesehen und bei 100 % Skalierung
+ausdrücklich noch Luft gesehen.
+
+**Der Gewinn ist in Spalten messbar, und er ist am größten dort, wo heute am wenigsten Platz ist.**
+`atlasColumns` hängt an keinem Breakpoint, sondern misst den Container — alle 68 px eine Spalte
+mehr (`atlas-grid.ts`). Ohne Sidecar wächst das Blatt von 14 auf 18 Spalten. Mit geöffnetem
+Sidecar (16 rem plus `gap-5`, der Normalzustand ab `lg`, sobald der Zeiger auf einer Kachel steht)
+von **10 auf 14** — bei 900 Emotes schrumpft der Scrollbogen von ~6.120 px auf ~4.420 px, also um
+28 %. Das ist der eigentliche Grund, warum #93 aus #80 stammt: der Seitenkopf ist nicht sticky,
+und was ihn unerreichbar macht, ist die Länge des Bogens unter ihm.
+
+**Die Breite steht an neun Stellen, nicht an acht.** Entwurf und Issue nennen `app-shell.ts`
+(Header-Zeile und `<main>`) plus sechsmal `landing-page.html`. Die neunte ist der Innencontainer
+des `.app-dock` in `usage-stats-page.html` — er richtet die Aktionszeile an derselben Spalte aus.
+Wäre er zurückgeblieben, stünde die Zeile ab sofort 256 px schmaler als das Blatt, über dem sie
+sitzt, und zwar ausgerechnet auf der Seite, für die die Verbreiterung gemacht ist. §8.4a führt die
+neun jetzt einzeln auf, damit der nächste Umzug sie nicht wieder sucht.
+
+**Kein Widerspruch zum Eintrag vom 2026-08-06 („Zug 3, Breite"), und das ist zu belegen, nicht zu
+behaupten.** Dort wurde „Shell breiter" verworfen, mit dem Satz „auf 1536 px ist eine Metazeile
+keine Zeile mehr". Verworfen wurde aber die *routengesteuerte* Breite — `data.wideLayout` an zwei
+Blatt-Routen, 64 rem gegen 96 rem —, und der Eintrag sagt seine eigene Grenze dazu: „Ein erneuter
+Vorschlag über Routen-Daten ist derselbe Vorschlag." Dies ist keiner. Es bleibt bei **einer**
+Breite, app-weit, an allen neun Stellen zugleich; der Rahmen springt bei keiner Navigation. Und
+die zitierte Metazeile bezog sich auf 96 rem (1536 px), nicht auf die 80 rem, die hier gesetzt
+werden. §8.4a hält deshalb ab jetzt getrennt, was es verbietet: nicht das Anheben der Zahl, allein
+die zweite Zahl.
+
+**Der Audit-Harness musste mit, sonst hätte er stillschweigend aufgehört zu messen — und zwar an
+beiden Enden.** Seine Viewport-Matrix war 360/768/1280, und der breiteste war *breiter als der
+Deckel*: auf 1280 gegen 64 rem waren 992 px Inhalt zu sehen, also der ausgelieferte Zustand. Mit
+80 rem greift der Deckel dort nicht mehr — jede Aufnahme wäre randlos, und der gedeckelte Zustand
+käme in keinem Szenario mehr vor. Ihn allein auf 1536 zu heben war aber der halbe Schritt und hat
+eine Lücke gerissen, die erst die Zweitmeinung gesehen hat: `lg` beginnt bei 1024, und zwischen
+1024 und 1312 ist der Sidecar da, während der Deckel noch nicht greift. Das ist die **engste**
+Desktop-Geometrie, in der ein Umbruch zuerst bricht, und sie wäre danach von keinem Viewport mehr
+berührt worden. Die Matrix hat deshalb jetzt **vier** Viewports: `desktop-narrow` (1024, 992 px
+Inhalt) misst genau das, was der alte 1280er-Fall gegen den alten Deckel gemessen hat — seine
+Metriken bleiben damit vergleichbar —, `desktop` (1536, die Zahl, auf der der Betreiber arbeitet)
+misst den gedeckelten Zustand. Ein Viewport kann nur eines von beidem zeigen. §12 hält das fest,
+samt der Pflicht, beide Werte mitzuziehen, wenn die Breite sich wieder ändert.
+
+**§8.4a nennt keine Vorgeschichte, und das ist nicht Nachlässigkeit, sondern die Regel des
+Dokuments.** Der erste Entwurf dieses Commits schrieb „bis zum 2026-09-07 war die Breite
+`max-w-5xl`" in die Designsprache — genau das, was ihre eigene Präambel untersagt („keine
+Vorgeschichte, keine Zwischenstufe und kein ‚bis dahin galt'"). Dort steht jetzt nur die Norm:
+verboten ist die zweite Zahl, nicht eine andere; wer sie ändert, ändert sie an allen neun Stellen,
+zieht §12 mit und schreibt den Grund hierher. Ebenfalls von der Zweitmeinung gefunden: §8.5 trug in
+seiner Begründung zum Selektionsring ein lebendes `<main class="mx-auto max-w-5xl px-4">` als
+Beispiel. Ein Ist-Stand-Dokument, in dem zwei verschiedene Breiten stehen, ist schlimmer als eines,
+das schweigt.
+
+**Nicht mitgezogen, geprüft:** die `sizes`/`ngSrcset`-Angaben der Emote-Bilder. Sie sind zellfest
+(64 px) bzw. viewport-basiert und kennen die Shell-Breite nicht — die naheliegende Vermutung,
+responsive Bildauswahl hänge an der Inhaltsspalte, hält `emote-sprite.ts` nicht stand. Ebenso
+unverändert bleiben die `max-w-2xl`/`max-w-3xl` innerhalb der Landing-Page: das sind Prosabreiten,
+und Fließtext wird von 80 rem nicht besser.
 ### 2026-09-06 — Shared Chat bekommt eine dritte Spalte, und die Oberfläche summiert übergangsweise weiter
 
 **Betrifft:** `.github/dependabot.yml`, `src/EmotePurge.Core/Chat/MessageOrigin.cs`,

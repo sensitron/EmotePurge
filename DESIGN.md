@@ -288,8 +288,9 @@ nie, um etwas technisch aussehen zu lassen. Ausrichtung in Spalten läuft über 
 ## Layout
 
 Die Seite scrollt als **ein Dokument**, nicht als App-Rahmen mit innerem Scroll-Container. Die
-Inhaltsspalte hat app-weit **eine** Breite: `max-w-5xl` (64rem), gesetzt an der Kopfzeile und an
-`<main>`, mit `px-4 py-8` als Seitenrahmen.
+Inhaltsspalte hat app-weit **eine** Breite: `max-w-7xl` (80rem), gesetzt an der Kopfzeile und an
+`<main>`, mit `px-4 py-8` als Seitenrahmen. Dieselbe Breite tragen das Aktions-Dock und die sechs
+Abschnitte der Landing-Page — sie ziehen gemeinsam um oder gar nicht.
 
 Drei Ebenen bleiben beim Scrollen stehen und haben feste Höhen, weil `sticky` für gestapelte
 Ebenen exakte Offsets braucht: Kopfzeile 3,5rem bei `top-0`, Tab-Leisten 2,5rem bei `top-14`,

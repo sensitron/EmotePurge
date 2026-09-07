@@ -2,7 +2,7 @@
   <!-- z-30 for consistency with the app shell's header ladder (design doc §8.5) — the landing has
        no sticky sub-bars, but one ladder everywhere beats two conventions. -->
   <header class="app-sticky-bar top-0 z-30 border-b border-border">
-    <nav class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+    <nav class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
       <!-- routerLink + fragment instead of plain href="#...": the browser resolves bare hash hrefs
            against the base href ("/"), which is a full navigation away from /welcome — the router
            scrolls via anchorScrolling (app.config) instead. -->
@@ -43,7 +43,7 @@
          and the words next to it stay a lede rather than a pitch. There is no hero logo any more —
          the mark is already in the header two rows up, and a 112 px repeat of it was the page's
          biggest element while saying nothing. -->
-    <section class="mx-auto max-w-5xl px-4 pt-14 pb-16 sm:pt-20">
+    <section class="mx-auto max-w-7xl px-4 pt-14 pb-16 sm:pt-20">
       <div class="grid items-start gap-12 lg:grid-cols-[minmax(0,25rem)_minmax(0,1fr)]">
         <div class="flex flex-col items-start gap-6">
           <h1 class="text-4xl font-extrabold tracking-tight text-balance sm:text-5xl">
@@ -75,7 +75,7 @@
          row because it is the foundation the other two stand on, and each stage is introduced by
          the one word that governs it — dauerhaft / optional / endgültig. -->
     <section id="does" class="border-y border-border bg-surface">
-      <div class="mx-auto max-w-5xl px-4 py-16">
+      <div class="mx-auto max-w-7xl px-4 py-16">
         <h2 class="max-w-2xl text-2xl font-bold tracking-tight text-balance sm:text-3xl">
           {{ 'landing.does.title' | transloco }}
         </h2>
@@ -105,7 +105,7 @@
     <!-- How it works. A real sequence — nothing is measured before the join, nothing is purged
          before it was measured — so the numbers carry information here instead of decorating four
          equal boxes. Two steps carry the frictions the product actually has. -->
-    <section id="how" class="mx-auto max-w-5xl px-4 py-16">
+    <section id="how" class="mx-auto max-w-7xl px-4 py-16">
       <h2 class="max-w-2xl text-2xl font-bold tracking-tight text-balance sm:text-3xl">
         {{ 'landing.how.title' | transloco }}
       </h2>
@@ -148,7 +148,7 @@
          tool access to anything. Not a repeat of the hero: what is new here is the evidence. -->
     <section class="border-t border-border bg-surface">
       <div
-        class="mx-auto grid max-w-5xl gap-12 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]"
+        class="mx-auto grid max-w-7xl gap-12 px-4 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]"
       >
         <div class="flex flex-col items-start gap-5">
           <h2 class="max-w-md text-2xl font-bold tracking-tight text-balance sm:text-3xl">
@@ -188,7 +188,7 @@
 
   <footer class="border-t border-border px-4 py-8">
     <div
-      class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 text-sm text-fg-muted"
+      class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 text-sm text-fg-muted"
     >
       <span>{{ 'landing.footer.copyright' | transloco }}</span>
       <div class="flex gap-5">
