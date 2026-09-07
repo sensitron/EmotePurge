@@ -162,7 +162,7 @@ public sealed class HarnessRunner(
             if (!diagnostic)
             {
                 logger.LogError(
-                    "'Harness:SharedChatCutover' fehlt oder ist leer; ohne diesen Stichtag kann kein Gate-Urteil gefällt werden. Erwartet ist ein UTC-Datum der Form 'yyyy-MM-dd', oder '--diagnostic' für einen Lauf ohne Urteil.");
+                    "'Harness:SharedChatCutover' fehlt oder ist leer; ohne diesen Stichtag kann kein Gate-Urteil gefällt werden. Erwartet ist ein UTC-Datum der Form 'yyyy-MM-dd' — der Tag nach dem Prod-Deploy, nicht der Deploy-Tag selbst —, oder '--diagnostic' für einen Lauf ohne Urteil.");
                 return ExitPreconditionViolated;
             }
 
@@ -173,7 +173,7 @@ public sealed class HarnessRunner(
             options.SharedChatCutover, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedCutover))
         {
             logger.LogError(
-                "'Harness:SharedChatCutover' = '{Wert}' ist kein Datum der Form 'yyyy-MM-dd'; ein Tippfehler darf nie still als 'kein Stichtag' durchgehen.",
+                "'Harness:SharedChatCutover' = '{Wert}' ist kein Datum der Form 'yyyy-MM-dd' (der Tag nach dem Prod-Deploy, nicht der Deploy-Tag selbst); ein Tippfehler darf nie still als 'kein Stichtag' durchgehen.",
                 options.SharedChatCutover);
             return ExitPreconditionViolated;
         }

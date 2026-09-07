@@ -40,6 +40,20 @@ public class UsageFlushWorker(
 
     private async Task FlushOnceAsync(CancellationToken ct)
     {
+        // Drained first and unconditionally — before the early return below and outside the try/catch
+        // around the flush — because this is the only production signal for messages whose room
+        // origin could not be determined (#73), and it is exactly on a quiet window (no emote matches
+        // this cycle) or a failed flush that noticing is cheapest. Not per-message logging
+        // (WorkerStats.RecordIndeterminateSharedChatMessage stays silent) — once per call here, and
+        // only when there is something to say.
+        var indeterminate = stats.TakeIndeterminateSharedChatMessagesSinceLastFlush();
+        if (indeterminate > 0)
+        {
+            logger.LogInformation(
+                "{Count} Chat-Nachrichten seit dem letzten Durchlauf hatten keinen bestimmbaren Ursprungsraum und wurden als fremd (Shared Chat) gezählt.",
+                indeterminate);
+        }
+
         var counts = usageCounter.DrainAndReset();
         if (counts.Count == 0)
         {
@@ -55,16 +69,6 @@ public class UsageFlushWorker(
             // Bookkeeping moved to the shared WorkerStats so GET /api/admin/health can report it;
             // the requeue/drop behaviour below is unchanged.
             stats.RecordFlushSuccess(counts.Count, DateTime.UtcNow);
-
-            // Not per-message logging (WorkerStats.RecordIndeterminateSharedChatMessage stays
-            // silent) — once per flush, and only when there is something to say.
-            var indeterminate = stats.TakeIndeterminateSharedChatMessagesSinceLastFlush();
-            if (indeterminate > 0)
-            {
-                logger.LogInformation(
-                    "{Count} Chat-Nachrichten seit dem letzten Flush hatten keinen bestimmbaren Ursprungsraum und wurden als fremd (Shared Chat) gezählt.",
-                    indeterminate);
-            }
         }
         catch (Exception ex)
         {

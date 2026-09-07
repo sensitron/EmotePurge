@@ -484,9 +484,9 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"runComplete\": true", json);
         // All three days are rated (harness-2, #73 Task 7). Day 2's PogChamp hit sits in
         // SharedChatCounts rather than HumanCounts, but the *day total* counts all three components
-        // on both sides, so day 2 reads 1 against 9 (UseCount 1 + BotUseCount 7 +
-        // SharedChatUseCount 1) where days 1 and 3 read 1 against 8 — close enough to the median
-        // that CoverageQuestionable stays clear. Under the two-component day total this task
+        // on both sides, so day 2 reads 1 against 8 (UseCount 0 + BotUseCount 7 +
+        // SharedChatUseCount 1) — the same total as days 1 and 3, so the ratio lands exactly on the
+        // median and CoverageQuestionable stays clear. Under the two-component day total this task
         // replaced, day 2's log total was 0 and the coverage check dropped it, which is exactly the
         // interaction that would have cost a heavily-shared channel its rated days.
         Assert.Contains("\"ratedDays\": 3", json);
@@ -495,7 +495,7 @@ public class HarnessRunnerTests : IDisposable
         // its corresponding one-line mutation at the HarnessRunner call sites (see the final-fix
         // report) before this test was written this way.
         Assert.Contains("\"humanLogTotal\": 2", json); // day 2's hit is foreign, so only days 1 and 3 contribute
-        Assert.Contains("\"humanLiveTotal\": 3", json); // UseCount=1 per rated day; BotUseCount=7 must not leak in
+        Assert.Contains("\"humanLiveTotal\": 2", json); // UseCount 1 + 0 + 1 over the rated days; BotUseCount=7 must not leak in
         Assert.Contains("\"sharedChatMessages\": 1", json); // only day 2's message carries a foreign SourceRoomId
         // Both sides of the split, reported apart so a reader sees it instead of inferring it.
         Assert.Contains("\"sharedChatLogTotal\": 1", json);
@@ -503,7 +503,7 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"sharedChatByDay\"", json);
         Assert.DoesNotContain(ReplayGateIneligibleReasons.SharedChatAsymmetric, json);
         // The Run helper's default cutover ("2026-09-01", before Day1) reaches the identity and the
-        // report unchanged — the fixture setting it, not a derived value, is what "ratedDays": 2
+        // report unchanged — the fixture setting it, not a derived value, is what "ratedDays": 3
         // above stands on now that HumanOnly keys off this field instead of BotSplitCutover.
         Assert.Contains("\"sharedChatCutover\": \"2026-09-01\"", json);
 
@@ -527,7 +527,7 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("Shared Chat (Log)", markdown);
         Assert.Contains("Shared Chat (Live)", markdown);
         // Day 2's row: the foreign hit on both sides, next to the human columns that stay at 0.
-        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 1 | 1 | 1 |", markdown);
+        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 0 | 1 | 1 |", markdown);
     }
 
     [Fact]
@@ -558,7 +558,7 @@ public class HarnessRunnerTests : IDisposable
         var markdown = File.ReadAllText(Assert.Single(Directory.GetFiles(_directory, "*.report.md")));
         Assert.Contains("Shared Chat ΣLog / ΣLive (bewertete Tage) | 1 / 0", markdown);
         Assert.Contains("| 2026-09-02 | Complete | 1024 | 1 | 0 | 1 | 1 | 0 | 0 |", markdown);
-        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 1 | 1 | 0 |", markdown);
+        Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 0 | 1 | 0 |", markdown);
     }
 
     [Fact]
@@ -1050,11 +1050,11 @@ public class HarnessRunnerTests : IDisposable
     // HarnessRunner call site (`new ReplayUsageRow(r.EmoteId, r.Date, r.UseCount, r.BotUseCount)`)
     // used to be invisible — zeroing an already-zero BotUseCount changes nothing a test can see.
     // With BotUseCount nonzero, the swap inflates the human-live side (the gate's denominator) from
-    // 3 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
+    // 2 to 21 over the three rated days, which the asserted humanLiveTotal below catches.
     private static IReadOnlyList<UsageStatRowDto> Rows(int day2SharedChatUseCount = 0) =>
     [
         new("e1", Day1, 1, 7, 0),
-        new("e1", Day2, 1, 7, day2SharedChatUseCount),
+        new("e1", Day2, 0, 7, day2SharedChatUseCount),
         new("e1", Day3, 1, 7, 0)
     ];
 

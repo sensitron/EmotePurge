@@ -38,7 +38,11 @@ namespace EmotePurge.Core.Services;
 /// data alone. For a channel joined long before the deploy, this understates how far back the
 /// mixing goes; for one joined after, it can wrongly suggest older numbers are mixed when they
 /// never were. <c>null</c> means no bot has ever been seen here, in which case there is nothing
-/// to explain and a consumer should show nothing.
+/// to explain and a consumer should show nothing — except that, since #73, <c>BotUseCount</c>
+/// only counts bots seen in the channel's own room (mirrored "shared chat" bots land in
+/// <c>SharedChatUseCount</c> instead), so a channel first tracked only after that deploy whose bot
+/// traffic is effectively all mirrored keeps this <c>null</c> forever even though bots are in fact
+/// excluded: a known, accepted gap (DECISIONS.md, D2), not evidence the channel never saw a bot.
 /// </param>
 public record EmoteSetStatusDto(
     string ActiveEmoteSetId,
