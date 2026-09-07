@@ -821,7 +821,7 @@
       "failed": "Could not trigger a sync — the periodic sync catches up within a minute."
     },
     "import": {
-      "trigger": "Import file",
+      "trigger": "Import file…",
       "title": "Import file",
       "sorts": {
         "purgeRun": "Purge protocol (restore) as JSON",

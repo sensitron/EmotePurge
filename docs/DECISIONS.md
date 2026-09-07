@@ -10,6 +10,104 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-07 — Der Datei-Weg zieht in den Seitenkopf: Trigger und Einspiel-Dialog statt `RestorePanel` (#91), auf Widerruf
+
+**Betrifft:** `web/src/app/shared/seven-tv/restore-panel.ts` + `restore-panel.spec.ts` (gelöscht) ·
+`web/src/app/shared/seven-tv/file-import-dialog.ts` + `file-import-dialog.spec.ts` (neu) ·
+`web/src/app/shared/seven-tv/file-import-trigger.ts` + `file-import-trigger.spec.ts` (neu) ·
+`web/src/app/shared/seven-tv/file-import-trigger-gate.ts` + `file-import-trigger-gate.spec.ts` (neu) ·
+`web/src/app/shared/seven-tv/restore-flow.ts` + `restore-flow.spec.ts` (neu) ·
+`web/src/app/features/usage-stats/usage-stats-page.html` ·
+`web/src/app/features/usage-stats/usage-stats-page.ts` ·
+`web/public/i18n/de.json` · `web/public/i18n/en.json` ·
+`docs/UI-Designsprache.md` (§2.5, §4.2, §7.3 neu)
+
+**Der Fall.** Der Datei-Weg — ein Purge-Protokoll wiederherstellen, eine Emote-Liste oder einen
+Nutzungs-Export in diesen Kanal kopieren — saß als `RestorePanel` **unter** dem Emote-Raster. Der
+Befund des Betreibers dazu ist wörtlich: *„der Import Button ganz unten sieht man nicht."* Das ist
+n = 1 und die Person war am Entwurf beteiligt; als Beleg trägt es nur, weil die Geometrie ihn
+stützt: bei einem großen Set steht zwischen Seitenkopf und Panel der ganze Bogen. Dass der
+Seitenkopf bei viel Inhalt ebenfalls wegscrollt, ist richtig und ändert nichts an der Rangfolge —
+er ist am Anfang der Seite, das Panel war hinter ihr. Die Ortsfrage im Gegensatz *Fluss ↔ Dock*
+ist damit **nicht** neu entschieden: der Seitenkopf ist Fluss. Die Präzisierung dazu steht im
+Eintrag von heute („Welche Fläche welches Kommando trägt (§8.7)…"), Abschnitt „Präzisierung des
+Eintrags vom 2026-08-06 … zum Ort des Restore-Panels" — sie wird hier verwiesen und nicht
+wiederholt.
+
+**Ein Dialog, kein nackter Dateidialog.** Der Knopf hätte auch direkt das native Dateifenster
+öffnen können. Dagegen sprechen zwei Dinge, und beide sind der Grund für den Zwischenschritt:
+Erstens stehen die **drei zulässigen Sorten** (Purge-Protokoll → Wiederherstellen, Emote-Liste →
+Kopieren, Nutzungs-Export → Kopieren, je „als JSON") damit sichtbar **vor** der Suche — im
+Dateifenster steht nur ein Dateibaum, und was hineinpasst, erfährt man erst durch einen
+Fehlversuch. Zweitens erscheint ein Lesefehler dann **am Ort der Auswahl**: das Banner steht in
+demselben Dialog, direkt unter der Sortenliste, die erklärt, was stattdessen gepasst hätte. Beim
+Panel erschien er irgendwo auf der Seite — bei einem großen Set potenziell außerhalb des Bildes,
+weil der Knopf am Seitenende lag und die Antwort dort mit ihm. Die Sortenliste ist deshalb eine
+**Liste** und kein Satz mit Kommas: die deutschen Fassungen sind lang und brächen auf 360 px an
+willkürlicher Stelle um.
+
+**Das File-Input sitzt *im* Dialog — das ist keine Stilfrage.** Ein programmatischer
+`input.click()` **nach** dem `closed` eines CDK-Dialogs läuft außerhalb des Aufrufstapels der
+Nutzergeste; die Geste ist zu diesem Zeitpunkt verbraucht, und der Browser öffnet das Dateifenster
+**stumm nicht** — ohne Fehler, ohne Konsolenausgabe. Innerhalb des offenen Dialogs ist der Klick
+auf den sichtbaren Knopf (oder Enter/Leertaste darauf) dagegen eine frische Aktivierung. Das ist
+die Falle, an der ein „der Trigger öffnet einfach den Dateidialog"-Schnitt gescheitert wäre, und
+sie ist der Grund, warum `restore-panel.ts`' `openFilePicker()` **nicht** in den Trigger gewandert
+ist, sondern in den Dialog.
+
+**Die Ketten laufen *nach* dem Schließen, nicht daraus heraus.** Der Einspiel-Dialog liest und
+prüft und schließt mit einem diskriminierten Ergebnis („Restore" mit den restaurierbaren Zeilen /
+„Import" mit der `ImportSource`); erst danach startet der Trigger die passende Kette. Er startet
+also nie einen Dialog aus einem offenen heraus. Damit bleibt der Ein-Dialog-Vertrag aus
+`shared/ui/dialog.ts` gewahrt, und **beide Prompt-Reihenfolgen bleiben unverändert**: Restore fragt
+das 7TV-Token **vor** der Bestätigung, Import erst **danach** (§7.2 hält diese Asymmetrie als
+Absicht fest — nicht angleichen). Der Entwurf hatte die zwei Reihenfolgen aus einem bereits
+offenen Dialog als Aufwandstreiber M benannt; mit diesem Schnitt entstehen verschachtelte Dialoge
+gar nicht erst, der Aufwand verlagert sich in den Rückgabevertrag des Dialogs.
+
+**Welche Sperren der Trigger trägt — und welche bewusst nicht.** Er steht **im** bestehenden
+`@if (!isCoarse() && activeEmoteSetId())` des Seitenkopfs, dem Block, der bisher nur „Übertragen…"
+umschloss: ein Block, zwei Knöpfe. Beide Bedingungen sind Pflicht — kein 7TV-Schreibweg ohne Maus
+(§2.5), und kein Datei-Weg ohne eigenes aktives Set, weil ein Purge-Protokoll gegen genau dieses
+Set validiert wird. Dazu zwei eigene Sperren, beide geteilt mit „Übertragen…": ein laufender
+7TV-Lauf **beliebiger** Sorte (`SevenTvRunArbiter`, §4.2, ohne Hinweistext) und
+`importScopeCurrent()` — das Fenster nach einem Kanalwechsel innerhalb derselben Route, in dem
+`channelName()` schon auf B zeigt, Set-Status und Zeilen aber noch zu A gehören. **Nicht**
+übernommen wird `atlasOrder().length === 0`: der Push sendet, was das Raster hält, der Datei-Weg
+bringt seine Zeilen selbst mit und braucht keine einzige Rasterzeile. Damit die
+`importScopeCurrent`-Sperre nicht als Seitenlogik in die Komponente wandert, nimmt der Trigger sie
+als Input entgegen und rechnet seine Gesamtsperre in einer reinen Funktion
+(`file-import-trigger-gate.ts`, Muster `import-shortcut.ts`) — ohne TestBed testbar.
+
+**Capture-Disziplin: eingefrorene Werte, nie lebende Signale.** Beim Klick friert der Trigger
+`channelName()` **und** `activeEmoteSetId()` ein und reicht genau diese Werte durch — an den
+Dialog (der das Protokoll damit validiert) und weiter an `startRestoreFlow`/`startImportFlow`. Ein
+Kanalwechsel, während irgendein Dialog der Kette offen steht, kann deshalb nicht umlenken, was
+gelesen, geprüft, wiederhergestellt oder kopiert wird. `importScopeCurrent` schließt genau das
+Fenster, in dem diese beiden Werte kurzzeitig nicht zusammengehören. Neu ist außerdem die stille
+Arbiter-Sperre unmittelbar **vor** `startRestore` (der Import-Zweig hatte sie schon): ein Lauf, der
+zwischen Dateiauswahl und Bestätigung anderswo gestartet wurde, darf nicht doppelt laufen — still,
+weil der Fortschritt jenes Laufs bereits auf dem Schirm steht.
+
+**Benennung `file-import-*`, i18n-Namensraum `restore.import.*` bleibt.** Zwei der drei Sorten sind
+gar kein Restore, sondern ein Import in den eigenen Kanal; „Restore" als Name des Ganzen war schon
+im Panel falsch und wäre in drei neuen Dateien dreimal falsch geworden. Die Übersetzungsschlüssel
+behalten trotzdem ihr `restore.import.`-Präfix: eine Umbenennung berührte beide Locale-Dateien und
+jede Aufrufstelle, ohne dass irgendjemand den Unterschied sähe — sie kauft nichts. Der Wortlaut von
+`restore.import.trigger` ist jetzt „Datei einspielen…" / „Import file…", mit Ellipse, weil ein
+Dialog folgt (wie „Übertragen…"); `restore.import.hint` ist entfallen, ersetzt durch Dialogtitel
+und die drei Sorten-Schlüssel.
+
+**Auf Widerruf, wie die Dock-Kurzform.** Der Ort ist umkehrbar. §8.7 bleibt **wortgleich** — der
+Abschnitt erlaubt diese Platzierung, er verlangt sie nicht; fällt das Urteil des Betreibers gegen
+sie aus, fällt ein Auslöser weg und keine Regel bricht. Der Satz vom 2026-08-06 („`RestorePanel`
+bleibt im Fluss, weil es eine Wiederherstellungs-Hilfe ist und nicht Teil des Markierens") bleibt
+stehen und gilt weiter in seinem eigenen Gegensatz. Als Bedingung oder Probe wird hier **nichts**
+terminiert: die Mod-Discord-Vorstellung (#68) ist am 2026-09-07 ausdrücklich als Prüfinstanz
+verworfen worden — eine ausbleibende Frage ist kein Urteil.
+
+---
+
 ### 2026-09-07 — Der Audit-Harness maß 360 px mit einer Maus, und seine Mobil-Gates waren zur Hälfte Einbildung
 
 **Betrifft:** `web/e2e/audit/ui-audit.audit.ts` · `docs/UI-Designsprache.md` (§12) — und mittelbar

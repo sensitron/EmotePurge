@@ -48,8 +48,8 @@ const DE_TRANSLATIONS = {
 const CURRENT_CHANNEL = 'somechannel';
 const CURRENT_SET = 'set-current';
 
-/** Always resolves to exactly this string, same trick as `restore-panel.spec.ts` — sidesteps
- *  whatever `Blob`/`File.text()` support the test environment happens to have. */
+/** Always resolves to exactly this string — sidesteps whatever `Blob`/`File.text()` support the
+ *  test environment happens to have. */
 function file(text: string, name = 'export.json'): File {
   const f = new File([text], name, { type: 'application/json' });
   Object.defineProperty(f, 'text', { value: () => Promise.resolve(text) });
@@ -129,8 +129,8 @@ interface Harness {
   focusableInOrder(): Element[];
   /** Drives `onFileSelected` directly with a synthetic `Event`/`<input>` pair, awaiting the whole
    *  (async) handler — a real `dispatchEvent('change')` would leave its `await file.text()` still
-   *  in flight with nothing in this zoneless setup to signal when it settles (same reasoning as
-   *  `restore-panel.spec.ts`). `undefined` models the native file dialog being cancelled. */
+   *  in flight with nothing in this zoneless setup to signal when it settles. `undefined` models
+   *  the native file dialog being cancelled. */
   selectFile(selected: File | undefined): Promise<void>;
 }
 

@@ -109,6 +109,7 @@ import {
   packAtlasRows,
 } from '../../shared/grid/atlas-grid';
 import { actionDockHasContent } from '../../shared/seven-tv/action-dock';
+import { FileImportTrigger } from '../../shared/seven-tv/file-import-trigger';
 import { ImportFlowDeps, startImportFlow } from '../../shared/seven-tv/import-flow';
 import { ImportProgressSection } from '../../shared/seven-tv/import-progress-section';
 import { importScopeIsCurrent } from '../../shared/seven-tv/import-scope';
@@ -118,7 +119,6 @@ import {
   openImportTargetDialog,
 } from '../../shared/seven-tv/import-target-dialog';
 import { DeletableEmote, MassDeletePanel } from '../../shared/seven-tv/mass-delete-panel';
-import { RestorePanel } from '../../shared/seven-tv/restore-panel';
 import { ListSelection } from '../../shared/selection/list-selection';
 import { Button } from '../../shared/ui/button';
 import { EmptyState } from '../../shared/ui/empty-state';
@@ -206,7 +206,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     EmoteSpriteAnimated,
     ImportProgressSection,
     MassDeletePanel,
-    RestorePanel,
+    FileImportTrigger,
     SlotBudgetBar,
     DateRangeMenu,
     SegmentedControl,

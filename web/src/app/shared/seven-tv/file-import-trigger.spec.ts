@@ -18,15 +18,15 @@ import { FileImportTrigger } from './file-import-trigger';
 
 /**
  * `FileImportTrigger` opens every dialog through the plain `Dialog` it injects, same as
- * `RestorePanel` did before it (see `restore-panel.spec.ts`) and `startRestoreFlow`/
- * `startImportFlow` before that: `dialog.open` is one `vi.fn()` standing in for the file-import
+ * `startRestoreFlow`/`startImportFlow` do with the one they are handed: `dialog.open` is one
+ * `vi.fn()` standing in for the file-import
  * dialog itself, the token prompt, the restore confirmation and the import confirmation alike,
  * distinguished by call order and by the side effects (`getSetStatus`/`startRestore`/
  * `startImport`) each step is allowed to have triggered by the time it runs.
  */
 
 // Only the key this trigger itself renders.
-const DE_TRANSLATIONS = { restore: { import: { trigger: 'Datei importieren' } } };
+const DE_TRANSLATIONS = { restore: { import: { trigger: 'Datei einspielen…' } } };
 
 const CURRENT_CHANNEL = 'somechannel';
 const CURRENT_SET = 'set-current';

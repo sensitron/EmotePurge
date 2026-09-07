@@ -24,8 +24,8 @@ import { startRestoreFlow } from './restore-flow';
  * 7TV token before the confirmation, Import only after it (`startImportFlow`'s doc explains why;
  * this trigger must not prompt for a token itself on top of either).
  *
- * Injects its own services, like the `RestorePanel` it replaces (#70/#91) — the page it sits in
- * gets no new method of its own (keeps the page's own coverage surface small, see plan 2.4).
+ * Injects its own services (#70/#91) — the page it sits in gets no new method of its own, which
+ * keeps the page's own coverage surface small (see plan 2.4).
  *
  * `importScopeCurrent` is an input rather than something computed here from page state, so the
  * lock this button carries stays a pure function of two booleans (`fileImportTriggerDisabled`,

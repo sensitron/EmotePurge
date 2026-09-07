@@ -18,19 +18,28 @@
       >
         {{ 'export.button' | transloco }}
       </button>
-      <!-- Push entry point (#72, K3): copy this channel's emotes into another one's 7TV set.
-           Desktop-only like every other 7TV write path (isCoarse — no write token off a phone), and
-           gone entirely without an active set to copy from. Locked while ANY of the three
-           7TV-writing runs is active (arbiter.activeRun(), not just this button's own kind) — the
-           same rule the delete and restore triggers already follow, and the running progress in the
-           dock is the only reason given for it (UI-Designsprache.md §4.2/§7).
-           Also locked while the set status or the rows still belong to the PREVIOUS channel: a
-           channel switch inside this route (the import summary's "open target channel" link) moves
-           channelName() at once and leaves both behind until their responses land, so a capture in
-           that window would copy channel A's emotes out of A's set under B's name — a wrong 7TV
-           write. `importScopeCurrent()`, not `isLoading()`: the new totals can answer before the new
-           set status does, and loading is over by then. See importScopeIsCurrent. -->
-      @if (!isCoarse() && activeEmoteSetId()) {
+      <!-- Two 7TV write entry points behind ONE gate, because both act on this channel's active
+           set: the push (#72, K3) copies this channel's emotes into another channel's set, the file
+           path (#91) reads a file and either restores a purge protocol into this set or copies an
+           emote list / usage export into it. Both are desktop-only like every other 7TV write path
+           (isCoarse — no write token off a phone) and both are gone entirely without an active set:
+           the push would have nothing to copy from, the file path no set to validate a purge
+           protocol against.
+           Both also carry the same two locks. ANY of the three 7TV-writing runs being active
+           (arbiter.activeRun(), not just the button's own kind) — the same rule the delete trigger
+           already follows, and the running progress in the dock is the only reason given for it
+           (UI-Designsprache.md §4.2/§7). And the set status or the rows still belonging to the
+           PREVIOUS channel: a channel switch inside this route (the import summary's "open target
+           channel" link) moves channelName() at once and leaves both behind until their responses
+           land, so a capture in that window would act on channel A's set under B's name — a wrong
+           7TV write. `importScopeCurrent()`, not `isLoading()`: the new totals can answer before the
+           new set status does, and loading is over by then. See importScopeIsCurrent. The trigger
+           takes that boolean as an input rather than recomputing it, so its lock stays a pure
+           function (file-import-trigger-gate.ts).
+           NOT shared is `atlasOrder().length === 0`: the push sends what the grid holds and has
+           nothing to send while it is empty, whereas the file path brings its own rows and needs no
+           row in the grid at all. -->
+      @if (!isCoarse() && activeEmoteSetId(); as activeSetId) {
         <button
           type="button"
           appButton="neutral"
@@ -42,6 +51,11 @@
         >
           {{ 'import.copyButton' | transloco }}
         </button>
+        <app-file-import-trigger
+          [channelName]="channelName()"
+          [setId]="activeSetId"
+          [importScopeCurrent]="importScopeCurrent()"
+        />
       }
       <button
         type="button"
@@ -703,17 +717,6 @@
       </aside>
     }
   </div>
-
-  <!-- Gated with the delete engine: re-importing a protocol replays 7TV writes and needs the same
-       token, so on a phone it would be the one write path left standing. -->
-  @if (activeEmoteSetId(); as setId) {
-    <!-- The reload-surviving half of the A6 safety net: re-import a downloaded purge protocol.
-         Usage page only — this is where the purge decision lives. Stays in the flow rather than in
-         the dock: it is a recovery affordance, not part of marking. -->
-    @if (!isCoarse()) {
-      <app-restore-panel [setId]="setId" [channelName]="channelName()" />
-    }
-  }
 </div>
 
 <!-- The action bar. It exists only while there is something to act on, which is what allows the

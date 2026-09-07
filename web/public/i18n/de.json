@@ -821,7 +821,7 @@
       "failed": "Synchronisierung konnte nicht angestoßen werden — der periodische Sync holt es innerhalb einer Minute nach."
     },
     "import": {
-      "trigger": "Datei importieren",
+      "trigger": "Datei einspielen…",
       "title": "Datei einspielen",
       "sorts": {
         "purgeRun": "Purge-Protokoll (Wiederherstellen) als JSON",
