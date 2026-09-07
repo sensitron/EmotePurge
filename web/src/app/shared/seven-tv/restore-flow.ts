@@ -45,11 +45,11 @@ export function startRestoreFlow(
   setId: string,
   rows: PurgeRunRow[],
 ): void {
-  const slots = signal<{ occupied: number; capacity: number } | null>(null);
-
   const openConfirm = (): void => {
-    // Live slot view, same pattern as the delete confirm's shared-set warning.
-    slots.set(null);
+    // Live slot view, same pattern as the delete confirm's shared-set warning. The signal is born
+    // here, next to its one subscription and its one reader — openConfirm runs at most once per
+    // flow, so there is nothing to reset it from.
+    const slots = signal<{ occupied: number; capacity: number } | null>(null);
     deps.emoteAdminService.getSetStatus(channelName).subscribe({
       next: (status) =>
         slots.set(

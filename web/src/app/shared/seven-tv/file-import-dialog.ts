@@ -31,10 +31,9 @@ export type FileImportResult =
   { kind: 'restore'; rows: PurgeRunRow[] } | { kind: 'import'; source: ImportSource };
 
 /**
- * The read-and-validate step of the file-based restore/import path (#91), split out of the old
- * `RestorePanel`, which used to read, validate, and run both dialog chains in one component. This
- * dialog only reads the file and reports what it is; it never starts a run and never opens a
- * further dialog — that is `FileImportTrigger`'s job. Keeping both chains outside of this dialog
+ * The read-and-validate step of the file-based restore/import path (#91). This dialog only reads
+ * the file and reports what it is; it never starts a run and never opens a further dialog — that
+ * is `FileImportTrigger`'s job. Keeping both chains outside of this dialog
  * (Restore: token → confirm; Import: confirm → token, both unchanged) means they never nest inside
  * an already-open dialog, preserving the app's one-dialog-at-a-time contract (`shared/ui/dialog.ts`).
  *
@@ -90,7 +89,7 @@ export type FileImportResult =
   `,
 })
 export class FileImportDialog {
-  protected readonly data = inject<FileImportDialogData>(DIALOG_DATA);
+  private readonly data = inject<FileImportDialogData>(DIALOG_DATA);
   protected readonly dialogRef = inject<DialogRef<FileImportResult | undefined>>(DialogRef);
 
   // Named apart from the #fileInput template reference, same reasoning as the panel this was split
@@ -121,6 +120,9 @@ export class FileImportDialog {
     }
 
     if (read.envelope.kind === 'purge-run') {
+      // parsePurgeRunProtocol deliberately re-reads the very same text: it does its own envelope
+      // check and keeps enforcing the channel *and* the active-set match (`wrongChannel`/`wrongSet`)
+      // itself, which readEnvelope knows nothing about. The second pass is the contract, not a slip.
       this.handlePurgeRunProtocol(text);
       return;
     }

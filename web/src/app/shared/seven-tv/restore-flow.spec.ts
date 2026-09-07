@@ -78,17 +78,16 @@ function setup(): Harness {
   };
 }
 
-/** The `data` a call to `dialog.open` was handed — only ever used for the confirm dialog, whatever
- *  its call index. */
-function confirmData(
-  dialogOpen: ReturnType<typeof vi.fn>,
-  index: number,
-): RestoreConfirmDialogData {
-  return dialogOpen.mock.calls[index][1].data as RestoreConfirmDialogData;
+/** The `data` the first call to `dialog.open` was handed. Every test that reads it has a token
+ *  stored, so that first call IS the confirm dialog. */
+function confirmData(dialogOpen: ReturnType<typeof vi.fn>): RestoreConfirmDialogData {
+  return dialogOpen.mock.calls[0][1].data as RestoreConfirmDialogData;
 }
 
-function closedAt<T>(dialogOpen: ReturnType<typeof vi.fn>, index: number): Subject<T> {
-  return dialogOpen.mock.results[index].value.closed as Subject<T>;
+/** The `closed` subject of the first `dialog.open` call — the token prompt when none is stored,
+ *  the confirmation otherwise. */
+function firstClosed<T>(dialogOpen: ReturnType<typeof vi.fn>): Subject<T> {
+  return dialogOpen.mock.results[0].value.closed as Subject<T>;
 }
 
 describe('startRestoreFlow', () => {
@@ -108,7 +107,7 @@ describe('startRestoreFlow', () => {
     hasToken.set(false);
     startRestoreFlow(deps, CHANNEL, SET_ID, rows());
 
-    closedAt<boolean>(dialogOpen, 0).next(true);
+    firstClosed<boolean>(dialogOpen).next(true);
 
     expect(dialogOpen).toHaveBeenCalledTimes(2);
     expect(getSetStatus).toHaveBeenCalledWith(CHANNEL);
@@ -128,7 +127,7 @@ describe('startRestoreFlow', () => {
     const theRows = rows();
 
     startRestoreFlow(deps, CHANNEL, SET_ID, theRows);
-    closedAt<boolean>(dialogOpen, 0).next(true);
+    firstClosed<boolean>(dialogOpen).next(true);
 
     expect(startRestore).toHaveBeenCalledWith(SET_ID, CHANNEL, [
       { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
@@ -140,7 +139,7 @@ describe('startRestoreFlow', () => {
     hasToken.set(false);
     startRestoreFlow(deps, CHANNEL, SET_ID, rows());
 
-    closedAt<boolean>(dialogOpen, 0).next(false);
+    firstClosed<boolean>(dialogOpen).next(false);
 
     expect(dialogOpen).toHaveBeenCalledTimes(1);
     expect(getSetStatus).not.toHaveBeenCalled();
@@ -151,7 +150,7 @@ describe('startRestoreFlow', () => {
     const { deps, dialogOpen, startRestore } = setup();
 
     startRestoreFlow(deps, CHANNEL, SET_ID, rows());
-    closedAt<boolean>(dialogOpen, 0).next(false);
+    firstClosed<boolean>(dialogOpen).next(false);
 
     expect(startRestore).not.toHaveBeenCalled();
   });
@@ -161,9 +160,18 @@ describe('startRestoreFlow', () => {
     activeRun.set('import');
 
     startRestoreFlow(deps, CHANNEL, SET_ID, rows());
-    closedAt<boolean>(dialogOpen, 0).next(true);
+    firstClosed<boolean>(dialogOpen).next(true);
 
     expect(startRestore).not.toHaveBeenCalled();
+  });
+
+  it('projects the answered slot numbers into the confirmation', () => {
+    const { deps, dialogOpen, getSetStatus } = setup();
+    getSetStatus.mockReturnValue(of(readyStatus({ occupiedSlots: 42, capacity: 600 })));
+
+    startRestoreFlow(deps, CHANNEL, SET_ID, rows());
+
+    expect(confirmData(dialogOpen).slots()).toEqual({ occupied: 42, capacity: 600 });
   });
 
   it('shows no slot projection once the set has no reported capacity', () => {
@@ -172,17 +180,22 @@ describe('startRestoreFlow', () => {
 
     startRestoreFlow(deps, CHANNEL, SET_ID, rows());
 
-    expect(confirmData(dialogOpen, 0).slots()).toBeNull();
+    expect(confirmData(dialogOpen).slots()).toBeNull();
   });
 
-  it('shows no slot projection when the status request errors', () => {
+  // Deliberately emits a *usable* status before the error: `slots` starts out null, so a test that
+  // only errored would stay green with the error handler deleted outright.
+  it('drops the slot projection again when the status request errors after answering', () => {
     const { deps, dialogOpen, getSetStatus } = setup();
     const status$ = new Subject<EmoteSetStatus>();
     getSetStatus.mockReturnValue(status$);
 
     startRestoreFlow(deps, CHANNEL, SET_ID, rows());
+    status$.next(readyStatus({ occupiedSlots: 42, capacity: 600 }));
+    expect(confirmData(dialogOpen).slots()).toEqual({ occupied: 42, capacity: 600 });
+
     status$.error(new Error('boom'));
 
-    expect(confirmData(dialogOpen, 0).slots()).toBeNull();
+    expect(confirmData(dialogOpen).slots()).toBeNull();
   });
 });
