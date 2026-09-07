@@ -72,7 +72,10 @@ const DE_TRANSLATIONS = {
         one: '{{ count }} doppelte Zeile in der Quelle zusammengefasst.',
         other: '{{ count }} doppelte Zeilen in der Quelle zusammengefasst.',
       },
-      nothingToAdd: 'Alle {{ count }} Emotes sind bereits im Zielset.',
+      nothingToAdd: {
+        one: 'Das einzige Emote ist bereits im Zielset.',
+        other: 'Alle {{ count }} Emotes sind bereits im Zielset.',
+      },
       sameChannelFile: 'Diese Liste stammt aus diesem Kanal.',
       runNotice: 'Das Hinzufügen läuft danach automatisch nacheinander.',
       execute: 'Kopieren',
@@ -662,7 +665,7 @@ describe('ImportConfirmDialog', () => {
       const contract = [
         '1 Emote ist bereits im Zielset',
         '1 doppelte Zeile in der Quelle zusammengefasst.',
-        'Alle 1 Emotes sind bereits im Zielset.',
+        'Das einzige Emote ist bereits im Zielset.',
         'Diese Liste stammt aus diesem Kanal.',
         'Das Hinzufügen läuft danach automatisch nacheinander.',
       ];

@@ -943,7 +943,10 @@
         "one": "{{ count }} duplicate row in the source collapsed.",
         "other": "{{ count }} duplicate rows in the source collapsed."
       },
-      "nothingToAdd": "All {{ count }} emotes are already in the target set.",
+      "nothingToAdd": {
+        "one": "The only emote is already in the target set.",
+        "other": "All {{ count }} emotes are already in the target set."
+      },
       "sameChannelFile": "This list comes from this channel.",
       "runNotice": "Adding then runs automatically, one emote at a time, with a short delay between each.",
       "execute": "Copy"

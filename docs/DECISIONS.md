@@ -115,6 +115,53 @@ des Entwurfs, ändert aber an der Rangfolge der Flächen nichts, weil der Seiten
 wegscrollt. Und die Benennung der Kommandos (#92): §8.7 verlangt ein Verb je Absicht, es schreibt
 keines vor.
 
+---
+
+### 2026-09-06 — Der `run-actions`-Slot des Laufpanels ist post-run-only, und das ist ein Vertrag
+
+**Betrifft:** `web/src/app/shared/seven-tv/run-progress-panel.ts`, und damit alle drei Hosts, die
+den Slot bespielen — `web/src/app/shared/seven-tv/mass-delete-panel.ts` (Löschen und
+Wiederherstellen) sowie `web/src/app/shared/seven-tv/import-progress-section.ts` (Import).
+
+**Der Fall.** `RunProgressPanel` klammert seine Zusammenfassungszeile *und* den
+`<ng-content select="[run-actions]" />` in ein gemeinsames `@if (!isRunning() && total() > 0)`.
+Was ein Host dort hineinprojiziert, ist während eines laufenden Laufs also unsichtbar. Beim
+Nachlauf zu #72 stand die Frage, ob das ein Fehler ist: Der Import projiziert dorthin den
+Resync-Hinweis, die „Fehlende Rechte"-Warnung und den „Zielkanal öffnen"-Link — und eine Warnung
+über fehlende Rechte klingt nach etwas, das man mitten im Lauf sehen will.
+
+**Die Untersuchung.** Fünf der sechs projizierten Elemente sind ohnehin leer, solange der Lauf
+läuft: Die Protokoll- und Wiederherstellen-Schaltflächen des Löschlaufs hängen an `lastRun`, das
+zum Laufbeginn auf `null` gesetzt und erst in `onRunComplete` beschrieben wird; die Resync-Hinweise
+von Import und Restore hängen genauso an `resyncTrigger`. Die Engine ruft `onRunComplete` aus
+`finish()`, also **nachdem** sie `isRunning` auf `false` gesetzt hat. Für diese fünf ist das Gate
+redundant.
+
+Tragend ist es für genau ein Element: den „Zielkanal öffnen"-Link der `ImportProgressSection`. Der
+trägt keine eigene Bedingung und verließe sich ohne das Gate auf nichts — er wäre mitten im Lauf
+klickbar und schickte den Nutzer in den Leave-Guard der Usage-Stats-Seite. Information wird dabei
+nicht zurückgehalten: Der Zielkanal steht ohnehin unbedingt über dem Panel, nur die
+Navigations-Möglichkeit fehlt.
+
+**Der Nebenfund, der den Eintrag rechtfertigt.** `abortedForPrivileges` wird **mitten im Lauf**
+gesetzt, im `abortOn`-Hook der Engine, nicht danach. Sichtbar wird die Warnung trotzdem nie
+vorzeitig, weil Abbruch und `isRunning.set(false)` im selben synchronen Tick liegen und die
+zoneless Change Detection dazwischen nicht rendert. Das ist eine Zufälligkeit des Ablaufs, keine
+Invariante — würde `abortOn` je eine Warnung bekommen, die *nicht* abbricht, verschluckte dieses
+`@if` sie stillschweigend.
+
+**Die Entscheidung.** Das Verhalten bleibt, aber es heißt ab jetzt Vertrag und nicht Zufall: Was in
+`run-actions` projiziert wird, ist post-run-only und darf nichts sein, das der Nutzer während des
+Laufs braucht. Der Kommentar an der Stelle sagt das, benennt den einen tragenden Fall und warnt vor
+der Tick-Falle. Nicht entkoppelt wurde, weil kein Nutzer heute etwas Falsches sieht und die
+Alternative — jedes Element bewacht sich selbst — alle drei Lauf-Arten anfasst und die geteilte
+Bedingung der Summenzeile auftrennen müsste; das wäre eine eigene Änderung mit eigener Prüfung,
+kein Nachlauf-Handgriff. Ursprung des Gates ist `981baf3` (A6), als der Slot nur Protokoll-Download
+und Wiederherstellen trug — beides echt nachlaufend; der Import hat es später mit `e9ae097` geerbt,
+ohne dass es noch einmal geprüft wurde.
+
+---
+
 ### 2026-09-06 — Der Harness ist ein zweiter Einstiegspunkt des Worker-Images, kein Hosted Service
 
 **Betrifft:** `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`,

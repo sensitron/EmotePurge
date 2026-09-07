@@ -52,7 +52,22 @@ import { NoticeBanner } from '../ui/notice-banner';
 
       <!-- Post-run summary (A6): the counts as text, plus whatever run-scoped actions the host
            projects (protocol download, restore). Rendered only once the run has settled — during
-           the run the bar and the failure list already say everything. -->
+           the run the bar and the failure list already say everything.
+
+           The gate on the projection slot is a contract, not decoration: whatever a host puts in
+           the run-actions slot is post-run-only and must not be something the user needs mid-run.
+           Most projected items are already empty during a run on their own -- delete's lastRun,
+           import's and restore's resyncTrigger are all first written in onRunComplete, which the
+           engine calls after it has set isRunning to false -- so the gate reads redundant. It is
+           not: ImportProgressSection's "open the target channel" link carries no condition of its
+           own and relies on this gate alone. Without it the link would be clickable while a run
+           writes, and would send the user into the leave guard.
+
+           One trap for whoever changes this: abortedForPrivileges is set *during* the run, in the
+           engine's per-row abort hook, not afterwards. It is never visible mid-run only because
+           the abort and isRunning.set(false) fall in the same synchronous tick, and zoneless
+           change detection renders nothing in between. Should that hook ever gain a warning that
+           does not abort, this block would swallow it silently. -->
       @if (!isRunning() && total() > 0) {
         <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <span class="text-fg-secondary">
