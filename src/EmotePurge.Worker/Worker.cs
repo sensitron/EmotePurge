@@ -13,8 +13,20 @@ public class Worker(
     IEmoteMatchCache emoteMatchCache,
     BootRecoveryGate bootRecoveryGate,
     ISevenTvEventClient sevenTvEventClient,
-    IServiceScopeFactory scopeFactory) : BackgroundService
+    IServiceScopeFactory scopeFactory,
+    IConfiguration configuration) : BackgroundService
 {
+    // Worker-local debug command for the RECONNECT path (issue #68, Entscheidung 7.5, Task 6):
+    // the Api never sends this. BotCommands in EmotePurge.Core stays the Api<->Worker contract
+    // and is deliberately not extended for a command that only ever originates locally.
+    private const string DebugTwitchReconnectCommand = "DEBUG:TWITCH-RECONNECT";
+
+    // Read once in the constructor, same pattern as Twitch:LivePollIntervalSeconds in
+    // TwitchLivePollWorker.cs:26. Default false, and never set in docker-compose.yml or
+    // .env.example (Konzept 2.8) — only a deliberately configured local run can ever reach the
+    // injected branch in HandleDebugTwitchReconnectAsync below.
+    private readonly bool _allowTwitchReconnectTrigger =
+        configuration.GetValue("Worker:Debug:AllowTwitchReconnectTrigger", false);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -54,6 +66,10 @@ public class Worker(
                 logger.LogInformation("Redis-Kommando: resynce {Channel}.", channelName);
                 await twitchChatManager.EnsureJoinedAsync(channelName);
                 await SyncSevenTvAsync(channelName, stoppingToken, publishCompletion: true);
+            }
+            else if (string.Equals(message, DebugTwitchReconnectCommand, StringComparison.Ordinal))
+            {
+                await HandleDebugTwitchReconnectAsync();
             }
         }, stoppingToken);
 
@@ -138,5 +154,26 @@ public class Worker(
                 await redisPublisher.PublishChannelSyncedAsync(logger, result.ChannelName, ct);
             }
         }
+    }
+
+    // Debug-only trigger for the RECONNECT path (Entscheidung 7.5, Task 6). Fall B (Twitch sends
+    // RECONNECT) is otherwise not reproducible locally at all. This gate is the only place that
+    // decides whether the trigger fires — TwitchChatManager.SimulateServerReconnectAsync checks
+    // nothing itself. The "ignoriert" line below is the positive evidence that the gate holds,
+    // not merely the absence of an effect (G4).
+    private async Task HandleDebugTwitchReconnectAsync()
+    {
+        if (!_allowTwitchReconnectTrigger)
+        {
+            logger.LogWarning("Debug-Auslöser ignoriert — Worker:Debug:AllowTwitchReconnectTrigger ist nicht gesetzt.");
+            return;
+        }
+
+        logger.LogWarning("Debug-Auslöser: Twitch-RECONNECT wird injiziert.");
+
+        // Blocks this command handler for ≈2s (TwitchLib's own ClosePrivate wait of 0.4s plus its
+        // internal 1.5s delay inside ReconnectAsync) — acceptable for a debug-only path fired by
+        // hand, and named here rather than hidden behind an unawaited Task.Run.
+        await twitchChatManager.SimulateServerReconnectAsync();
     }
 }

@@ -473,6 +473,8 @@ public class TwitchChatManager(
         return new TwitchRejoinOutcome(desired, confirmed, desired - confirmed, aborted);
     }
 
+    public Task SimulateServerReconnectAsync() => _client.OnReadLineTestAsync(":tmi.twitch.tv RECONNECT");
+
     private void OfferSignal(int generation, TwitchSessionEndReason reason, string detail)
     {
         var request = new TwitchReconnectRequest(reason, detail, CurrentSessionDuration(), DateTime.UtcNow, generation);

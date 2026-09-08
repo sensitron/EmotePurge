@@ -123,4 +123,16 @@ public interface ITwitchChatManager
     /// connection was lost.
     /// </summary>
     Task<TwitchRejoinOutcome> RejoinDesiredChannelsAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Debug-only trigger for the <c>RECONNECT</c> path (Entscheidung 7.5, Task 6): feeds
+    /// <c>:tmi.twitch.tv RECONNECT</c> into the current client via TwitchLib's own
+    /// <c>OnReadLineTestAsync</c> — the same case its real read loop hits for Twitch's own
+    /// <c>RECONNECT</c> line. Proves the policy reaction (Plan Task 9, S2), not the thread
+    /// context: this call runs on the caller's thread, not inside a dying read loop, so it does
+    /// not exercise E1 (TwitchLib's handlers doing nothing in that loop) — that is verified by
+    /// reading the handlers, not by this call. The manager checks no gate here; that lives
+    /// solely in the command dispatcher in <see cref="Worker"/>.
+    /// </summary>
+    Task SimulateServerReconnectAsync();
 }
