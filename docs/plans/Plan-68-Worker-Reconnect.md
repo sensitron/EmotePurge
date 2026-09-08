@@ -973,11 +973,18 @@ einem Stand läuft, der die Gates schon hält.
    gegen tote `cref`-Verweise auf die gelöschte `ReconnectPolicy`: `GenerateDocumentationFile` ist im
    Repo nirgends gesetzt, Roslyn validiert `cref`s deshalb nicht, `CS1574` kann nicht feuern — dafür
    ist der Kontroll-`grep` aus Task 7 der Wächter, s. P2), `dotnet test EmotePurge.slnx` (braucht
-   Docker für die Infrastructure-Tests). Erwartung: Baseline 1.047 Fälle (Projektnotiz 2026-09-08) minus 13
-   (`ReconnectPolicyTests`) minus 2 (`ClientSpent…`) plus 14 + 8 (Task 1: Policy und Slot) plus ≥ 3
-   (Task 2) plus 0 (Task 3) plus ≤ 1 (Task 6).
-2. Frontend unberührt: `git diff --stat origin/main -- web` ist leer; keine E2E nötig (keine
-   UI-Änderung).
+   Docker für die Infrastructure-Tests). Erwartung: Baseline **1.073** Fälle minus 14
+   (`ReconnectPolicyTests`) minus 2 (`ClientSpent…`) plus 14 + 9 (Task 1: Policy und Slot) plus 6
+   (Task 2) plus 0 (Task 3) plus 1 (Task 6) = **1.087**. Die Baseline ist am 2026-09-08 durch
+   `--list-tests` gegen ein Worktree auf `86eedcd` erhoben (296 Worker / 96 Api / 681 Infrastructure);
+   die zuvor hier zitierten „1.047 Fälle (Projektnotiz)" waren veraltet, und `ReconnectPolicyTests`
+   hatte 14 Fälle, nicht 13. Beides ist eine Zählung, keine Schätzung — geht sie nicht auf, ist das
+   ein Befund, kein Anlass, die Zahl nachzuziehen.
+2. Frontend praktisch unberührt: `git diff --stat origin/main -- web` zeigt **genau eine** Datei,
+   `web/src/app/shared/ui/sheet-drag-policy.ts`, und dort nur zwei Kommentarzeilen (ein toter
+   `ReconnectPolicy`-Verweis, den der Kontroll-`grep` aus Task 7 fand und den dieser Plan nicht auf
+   dem Zettel hatte). Keine Codezeile berührt, also keine E2E nötig. Die Frontend-Unit-Suite läuft
+   trotzdem einmal mit.
 3. **Coverage — erst nach den Commits** (`scripts/coverage-local.mjs` misst nur Committetes):
    `node scripts/coverage-local.mjs --backend-only`. Erwartung: **niedrig**, weil `TwitchChatManager`
    und `TwitchConnectionWatchdog` nach Regel 11 keine Fake-Tests bekommen und mit vollem Gewicht im
