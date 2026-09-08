@@ -70,10 +70,20 @@ dieselbe Fehlerklasse wie das heutige stille `:latest`, nur mit umgekehrtem Vorz
 gegen neun echte Commit-Bereiche aus der Historie und elf künstliche Grenzfälle gefahren (nur
 Tests, leerer Commit, `.dockerignore`, `.github/**`, `global.json`, neues Top-Level-Verzeichnis,
 beide Dockerfiles einzeln, gemischter Push, Pfad mit Leerzeichen, Rename über Projektgrenzen) — 20
-von 20 mit dem erwarteten Ergebnis. Der eigentliche Nachweis kann erst nach dem Merge fallen und ist
-**kein** grüner Workflow, sondern ein unveränderter Digest: `emotepurge-worker:latest` stand vor
-dieser Änderung auf `sha256:8c0732e6…`, und ein reiner `web/`-Push auf `main` muss ihn dort stehen
-lassen.
+von 20 mit dem erwarteten Ergebnis.
+
+**Der Nachweis der Wirkung ist ein unveränderter Digest, kein grüner Workflow — und er braucht
+seinen Vergleichspunkt unmittelbar vor dem gemessenen Push.** Am 2026-09-08 stand
+`emotepurge-worker:latest` auf `sha256:8c0732e6…`. Dieser Wert taugt ausdrücklich **nicht** als
+Anker: Schon der Merge dieser Änderung fasst `.github/**` an, fällt damit in den Fail-safe-Zweig
+und baut beide Images neu, und das gebündelte Deploy vom 2026-09-09 bringt mit #68 einen echten
+Worker-Umbau mit, der den Digest völlig zu Recht verschiebt. Wer nach dem Deploy gegen den alten
+Wert misst, misst #68 und hält den Filter fälschlich für wirkungslos. Die Messung lautet deshalb:
+Digest **direkt vor** dem ersten reinen `web/`-Push lesen, nach dessen Actions-Lauf erneut lesen,
+beide müssen gleich sein — und die Job-Summary des `changes`-Jobs muss den Worker mit `false`
+ausweisen. `gh api` scheitert daran mit 403 (der Token trägt kein `read:packages`); der Digest ist
+stattdessen anonym über den GHCR-Token-Endpunkt und den `Docker-Content-Digest`-Header von
+`HEAD /v2/sensitron/emotepurge-worker/manifests/latest` zu holen.
 
 ---
 
