@@ -502,6 +502,15 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("\"sharedChatLiveTotal\": 1", json);
         Assert.Contains("\"sharedChatByDay\"", json);
         Assert.DoesNotContain(ReplayGateIneligibleReasons.SharedChatAsymmetric, json);
+        // #97: the tie-safe quartile sets and the top-20 tie counts round-trip through the JSON
+        // report. A single-emote population makes every one of these trivially 1 — the point here is
+        // that the new fields exist and serialize, not their value on this particular fixture (that
+        // is covered in depth by ReplayFidelityCalculatorTests).
+        Assert.Contains("\"bottomQuartileLiveSize\": 1", json);
+        Assert.Contains("\"bottomQuartileLogSize\": 1", json);
+        Assert.Contains("\"top20LiveTieCount\": 1", json);
+        Assert.Contains("\"top20LogTieCount\": 1", json);
+        Assert.Contains("\"tailDeviation\"", json);
         // The Run helper's default cutover ("2026-09-01", before Day1) reaches the identity and the
         // report unchanged — the fixture setting it, not a derived value, is what "ratedDays": 3
         // above stands on now that HumanOnly keys off this field instead of BotSplitCutover.
@@ -528,6 +537,10 @@ public class HarnessRunnerTests : IDisposable
         Assert.Contains("Shared Chat (Live)", markdown);
         // Day 2's row: the foreign hit on both sides, next to the human columns that stay at 0.
         Assert.Contains("| 2026-09-03 | Complete | 1024 | 1 | 0 | 0 | 0 | 1 | 1 |", markdown);
+        // #97: the quartile's tie-safe set sizes and the tail-deviation row, explicitly marked as
+        // not a gate figure.
+        Assert.Contains("Quartilsgröße (nominal)", markdown);
+        Assert.Contains("keine Gate-Kennzahl, nur Bericht", markdown);
     }
 
     [Fact]

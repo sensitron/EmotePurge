@@ -630,9 +630,19 @@ public sealed class HarnessRunner(
         // #73 split are an eligibility condition (D3), not a fourth published figure.
         Row(text, "Shared Chat ΣLog / ΣLive (bewertete Tage)",
             Invariant($"{gate.SharedChatLogTotal} / {gate.SharedChatLiveTotal}"), "Eignungsbedingung, kein Gate");
+        // Reporting-only (#97): sees the uniform tail loss a rank-based set comparison structurally
+        // cannot, but has no calibrated threshold, so it is never read against a cutoff here.
+        Row(text, "Schwanzabweichung Σ\\|Log − Live\\| / ΣLive (unteres Quartil, Live-Menge)",
+            Ratio(gate.TailDeviation), "keine Gate-Kennzahl, nur Bericht");
 
         text.Append(Invariant($"\nImport-Population: {gate.PopulationSize} Emotes · ΣLog (human) {gate.HumanLogTotal} · ΣLive (human) {gate.HumanLiveTotal}"));
-        text.Append(Invariant($" · Top-20-Größe {gate.Top20Size} · Quartilsgröße {gate.BottomQuartileSize}"));
+        text.Append(Invariant($" · Top-20-Größe {gate.Top20Size}"));
+        text.Append(Invariant(
+            $", davon {gate.Top20LiveTieCount} auf dem Live-Grenzwert und {gate.Top20LogTieCount} auf dem Log-Grenzwert"));
+        // Since #97 the quartile's Live-/Log-Menge (the tie-safe cutoff sets) can exceed the nominal
+        // Quartilsgröße when a plateau sits on the cutoff — the tie counts right after explain why.
+        text.Append(Invariant(
+            $" · Quartilsgröße (nominal) {gate.BottomQuartileSize}, Live-Menge {gate.BottomQuartileLiveSize}, Log-Menge {gate.BottomQuartileLogSize}"));
         text.Append(Invariant(
             $", davon {gate.BottomQuartileLiveTieCount} auf dem Live-Grenzwert und {gate.BottomQuartileLogTieCount} auf dem Log-Grenzwert"));
         text.Append(Invariant($" · davon signallose gewertete Tage {diagnostics.SignallessRatedDays}\n"));
