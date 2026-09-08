@@ -7,7 +7,7 @@ namespace EmotePurge.Worker;
 /// <see cref="SevenTv.SevenTvSubscriptionRegistry"/>, which two hosted services likewise share by
 /// concrete type.
 /// <para>
-/// Clock-free by design (the <c>ReconnectPolicy</c> precedent): the caller passes the timestamp in,
+/// Clock-free by design, like every policy in this project: the caller passes the timestamp in,
 /// which keeps the class deterministically unit-testable without a clock abstraction.
 /// </para>
 /// </summary>

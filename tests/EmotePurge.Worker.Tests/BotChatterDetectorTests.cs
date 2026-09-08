@@ -3,7 +3,7 @@ using Xunit;
 
 namespace EmotePurge.Worker.Tests;
 
-// Pure and TwitchLib-free like ReconnectPolicy/TwitchWatchdogPolicy — chatter id and badges arrive
+// Pure and TwitchLib-free like TwitchWatchdogPolicy/TwitchReconnectBackoffPolicy — chatter id and badges arrive
 // as plain BCL values, IConfiguration is the only external dependency. Never throws: IsBot runs in
 // TwitchChatManager.OnMessageReceived, the hot path (see the class comment on BotChatterDetector).
 public class BotChatterDetectorTests

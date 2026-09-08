@@ -1,24 +1,6 @@
 namespace EmotePurge.Worker;
 
 /// <summary>
-/// One reconnect signal. <see cref="ClientGeneration"/> identifies the <c>TwitchClient</c> instance
-/// whose loss (or failed rebuild attempt) produced it — the number that
-/// <see cref="TwitchReconnectSignalSlot"/> uses to tell a late echo of an already-replaced client
-/// apart from a genuinely new loss. <see cref="SessionDuration"/> carries the same "no handshake at
-/// all" distinction as <see cref="TwitchSessionResult"/>.
-/// <para>
-/// Held here rather than in <c>ITwitchChatManager.cs</c> so this task does not have to touch that
-/// file; Task 4 may move it there once the manager itself changes (plan 2.2).
-/// </para>
-/// </summary>
-public sealed record TwitchReconnectRequest(
-    TwitchSessionEndReason Reason,
-    string Detail,
-    TimeSpan? SessionDuration,
-    DateTime RequestedUtc,
-    int ClientGeneration);
-
-/// <summary>
 /// What offering a signal did to the slot. The slot only reports this; logging it is the manager's
 /// job (plan 2.3: "der Manager loggt").
 /// </summary>

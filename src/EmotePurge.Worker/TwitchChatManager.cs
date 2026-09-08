@@ -11,6 +11,14 @@ using TwitchLib.Communication.Models;
 
 namespace EmotePurge.Worker;
 
+/// <summary>
+/// The transport half of the Twitch connection (issue #68): it holds exactly one
+/// <see cref="TwitchClient"/> at a time, wires and unwires it, stamps frames, tracks the desired
+/// channels and paces every JOIN we issue. It makes no timing decision of its own — when and how
+/// often to rebuild belongs to <see cref="TwitchConnectionWatchdog"/> and
+/// <see cref="TwitchReconnectBackoffPolicy"/>, and TwitchLib's event handlers here only ever record
+/// state and deposit a signal (design decision E1).
+/// </summary>
 public class TwitchChatManager(
     ILogger<TwitchChatManager> logger,
     ILoggerFactory loggerFactory,
@@ -19,24 +27,29 @@ public class TwitchChatManager(
     IBotChatterDetector botChatterDetector,
     WorkerStats stats) : ITwitchChatManager
 {
-    // Bounds how long we *wait* for a connect/reconnect, not how long TwitchLib tries: the
-    // reconnection policy retries indefinitely in the background and still raises
-    // OnConnected/OnReconnected when it gets through. Without this bound a Twitch outage during
-    // startup would block Worker.ExecuteAsync — no Redis subscription, no join/leave commands.
-    private static readonly TimeSpan OpenWaitTimeout = TimeSpan.FromSeconds(30);
-
     // Twitch permits 20 joins per 10 seconds on a non-verified connection, and TwitchLib paces them
     // not at all: JOINs bypass its ThrottlingService (that one only covers chat messages) and its
-    // queue advances as fast as confirmations arrive — about 180ms per channel, measured on prod.
-    // Twenty channels back to back therefore sit exactly on the limit and anything above it exceeds
-    // it, which costs the excess channels their join until EnsureJoinedAsync retries them. 600ms
-    // keeps every join path we control at roughly 16 per 10 seconds.
+    // queue advances as fast as confirmations arrive — 126–231ms per channel, measured against
+    // Twitch on 2026-09-08. Twenty channels back to back therefore sit on or above the limit, which
+    // costs the excess channels their join until EnsureJoinedAsync retries them. 600ms keeps every
+    // join path at roughly 16 per 10 seconds.
     //
-    // This cannot cover TwitchLib's own rejoin after a reconnect, which happens inside the library
-    // and bursts through all channels at full speed. Above ~20 channels that needs either sharding
-    // across several clients or a verified bot account — see the scaling note in
-    // docs/Review-2026-07-29-Umsetzung.md.
+    // Since the client is built with NoReconnectionPolicy there is no unthrottled path left:
+    // TwitchLib never rejoins on its own any more, every JOIN this process issues goes through the
+    // gate below, and the rejoin after a rebuild is just another caller of it.
     private static readonly TimeSpan MinIntervalBetweenJoins = TimeSpan.FromMilliseconds(600);
+
+    // How long an opened socket may stay silent before we call the attempt failed. TwitchLib sends
+    // the IRC handshake as soon as the WebSocket is up and Twitch answers "004" within a
+    // round-trip, so ten seconds is two orders of magnitude of headroom, not a guess.
+    private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(10);
+
+    // How long the round waits for Twitch to confirm the JOINs it just sent — TwitchLib's own join
+    // timeout is 5s, so anything unconfirmed after that will not arrive at all and belongs in the
+    // "K offen" figure rather than in a longer wait.
+    private static readonly TimeSpan JoinConfirmationTimeout = TimeSpan.FromSeconds(5);
+
+    private static readonly TimeSpan JoinConfirmationPollInterval = TimeSpan.FromMilliseconds(150);
 
     // Desired channels, not confirmed ones — the value records whether Twitch confirmed the JOIN.
     // Tracking intent instead of success is what makes a failed join retryable (see TryJoinAsync
@@ -52,19 +65,31 @@ public class TwitchChatManager(
     private readonly SemaphoreSlim _joinGate = new(1, 1);
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
 
-    // Decides reconnect vs. recreate vs. wait, and owns the two counters that decision rests on.
-    // Deliberately not injected: it is pure state belonging to this manager, not a dependency.
-    private readonly ReconnectPolicy _reconnectPolicy = new();
+    // The one place a loss becomes a rebuild. Deliberately not injected: it is this manager's own
+    // state, and the loop reaches it only through WaitForReconnectRequestAsync.
+    private readonly TwitchReconnectSignalSlot _signalSlot = new();
 
-    private TwitchClient _client = CreateClient(loggerFactory);
-    private volatile bool _isConnected;
+    private volatile TwitchClient _client = CreateClient(loggerFactory);
+
+    // Counted from 1 for the boot client and never reset: it is both the key of the signal slot's
+    // generation rule and the rebuild id in every log line about a connection.
+    private int _clientGeneration = 1;
+    private int _connected;
     private long _lastMessageReceivedUtcTicks;
     private long _lastFrameReceivedUtcTicks;
     private long _connectAttemptedUtcTicks;
-    private int _joinsIssuedForCurrentClient;
+
+    // When the current session's handshake ("004") arrived, or 0 when there is no session. Set by
+    // OnConnected, cleared when a rebuild attempt starts — which is what makes "no handshake at
+    // all" (a failed attempt) distinguishable from "a session that ended" for the backoff policy.
+    private long _sessionStartedUtcTicks;
     private DateTime _lastJoinIssuedUtc = DateTime.MinValue;
 
-    public bool IsConnected => _isConnected;
+    // Completed by OnConnected of the client the current attempt is opening. Recreated per attempt,
+    // so a late "004" of an abandoned client can never satisfy the wait of a newer one.
+    private TaskCompletionSource? _handshakeSource;
+
+    public bool IsConnected => Volatile.Read(ref _connected) == 1;
 
     public DateTime? LastMessageReceivedUtc => ReadTimestamp(ref _lastMessageReceivedUtcTicks);
 
@@ -72,7 +97,91 @@ public class TwitchChatManager(
 
     public DateTime? ConnectAttemptedUtc => ReadTimestamp(ref _connectAttemptedUtcTicks);
 
-    public bool IsClientSpent => _reconnectPolicy.IsClientSpent;
+    public void Initialize()
+    {
+        WireUpClient(_client);
+    }
+
+    public async Task ConnectAsync(CancellationToken ct)
+    {
+        // One attempt, no background retry loop: if it fails, the signal below is what the rebuild
+        // loop finds the first time it waits, and the loop owns every attempt from then on. Boot
+        // recovery runs either way — joins record their intent and the first successful rebuild
+        // rejoins them.
+        try
+        {
+            var outcome = await OpenAndAwaitHandshakeAsync(_client, Volatile.Read(ref _clientGeneration), ct);
+            if (outcome.HandshakeCompleted)
+            {
+                return;
+            }
+
+            logger.LogWarning(
+                "Initialer TwitchClient-Connect fehlgeschlagen ({Reason}) — der Wiederaufbau übernimmt.",
+                outcome.FailureReason);
+            RequestReconnect(
+                TwitchSessionEndReason.InitialConnectFailed,
+                $"Boot-Connect fehlgeschlagen ({outcome.FailureReason}).");
+        }
+        catch (OperationCanceledException)
+        {
+            // Host is shutting down while we were still opening: nothing to signal, nothing to wait
+            // for. The half-open client dies with the process.
+        }
+    }
+
+    public async Task JoinChannelAsync(string channelName)
+    {
+        // Record the intent *before* attempting it. Tracking only confirmed joins meant a channel
+        // whose JOIN failed — e.g. because the client happened to be mid-rebuild — was never
+        // retried by any reconnect: database and match cache looked correct while usage data
+        // stayed empty forever, with no signal anywhere.
+        _desiredChannels.AddOrUpdate(channelName, false, (_, confirmed) => confirmed);
+        await TryJoinAsync(channelName, TwitchJoinSource.Command, CancellationToken.None);
+    }
+
+    public async Task EnsureJoinedAsync(string channelName)
+    {
+        // Safety net driven by the periodic resync, which enumerates all active channels anyway:
+        // covers lost Redis commands, joins that failed during boot recovery, and joins Twitch
+        // never confirmed.
+        if (_desiredChannels.TryGetValue(channelName, out var confirmed) && confirmed)
+        {
+            return;
+        }
+
+        _desiredChannels.AddOrUpdate(channelName, false, (_, stored) => stored);
+        await TryJoinAsync(channelName, TwitchJoinSource.ConvergenceNet, CancellationToken.None);
+    }
+
+    public async Task LeaveChannelAsync(string channelName)
+    {
+        // Drop the intent first, so nothing rejoins this channel afterwards even if the leave
+        // itself fails or the client is currently disconnected. TryJoinAsync re-checks the intent
+        // after its gate, so a leave that lands mid-rejoin also stops the JOIN that round would
+        // otherwise still send.
+        _desiredChannels.TryRemove(channelName, out _);
+        // A left channel's last message time would otherwise outlive it for the process lifetime and
+        // resurrect as a stale timestamp if the channel is ever rejoined.
+        _lastMessageByChannelTicks.TryRemove(channelName, out _);
+
+        if (!IsConnected)
+        {
+            logger.LogWarning(
+                "Leave für {Channel} übersprungen — TwitchClient ist derzeit nicht verbunden.",
+                channelName);
+            return;
+        }
+
+        try
+        {
+            await _client.LeaveChannelAsync(channelName);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Leave fehlgeschlagen für {Channel}.", channelName);
+        }
+    }
 
     public IReadOnlyList<TwitchRosterEntry> GetRoster()
     {
@@ -92,42 +201,41 @@ public class TwitchChatManager(
         return roster;
     }
 
-    public void Initialize()
+    public void RequestReconnect(TwitchSessionEndReason reason, string detail) =>
+        OfferSignal(Volatile.Read(ref _clientGeneration), reason, detail);
+
+    public Task<TwitchReconnectRequest> WaitForReconnectRequestAsync(CancellationToken ct) =>
+        _signalSlot.TakeAsync(ct);
+
+    public async Task<TwitchConnectOutcome> ReconnectOnceAsync(CancellationToken ct)
     {
-        WireUpClient(_client);
-    }
-
-    public Task ConnectAsync() => OpenAsync();
-
-    public async Task ForceReconnectAsync()
-    {
-        // Skip rather than queue: an open loop can now take arbitrarily long, while the watchdog
-        // ticks every minute. Queueing would pile ticks up behind it and could keep the recreate
-        // escape hatch locked out for as long as the loop runs.
-        if (!await _reconnectLock.WaitAsync(TimeSpan.Zero))
-        {
-            logger.LogInformation("Ein Reconnect läuft bereits, Watchdog-Durchlauf übersprungen.");
-            return;
-        }
-
+        await _reconnectLock.WaitAsync(ct);
         try
         {
-            var openRunningFor = ConnectAttemptedUtc is { } attemptedAt ? DateTime.UtcNow - attemptedAt : (TimeSpan?)null;
-            var decision = _reconnectPolicy.Decide(openRunningFor);
+            // Step 1 — detach the old client. From here on nothing it raises reaches us, and the
+            // signal slot discards anything it deposited before the loop condemned its generation.
+            var oldClient = _client;
+            var oldGeneration = Volatile.Read(ref _clientGeneration);
+            UnwireClient(oldClient);
+            SetConnected(false);
+            Interlocked.Exchange(ref _sessionStartedUtcTicks, 0);
+            MarkAllChannelsUnconfirmed();
 
-            switch (decision.Action)
-            {
-                case ReconnectAction.Wait:
-                    logger.LogInformation("{Reason}", decision.Reason);
-                    return;
-                case ReconnectAction.Recreate:
-                    await RecreateClientAsync(decision.Reason);
-                    return;
-                default:
-                    logger.LogInformation("Erzwinge Reconnect. Grund: {Reason}", decision.Reason);
-                    await ReconnectClientAsync();
-                    return;
-            }
+            // Step 2 — clean it up in the background rather than awaiting it (E4). Its socket is
+            // already gone, and DisconnectAsync alone carries ~1.9s of built-in waits that would be
+            // pure counting gap.
+            DisconnectInBackground(oldClient, oldGeneration);
+
+            // Step 3 — a fresh object, never OpenAsync() on the old one: a reused client drags
+            // along TwitchLib's half-emptied join queue and its _currentlyJoiningChannels flag,
+            // while a new one has an empty queue and exactly one read loop (E3).
+            var newClient = CreateClient(loggerFactory);
+            WireUpClient(newClient);
+            var generation = Interlocked.Increment(ref _clientGeneration);
+            _client = newClient;
+
+            // Steps 4 and 5.
+            return await OpenAndAwaitHandshakeAsync(newClient, generation, ct);
         }
         finally
         {
@@ -135,120 +243,309 @@ public class TwitchChatManager(
         }
     }
 
-    private async Task<bool> OpenAsync()
+    public async Task<TwitchRejoinOutcome> RejoinDesiredChannelsAsync(CancellationToken ct)
     {
-        MarkOpenStarted();
-        var open = _client.ConnectAsync();
-
-        try
+        var channels = _desiredChannels.Keys.ToArray();
+        if (channels.Length == 0)
         {
-            // ConnectAsync returns Task<bool> and signals failure by returning false rather than
-            // throwing — discarding that result used to make a failed connect indistinguishable
-            // from a successful one, leaving the worker "started" with no IRC connection.
-            var opened = await open.WaitAsync(OpenWaitTimeout);
-            _reconnectPolicy.RegisterOpenSettled();
+            return new TwitchRejoinOutcome(0, 0, 0, false);
+        }
 
-            if (!opened)
+        logger.LogInformation("Rejoine {Count} gewünschte(n) Channel(s).", channels.Length);
+
+        var aborted = false;
+        foreach (var channelName in channels)
+        {
+            if (ct.IsCancellationRequested || !IsConnected)
             {
-                logger.LogError("Initialer TwitchClient-Connect fehlgeschlagen.");
+                // Abort instead of producing one "aufgeschoben" line per remaining channel: the
+                // connection is gone again and its loss is already a signal, or the host is
+                // stopping and the remaining channels no longer matter.
+                aborted = true;
+                break;
             }
 
-            return opened;
+            await TryJoinAsync(channelName, TwitchJoinSource.Rejoin, ct);
         }
-        catch (TimeoutException)
+
+        if (!aborted)
         {
-            LogOpenStillRunning();
-            ObserveInBackground(open);
-            return false;
+            aborted = !await WaitForJoinConfirmationsAsync(channels, ct);
         }
+
+        return TallyRejoin(channels, aborted);
     }
 
-    private async Task ReconnectClientAsync()
+    private async Task<TwitchConnectOutcome> OpenAndAwaitHandshakeAsync(
+        TwitchClient client,
+        int generation,
+        CancellationToken ct)
     {
-        MarkOpenStarted();
+        var startedAt = DateTime.UtcNow;
+        Interlocked.Exchange(ref _connectAttemptedUtcTicks, startedAt.Ticks);
 
-        // Unlike ConnectAsync, TwitchClient.ReconnectAsync returns a plain Task (verified against
-        // ITwitchClient at tag 4.0.1) — there is no result to evaluate here, the outcome only
-        // surfaces as OnReconnected or OnConnectionError, which is where the counters live.
-        var reconnect = _client.ReconnectAsync();
+        // Created before the connect, because OnConnected can fire the moment the socket is up.
+        // RunContinuationsAsynchronously so the loop never resumes inside TwitchLib's read loop.
+        var handshake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _handshakeSource = handshake;
 
+        bool opened;
         try
         {
-            await reconnect.WaitAsync(OpenWaitTimeout);
-            _reconnectPolicy.RegisterOpenSettled();
+            // Exactly one attempt: NoReconnectionPolicy is ReconnectionPolicy(0, maxAttempts: 1),
+            // so TwitchLib does not loop here, and its own TimeOutEstablishConnection (15s) bounds
+            // how long this can take. No timeout of our own on purpose — that 15s bound is what the
+            // "an attempt ends within ~25s" guarantee is measured against, and a second timeout
+            // here would hide it rather than test it.
+            opened = await client.ConnectAsync().WaitAsync(ct);
         }
-        catch (TimeoutException)
+        catch (OperationCanceledException)
         {
-            LogOpenStillRunning();
-            ObserveInBackground(reconnect);
-        }
-    }
-
-    private void MarkOpenStarted()
-    {
-        Interlocked.Exchange(ref _connectAttemptedUtcTicks, DateTime.UtcNow.Ticks);
-        _reconnectPolicy.RegisterOpenStarted();
-    }
-
-    // Not a failure: the policy has no attempt limit, so the open loop keeps retrying in the
-    // background and still raises OnConnected/OnReconnected once it gets through. We only stop
-    // blocking the caller.
-    private void LogOpenStillRunning() => logger.LogWarning(
-        "TwitchClient-Verbindungsaufbau nach {Seconds}s noch nicht abgeschlossen — läuft im Hintergrund weiter.",
-        (int)OpenWaitTimeout.TotalSeconds);
-
-    // Keeps an abandoned open loop from becoming an unobserved task exception and makes sure the
-    // in-flight marker is cleared whenever it eventually settles.
-    private void ObserveInBackground(Task open) => _ = open.ContinueWith(
-        completed =>
-        {
-            _reconnectPolicy.RegisterOpenSettled();
-            if (completed.IsFaulted)
-            {
-                logger.LogWarning(
-                    completed.Exception,
-                    "Im Hintergrund weiterlaufender TwitchClient-Verbindungsaufbau ist mit einer Exception beendet.");
-            }
-        },
-        TaskScheduler.Default);
-
-    private async Task RecreateClientAsync(string reason)
-    {
-        logger.LogWarning(
-            "TwitchClient wird komplett neu instanziiert statt nur reconnectet. Grund: {Reason}",
-            reason);
-
-        var oldClient = _client;
-        UnwireClient(oldClient);
-
-        // UnwireClient suppresses OnDisconnected, so no event will ever correct this flag again.
-        // Without it the health key keeps reporting "connected" for a client we just discarded —
-        // in exactly the situation where that signal matters most.
-        _isConnected = false;
-        _reconnectPolicy.RegisterOpenSettled();
-        MarkAllChannelsUnconfirmed();
-
-        try
-        {
-            await oldClient.DisconnectAsync();
+            // Abandoned, not awaited: TwitchLib's connect is not cancellable, so the host must not
+            // wait for it. The half-open client is disposed of in the background.
+            DisconnectInBackground(client, generation);
+            throw;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Aufräumen des alten TwitchClient beim Neu-Erstellen fehlgeschlagen (ignoriert).");
+            logger.LogWarning(ex, "TwitchClient-Verbindungsaufbau (Client #{Generation}) mit Exception beendet.", generation);
+            return new TwitchConnectOutcome(false, TwitchSessionEndReason.ConnectFaulted, DateTime.UtcNow - startedAt, generation);
         }
 
-        var newClient = CreateClient(loggerFactory);
-        WireUpClient(newClient);
-        _client = newClient;
-        _reconnectPolicy.RegisterClientReplaced();
-        // The new client knows nothing about our channels, so its first OnConnected must rejoin.
-        Interlocked.Exchange(ref _joinsIssuedForCurrentClient, 0);
+        if (!opened)
+        {
+            // ConnectAsync signals failure by returning false rather than throwing — discarding
+            // that result used to make a failed connect indistinguishable from a successful one.
+            return new TwitchConnectOutcome(false, TwitchSessionEndReason.ConnectFailed, DateTime.UtcNow - startedAt, generation);
+        }
 
-        // No explicit rejoin here: a fresh client raises OnConnected, and that handler rejoins.
-        // Doing it here as well would issue every JOIN twice and produce spurious
-        // OnFailureToReceiveJoinConfirmation warnings for the duplicates.
-        await OpenAsync();
+        try
+        {
+            await handshake.Task.WaitAsync(HandshakeTimeout, ct);
+        }
+        catch (TimeoutException)
+        {
+            return new TwitchConnectOutcome(false, TwitchSessionEndReason.HandshakeTimeout, DateTime.UtcNow - startedAt, generation);
+        }
+
+        return new TwitchConnectOutcome(true, null, DateTime.UtcNow - startedAt, generation);
     }
+
+    private async Task TryJoinAsync(string channelName, TwitchJoinSource source, CancellationToken ct)
+    {
+        if (!IsConnected)
+        {
+            // Information, not Warning: with a self-driven rebuild this is an expected state that
+            // lasts a few seconds, and the channel stays desired, so the rejoin round or the
+            // convergence net picks it up.
+            logger.LogInformation(
+                "Join für {Channel} aufgeschoben — TwitchClient ist derzeit nicht verbunden.",
+                channelName);
+            return;
+        }
+
+        // Serialises and paces every join we issue, across all callers: boot recovery, the rejoin
+        // after a rebuild, Redis join commands and the periodic EnsureJoinedAsync sweep would
+        // otherwise each burst independently. A single ad-hoc join is unaffected whenever the
+        // previous one is long enough ago.
+        try
+        {
+            await _joinGate.WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            var sinceLastJoin = DateTime.UtcNow - _lastJoinIssuedUtc;
+            if (sinceLastJoin < MinIntervalBetweenJoins)
+            {
+                await Task.Delay(MinIntervalBetweenJoins - sinceLastJoin, ct);
+            }
+
+            // Re-checked *after* the gate, immediately before sending: a LEAVE that arrives while
+            // this join waited its turn would otherwise still be joined, and nobody would ever part
+            // it again — the intent it would be parted by is already gone (G5, R9).
+            if (!_desiredChannels.ContainsKey(channelName))
+            {
+                logger.LogDebug(
+                    "JOIN für {Channel} verworfen — der Channel ist zwischenzeitlich nicht mehr gewünscht.",
+                    channelName);
+                return;
+            }
+
+            _lastJoinIssuedUtc = DateTime.UtcNow;
+            // The origin line: it says *who* wanted this JOIN. TwitchLib's own "Joining channel"
+            // line right after it says it was actually sent. Both are needed, because TwitchLib
+            // deduplicates a second JOIN for an already-sent channel silently — without this line
+            // a confirmation from the convergence net is indistinguishable from one of the rejoin
+            // round, and an SLO-2 measurement could be certified by the wrong path.
+            logger.LogInformation(
+                "JOIN für {Channel} angestoßen (Quelle {Source}, Client #{Generation}).",
+                channelName, source, Volatile.Read(ref _clientGeneration));
+            await _client.JoinChannelAsync(channelName);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown during the throttle pause; the remaining channels are irrelevant now.
+        }
+        catch (Exception ex)
+        {
+            // Must not abort the caller's loop (boot recovery, rejoin, periodic resync).
+            logger.LogWarning(ex, "Join fehlgeschlagen für {Channel} — wird beim nächsten Reconnect nachgeholt.", channelName);
+        }
+        finally
+        {
+            _joinGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Waits for Twitch to confirm the channels this round sent, and reports whether it got that far
+    /// — <c>false</c> means the wait was cut short by the token or by another loss, not that
+    /// confirmations are missing (that is <see cref="TwitchRejoinOutcome.Open"/>'s job).
+    /// </summary>
+    private async Task<bool> WaitForJoinConfirmationsAsync(string[] channels, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + JoinConfirmationTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (AllConfirmed(channels))
+            {
+                return true;
+            }
+
+            if (!IsConnected)
+            {
+                return false;
+            }
+
+            try
+            {
+                await Task.Delay(JoinConfirmationPollInterval, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool AllConfirmed(string[] channels)
+    {
+        foreach (var channelName in channels)
+        {
+            // A channel that left the desired set mid-round is not pending — it is gone.
+            if (_desiredChannels.TryGetValue(channelName, out var confirmed) && !confirmed)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private TwitchRejoinOutcome TallyRejoin(string[] channels, bool aborted)
+    {
+        var desired = 0;
+        var confirmed = 0;
+        foreach (var channelName in channels)
+        {
+            if (!_desiredChannels.TryGetValue(channelName, out var joinConfirmed))
+            {
+                // Left mid-round: counted in neither figure, so a deliberate LEAVE can never show
+                // up as an unconfirmed channel. The round then closes as "N-1 gewünscht,
+                // N-1 bestätigt, 0 offen" rather than accusing itself of a missing join.
+                continue;
+            }
+
+            desired++;
+            if (joinConfirmed)
+            {
+                confirmed++;
+            }
+        }
+
+        return new TwitchRejoinOutcome(desired, confirmed, desired - confirmed, aborted);
+    }
+
+    private void OfferSignal(int generation, TwitchSessionEndReason reason, string detail)
+    {
+        var request = new TwitchReconnectRequest(reason, detail, CurrentSessionDuration(), DateTime.UtcNow, generation);
+        switch (_signalSlot.Offer(request))
+        {
+            case TwitchReconnectSignalOutcome.Deposited:
+                logger.LogInformation(
+                    "Verlust-Signal abgelegt ({Reason}): {Detail} — Client #{Generation}.",
+                    reason, detail, generation);
+                break;
+            case TwitchReconnectSignalOutcome.Coalesced:
+                logger.LogInformation(
+                    "Weiteres Verlust-Signal ({Reason}): {Detail} — mit dem vorliegenden zusammengefasst, Client #{Generation}.",
+                    reason, detail, generation);
+                break;
+            default:
+                logger.LogInformation(
+                    "Verlust-Signal verworfen ({Reason}): {Detail} — Client #{Generation} ist bereits ersetzt.",
+                    reason, detail, generation);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The two-part rule every TwitchLib handler goes through before it may signal: the event must
+    /// come from the client we currently hold, and that client must have completed its handshake at
+    /// some point — <see cref="_sessionStartedUtcTicks"/> is non-zero exactly then, and only the
+    /// start of a rebuild attempt clears it again. The second half matters even with the slot's
+    /// generation rule: a fresh attempt's client carries a *higher* generation than the condemned
+    /// one, so its own OnDisconnected would otherwise pass as a genuine loss instead of being
+    /// reported through the attempt's return value.
+    /// </summary>
+    private void SignalFromHandler(object? sender, TwitchSessionEndReason reason, string detail)
+    {
+        if (!ReferenceEquals(sender, _client))
+        {
+            logger.LogDebug("Ereignis {Reason} eines bereits ersetzten TwitchClient ignoriert.", reason);
+            return;
+        }
+
+        if (Interlocked.Read(ref _sessionStartedUtcTicks) == 0)
+        {
+            logger.LogDebug(
+                "Ereignis {Reason} eines Clients ohne Handshake ignoriert — der Fehlversuch meldet sich über seinen Rückgabewert.",
+                reason);
+            return;
+        }
+
+        OfferSignal(Volatile.Read(ref _clientGeneration), reason, detail);
+    }
+
+    private TimeSpan? CurrentSessionDuration()
+    {
+        var ticks = Interlocked.Read(ref _sessionStartedUtcTicks);
+        return ticks == 0 ? null : DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc);
+    }
+
+    private void DisconnectInBackground(TwitchClient client, int generation) => _ = Task.Run(async () =>
+    {
+        try
+        {
+            await client.DisconnectAsync();
+        }
+        catch (Exception ex)
+        {
+            // Never fatal: the replacement is already connected or connecting, and an exception
+            // escaping this task would be an unobserved one.
+            logger.LogWarning(
+                ex,
+                "Aufräumen des alten TwitchClient #{Generation} fehlgeschlagen (ignoriert).",
+                generation);
+        }
+    });
 
     private void WireUpClient(TwitchClient client)
     {
@@ -277,130 +574,40 @@ public class TwitchChatManager(
         client.OnSendReceiveData -= OnSendReceiveData;
     }
 
-    public async Task JoinChannelAsync(string channelName)
+    private Task OnConnected(object? sender, OnConnectedEventArgs e)
     {
-        // Record the intent *before* attempting it. Tracking only confirmed joins meant a channel
-        // whose JOIN failed — e.g. because the client happened to be mid-recreate — was never
-        // retried by any reconnect: database and match cache looked correct while usage data
-        // stayed empty forever, with no signal anywhere.
-        _desiredChannels.AddOrUpdate(channelName, false, (_, confirmed) => confirmed);
-        await TryJoinAsync(channelName);
-    }
-
-    public async Task EnsureJoinedAsync(string channelName)
-    {
-        // Safety net driven by the periodic resync, which enumerates all active channels anyway:
-        // covers lost Redis commands, joins that failed during boot recovery, and joins Twitch
-        // never confirmed.
-        if (_desiredChannels.TryGetValue(channelName, out var confirmed) && confirmed)
-        {
-            return;
-        }
-
-        await JoinChannelAsync(channelName);
-    }
-
-    private async Task TryJoinAsync(string channelName)
-    {
-        if (!_isConnected)
-        {
-            logger.LogWarning(
-                "Join für {Channel} aufgeschoben — TwitchClient ist derzeit nicht verbunden.",
-                channelName);
-            return;
-        }
-
-        // Serialises and paces every join we issue, across all callers: boot recovery, the rejoin
-        // after a recreate, Redis join commands and the periodic EnsureJoinedAsync sweep would
-        // otherwise each burst independently. A single ad-hoc join is unaffected whenever the
-        // previous one is long enough ago.
-        await _joinGate.WaitAsync();
-        try
-        {
-            var sinceLastJoin = DateTime.UtcNow - _lastJoinIssuedUtc;
-            if (sinceLastJoin < MinIntervalBetweenJoins)
-            {
-                await Task.Delay(MinIntervalBetweenJoins - sinceLastJoin);
-            }
-
-            _lastJoinIssuedUtc = DateTime.UtcNow;
-            await _client.JoinChannelAsync(channelName);
-        }
-        catch (Exception ex)
-        {
-            // Must not abort the caller's loop (boot recovery, rejoin, periodic resync).
-            logger.LogWarning(ex, "Join fehlgeschlagen für {Channel} — wird beim nächsten Reconnect nachgeholt.", channelName);
-        }
-        finally
-        {
-            _joinGate.Release();
-        }
-    }
-
-    public async Task LeaveChannelAsync(string channelName)
-    {
-        // Drop the intent first, so nothing rejoins this channel afterwards even if the leave
-        // itself fails or the client is currently disconnected.
-        _desiredChannels.TryRemove(channelName, out _);
-        // A left channel's last message time would otherwise outlive it for the process lifetime and
-        // resurrect as a stale timestamp if the channel is ever rejoined.
-        _lastMessageByChannelTicks.TryRemove(channelName, out _);
-
-        if (!_isConnected)
-        {
-            logger.LogWarning(
-                "Leave für {Channel} übersprungen — TwitchClient ist derzeit nicht verbunden.",
-                channelName);
-            return;
-        }
-
-        try
-        {
-            await _client.LeaveChannelAsync(channelName);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Leave fehlgeschlagen für {Channel}.", channelName);
-        }
-    }
-
-    private async Task OnConnected(object? sender, OnConnectedEventArgs e)
-    {
-        _isConnected = true;
-        _reconnectPolicy.RegisterConnected();
+        SetConnected(true);
+        Interlocked.Exchange(ref _sessionStartedUtcTicks, DateTime.UtcNow.Ticks);
         logger.LogInformation("TwitchClient verbunden.");
 
-        // Only a client that has not joined anything yet needs us. Verified in TwitchClient 4.0.1
-        // (_client_OnReconnected): on a reconnect of the *same* client TwitchLib re-enqueues its own
-        // joined channels, joins them, and only then clears its list and raises the event — so it
-        // rejoins by itself, and because that clear happens first, JoinChannelAsync's own duplicate
-        // check no longer suppresses anything we send afterwards. Observed on prod 2026-07-29: twelve
-        // join confirmations for six channels after a single reconnect. A fresh client (first boot,
-        // or after a recreate) has an empty list instead, so there nothing would ever be joined
-        // without us — that case, and only that case, is handled here. Raised by Handle004, i.e. once
-        // per completed IRC handshake, which is also why this fires after a reconnect at all.
-        if (Interlocked.Exchange(ref _joinsIssuedForCurrentClient, 1) == 0)
-        {
-            await RejoinDesiredChannelsAsync();
-        }
+        // No rejoin here (E2). This handler runs synchronously inside TwitchLib's read loop —
+        // Handle004 awaits it — so joining 600ms per channel from here blocked the very loop that
+        // has to process the join confirmations, and TwitchLib then reported joins as failed whose
+        // "366" was already sitting in the socket buffer. The rebuild loop rejoins instead, on its
+        // own task, once this handshake is signalled below.
+        _handshakeSource?.TrySetResult();
+        return Task.CompletedTask;
     }
 
     private Task OnDisconnected(object? sender, OnDisconnectedArgs e)
     {
         // Without a log line here a silent drop (a Twitch-side PING timeout, say) would freeze chat
-        // matching for every channel without a trace. Marking the channels unconfirmed lets
-        // EnsureJoinedAsync verify them again — TwitchLib rejoins them itself on reconnect, but only
-        // those its own list happens to hold, not the ones we wanted and never got.
-        _isConnected = false;
+        // matching for every channel without a trace. Marking the channels unconfirmed lets the
+        // rejoin round and EnsureJoinedAsync verify them again.
+        SetConnected(false);
         MarkAllChannelsUnconfirmed();
         logger.LogWarning("TwitchClient getrennt.");
+        SignalFromHandler(sender, TwitchSessionEndReason.Disconnected, "TwitchLib meldet OnDisconnected.");
         return Task.CompletedTask;
     }
 
     private Task OnFailureToReceiveJoinConfirmation(object? sender, OnFailureToReceiveJoinConfirmationArgs e)
     {
-        // The channel stays in _desiredChannels as unconfirmed, so EnsureJoinedAsync retries it
-        // on the next periodic resync instead of leaving it silently muted.
+        // Since the rejoin left the read loop (E2), this line means again what it says: Twitch
+        // really did not confirm the join within TwitchLib's 5s window. Before the rebuild, our own
+        // throttled rejoin blocked that loop and produced this warning for joins whose confirmation
+        // had long arrived. The channel stays in _desiredChannels as unconfirmed, so the round's
+        // "K offen" figure counts it and EnsureJoinedAsync retries it.
         logger.LogWarning(
             "Twitch hat den Join für {Channel} nicht bestätigt. Details: {Details}",
             e.Exception.Channel, e.Exception.Details);
@@ -409,58 +616,35 @@ public class TwitchChatManager(
 
     private Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
     {
-        var count = _reconnectPolicy.RegisterConnectionError();
-        // e.Error ist ein TwitchLib-eigener ErrorEvent (kein Exception), enthält also nur diese
-        // Message — keine tiefere Diagnose (Socket/TLS) über dieses Event allein möglich. Der
-        // Fehlerzähler wird deshalb jetzt zumindest mitgeloggt, um beim nächsten Vorfall ohne
-        // Rätselraten zu sehen, wie nah ein Recreate ist.
-        logger.LogWarning(
-            "TwitchClient-Verbindungsfehler für {BotUsername} ({Count}/{Max} aufeinanderfolgend): {Error}",
-            e.BotUsername, count, ReconnectPolicy.MaxConsecutiveConnectionErrors, e.Error.Message);
+        // Information, not Warning: with NoReconnectionPolicy this is the expected follow-up of a
+        // loss, not a fault. TwitchLib raises it from RaiseFatal after its (single, already spent)
+        // reconnect attempt — about 2s after OnDisconnected, so with a 0s rebuild delay the client
+        // is usually unwired before it arrives and it never reaches us at all. It reaches us only
+        // while a floor (flap 5s, tripwire 10s) keeps the old client wired, and then the slot's
+        // generation rule discards it.
+        logger.LogInformation(
+            "TwitchClient meldet Verbindungsfehler für {BotUsername}: {Error}",
+            e.BotUsername, e.Error.Message);
+        SignalFromHandler(sender, TwitchSessionEndReason.ConnectionError, e.Error.Message);
         return Task.CompletedTask;
     }
 
     private Task OnReconnected(object? sender, OnConnectedEventArgs e)
     {
-        _isConnected = true;
-        _reconnectPolicy.RegisterConnected();
-        _reconnectPolicy.RegisterInPlaceReconnect();
-
-        // No rejoin here: TwitchLib has already done it in the very code path that raises this event
-        // (see OnConnected). Rejoining anyway doubled every JOIN on every reconnect — harmless at six
-        // channels, but Twitch allows 20 joins per 10 seconds, and exceeding that drops the
-        // connection, which is exactly what the watchdog then reacts to. And the replacement below
-        // deliberately does not happen here either: this handler runs inline in the read loop that
-        // issue #114 is about, so the client is only marked spent — the watchdog's next tick (≤ 60s)
-        // does the actual RecreateClientAsync, keeping TwitchLib's unthrottled rejoin and our
-        // throttled one (JOIN limit, see the class-level comment above) from colliding.
-        logger.LogInformation(
-            "TwitchClient reconnected — wird beim nächsten Watchdog-Durchlauf komplett ersetzt (Issue #114).");
+        // Tripwire. With NoReconnectionPolicy this cannot fire: RaiseReconnected sits behind a
+        // successful OpenPrivateAsync(isReconnect: true), whose retry loop runs zero times because
+        // Reset(true) does not clear the attempt counter — the call raises OnFatality instead and
+        // returns false. If this line ever appears, the library changed underneath us and the
+        // client may again be running two read loops on one socket (#114); the policy's 10s floor
+        // then keeps our rejoin out of the burst TwitchLib would have sent.
+        SetConnected(true);
+        logger.LogError(
+            "TwitchClient reconnected — das darf mit NoReconnectionPolicy nicht auftreten (Issue #114/#68).");
+        SignalFromHandler(
+            sender,
+            TwitchSessionEndReason.UnexpectedInPlaceReconnect,
+            "TwitchLib hat am selben Objekt reconnectet.");
         return Task.CompletedTask;
-    }
-
-    private async Task RejoinDesiredChannelsAsync()
-    {
-        var channels = _desiredChannels.Keys.ToArray();
-        if (channels.Length == 0)
-        {
-            return;
-        }
-
-        logger.LogInformation("Rejoine {Count} gewünschte(n) Channel(s).", channels.Length);
-
-        foreach (var channelName in channels)
-        {
-            await TryJoinAsync(channelName);
-        }
-    }
-
-    private void MarkAllChannelsUnconfirmed()
-    {
-        foreach (var channelName in _desiredChannels.Keys)
-        {
-            _desiredChannels.TryUpdate(channelName, false, true);
-        }
     }
 
     private Task OnJoinedChannel(object? sender, OnJoinedChannelArgs e)
@@ -568,18 +752,29 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
+    private void MarkAllChannelsUnconfirmed()
+    {
+        foreach (var channelName in _desiredChannels.Keys)
+        {
+            _desiredChannels.TryUpdate(channelName, false, true);
+        }
+    }
+
+    private void SetConnected(bool value) => Interlocked.Exchange(ref _connected, value ? 1 : 0);
+
     private static TwitchClient CreateClient(ILoggerFactory loggerFactory) => new(
         client: new WebSocketClient(
-            // Verified against TwitchLib.Communication 2.0.1 (commit d1904be): a null policy
-            // defaults to ReconnectionPolicy(3_000, maxAttempts: 10), and Reset(isReconnect: true)
-            // returns early *without* clearing _attemptsMade. Those 10 attempts are therefore a
-            // budget for the client instance's entire lifetime, not per reconnect. Once spent,
-            // OpenPrivateAsync skips its connect loop entirely and raises "Fatal network error."
-            // forever, and TwitchLib's own ConnectionWatchDog breaks out of its monitor loop for
-            // good — exactly the "fails at the 10th reconnect, in two independent environments"
-            // outage. The parameterless policy has maxAttempts == null, so AreAttemptsComplete()
-            // is never true: unlimited attempts with a 3s -> 30s backoff.
-            new ClientOptions(new ReconnectionPolicy()),
+            // NoReconnectionPolicy does not mean "never reconnect", it means "exactly one connect
+            // attempt per object": verified against TwitchLib.Communication 2.0.1, it is
+            // ReconnectionPolicy(reconnectInterval: 0, maxAttempts: 1), and OpenPrivateAsync's
+            // Reset(isReconnect: true) returns early *without* clearing _attemptsMade. After the
+            // one successful connect the budget is spent, so ReconnectAsync() on such a client can
+            // never succeed — its retry loop runs zero times and it raises "Fatal network error."
+            // instead. That is deliberate here: every rebuild is a new object (see
+            // ReconnectOnceAsync), so the attempt budget is fresh every time and the 2026-07-26
+            // trap — a client whose lifetime budget of ten attempts was silently exhausted, leaving
+            // the worker offline for >45min — is structurally impossible rather than merely fixed.
+            new ClientOptions(new NoReconnectionPolicy()),
             loggerFactory.CreateLogger<WebSocketClient>()),
         loggerFactory: loggerFactory);
 
@@ -587,5 +782,21 @@ public class TwitchChatManager(
     {
         var ticks = Interlocked.Read(ref ticksField);
         return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+    }
+
+    /// <summary>
+    /// Who wanted a JOIN, for the origin log line. Manager-internal on purpose: it is a measuring
+    /// instrument for the rejoin round, not part of the contract with the loop.
+    /// </summary>
+    private enum TwitchJoinSource
+    {
+        /// <summary>Boot recovery or a Redis <c>JOIN</c> command.</summary>
+        Command,
+
+        /// <summary>The periodic resync or a Redis <c>RESYNC</c> — the convergence net.</summary>
+        ConvergenceNet,
+
+        /// <summary>The rejoin round of a rebuild.</summary>
+        Rejoin
     }
 }

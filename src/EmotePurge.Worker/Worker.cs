@@ -20,10 +20,11 @@ public class Worker(
     {
         twitchChatManager.Initialize();
 
-        // Does not necessarily return connected: the reconnection policy retries indefinitely in
-        // the background, and ConnectAsync only bounds how long we wait for it. Boot recovery runs
-        // either way — joins record their intent and get retried once the connection is up.
-        await twitchChatManager.ConnectAsync();
+        // Does not necessarily return connected: this is one attempt, bounded to ~25s, and a
+        // failure leaves a reconnect signal for the rebuild loop in TwitchConnectionWatchdog rather
+        // than retrying here. Boot recovery runs either way — joins record their intent and the
+        // first successful rebuild rejoins them.
+        await twitchChatManager.ConnectAsync(stoppingToken);
 
         await RunBootRecoveryAsync(stoppingToken);
 

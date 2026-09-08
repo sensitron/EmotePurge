@@ -32,6 +32,12 @@ public static class TwitchWatchdogPolicy
     /// nothing to mistake for a quiet connection, and reconnects cannot look abusive to Twitch
     /// while no connection is up. Only a short cooldown, so a hard outage doesn't turn into a
     /// tight loop.
+    /// <para>
+    /// Since the worker drives its own reconnect (#68) this branch is a backstop that must never
+    /// fire: every real loss raises a TwitchLib event that becomes a signal within about a second,
+    /// so a tick finding the client disconnected means the event path failed. Its log line is
+    /// therefore an error indicator, not a normal step (risk R1).
+    /// </para>
     /// </summary>
     public static readonly TimeSpan DisconnectedCooldown = TimeSpan.FromMinutes(1);
 
