@@ -2,8 +2,8 @@
  * Whether a downward drag on a bottom sheet ends in dismissal.
  *
  * Split out of the directive so the decision is testable without a DOM, pointer events or a
- * synthetic clock — the same separation ReconnectPolicy and TwitchWatchdogPolicy have from the
- * transports they steer. The directive owns the mechanics; this owns the judgement.
+ * synthetic clock — the same separation TwitchReconnectBackoffPolicy and TwitchWatchdogPolicy have
+ * from the transports they steer. The directive owns the mechanics; this owns the judgement.
  *
  * Distance and speed are alternatives because the two natural gestures are different: a deliberate
  * drag travels far and slowly, a flick travels little and fast. The travel floor is what keeps the
