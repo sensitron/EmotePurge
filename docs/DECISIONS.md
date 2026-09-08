@@ -10,6 +10,73 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
+
+**Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,
+`publish`-Job) · [`../docker-compose.prod.yml`](../docker-compose.prod.yml) (unverändert, aber der
+Grund) · `src/EmotePurge.Worker/Dockerfile` · `src/EmotePurge.Api/Dockerfile`
+
+**Was sich ändert.** Der `publish`-Job hatte eine feste Matrix aus `emotepurge-api` und
+`emotepurge-worker` und baute bei **jedem** Push auf `main`, der nicht rein aus Doku bestand, beide
+Images und schob sie unter `:latest`. Ein neuer Job `changes` entscheidet die Matrix jetzt pro Push
+anhand der geänderten Pfade; `publish` bezieht sie über `fromJSON` und läuft gar nicht, wenn kein
+Image betroffen ist. `docker-compose.prod.yml` bleibt unangetastet.
+
+**Der Mechanismus, der das nötig macht.** Ein Rebuild desselben Baums erzeugt hier **nicht**
+dasselbe Image: Der Workflow konfiguriert keinerlei Buildx-Cache, also laufen `apt-get install` und
+`dotnet publish` bei jedem Lauf frisch, und schon die Zeitstempel und die MVIDs der kompilierten
+Assemblies unterscheiden sich. Jeder Lauf veröffentlicht damit einen neuen Digest unter `:latest`.
+`docker-compose.prod.yml` referenziert `:latest` ohne `pull_policy` — der nächste Portainer-Redeploy
+zieht den neuen Digest und startet den Worker neu, obwohl an keiner Zeile Worker-Code etwas anders
+ist. Das kostet den Zeitanker laufender Beobachtungen (#117) und, solange #122 offen ist, bis zu
+30 s gepufferte Zählung. Der Workflow-Kommentar beschrieb genau diese Kette für Doku-Pushes bereits
+selbst; für Code-Pushes galt sie unausgesprochen weiter.
+
+**Warum der Filter eine Allowlist des Überspringens ist, keine Liste des Bauens.** Worker und Api
+teilen sich `EmotePurge.Core` und `EmotePurge.Infrastructure`, ein Filter nach Projektordner wäre
+also falsch. Beide Dockerfiles kopieren seit S4-17 ausschließlich `src/` (die Api zusätzlich `web/`)
+— `COPY src/ src/`, Zeile 23 bzw. 27. Daraus folgt belegbar: `web/**` und `src/EmotePurge.Api/**`
+können nicht verändern, was `dotnet publish EmotePurge.Worker.csproj` ausgibt, und `tests/**`,
+`docs/**` und Markdown landen in **keinem** der beiden Images. Genau diese Pfade — und nur sie —
+dürfen einen Build überspringen. Alles andere fällt durch in „beide bauen": `EmotePurge.Core`,
+`EmotePurge.Infrastructure`, `.dockerignore`, `.github/**`, `global.json`, eine neue Datei im
+Wurzelverzeichnis. Ein später hinzukommender Pfad wird dadurch überflüssig mitgebaut, aber nie
+stillschweigend übersprungen. Diese Richtung ist bewusst gewählt: Der teure Fehler ist ein
+Produktions-Worker, der veralteten Code fährt — und am selben Image hängt zusätzlich der
+Harness-Einstiegspunkt aus #69.
+
+**`--no-renames` ist kein Detail.** Mit Rename-Erkennung meldet `git diff --name-only` eine Datei,
+die von `EmotePurge.Core` nach `EmotePurge.Worker` wandert, nur unter ihrem **neuen** Pfad. Der
+Filter läse daraus „nur Worker betroffen" und ließe die Api ungebaut — obwohl der gerade eine
+Core-Datei abhandengekommen ist. Der Schalter zwingt beide Seiten in die Liste. Gegenprobe an einem
+künstlichen Rename: mit Erkennung eine Zeile, ohne sie zwei.
+
+**Was undecidbar ist, wird gebaut.** `workflow_dispatch` hat keinen Vorgänger-SHA, ein Push kann den
+Null-SHA tragen (neuer Branch, Force-Push über gelöschte Historie), und der Vorgänger-Commit kann
+fehlen. In allen drei Fällen bleibt es bei beiden Images; der Checkout des `changes`-Jobs holt dafür
+`fetch-depth: 0`.
+
+**Der Filter hängt nur am `publish`-Job.** `test` und `test-web` sind required checks auf `main`.
+GitHub lässt einen required check, der nie gelaufen ist, für immer pending stehen, statt ihn als
+bestanden zu werten — ein mitgefilterter Test-Job machte PRs unmergebar. Das ist derselbe Grund,
+aus dem `pull_request` schon bisher bewusst kein `paths-ignore` trägt (Eintrag vom 2026-09-06).
+
+**Ausdrücklich nicht gewählt: das Worker-Image in `docker-compose.prod.yml` auf ein SHA-Tag
+pinnen.** Das verlagert die Arbeit nur in den Betrieb — jedes echte Worker-Update bräuchte dann eine
+Compose-Änderung von Hand, und wer sie vergisst, fährt unbemerkt einen veralteten Worker. Das ist
+dieselbe Fehlerklasse wie das heutige stille `:latest`, nur mit umgekehrtem Vorzeichen.
+
+**Belegt ist bisher die Entscheidungslogik, nicht die Wirkung.** Der Klassifikationsschritt wurde
+gegen neun echte Commit-Bereiche aus der Historie und elf künstliche Grenzfälle gefahren (nur
+Tests, leerer Commit, `.dockerignore`, `.github/**`, `global.json`, neues Top-Level-Verzeichnis,
+beide Dockerfiles einzeln, gemischter Push, Pfad mit Leerzeichen, Rename über Projektgrenzen) — 20
+von 20 mit dem erwarteten Ergebnis. Der eigentliche Nachweis kann erst nach dem Merge fallen und ist
+**kein** grüner Workflow, sondern ein unveränderter Digest: `emotepurge-worker:latest` stand vor
+dieser Änderung auf `sha256:8c0732e6…`, und ein reiner `web/`-Push auf `main` muss ihn dort stehen
+lassen.
+
+---
+
 ### 2026-09-08 — Commit, Push und PR laufen ohne Rückfrage, der Merge nicht (Regel 1)
 
 **Betrifft:** [`../CLAUDE.md`](../CLAUDE.md) (Regel 1)
