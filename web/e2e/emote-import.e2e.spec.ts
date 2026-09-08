@@ -396,6 +396,17 @@ test.describe('silent reload: selection reconciliation feedback (#94)', () => {
   const prunedNotice = (page: Page) =>
     page.getByRole('status').filter({ hasText: 'aus der Auswahl entfernt' });
 
+  // The notice is now two elements (usage-stats-page.html, #94 follow-up P2): a permanent sr-only
+  // `role="status"` region — the one `prunedNotice` above finds — whose text comes and goes, plus a
+  // sibling `aria-hidden="true"` span that carries the same text for sighted users and no role of
+  // its own (aria-hidden removes it from the tree, so it is never what `prunedNotice` matches).
+  // Tailwind's `sr-only` still gives the region a 1×1px box, which is enough for Playwright's
+  // default `toBeVisible()` bounding-box check to pass despite the region being invisible — so a
+  // test asserting the notice is genuinely ON SCREEN (not just present in the a11y tree) has to
+  // target this visible span instead.
+  const visiblePrunedNotice = (page: Page) =>
+    page.locator('[aria-hidden="true"]').filter({ hasText: 'aus der Auswahl entfernt' });
+
   test('a silent reload that drops one of several marked rows shows the notice and lowers the dock count by one', async ({
     page,
   }) => {
@@ -424,7 +435,7 @@ test.describe('silent reload: selection reconciliation feedback (#94)', () => {
     await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
     await page.clock.runFor(1_500);
 
-    await expect(prunedNotice(page)).toBeVisible();
+    await expect(visiblePrunedNotice(page)).toBeVisible();
     // The dock count follows the now-pruned selectedKeySet, not just importShortcutSelectionCount:
     // three markiert rows become two, and no stale "(3)" button lingers behind it.
     await expect(dockCopyButton(page, 2)).toBeEnabled();
@@ -465,7 +476,7 @@ test.describe('silent reload: selection reconciliation feedback (#94)', () => {
     await expect(page.getByRole('button', { name: /^Übertragen \(\d+\)$/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Zur Abstimmung stellen/ })).toHaveCount(0);
     // ...yet the reconciliation notice survives it, because it was never inside the dock.
-    await expect(prunedNotice(page)).toBeVisible();
+    await expect(visiblePrunedNotice(page)).toBeVisible();
   });
 
   test('a silent reload that loses nothing selected shows no notice', async ({ page }) => {

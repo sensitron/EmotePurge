@@ -828,9 +828,7 @@ export class UsageStatsPage {
 
     this.destroyRef.onDestroy(() => {
       this.syncPoll?.unsubscribe();
-      if (this.selectionPrunedFeedbackTimeout !== null) {
-        clearTimeout(this.selectionPrunedFeedbackTimeout);
-      }
+      this.resetSelectionPrunedFeedback();
     });
 
     // Live refresh after the worker's usage flush and after real emote-inventory changes
@@ -1367,6 +1365,15 @@ export class UsageStatsPage {
     this.usageStatService.clearSeriesCache();
     this.isLoading.set(true);
     this.errorMessage.set(null);
+    // A selection-pruned notice (#94) names emotes from the *previous* channel/range's selection —
+    // this method is the constructor effect's only entry point, so it runs on every channel switch
+    // and every date-range change, and `loadTotals` below already clears the selection outright on
+    // both (see its non-`preserveSelection` branch). A standing notice would otherwise misattribute
+    // itself to whatever channel happens to be on screen when its timeout fires (#94 follow-up P3).
+    // The two callers that must NOT lose a just-set notice — the live-reload subscription and the
+    // sync-failure recheck poll — both call `loadTotals(..., { preserveSelection: true })` directly
+    // and never go through this method, so they are unaffected.
+    this.resetSelectionPrunedFeedback();
 
     // The set status is bound to the channel, not to the range: requestedSetStatusFor already names
     // the channel of the last status request (in flight, successful or failed), so a range-only
@@ -1438,17 +1445,26 @@ export class UsageStatsPage {
   // because the dock unmounts the moment the selection it is bound to reaches zero — precisely the
   // case where every selected emote turned out to be gone (#94).
   private showSelectionPrunedFeedback(count: number): void {
+    this.resetSelectionPrunedFeedback();
     this.selectionPrunedFeedback.set({
       key: pluralKey(count, 'usageStats.selectionPruned'),
       count,
     });
-    if (this.selectionPrunedFeedbackTimeout !== null) {
-      clearTimeout(this.selectionPrunedFeedbackTimeout);
-    }
     this.selectionPrunedFeedbackTimeout = setTimeout(
       () => this.selectionPrunedFeedback.set(null),
       SELECTION_PRUNED_FEEDBACK_MS,
     );
+  }
+
+  // Shared by load() (a channel/range switch invalidates a standing notice, #94 follow-up P3),
+  // showSelectionPrunedFeedback() itself (a second prune must not leave the first one's timer
+  // racing the new one to clear the signal) and the constructor's destroyRef.onDestroy hook.
+  private resetSelectionPrunedFeedback(): void {
+    this.selectionPrunedFeedback.set(null);
+    if (this.selectionPrunedFeedbackTimeout !== null) {
+      clearTimeout(this.selectionPrunedFeedbackTimeout);
+      this.selectionPrunedFeedbackTimeout = null;
+    }
   }
 
   // Ends the wait for the first sync, the in-flight probe included, and takes the banner down with

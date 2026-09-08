@@ -500,6 +500,27 @@ abgedeckt, denn der Zustand, gegen den er verteidigt, entsteht nach diesem Eintr
 Er bleibt trotzdem stehen: er kostet nichts und deckt weiterhin das Rennfenster zwischen einem
 Reload und einem Klick ab.
 
+**Nachtrag aus der Codex-Zweitmeinung: die Live-Region steht jetzt dauerhaft.** Der Review fand
+zwei Fehler in der ersten Fassung, beide bestätigt. Erstens hing die Meldung samt ihrer
+`role="status"`-Region an einem `@if` — eine Live-Region, die erst *mit* ihrem Inhalt entsteht,
+kündigt bei den meisten Screenreader-/Browser-Paarungen nichts an, weil sie nur Mutationen an einer
+bereits bestehenden Region ansagen. `app-shell.ts` hält genau das seit Längerem fest und löst es
+richtig; das transiente Muster in `channel-workspace-layout.ts` und `admin-channels-page.ts` tut es
+nicht. Die Meldung ist deshalb jetzt zwei Elemente: eine permanent gemountete `sr-only`-Region, in
+der nur der Text wechselt, und daneben der sichtbare Text mit `aria-hidden`, damit nichts doppelt
+vorgelesen wird. §4.5 der Designsprache schreibt das fest und nennt die beiden Bestandsstellen
+ausdrücklich als noch nicht konform. Zweitens wurde der Timer nur in `destroyRef.onDestroy`
+abgeräumt — `channelName` ist ein Input, die Komponente wird beim Kanalwechsel also wiederverwendet
+(dieselbe Tatsache, aus der der #112-Regressionstest lebt), und eine Meldung aus den letzten vier
+Sekunden stand danach auf dem neuen Kanal und behauptete dort etwas Falsches. `load()` räumt sie
+jetzt ab; die beiden `preserveSelection`-Pfade gehen nicht durch `load()` und verlieren ihren
+Hinweis dadurch nicht.
+
+**Nebenwirkung der permanenten Region:** die Usage-Stats-Seite trägt seither ein zweites
+`role="status"` auch im Ruhezustand. Drei Abfragen in `usage-atlas.e2e.spec.ts` waren dadurch nicht
+mehr eindeutig und filtern jetzt auf die Zählzeile. Wer dort eine Rolle abfragt, muss das
+mitdenken.
+
 **Was ausdrücklich offen bleibt.** Erstens die enge Rennbedingung, dass ein Reload eintrifft,
 während der Erstellungsdialog bereits offen ist — dessen `emoteIds` sind dann schon eingefroren, und
 der 400 kommt trotzdem. Zweitens `vote-session-detail-page.ts`, wo dieselbe fehlende Abstimmung

@@ -551,3 +551,149 @@ describe('UsageStatsPage — silent reload reconciles the selection (#94)', () =
     expect(component['selectionPrunedFeedback']()).toBeNull();
   });
 });
+
+/**
+ * Unlike every other describe block above, this one does NOT override the template with bare
+ * `<div>`s — the whole point here is the actual markup in usage-stats-page.html, not the signal
+ * behind it (that reconciliation logic is what the block above already covers). Mounting the real
+ * 825-line template turned out to work cleanly against the same providers the other blocks already
+ * set up (no extra DI needed for the child component graph), so there was no reason to duplicate the
+ * bare-div trick just for these two elements.
+ */
+describe('UsageStatsPage — selection-pruned notice accessibility (#94 follow-up)', () => {
+  let fixture: ComponentFixture<UsageStatsPage>;
+  let component: UsageStatsPage;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    vi.useFakeTimers();
+
+    TestBed.configureTestingModule({
+      imports: [
+        TranslocoTestingModule.forRoot({
+          langs: { de: {} },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: EVENT_SOURCE_FACTORY,
+          useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
+        },
+      ],
+    });
+
+    fixture = TestBed.createComponent(UsageStatsPage);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+
+    fixture.componentRef.setInput('channelName', 'a');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** Mounts the page on the given channel with empty totals — the markup under test here does not
+   *  depend on any row being present. */
+  function mount(channelName: string): void {
+    httpMock
+      .expectOne(`/api/channels/${channelName}/permissions`)
+      .flush({ canManage: true, canViewUsageStats: true });
+    httpMock
+      .expectOne(`/api/channels/${channelName}/emotes/active-set`)
+      .flush(setStatus({ activeEmoteSetId: 'set-a', trackedSince: '2026-01-01T00:00:00Z' }));
+    fixture.detectChanges();
+    flushByPath(httpMock, `/api/channels/${channelName}/usage-stats/totals`, []);
+    flushByPath(httpMock, `/api/channels/${channelName}/usage-stats/series`, {
+      from: '2026-01-01',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+  }
+
+  it('mounts the sr-only role="status" region even without a standing message, and fills it once there is one', () => {
+    mount('a');
+
+    // Permanent: present in the DOM before anything was ever pruned, per the app-shell.ts precedent
+    // (a live region that only comes into existence together with its content announces nothing to
+    // most screen reader/browser pairings, which only announce a *mutation* inside an
+    // already-existing region — see usage-stats-page.html's comment on this element).
+    const region = fixture.nativeElement.querySelector('span[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region.textContent.trim()).toBe('');
+
+    component['showSelectionPrunedFeedback'](1);
+    fixture.detectChanges();
+
+    // Same element, now carrying the message — not a second region that replaced it.
+    const regionAfter = fixture.nativeElement.querySelector('span[role="status"]');
+    expect(regionAfter).toBe(region);
+    expect(regionAfter.textContent.trim().length).toBeGreaterThan(0);
+  });
+
+  it('keeps the visible companion span aria-hidden, with no role of its own, so the message is not announced twice', () => {
+    mount('a');
+    component['showSelectionPrunedFeedback'](1);
+    fixture.detectChanges();
+
+    const region = fixture.nativeElement.querySelector('span[role="status"]');
+    // The visible span is the region's immediate next sibling in the template — see the comment on
+    // this element in usage-stats-page.html and its record in docs/UI-Designsprache.md §4.5.
+    const visible = region.nextElementSibling as HTMLElement;
+    expect(visible).not.toBeNull();
+    expect(visible.getAttribute('aria-hidden')).toBe('true');
+    // Removed deliberately (it used to carry role="status" before this fix) — a role here would be
+    // redundant with the sr-only region and, worse, would risk announcing the message a second time.
+    expect(visible.getAttribute('role')).toBeNull();
+    // Carries the same message, just for sighted users this time.
+    expect(visible.textContent?.trim()).toBe(region.textContent.trim());
+  });
+
+  it("clears a standing notice immediately on a channel switch, and the old channel's timer never fires on the new one", () => {
+    mount('a');
+
+    component['showSelectionPrunedFeedback'](1);
+    expect(component['selectionPrunedFeedback']()).not.toBeNull();
+
+    // One second into channel A's 4-second window, the moderator switches channels.
+    vi.advanceTimersByTime(1000);
+    fixture.componentRef.setInput('channelName', 'b');
+    fixture.detectChanges();
+
+    // Cleared synchronously by load() — not left standing until A's leftover timer would have fired
+    // at the 4-second mark (#94 follow-up P3).
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+
+    // A genuine new notice arrives on channel B, starting its own, independent 4-second window.
+    component['showSelectionPrunedFeedback'](2);
+    expect(component['selectionPrunedFeedback']()).toEqual({
+      key: 'usageStats.selectionPruned.other',
+      count: 2,
+    });
+
+    // Advance to just before channel A's ORIGINAL timeout would have fired (4000ms after it was
+    // started, i.e. 3000ms after the switch at the 1000ms mark above). If A's timeout had survived
+    // the switch uncleared, this is where it would wrongly null out B's still-valid notice a full
+    // second before B's own timer is due.
+    vi.advanceTimersByTime(2999);
+    expect(component['selectionPrunedFeedback']()).not.toBeNull();
+    vi.advanceTimersByTime(2);
+    // Past A's original deadline now — B's notice must still stand, proving A's timeout was actually
+    // cleared rather than merely superseded by a later write that happened to agree with it.
+    expect(component['selectionPrunedFeedback']()).not.toBeNull();
+
+    // B's own timer, started fresh 1000ms into this test, is due 4000ms later — advance the
+    // remaining distance from where the previous two advances left off (2999 + 2 = 3001 so far).
+    vi.advanceTimersByTime(4000 - 3001);
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+  });
+});
