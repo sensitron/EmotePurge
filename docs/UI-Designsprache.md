@@ -213,6 +213,14 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Nicht für etwas, das der App-Rahmen schon sagt** (4.3). Ein Banner ist für das, was **diese Seite** betrifft; alles App-weite trägt der Kopfbereich, und zwar allein.
 - **Referenz:** `web/src/app/shared/ui/notice-banner.ts`; Verwendung `overview-page.html`, `usage-stats-page.html`.
 
+### 4.5 Vergängliche Statusmeldung
+
+- **Was gilt:** Eine Rückmeldung, die eine gerade abgeschlossene Sache quittiert und danach nichts mehr zu sagen hat, ist **kein** Banner, sondern ein `<span role="status">`, das nach 4000 ms von selbst verschwindet. Es gibt **keinen** Toast-Service und es soll keiner entstehen; das Muster ist bewusst pro Ort ausgeschrieben: eine Konstante `…_FEEDBACK_MS = 4000`, ein Signal mit dem Übersetzungsschlüssel, ein `setTimeout`-Handle, das beim Neusetzen **zuerst** gelöscht wird, und ein Aufräumen beim Zerstören der Komponente.
+- **Die Rolle ist `status`, nie `alert`.** Eine Quittung ist kein Fehler; `alert` unterbricht den Screenreader mitten im Satz und ist für etwas reserviert, das sofort Aufmerksamkeit verlangt (4.4).
+- **Wann anwenden:** „Resync ist eingereiht", „n Emotes sind aus der Auswahl gefallen" — Dinge, die *passiert sind*. Ein Zustand, der **anhält** (Reauth nötig, Sync ausstehend, Request fehlgeschlagen), gehört in ein `NoticeBanner` und darf nicht wegblenden, solange er gilt.
+- **Der Ort muss den Fall überleben, den er meldet.** Die Meldung gehört nicht auf eine Fläche, die durch dasselbe Ereignis verschwindet. Konkret: eine Meldung über eine geschrumpfte Auswahl darf nicht im Dock stehen, denn das Dock unmountet, sobald die Auswahl leer ist (2, 8.7) — also genau im schlimmsten Fall. Sie sitzt deshalb an der Emote-Zählzeile, die immer steht.
+- **Referenz:** `channel-workspace-layout.ts` (`showResyncFeedback`), `admin-channels-page.ts`, `usage-stats-page.ts` (`showSelectionPrunedFeedback`).
+
 ## 5. Formulare & Validierung
 
 ### 5.1 Inputs

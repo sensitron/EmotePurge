@@ -158,6 +158,15 @@
       >
         {{ emoteCountKey() | transloco: { shown: atlasOrder().length, total: emotes().length } }}
       </p>
+      <!-- Feedback for a silent reload that pruned the selection (#94) — deliberately NOT in the
+           dock: the dock unmounts once the selection it is bound to is empty, exactly the case
+           where every marked emote turned out gone. `w-full` makes it wrap onto its own line under
+           the count above rather than fighting `ml-auto` for the same row. -->
+      @if (selectionPrunedFeedback(); as feedback) {
+        <span role="status" class="w-full text-xs text-fg-muted">
+          {{ feedback.key | transloco: { count: feedback.count } }}
+        </span>
+      }
     </div>
 
     <!-- The inspector. Every label the old card printed on all 900 tiles — name, last used, age,

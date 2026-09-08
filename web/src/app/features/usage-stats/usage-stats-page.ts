@@ -188,6 +188,10 @@ const SYNC_FAILURE_RECHECK_INTERVAL_MS = 60000;
 // stays a bar rather than a hairline.
 const DISTRIBUTION_BUCKETS = 96;
 
+// Long enough to read, short enough that a stale notice never lingers — same value and reasoning as
+// channel-workspace-layout's RESYNC_FEEDBACK_MS and admin-channels-page's own feedback timer.
+const SELECTION_PRUNED_FEEDBACK_MS = 4000;
+
 function sortableLastUsed(lastUsedDate: string | null): number {
   if (!lastUsedDate) {
     return NEVER_USED_SORT_VALUE;
@@ -357,6 +361,17 @@ export class UsageStatsPage {
   protected readonly errorMessage = signal<string | null>(null);
 
   private syncPoll?: Subscription;
+
+  /**
+   * Feedback for a silent reload's selection reconciliation (#94) — held as key+count together
+   * rather than two separate signals, because both must clear atomically once the timeout fires;
+   * two independent signals could leave a stale count paired with a cleared key (or vice versa) if
+   * a second prune landed between their two writes. `key` is already the resolved `.one`/`.other`
+   * key from pluralKey(), matching every other transient-feedback signal in the codebase
+   * (resyncFeedbackKey et al.) — only the count still needs interpolating in the template.
+   */
+  protected readonly selectionPrunedFeedback = signal<{ key: string; count: number } | null>(null);
+  private selectionPrunedFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // Prune, don't clear (S2-16): narrowing a filter keeps the still-visible part of the selection,
   // while anything filtered out is dropped so the delete path never holds an off-screen emote.
@@ -811,7 +826,12 @@ export class UsageStatsPage {
       }
     });
 
-    this.destroyRef.onDestroy(() => this.syncPoll?.unsubscribe());
+    this.destroyRef.onDestroy(() => {
+      this.syncPoll?.unsubscribe();
+      if (this.selectionPrunedFeedbackTimeout !== null) {
+        clearTimeout(this.selectionPrunedFeedbackTimeout);
+      }
+    });
 
     // Live refresh after the worker's usage flush and after real emote-inventory changes
     // (`channel.synced` only fires when a sync actually changed something — add/remove on 7TV,
@@ -1412,6 +1432,25 @@ export class UsageStatsPage {
       });
   }
 
+  // A transient inline status rather than a toast — there is no toast service (see
+  // channel-workspace-layout's showResyncFeedback and admin-channels-page's counterpart, the two
+  // existing instances of this exact pattern). Placed at the emote-count line rather than the dock,
+  // because the dock unmounts the moment the selection it is bound to reaches zero — precisely the
+  // case where every selected emote turned out to be gone (#94).
+  private showSelectionPrunedFeedback(count: number): void {
+    this.selectionPrunedFeedback.set({
+      key: pluralKey(count, 'usageStats.selectionPruned'),
+      count,
+    });
+    if (this.selectionPrunedFeedbackTimeout !== null) {
+      clearTimeout(this.selectionPrunedFeedbackTimeout);
+    }
+    this.selectionPrunedFeedbackTimeout = setTimeout(
+      () => this.selectionPrunedFeedback.set(null),
+      SELECTION_PRUNED_FEEDBACK_MS,
+    );
+  }
+
   // Ends the wait for the first sync, the in-flight probe included, and takes the banner down with
   // it. Called both when something else has answered the question (a `channel.synced` event) and
   // when the question no longer applies (a channel switch).
@@ -1480,11 +1519,21 @@ export class UsageStatsPage {
           // Written next to the rows themselves, never before: until this line runs, the grid still
           // shows the previous channel's emotes (see totalsChannel's declaration).
           this.totalsChannel.set(channelName);
-          // Kept even though a keyed selection survives a plain refetch: load() also runs on a
-          // channel or date-range change, where the existing selection was made against different
-          // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
-          // over would be its own deliberate feature, not a by-product of the keying.
-          if (!options.preserveSelection) {
+          if (options.preserveSelection) {
+            // Reconciles against the freshly loaded, UNFILTERED `emotes` — not atlasOrder()/
+            // retainVisible(), which read the filtered view and would wrongly drop a row that
+            // merely fell outside the current min/max-usage or name filter this reload changed the
+            // numbers under (#94). `emotes` is the response payload itself, not the signal, so the
+            // reconciliation cannot read a half-updated view no matter where the set() calls land.
+            const removedCount = this.selection.retainAmong(emotes);
+            if (removedCount > 0) {
+              this.showSelectionPrunedFeedback(removedCount);
+            }
+          } else {
+            // Kept even though a keyed selection survives a plain refetch: load() also runs on a
+            // channel or date-range change, where the existing selection was made against different
+            // numbers (an emote with "0x in 7 days" may be heavily used over 30 days). Carrying it
+            // over would be its own deliberate feature, not a by-product of the keying.
             this.selection.clear();
           }
           if (!options.silent) {
