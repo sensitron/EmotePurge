@@ -80,6 +80,13 @@ async function openAtlas(
   await expect(page.getByRole('status', { name: 'Lädt…' })).toHaveCount(0);
 }
 
+// The permanent sr-only announcement region for the selection-pruned notice (usage-stats-page.html,
+// §4.5) is ALSO role="status" and stays mounted even with nothing to say (#94 follow-up P2) — so a
+// bare getByRole('status') resolves to two elements once loading is done, same strict-mode trap the
+// comment above already works around for the loading skeleton. `.filter({ hasText: 'von' })` picks
+// the emote-count line specifically; the sr-only region never contains that word.
+const emoteCountStatus = (page: Page) => page.getByRole('status').filter({ hasText: 'von' });
+
 const cell = (page: Page, name: string) =>
   page.getByRole('button', { name: new RegExp(`^${name} ·`) });
 
@@ -443,20 +450,20 @@ test.describe('emote atlas', () => {
     page,
   }) => {
     await openAtlas(page);
-    await expect(page.getByRole('status')).toContainText('10 von 10');
+    await expect(emoteCountStatus(page)).toContainText('10 von 10');
 
     await page.getByRole('button', { name: /^Nutzung:/ }).click();
     await page.getByRole('radio', { name: 'nie benutzt' }).click();
 
     await expect(page.getByRole('button', { name: 'Nutzung: nie benutzt' })).toBeVisible();
-    await expect(page.getByRole('status')).toContainText('3 von 10');
+    await expect(emoteCountStatus(page)).toContainText('3 von 10');
     await expect(cell(page, 'catJAM')).toHaveCount(0);
     await expect(cell(page, 'Copium')).toBeVisible();
 
     // The way back, which before this only existed once a filter had emptied the sheet entirely.
     await page.getByRole('button', { name: 'Filter zurücksetzen' }).click();
     await expect(page.getByRole('button', { name: 'Nutzung: alle' })).toBeVisible();
-    await expect(page.getByRole('status')).toContainText('10 von 10');
+    await expect(emoteCountStatus(page)).toContainText('10 von 10');
   });
 
   test('a custom bound survives reopening the menu and states itself on the trigger', async ({

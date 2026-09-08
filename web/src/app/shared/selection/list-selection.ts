@@ -121,11 +121,37 @@ export class ListSelection<T> {
   // Filter changes prune instead of clearing (S2-16): what stays visible stays selected, while a
   // key that is filtered out of items() must not linger — selectedKeys is authoritative for the
   // delete path, and an invisible-but-selected emote would be deleted without being on screen.
-  retainVisible(): void {
-    const visible = new Set(this.items().map((item) => this.keyFn(item)));
-    this.selectedKeySet.update((keys) => new Set([...keys].filter((key) => visible.has(key))));
-    if (this.anchorKey !== null && !visible.has(this.anchorKey)) {
+  // Delegates to retainAmong() over items() itself, so there is exactly one pruning mechanism.
+  retainVisible(): number {
+    return this.retainAmong(this.items());
+  }
+
+  /**
+   * Prunes the selection against an explicitly given set of still-valid items, returning how many
+   * keys were dropped. Deliberately distinct from retainVisible(): that one prunes against
+   * `items()`, the *filtered* view — right for a filter change, wrong for a data reload, where a
+   * row that merely fell out of the current filter window (not out of the dataset) must survive.
+   * Callers that need "prune against the true, unfiltered set" (e.g. a silent refetch reconciling
+   * the selection against emotes that were actually removed from the backing set) pass that set
+   * here instead of relying on items().
+   */
+  retainAmong(items: readonly T[]): number {
+    const valid = new Set(items.map((item) => this.keyFn(item)));
+    let removed = 0;
+    this.selectedKeySet.update((keys) => {
+      const next = new Set<string>();
+      for (const key of keys) {
+        if (valid.has(key)) {
+          next.add(key);
+        } else {
+          removed++;
+        }
+      }
+      return next;
+    });
+    if (this.anchorKey !== null && !valid.has(this.anchorKey)) {
       this.anchorKey = null;
     }
+    return removed;
   }
 }
