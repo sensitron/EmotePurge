@@ -10,6 +10,41 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Commit, Push und PR laufen ohne Rückfrage, der Merge nicht (Regel 1)
+
+**Betrifft:** [`../CLAUDE.md`](../CLAUDE.md) (Regel 1)
+
+**Was sich ändert.** Regel 1 verlangte seit dem 2026-07-24 eine Rückfrage vor **jedem**
+`git commit`, ausdrücklich auch dann, wenn die Code-Änderungen selbst freigegeben waren. Sie
+verlangt jetzt das Gegenteil: Committen, auf einen Feature-Branch pushen und einen PR aufmachen
+darf eine Session selbstständig. Verboten bleibt der Merge — und ihm gleichgestellt der direkte
+Push auf `main`, weil Git das zwar anders nennt, es aber dieselbe Wirkung hat.
+
+**Warum.** Die alte Regel entstand, nachdem eine Session fünf Commits proaktiv abgesetzt hatte;
+sie sollte dem Nutzer den Blick auf die Dateien vor dem Festschreiben sichern. Dieser Zweck ist
+inzwischen anderswo besser aufgehoben: Der Blick auf die Änderung passiert am PR, nicht am
+lokalen Commit — dort steht das vollständige Diff, dort laufen die required checks (`analyze`
+wartet seit dem 2026-09-06 auf das SonarCloud-Gate), und dort liegt der Codex-Befund aus Regel 22
+daneben. Der Commit dagegen ist im Arbeitsablauf ein Zwischenschritt, der pro Arbeitspaket
+mehrfach vorkommt (Regel 2 verlangt ausdrücklich mehrere logisch getrennte Commits), und jede
+dieser Rückfragen kostete einen Rundlauf, ohne dem Nutzer etwas zu zeigen, was er am PR nicht
+besser sähe. Auslöser war eine Sitzung am 2026-09-08, in der ein Zweizeilen-Fix (#112) drei
+solcher Rundläufe brauchte, während die eigentliche Schutzlinie — was auf `main` landet und was
+deployt wird — von keiner davon berührt war.
+
+**Was die Regel ausdrücklich nicht mitverschiebt.** Drei Dinge stehen im Regeltext, weil sonst
+genau sie mit „darf jetzt selbstständig" verwechselt würden:
+
+- Die **Fertigmeldungs-Gates** aus dem Abschnitt Arbeitsweise gelten weiterhin *vor* dem Commit,
+  nicht statt seiner. Insbesondere ersetzt keine Suite die Live-Verifikation aus Regel 16.
+- Die **Zweitmeinung aus Regel 22** wird eingeholt und dem Nutzer **vorgelegt**. Autonomie beim
+  Commit heißt nicht, den Befund zu bewerten und wegzuräumen; über Widersprüche entscheidet
+  weiterhin der Schiedsweg aus `~/.claude/CLAUDE.md`.
+- Ein **Push ist kein Deploy.** Das Stack-Update über Portainer bleibt eine getrennte, ausdrücklich
+  abgestimmte Handlung — während des Messfensters aus #118 zusätzlich terminiert und gebündelt.
+
+---
+
 ### 2026-09-08 — Die Quartils-Precision misst wieder Zählwerte statt der GUID (#97)
 
 **Betrifft:** `src/EmotePurge.Worker/Harness/ReplayFidelityCalculator.cs` (`BuildGate`,
