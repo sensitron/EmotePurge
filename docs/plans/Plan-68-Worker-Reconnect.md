@@ -873,7 +873,7 @@ das andere reicht, und dass die Einstellung taktneutral für #118 ist, aber ein 
 **Fertig.** `docker compose config` beider Dateien zeigt den Wert am Worker; lokal nach
 `docker compose up -d worker` (kein Rebuild nötig, aber der Container muss neu erstellt werden —
 `up` tut das bei geänderter Konfiguration) meldet
-`docker inspect emotepurge-dev-worker --format '{{.HostConfig.StopTimeout}}'` die 60; `null` hieße:
+`docker inspect emotepurge-dev-worker --format '{{.Config.StopTimeout}}'` die 60; `null` hieße:
 nicht übernommen. **Nicht** gegen Prod prüfen (Abschnitt 0). Commit
 `chore(compose): give the worker a 60s stop grace period (#122)`.
 
