@@ -23,48 +23,34 @@ nicht nur dort notiert.
 Reihenfolge der Arbeit in jedem Task: **Tests zuerst** (rot), dann Umsetzung (grün), dann die im
 Task genannte Doku, dann die Gates aus Task 8. Commit und Push je Task ohne Rückfrage, Conventional
 Commits, mehrere logische Commits (Regel 1 in der Fassung vom 2026-09-08, Regel 2); **der Merge
-gehört dem Nutzer** (Regel 1, Regel 22) **und liegt nach dem 2026-10-08** (Abschnitt 0).
+gehört dem Nutzer** (Regel 1, Regel 22); Zeitpunkt und Bündelung stehen in Abschnitt 0.
 
 ---
 
-## 0. Merge- und Deploy-Sperre — zuerst lesen
+## 0. Merge- und Deploy-Fenster — zuerst lesen
 
-**Worker-Code wird vor dem 2026-10-08 nicht auf `main` gemergt.** Entscheidung des Nutzers vom
-2026-09-08 nach der Gegenrede zum Plan (Abschnitt 7, PG5). Der Branch `feat/worker-reconnect-68`
-bleibt bis dahin offen und wird lokal vollständig fertig verifiziert (Task 9); der PR wird
-vorbereitet, aber nicht gemergt. Die erste Fassung dieses Abschnitts hatte „mergen frei, deployen
-nicht" gesagt — das war falsch, und zwar aus einem technischen Grund, nicht aus Vorsicht:
+**Die Merge- und Deploy-Sperre bis 2026-10-08 ist aufgehoben.** Beschluss des Nutzers vom Abend des
+2026-09-08 (Epic #118, „Nachtrag 2026-09-08 abends"), s. Abschnitt 7, PG5, für die ursprüngliche
+Sperre und ihre Mechanik.
 
-- `.github/workflows/publish.yml` läuft bei `push` auf `main` und veröffentlicht die Images unter
-  dem mutablen Tag `:latest` (Zeile ~135); `docker-compose.prod.yml` referenziert genau dieses Tag
-  ohne `pull_policy`. Jeder Portainer-Redeploy — auch ein sachfremder, auch ein versehentlicher —
-  hätte nach einem Merge den Umbau mitgenommen und den Worker neu gestartet. Das ist der Zeitanker
-  aus #117 (Epic #118, Abschnitt 4; Konzept 5.4), und es hätte niemand bewusst deployt.
-- **Aber:** derselbe Workflow trägt `paths-ignore: ["**.md", "docs/**"]`. Ein Merge, der nur
-  Dokumente berührt (dieser Plan, das Konzept, ein Befund), löst **nichts** aus. Das Risiko entsteht
-  mit dem ersten gemergten Commit, der `src/`, `tests/` oder eine Compose-Datei berührt — also ab
-  **Task 1**, nicht erst ab Task 4: auch eine ungenutzte Policy (Task 1) oder zwei Zähler (Task 2)
-  bauen ein neues Image mit neuem Digest, und ein blinder Re-Pull startet den Container dafür neu
-  (der Kommentar im Workflow sagt genau das). Die CI wird **nicht** umgebaut (kein SHA-only-Publish,
-  keine Promotion-Stufe) — die Sperre ist die Reihenfolge, nicht ein Mechanismus.
+- **Deploy am 2026-09-09 nach 12:48 lokal**, nach Auswertung der 24-h-Nachkontrolle aus #117 (Start
+  2026-09-08 10:48 UTC).
+- Gebündelt mit #122 (`stop_grace_period`, Task 5) und #129 (Pfadfilter je Image, eigener Branch der
+  Parallelsitzung).
+- Begründung: Das Messfenster aus #118 begann am 2026-09-08 selbst. Ein Reset an Tag 1 kostet null
+  Fenstertage; der Preis steigt mit jedem Wartetag. Ob #68 überhaupt ein Reset ist, ist offen (kein
+  `AlgorithmVersion`-Bump, keine Schemaänderung, kein neuer Stichtag, kein Rollback).
+- **Unverändert:** Task 9 bleibt Merge-Blocker (SLO-2, K = 0), beide Test-Gates, die
+  Codex-Zweitmeinung (Regel 22). Der Merge selbst bleibt beim Nutzer.
 
-Was das für jeden Task dieses Plans heißt:
-
-- **Kein `docker compose` gegen `docker-compose.prod.yml`, kein Portainer, kein `ssh vps`** — aus
-  keinem Task, auch nicht „nur zum Nachsehen" (globale SSH-Regel). Die Compose-Änderung aus Task 5
-  wird committet und **nicht** ausgerollt.
-- Lokal (Compose-Projekt `emote-purge-dev`, Container `emotepurge-dev-worker`) ist alles erlaubt,
-  auch `up -d --build worker` — das ist die Verifikation aus Task 9, kein Deploy.
-- Commit und Push auf den Branch je Task wie gehabt; ein PR gegen `main` ist ungefährlich (der
-  Publish-Job läuft nur bei `push` auf `main`, nie aus einem Pull Request). Der PR-Text (Task 9)
-  nennt die Sperre: „nicht mergen vor dem 2026-10-08; Deploy danach zusammen mit #122". Reine
-  Doku-Commits (Plan, Konzept, Befunde) dürfen im Fenster gemergt werden — `paths-ignore` garantiert,
-  dass daraus kein Image wird.
-- Nach dem 2026-10-08: Merge, dann der erste Stack-Update nach dem bindenden Harness-Lauf,
-  gebündelt mit #122 (`stop_grace_period`, Task 5) und allem, was bis dahin sonst auf dem Stapel
-  liegt — jeder Deploy kostet einen Worker-Neustart und damit den Zeitanker. Vor dem Deploy sichert
-  der Nutzer die #117-Zahlen als Baseline (Konzept 6.6); das steht als Übergabe am Ende von Task 9,
-  nicht als Task.
+Die Mechanik, die die frühere Sperre begründete, bleibt als Kontext gültig: `.github/workflows/publish.yml`
+läuft bei `push` auf `main` und veröffentlicht die Images unter dem mutablen Tag `:latest`
+(Zeile ~135); `docker-compose.prod.yml` referenziert dieses Tag ohne `pull_policy`. Ein Merge auf
+`main` setzt also mit dem nächsten Redeploy den #117-Zeitanker zurück — genau das ist ab dem
+2026-09-09 nach 12:48 lokal gewollt, nicht mehr zu vermeiden. Vor dem Deploy sichert der Nutzer die
+#117-Zahlen als Baseline (Konzept 6.6); das steht als Übergabe am Ende von Task 9, nicht als Task.
+Kein Task in diesem Plan verbindet sich selbst zu `vps`/`nas` oder rollt über Portainer aus
+(globale SSH-Regel) — der Deploy bleibt eine vom Nutzer ausgeführte, getrennte Handlung (Regel 1).
 
 ---
 
@@ -556,7 +542,7 @@ weiter zu probieren (Projektnotiz vom 2026-08-30).
    nach dem Deploy dieses Plans, wenn es den ungedrosselten Pfad nicht mehr gibt. Die Entscheidung
    über die Auflage trifft der Nutzer in #118; der Befund liefert die Zahl.
 3. Was der Befund **nicht** ändert, egal wie er ausfällt: das Modell (E1–E5), die Drosselung auf
-   600 ms (7.6), die Merge- und Deploy-Sperre (Abschnitt 0), und — innerhalb dieses Plans — die
+   600 ms (7.6), das Deploy-Fenster (Abschnitt 0), und — innerhalb dieses Plans — die
    Konstanten in 2.4 (Punkt 2b). Die Sonde misst Twitch, nicht unser Design — sie liefert Zahlen
    für Begründungen (2a, 2c) und ein Go/No-Go (2b), keine Form.
 
@@ -983,8 +969,11 @@ Review-/Untersuchungs-Dokumenten und `docs/superpowers/plans/`.
 einem Stand läuft, der die Gates schon hält.
 
 1. `dotnet format EmotePurge.slnx --verify-no-changes`, `dotnet build EmotePurge.slnx --no-incremental`
-   (keine neue Warnung, insbesondere kein `CS1574`), `dotnet test EmotePurge.slnx` (braucht Docker
-   für die Infrastructure-Tests). Erwartung: Baseline 1.047 Fälle (Projektnotiz 2026-09-08) minus 13
+   (keine neue Warnung — `--no-incremental` bleibt dafür sinnvoll, taugt aber **nicht** als Wächter
+   gegen tote `cref`-Verweise auf die gelöschte `ReconnectPolicy`: `GenerateDocumentationFile` ist im
+   Repo nirgends gesetzt, Roslyn validiert `cref`s deshalb nicht, `CS1574` kann nicht feuern — dafür
+   ist der Kontroll-`grep` aus Task 7 der Wächter, s. P2), `dotnet test EmotePurge.slnx` (braucht
+   Docker für die Infrastructure-Tests). Erwartung: Baseline 1.047 Fälle (Projektnotiz 2026-09-08) minus 13
    (`ReconnectPolicyTests`) minus 2 (`ClientSpent…`) plus 14 + 8 (Task 1: Policy und Slot) plus ≥ 3
    (Task 2) plus 0 (Task 3) plus ≤ 1 (Task 6).
 2. Frontend unberührt: `git diff --stat origin/main -- web` ist leer; keine E2E nötig (keine
@@ -1155,8 +1144,8 @@ Commit `docs: record the local verification of the Twitch reconnect`.
    halbfertiger Clients, die Ursprungszeile an genau einer Stelle. Findings sind Input, kein Auftrag; widersprechen sich
    Opus-Review und Codex bei einem P1/P2, entscheidet Fable. „Reviewer failed to output a response"
    mit Exit 1 ist das Kontingent, kein Absturz.
-2. PR-Text nennt: **Merge- und Deploy-Sperre** (nicht mergen vor dem 2026-10-08 — der Merge
-   veröffentlicht `:latest`; Deploy danach gebündelt mit #122; Abschnitt 0); die SLO-Ergebnisse mit
+2. PR-Text nennt: **Deploy-Fenster** (Deploy am 2026-09-09 nach 12:48 lokal, nach Auswertung der
+   24-h-Nachkontrolle aus #117, gebündelt mit #122 und #129; Abschnitt 0); die SLO-Ergebnisse mit
    der Zahl der ungültigen Läufe; was lokal nicht beweisbar ist; die Coverage-Zahl aus Task 8 mit
    der R8-Einordnung; keine Migration, kein Frontend, kein neuer Fehlercode; die
    Umsetzungsentscheidungen aus 1.3 und Abschnitt 7.
@@ -1171,8 +1160,7 @@ Commit `docs: record the local verification of the Twitch reconnect`.
    ΣLive vor/nach (R7).
 
 **Fertig.** Alle sieben Szenarien mit positivem Beleg, SLO-2 in fünf **gültigen** Läufen gehalten
-mit K = 0, Codex vorgelegt, PR offen. **Der Merge selbst bleibt beim Nutzer und liegt nach dem
-2026-10-08** (Abschnitt 0).
+mit K = 0, Codex vorgelegt, PR offen. **Der Merge selbst bleibt beim Nutzer** (Abschnitt 0).
 
 ---
 
@@ -1187,7 +1175,7 @@ Messung nicht abwarten will, darf sie parallel fahren — nur Task 1 wartet auf 
 
 Die Hauptsession prüft nach jedem Task die Fertig-Bedingung, bevor der nächste startet. Task 3 und 4
 sind ein Paar (Übergangszustand, s. Task 3); sie werden nie einzeln gemergt — und ohnehin wird erst
-nach Task 9 **und** nicht vor dem 2026-10-08 gemergt (Abschnitt 0).
+nach Task 9 gemergt (Abschnitt 0).
 
 Commits (Conventional Commits, je Task): `feat(worker): add the pure Twitch reconnect backoff policy`
 · `feat(worker): add the pure Twitch reconnect signal slot`
@@ -1220,7 +1208,7 @@ Aus Konzept 8, ergänzt um die Risiken des Plans selbst.
 | R11 | Rejoin sendet, Twitch bestätigt nicht; das Log sagt trotzdem „abgeschlossen" | Task 4 (Abschlusszeile zählt Bestätigungen, K > 0 ist Warning), Task 9 | K > 0 oder M < N ohne Warning / S1 fünfmal K = 0 |
 | R12 | Shutdown-Zusage hält nicht, der Abschluss-Flush kommt nicht dran | Task 4 (Token in jedem Warten), Task 5, Task 9 S6 | Stoppdauer ≥ 10 s oder Flush-Fehler beim Stop / S6 grün in allen drei Zuständen |
 | P1 | Übergangszustand zwischen Task 3 und 4 ohne Spent-Ersatz | Task 3 benennt ihn; Task 4 folgt unmittelbar | nie einzeln gemergt, nie live gefahren |
-| P2 | Stale `<see cref="ReconnectPolicy"/>` erzeugt `CS1574`, unsichtbar ohne `--no-incremental` | Task 4 zieht alle sieben Stellen; Task 8 baut `--no-incremental` | neue Warnung im Build |
+| P2 | Tote Doku-Verweise (`<see cref>`, Prosa) auf die gelöschte Klasse `ReconnectPolicy` bleiben stehen — **nur per `grep` auffindbar, nicht über den Build**: `GenerateDocumentationFile` ist im Repo nirgends gesetzt (weder `Directory.Build.props` noch ein `.csproj`), Roslyn validiert `cref`s deshalb überhaupt nicht; ein absichtlich kaputter `cref` baute mit `--no-incremental` mit 0 Warnungen durch (positiv geprüft, 2026-09-08) | Task 4 zieht alle sieben Stellen; Task 7 kontrolliert per `grep` | ein Treffer des Kontroll-`grep` außerhalb der erlaubten Dateien |
 | P3 | Ein Signal aus einem fehlgeschlagenen Versuch **oder ein Nachzügler des ersetzten Clients während eines Bodens** bleibt im Slot und löst einen zweiten Wiederaufbau aus | Task 1 (Slot mit Generationsregel, Test 5–8), Task 4 (Handshake-Regel), Task 9 S3 und S4 | „Twitch-Verbindung verloren" ohne vorangehenden Kill nach einem gelungenen Aufbau in S3 oder S4; „Fatal"-Zeile ohne „verworfen"-Zeile beim dritten S4-Ereignis (PG1) |
 | P4 | `WorkerBootSequenceTests` bricht am `Worker`-Konstruktor | Task 6 | Compile-Fehler im Testprojekt |
 | P5 | `appsettings.Development.json` überschreibt 7.10 bei lokalem `dotnet run` | Task 4 (beide Dateien) | Kontrollfrage aus 6.1 fällt bei `dotnet run` durch |
@@ -1228,7 +1216,7 @@ Aus Konzept 8, ergänzt um die Risiken des Plans selbst.
 | P7 | **Annahme:** Twitch drosselt oder sperrt IP-seitig — die JOIN-Limit-Sonde von der Wohn-IP träfe dann die laufende #73-Negativprobe im Dev-Worker mit | Task 0 (Stufen, Abbruchkriterium, Dev-Worker-Log läuft mit) | Dev-Worker loggt während der Sonde „Join … nicht bestätigt" oder „TwitchClient getrennt" → sofort stoppen, im Befund festhalten; bleibt er still, ist die Annahme für diesen Lauf nicht bestätigt — nicht widerlegt |
 | P8 | Der Befund aus Task 0 verändert Zahlen, nachdem Task 1 schon gebaut ist — oder Task 1 baut andere Zahlen, als Task 9 abnimmt | Reihenfolge in Abschnitt 4; Task 0 Punkt 2b als Go/No-Go | Task 1 startet erst mit dem Go; ein Stop erzeugt eine neue Planfassung, in der 2.4, Task 1, Task 4-Doku, S1/S3/S4 und R3 **gemeinsam** geändert sind — nie eine Konstante allein (PG2) |
 | P9 | Der Konvergenz-Tick (`EnsureJoinedAsync`, jede Minute) zieht während eines SLO-Laufs ausgelassene Kanäle nach; K = 0 und N Zeilen beglaubigen einen defekten Rejoin-Pfad | Task 4 (Ursprungszeile je JOIN mit Quelle und Generation), Task 9 (Intervall-Override 3600 s, Gültigkeitsregel) | eine Ursprungszeile mit Quelle ≠ `Rejoin` im Messfenster → Lauf ungültig, wiederholen; fünf gültige Läufe mit N Rejoin-Ursprungszeilen räumen es aus (PG3) |
-| P10 | Ein Code-Merge vor dem 2026-10-08 veröffentlicht ein neues `:latest`-Worker-Image; ein blinder Portainer-Re-Pull deployt den Umbau und setzt den #117-Anker zurück | Abschnitt 0 (Merge-Sperre; Doku-Merges sind durch `paths-ignore` ungefährlich) | ein `publish`-Lauf für den Worker vor dem Datum / der Branch bleibt bis dahin ungemergt (PG5) |
+| P10 | Ein Code-Merge veröffentlicht ein neues `:latest`-Worker-Image; ein Deploy setzt den #117-Anker zurück | Abschnitt 0 (Deploy am 2026-09-09 nach 12:48 lokal, nach Auswertung der 24-h-Nachkontrolle aus #117; gebündelt mit #122/#129) | Deploy-Zeitpunkt eingehalten, #117-Baseline vor dem Deploy gesichert (PG5, Nachtrag) |
 
 ---
 
@@ -1243,7 +1231,8 @@ Aus Konzept 8, ergänzt um die Risiken des Plans selbst.
   gilt der Befund nicht; die Sonde ändert Zahlen im Plan, nicht seine Form.
 - Er bereitet den Transportwechsel auf Conduits (Konzept 9) nur insofern vor, als die Entscheidung
   transportfrei liegt (E5); er baut nichts davon.
-- Er merged keinen Code und deployt nicht vor dem 2026-10-08 (Abschnitt 0).
+- Er merged keinen Code selbst und verbindet sich zu keinem Zeitpunkt selbst zu `vps`/`nas`; Merge-
+  und Deploy-Zeitpunkt (2026-09-09 nach 12:48 lokal) stehen in Abschnitt 0.
 
 **Vorgelegt, weil der Plan hier über den Wortlaut des Konzepts hinaus entscheiden musste** (1.3):
 die Slot-Regel (Handler signalisieren nur nach Handshake, Slot leert beim Konsumieren und verurteilt
@@ -1360,6 +1349,12 @@ damit nicht abgelehnt, sondern unnötig geworden: für ein Fenster von vier Woch
 gemergter Branch die billigere und prüfbarere Sperre als ein Workflow-Umbau, der danach wieder
 zurückgebaut werden müsste. Geändert: Abschnitt 0 (ganz neu), Kopfzeile, Task 0 Punkt 3, Task 4
 DECISIONS-Punkt 12, Task 9 (PR-Text, „Fertig"), Abschnitt 4, Abschnitt 6, P10.
+
+**Nachtrag vom Abend desselben Tages:** Der Nutzer hat diese Sperre in Epic #118 („Nachtrag
+2026-09-08 abends") wieder aufgehoben — Deploy am 2026-09-09 nach 12:48 lokal, nach Auswertung der
+24-h-Nachkontrolle aus #117, gebündelt mit #122 und #129; Abschnitt 0 trägt den neuen Stand. Die
+hier festgehaltene Mechanik (`publish.yml`, `paths-ignore`, das `:latest`-Tag ohne `pull_policy`)
+bleibt als Begründung gültig, nur die Terminentscheidung ändert sich.
 
 **Nebenbefund, nicht gemeldet — `reconnectInFlight`.** Die Gegenrede war gezielt danach gefragt
 worden; 1.3, Punkt 2, hatte den Eingang selbst als „am Tick konstruktionsbedingt immer falsch"
