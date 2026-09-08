@@ -573,10 +573,11 @@ export class UsageStatsPage {
    *  channel. */
   private requestedSetStatusFor: string | null = null;
 
-  /** Bounds how many `usageFlushed` bursts since the last channel switch may still trigger an
-   *  active-set refetch — see the class doc for why an OR-linked staleness check on the two
+  /** Bounds how many `usageFlushed` bursts may still trigger an active-set refetch, counted from
+   *  each base status request — see the class doc for why an OR-linked staleness check on the two
    *  completion fields was asking again after nearly every flush. Reset alongside
-   *  `requestedSetStatusFor` in load(), the same "once per channel" bookkeeping. */
+   *  `requestedSetStatusFor` in load(), the same bookkeeping and therefore the same trigger set:
+   *  mount, channel switch and explicit reload, but not a range change. */
   private readonly setStatusFlushProbeGate = new SetStatusFlushProbeGate();
 
   /**
