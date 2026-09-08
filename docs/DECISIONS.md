@@ -10,6 +10,149 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Nach jedem Reconnect am selben Objekt wird der TwitchLib-Client ersetzt (#114)
+
+**Betrifft:** `src/EmotePurge.Worker/ReconnectPolicy.cs` ·
+`src/EmotePurge.Worker/TwitchWatchdogPolicy.cs` ·
+`src/EmotePurge.Worker/TwitchConnectionWatchdog.cs` ·
+`src/EmotePurge.Worker/TwitchChatManager.cs` (`OnReconnected`, `IsClientSpent`, `OnMessageReceived`) ·
+`src/EmotePurge.Worker/IrcLineSpliceRule.cs` ·
+`tests/EmotePurge.Worker.Tests/IrcLineSpliceRuleTests.cs` ·
+`tests/EmotePurge.Worker.Tests/IrcLineSpliceRuleTwitchLibTests.cs` ·
+`src/EmotePurge.Worker/ITwitchChatManager.cs` ·
+`tests/EmotePurge.Worker.Tests/ReconnectPolicyTests.cs` ·
+`tests/EmotePurge.Worker.Tests/TwitchWatchdogPolicyTests.cs` ·
+`CLAUDE.md` (Architektur-Absatz zum Worker) ·
+`docs/superpowers/plans/2026-09-08-worker-erfassungsfehler.md` (Tasks 2–4)
+
+**Der Mechanismus (vollständig in Issue #114).** TwitchLib.Client behandelt Twitchs `RECONNECT`
+**inline aus der eigenen Lese-Schleife heraus**: der Handler, der die Zeile liest, ruft im selben
+Aufrufpfad `ReconnectAsync()` auf. Danach läuft am selben Client-Objekt eine **zweite**
+Lese-Schleife am selben Socket, während die erste nie beendet wurde. Zwei Schleifen, die
+unabhängig voneinander vom Socket lesen, können eine IRC-Zeile mitten im Tag-Block zerschneiden
+und die Hälften mit fremden Zeilen zusammensetzen — Erkennungsmerkmal ist ein **zweites `@` im
+Tag-Block** einer Zeile, die mit `@` beginnt. Eine so gespleißte Zeile kann eine `room-id` des
+einen und einen Nachrichtentext des anderen Kanals tragen: Nutzung wird dann dem falschen Kanal
+zugeschrieben. Beobachtet wurde genau eine `UsageStat`-Zeile mit `SharedChatUseCount = 1`, wo
+keine sein durfte.
+
+**Die Entscheidung: ersetzen statt weiterverwenden.** Jedes `OnReconnected` markiert den Client in
+`ReconnectPolicy` als *verbraucht* (`RegisterInPlaceReconnect`); nur `RegisterClientReplaced`
+löscht die Marke. `TwitchWatchdogPolicy.Decide` prüft sie als **erste** Bedingung und erzwingt
+einen `ForceReconnect`, unabhängig von Verbindungszustand, Frame-Alter und beiden Cooldowns; der
+läuft über den seit 2026-07-26 produktiven Pfad `ForceReconnectAsync → RecreateClientAsync`, der
+den alten Client unwired, ihn trennt und einen frischen `WebSocketClient` mit genau **einer**
+Schleife aufbaut. Kein neuer Transportweg, kein Versionswechsel — nur ein Zustand und ein Zweig.
+
+**Warum nicht inline im Handler (E4).** Der Ersatz läuft im nächsten Watchdog-Tick (≤ 60 s), nicht
+sofort. Der Versatz trennt TwitchLibs eigenen, **ungedrosselten** Rejoin (den es im Reconnect
+inline schon gefahren hat) von unserem gedrosselten — Twitch erlaubt 20 JOINs pro 10 s, und beide
+Rejoin-Wellen im selben Moment wären genau der Sturm, den der Watchdog anschließend behandeln
+müsste. Außerdem läuft `OnReconnected` in der Schleife, die das Problem *ist*; der Handler bleibt
+deshalb synchron, allokationsarm und exception-frei.
+
+**Warum jedes `OnReconnected`, auch unser eigenes (E5).** Der Doppelschleifen-Mechanismus hängt am
+**Objekt**, nicht am Auslöser: auch ein von uns angestoßener `ReconnectAsync` am bestehenden
+Client hinterlässt ihn. `ReconnectAction.Reconnect` heißt damit faktisch „reconnect jetzt, recreate
+einen Tick später". Das ist die eigentliche Topologie-Aussage dieses Eintrags.
+
+**„Genau ein langlebiger Client" bleibt wahr** — im Sinn von *einer zur Zeit*. Was sich ändert:
+er wird nach einem Reconnect **ersetzt statt repariert**. Die alte Regel „nie pro Channel/Join neu
+instanziieren" gilt unverändert; der Auslöser für einen Neuaufbau ist weiterhin ausschließlich
+eine Verbindungsentscheidung, nie ein Join.
+
+**Nachweisinstrument statt Vertrauen.** `IrcLineSpliceRule` erkennt eine gespleißte Zeile im
+Tag-Block der Rohzeile (`ChatMessage.RawIrcMessage` — der Plan nannte sie `RawIRC`, so heißt sie
+in TwitchLib.Client 4.0.1 nicht; nicht `UndocumentedTags`: liegt der Schnitt im Wert eines
+*typisierten* Tags, endet der Tag-Wert erst am nächsten `;`, das zweite `@` bleibt darin
+verschluckt und taucht nie als eigener Schlüssel auf — nur die Rohzeile ist vollständig, und genau
+das nagelt `IrcLineSpliceRuleTwitchLibTests` fest). Treffer werden gewarnt und je Flush summiert —
+**nie verworfen**: die Zählregel im laufenden #69-Messfenster bleibt unangetastet. Bekannte
+Untergrenze: ein Spleiß, der die Zeile unparsebar macht, erreicht `OnMessageReceived` nie und wird
+nicht gezählt.
+
+**Korrektur am selben Tag: ein bloßes zweites `@` ist nicht das Merkmal.** Die erste Fassung der
+Regel suchte genau das — und schlug damit auf **jeder Reply-Nachricht** an. Das IRCv3-Tag-Escaping
+ersetzt nur `;`, Leerzeichen, `\`, CR und LF; `@` bleibt unescaped. Twitch stellt in seiner
+Reply-Oberfläche jeder Antwort `@nutzername` voran und liefert den Elterntext wörtlich im Tag
+`reply-parent-msg-body` — eine gewöhnliche Reply trägt also `…;reply-parent-msg-body=@TestUser0\shallo;…`
+im Tag-Block. Drei Folgen: das Messinstrument maß die Reply-Quote statt des Spleißes (und damit
+war Task 6 des Plans nicht durchführbar), auf `Warning` floss das Log in jedem lebhaften Kanal
+über, und der geloggte Tag-Block gab **fremden Nachrichtentext** aus, obwohl der Kommentar daneben
+Datensparsamkeit zusicherte. Die geschärfte Regel verlangt zweierlei: (1) das `@` muss einen
+*neuen Tag-Block* eröffnen, also von einem nicht-leeren Tag-Schlüssel (`[A-Za-z0-9-]`, Twitch
+sendet nichts anderes) und einem `=` gefolgt sein — eine Erwähnung endet dagegen am Trennzeichen,
+ohne je ein `=` zu erreichen; (2) der Wert eines Freitext-Tags (Schlüssel auf `msg-body` endend)
+wird **ganz übersprungen**, denn er steht unter der Kontrolle eines Fremden und kann jede Form
+imitieren, auch `@badge-info=`. Dieselbe Ausnahme redigiert den Wert in `TagBlockForLog`
+(`reply-parent-msg-body=<entfernt>`), womit die Zusage im Code wieder stimmt. Preis: ein Spleiß,
+der ausgerechnet *in* einem Freitext-Wert landet, bleibt unsichtbar — bewusst, denn die Alternative
+wäre ein Sentinel, den jeder Chatter durch Tippen von `@badge-info=` auslösen kann. Die
+Untergrenze oben wird dadurch etwas größer, die Aussage „beweist die Existenz, misst nicht
+erschöpfend" bleibt. **Lehre, zum zweiten Mal in diesem Repo:** Code und Test teilten dieselbe
+falsche Annahme über ein Fremdformat und waren beide grün — belegt ist die neue Regel deshalb
+nicht durch die reinen Tests, sondern in `IrcLineSpliceRuleTwitchLibTests` an
+`IrcParser.ParseMessage` + `ChatMessage` der installierten TwitchLib.Client 4.0.1.
+
+**Freeze-Bezug.** Der Fix **umgeht** den Bibliotheksfehler, statt ihn zu beheben; die
+`TwitchLib.*`-`ignore`-Regel in `.github/dependabot.yml` bis zum Ende des bindenden #69-Laufs
+(2026-10-08) bleibt unangetastet. Kein Versionswechsel.
+
+**Offen zum Zeitpunkt dieses Eintrags:** Die Live-Verifikation (Task 6 des Plans — provozierter
+Reconnect auf einem lauten Kanal, Negativ- und Positivlauf über je 30 min) steht noch aus und ist
+das **Merge-Gate**. Bis dahin wird der Branch nicht gemergt. Ob der 2–6-%-Überhang der Log-Seite
+aus #69 auf diese Doppelschleife zurückgeht, entscheidet erst der bindende Lauf nach dem Deploy.
+
+---
+
+### 2026-09-08 — Der Match-Cache wird aus Postgres vorgewärmt, bevor 7TV gefragt wird
+
+**Betrifft:** `src/EmotePurge.Infrastructure/Services/SevenTvSyncService.cs` (`SyncChannelAsync`) ·
+`src/EmotePurge.Infrastructure/Services/EmoteMatchCache.cs` (unverändert, aber betroffen) ·
+`tests/EmotePurge.Infrastructure.Tests/Integration/SevenTvSyncServiceTests.cs` ·
+`docs/Architectur.md` (Umsetzungsstand Modul A) ·
+`docs/superpowers/plans/2026-09-08-worker-erfassungsfehler.md` (Task 1)
+
+**Der Fall: eine stille Zähllücke, die niemand meldet.** Der `EmoteMatchCache` ist rein
+In-Memory und wird ausschließlich aus einem *erfolgreichen* 7TV-Abruf gefüllt — einziger Aufrufer
+von `ReplaceChannel` ist `RefreshMatchCacheAsync`, und die läuft erst nach einem geglückten
+Vollsync bzw. nach einem angewendeten Delta. Nach einem Worker-Neustart joint der Bot den Chat
+(Boot-Recovery) **bevor** der Sync durch ist; antwortet 7TV in diesem Moment nicht, endet
+`SyncChannelAsync` in `RecordFailedAttemptAsync` und lässt den Cache leer. `OnMessageReceived`
+steigt bei leerem Set stumm aus — **nach** der Watchdog-Buchführung, die Lücke ist für Watchdog
+und Health also unsichtbar. Es gibt keinen Retry mit Backoff; erst der periodische Resync
+(Default 60 s) versucht es erneut. Zwischen Join und erstem erfolgreichen Sync zählt der Kanal
+nichts, ohne dass irgendwo ein Fehler steht — und im Messfenster von #69 ist genau das teuer.
+
+**Die Entscheidung.** `SyncChannelAsync` füllt den Cache für den Channel aus den aktiven
+Postgres-Zeilen, wenn er für diesen Channel leer ist — über dieselbe `RefreshMatchCacheAsync`,
+also dieselbe Abfrage, dieselbe `EmoteNameMatching.Coalesce`-Koaleszierung und denselben
+Duplikat-Tracker. Kein zweiter Ladepfad, kein neues Core-Interface.
+
+**Warum an dieser Stelle.** Im Sync-Service und nicht im Worker (E1): ein Aufruf deckt
+Boot-Recovery, JOIN, RESYNC, periodischen Resync und den Gap-Filling-Sync des EventAPI-Clients
+auf einmal ab, läuft unter demselben `ChannelSyncGate` wie der Sync selbst (kann also nie einen
+schreibenden Sync überholen) und braucht keine neue Schichtdurchbrechung — `AppDbContext` und
+`IEmoteMatchCache` sind hier ohnehin injiziert. Und **vor** dem ersten 7TV-Call statt erst im
+Fehlerpfad (E2): beide 7TV-Aufrufe laufen mit 10-s-Timeout, ein Warmstart erst danach verlöre
+genau diese Sekunden im lautesten Moment (Boot). Vor dem Call kostet er eine Postgres-Abfrage,
+die der erfolgreiche Sync ohnehin gleich noch einmal macht.
+
+**Die Asymmetrie bleibt erhalten.** Bedingung ist „Cache leer für diesen Channel", nicht „Prozess
+frisch" (E3). Damit gilt weiter, was der Kommentar bei den 0-Emote-Guards schon festhält: ein
+*gefüllter* Cache wird bei einem Sync-Fehler nie angefasst. Ein veralteter DB-Stand kann einen
+erfolgreichen Sync nicht zurücksetzen — der Erfolgspfad überschreibt am Ende ohnehin über
+`RefreshMatchCacheAsync`. Preis: ein Channel mit legitim null aktiven Emotes zahlt eine billige
+Abfrage pro Resync-Tick. Akzeptiert; die Alternative wäre ein zweiter Zustand („schon einmal
+versucht"), der genau die Asymmetrie wieder aufweicht, die hier der Punkt ist.
+
+**Nicht Teil der Entscheidung.** Kein Retry/Backoff für einen fehlgeschlagenen ersten 7TV-Sync —
+der Warmstart macht ihn unkritisch, der periodische Resync holt ihn nach. Kein Warmstart im
+Delta-Pfad (`ApplyEmoteSetUpdateAsync`): ein Dispatch setzt einen Zustand voraus, den der nächste
+Vollsync ohnehin herstellt. Keine Konfigurierbarkeit.
+
+---
+
 ### 2026-09-08 — Die Oberfläche zeigt nur noch eigene Nutzung, die D5-Übergangssumme fällt
 
 **Betrifft:** `src/EmotePurge.Infrastructure/Services/UsageStatQueryService.cs` ·

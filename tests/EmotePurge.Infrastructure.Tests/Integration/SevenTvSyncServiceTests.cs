@@ -756,12 +756,15 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
             .SingleAsync();
         Assert.Equal("seventv_response_unusable", row.LastSyncFailureReason);
         Assert.NotNull(row.LastSyncAttemptAtUtc);
-        // Nothing moved: the known set id survives, the success stamp is not advanced, the emote the
-        // unusable answer offered was never inserted, and the match cache was never rebuilt.
+        // Nothing moved: the known set id survives, the success stamp is not advanced, and the emote
+        // the unusable answer offered was never inserted. The cache is not empty, though — the warm
+        // start (Task 1) already seeded it from Postgres before this call ran, and the rejection
+        // below never touches the cache either way.
         Assert.Equal(SetId, row.ActiveEmoteSetId);
         Assert.Null(row.LastSyncedAtUtc);
         Assert.Equal(1, await db.Emotes.CountAsync(e => e.ChannelId == channel.Id));
-        Assert.Empty(cache.GetChannelEmotes(channel.ChannelName));
+        Assert.True(cache.GetChannelEmotes(channel.ChannelName).ContainsKey("stable"));
+        Assert.False(cache.GetChannelEmotes(channel.ChannelName).ContainsKey("fresh"));
     }
 
     [Fact]
@@ -882,6 +885,104 @@ public class SevenTvSyncServiceTests(PostgresFixture fixture)
         Assert.NotNull(result);
         Assert.Equal("222", await db.Channels.Where(c => c.Id == channel.Id)
             .Select(c => c.TwitchChannelId).SingleAsync());
+    }
+
+    // ---- Warm start: the match cache is seeded from Postgres before the first 7TV call ----
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SyncChannel_SevenTvUnavailable_EmptyCache_IsWarmedFromPostgres(bool hasTwitchChannelId)
+    {
+        // Both 7TV failure spots must warm the cache the same way: the set lookup failing on a
+        // channel that already has a TwitchChannelId, and the identity resolve failing on a channel
+        // that does not have one yet.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var name = $"wstest_warmstart_{(hasTwitchChannelId ? "withid" : "noid")}";
+        var channel = await SeedChannelAsync(db, name, ("e1", "active", false), ("e2", "archived", true));
+        if (!hasTwitchChannelId)
+        {
+            channel.TwitchChannelId = null;
+            await db.SaveChangesAsync();
+        }
+
+        var apiClient = Substitute.For<ISevenTvApiClient>();
+        if (hasTwitchChannelId)
+        {
+            apiClient.GetChannelStateForTwitchUserAsync(channel.TwitchChannelId!, Arg.Any<CancellationToken>())
+                .Returns(SevenTvChannelStateResult.Failed(SevenTvLookupStatus.Unavailable));
+        }
+        else
+        {
+            apiClient.ResolveTwitchUserIdAsync(name, Arg.Any<CancellationToken>())
+                .Returns(SevenTvTwitchUserIdResult.Failed(SevenTvLookupStatus.Unavailable));
+        }
+
+        var service = new SevenTvSyncService(db, apiClient, cache, new DuplicateEmoteNameTracker(), new ChannelSyncGate(), NullLogger<SevenTvSyncService>.Instance);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(result);
+        var cached = cache.GetChannelEmotes(channel.ChannelName);
+        Assert.Single(cached);
+        Assert.True(cached.ContainsKey("active"));
+        Assert.False(cached.ContainsKey("archived"));
+    }
+
+    [Fact]
+    public async Task SyncChannel_SevenTvUnavailable_FilledCache_IsLeftUntouched()
+    {
+        // The existing asymmetry (a filled cache is never touched by a failed sync) must survive
+        // the warm start: it must not run at all once the cache already holds something, even
+        // content Postgres knows nothing about.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_warmstart_filled", ("e1", "postgresonly", false));
+        var marker = new Dictionary<string, string> { ["markeronly"] = "marker-id" };
+        cache.ReplaceChannel(channel.ChannelName, marker);
+        var service = CreateFailingService(db, cache, channel, SevenTvLookupStatus.Unavailable);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(result);
+        var cached = cache.GetChannelEmotes(channel.ChannelName);
+        Assert.Single(cached);
+        Assert.True(cached.ContainsKey("markeronly"));
+        Assert.False(cached.ContainsKey("postgresonly"));
+    }
+
+    [Fact]
+    public async Task SyncChannel_WarmStartDoesNotOutliveASuccessfulSync()
+    {
+        // A successful sync must still fully overwrite whatever the warm start installed.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_warmstart_success", ("e1", "oldname", false));
+        var service = CreateRestService(db, cache, channel, SetId, LiveEmote("e2", "newname"));
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.NotNull(result);
+        var cached = cache.GetChannelEmotes(channel.ChannelName);
+        Assert.True(cached.ContainsKey("newname"));
+        Assert.False(cached.ContainsKey("oldname"));
+    }
+
+    [Fact]
+    public async Task SyncChannel_ChannelWithoutRows_LeavesCacheEmpty()
+    {
+        // A channel with no emote rows at all (first-ever join) must not throw and must not fake up
+        // cache content — the warm start is a no-op, and the sync proceeds as before.
+        await using var db = fixture.CreateDbContext();
+        var cache = new EmoteMatchCache();
+        var channel = await SeedChannelAsync(db, "wstest_warmstart_norows");
+        var service = CreateFailingService(db, cache, channel, SevenTvLookupStatus.Unavailable);
+
+        var result = await service.SyncChannelAsync(channel.ChannelName);
+
+        Assert.Null(result);
+        Assert.Empty(cache.GetChannelEmotes(channel.ChannelName));
     }
 
     [Fact]

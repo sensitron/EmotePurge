@@ -72,6 +72,8 @@ public class TwitchChatManager(
 
     public DateTime? ConnectAttemptedUtc => ReadTimestamp(ref _connectAttemptedUtcTicks);
 
+    public bool IsClientSpent => _reconnectPolicy.IsClientSpent;
+
     public IReadOnlyList<TwitchRosterEntry> GetRoster()
     {
         // Built from the desired set, not from the message dictionary: a channel we want and never
@@ -422,12 +424,18 @@ public class TwitchChatManager(
     {
         _isConnected = true;
         _reconnectPolicy.RegisterConnected();
+        _reconnectPolicy.RegisterInPlaceReconnect();
 
         // No rejoin here: TwitchLib has already done it in the very code path that raises this event
         // (see OnConnected). Rejoining anyway doubled every JOIN on every reconnect — harmless at six
         // channels, but Twitch allows 20 joins per 10 seconds, and exceeding that drops the
-        // connection, which is exactly what the watchdog then reacts to.
-        logger.LogInformation("TwitchClient reconnected.");
+        // connection, which is exactly what the watchdog then reacts to. And the replacement below
+        // deliberately does not happen here either: this handler runs inline in the read loop that
+        // issue #114 is about, so the client is only marked spent — the watchdog's next tick (≤ 60s)
+        // does the actual RecreateClientAsync, keeping TwitchLib's unthrottled rejoin and our
+        // throttled one (JOIN limit, see the class-level comment above) from colliding.
+        logger.LogInformation(
+            "TwitchClient reconnected — wird beim nächsten Watchdog-Durchlauf komplett ersetzt (Issue #114).");
         return Task.CompletedTask;
     }
 
@@ -502,6 +510,24 @@ public class TwitchChatManager(
         // Hot path: one indexer assignment, no LINQ and no allocation beyond the dictionary's own
         // first insert per channel.
         _lastMessageByChannelTicks[e.ChatMessage.Channel] = receivedAtTicks;
+
+        // Sentinel for the TwitchLib double-read-loop defect (#114): warn and count, never drop —
+        // the line still carries a real message and must be classified and matched like any other.
+        // Reads RawIrcMessage, not UndocumentedTags (E6, see IrcLineSpliceRule). Hot path: one
+        // call, no allocation on the (overwhelming) non-splice branch.
+        var rawIrc = e.ChatMessage.RawIrcMessage;
+        if (IrcLineSpliceRule.IsSpliced(rawIrc))
+        {
+            stats.RecordSplicedIrcLine();
+            var tagBlock = IrcLineSpliceRule.TagBlockForLog(rawIrc);
+
+            // No message text here on purpose (data minimisation) — the tag block alone is enough
+            // to diagnose the splice. That holds for *foreign* text too: TagBlockForLog redacts the
+            // value of reply-parent-msg-body, which on a reply carries the parent message verbatim.
+            logger.LogWarning(
+                "Gespleißte IRC-Zeile erkannt (#114) in Channel {Channel}, RoomId {RoomId}: {TagBlock}",
+                e.ChatMessage.Channel, e.ChatMessage.RoomId, tagBlock);
+        }
 
         logger.LogDebug("[{Channel}] {Username}: {Message}",
             e.ChatMessage.Channel, e.ChatMessage.Username, e.ChatMessage.Message);

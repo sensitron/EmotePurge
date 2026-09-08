@@ -120,4 +120,60 @@ public class ReconnectPolicyTests
         Assert.Equal(2, policy.RegisterConnectionError());
         Assert.False(policy.IsOpenInFlight);
     }
+
+    // Issue #114: TwitchLib reconnects the client in place from inside the read loop, leaving two read
+    // loops racing on the same socket. These cases cover the "spent" state that forces a recreate.
+    [Fact]
+    public void FreshPolicy_IsNotClientSpent()
+    {
+        var policy = new ReconnectPolicy();
+
+        Assert.False(policy.IsClientSpent);
+    }
+
+    [Fact]
+    public void Decide_AfterInPlaceReconnect_Recreates()
+    {
+        var policy = new ReconnectPolicy();
+        policy.RegisterInPlaceReconnect();
+
+        var decision = policy.Decide(openRunningFor: null);
+
+        Assert.Equal(ReconnectAction.Recreate, decision.Action);
+    }
+
+    [Fact]
+    public void Decide_ClientSpentBeatsOpenInFlightBelowThreshold()
+    {
+        var policy = new ReconnectPolicy();
+        policy.RegisterOpenStarted();
+        policy.RegisterInPlaceReconnect();
+
+        var decision = policy.Decide(ReconnectPolicy.StuckOpenThreshold - TimeSpan.FromSeconds(1));
+
+        Assert.Equal(ReconnectAction.Recreate, decision.Action);
+    }
+
+    [Fact]
+    public void RegisterConnected_AfterInPlaceReconnect_StaysClientSpent()
+    {
+        var policy = new ReconnectPolicy();
+        policy.RegisterInPlaceReconnect();
+
+        policy.RegisterConnected();
+
+        Assert.True(policy.IsClientSpent);
+    }
+
+    [Fact]
+    public void RegisterClientReplaced_ClearsClientSpent()
+    {
+        var policy = new ReconnectPolicy();
+        policy.RegisterInPlaceReconnect();
+
+        policy.RegisterClientReplaced();
+
+        Assert.False(policy.IsClientSpent);
+        Assert.Equal(ReconnectAction.Reconnect, policy.Decide(openRunningFor: null).Action);
+    }
 }

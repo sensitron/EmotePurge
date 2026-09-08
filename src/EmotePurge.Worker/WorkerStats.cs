@@ -28,6 +28,10 @@ public sealed class WorkerStats
     // once per 30s flush. A single long needs no torn-read protection of its own.
     private long _indeterminateSharedChatMessages;
 
+    // Same pattern as the counter above: one increment per matched line in
+    // TwitchChatManager.OnMessageReceived (issue #114), no lock needed for a single long.
+    private long _splicedIrcLines;
+
     public int ConsecutiveFlushFailures
     {
         get
@@ -97,4 +101,19 @@ public sealed class WorkerStats
     /// </summary>
     public long TakeIndeterminateSharedChatMessagesSinceLastFlush() =>
         Interlocked.Exchange(ref _indeterminateSharedChatMessages, 0);
+
+    /// <summary>
+    /// Called once per IRC line that <see cref="IrcLineSpliceRule.IsSpliced"/> flags as spliced
+    /// (#114). No logging here — <see cref="TwitchChatManager"/> already warns once per line with
+    /// the tag block; this counter only feeds the once-per-flush summary in
+    /// <see cref="UsageFlushWorker"/>.
+    /// </summary>
+    public void RecordSplicedIrcLine() => Interlocked.Increment(ref _splicedIrcLines);
+
+    /// <summary>
+    /// Reads and zeroes the count in one step, so two overlapping callers can never double-count or
+    /// drop the difference between them.
+    /// </summary>
+    public long TakeSplicedIrcLinesSinceLastFlush() =>
+        Interlocked.Exchange(ref _splicedIrcLines, 0);
 }
