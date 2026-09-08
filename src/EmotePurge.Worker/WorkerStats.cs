@@ -32,6 +32,19 @@ public sealed class WorkerStats
     // TwitchChatManager.OnMessageReceived (issue #114), no lock needed for a single long.
     private long _splicedIrcLines;
 
+    // Cumulative since process start, never reset — deliberately not a Take...SinceLastFlush pair
+    // like the two counters above: those are per-flush, this counts per process (Plan #68, Task 2).
+    // Interlocked for the same reason as the hot-path counters above: a single long needs no
+    // torn-read protection of its own, and there is no second field it must stay consistent with.
+    //
+    // Not on WorkerHealthSnapshot: that is an Api-side wired contract, and adding a field to it is a
+    // second contract change on top of this one — deliberately declined here, the same call the
+    // #114 plan made (concept 7.4). The reader is the rebuild loop's own closing log line in
+    // TwitchConnectionWatchdog ("Rejoin abgeschlossen … seit Prozessstart: {Rebuilds} Wiederaufbauten,
+    // {Failures} Fehlversuche"), and nowhere else.
+    private long _twitchRebuildCount;
+    private long _twitchRebuildAttemptFailureCount;
+
     public int ConsecutiveFlushFailures
     {
         get
@@ -64,6 +77,19 @@ public sealed class WorkerStats
             }
         }
     }
+
+    /// <summary>
+    /// Total Twitch rebuild rounds started since process start (Plan #68, Task 2). Reading this does
+    /// not reset it — unlike <see cref="TakeIndeterminateSharedChatMessagesSinceLastFlush"/>, there is
+    /// no flush cycle this belongs to.
+    /// </summary>
+    public long TwitchRebuildCount => Interlocked.Read(ref _twitchRebuildCount);
+
+    /// <summary>
+    /// Total failed rebuild attempts since process start, within any number of rebuild rounds (Plan
+    /// #68, Task 2). Same never-reset contract as <see cref="TwitchRebuildCount"/>.
+    /// </summary>
+    public long TwitchRebuildAttemptFailureCount => Interlocked.Read(ref _twitchRebuildAttemptFailureCount);
 
     /// <param name="rows">Number of emote counters written by the flush that just succeeded.</param>
     public void RecordFlushSuccess(int rows, DateTime nowUtc)
@@ -116,4 +142,16 @@ public sealed class WorkerStats
     /// </summary>
     public long TakeSplicedIrcLinesSinceLastFlush() =>
         Interlocked.Exchange(ref _splicedIrcLines, 0);
+
+    /// <summary>
+    /// Called once per rebuild round the reconnect loop in <see cref="TwitchConnectionWatchdog"/>
+    /// starts (Plan #68, Task 2). Cumulative since process start — never reset.
+    /// </summary>
+    public void RecordTwitchRebuild() => Interlocked.Increment(ref _twitchRebuildCount);
+
+    /// <summary>
+    /// Called once per failed attempt within a rebuild round (Plan #68, Task 2). Cumulative since
+    /// process start — never reset.
+    /// </summary>
+    public void RecordTwitchRebuildAttemptFailure() => Interlocked.Increment(ref _twitchRebuildAttemptFailureCount);
 }
