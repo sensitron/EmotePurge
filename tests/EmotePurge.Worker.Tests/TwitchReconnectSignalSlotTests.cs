@@ -169,4 +169,105 @@ public class TwitchReconnectSignalSlotTests
         Assert.Equal(2, taken.ClientGeneration);
         Assert.Equal("TwitchClient getrennt", taken.Detail);
     }
+
+    [Fact]
+    public void CondemnGeneration_DiscardsALaterOfferForThatGeneration()
+    {
+        // The failed attempt: its signal was never taken, so only retiring its client condemns it.
+        // What it offers afterwards — a late OnDisconnected during the backoff — must not land.
+        var slot = new TwitchReconnectSignalSlot();
+
+        slot.CondemnGeneration(2);
+
+        var outcome = slot.Offer(Request(generation: 2, TwitchSessionEndReason.Disconnected, "TwitchClient getrennt"));
+
+        Assert.Equal(TwitchReconnectSignalOutcome.Discarded, outcome);
+    }
+
+    [Fact]
+    public async Task CondemnGeneration_RemovesASignalAlreadyLyingInTheSlot()
+    {
+        // Astra's sequence, steps 4 to 6: the failed attempt's client drops during the backoff and
+        // its signal is deposited *before* the next attempt retires it. Left in the slot, the loop
+        // would find it after the successful rebuild and tear the healthy connection down again —
+        // so retiring the generation has to remove it, and the next wait must run into its
+        // deadline rather than hand out a dead signal.
+        var slot = new TwitchReconnectSignalSlot();
+        Assert.Equal(
+            TwitchReconnectSignalOutcome.Deposited,
+            slot.Offer(Request(generation: 2, TwitchSessionEndReason.Disconnected, "TwitchClient getrennt")));
+
+        slot.CondemnGeneration(2);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slot.TakeAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task CondemnGeneration_AfterRemovingASignal_TheSlotStillAcceptsTheNextOne()
+    {
+        // The wake-up token has to be taken back together with the signal: the slot's semaphore
+        // holds at most one, so a token left behind would make this Offer throw instead of deposit
+        // — and the rebuild after the *next* loss would never be requested.
+        var slot = new TwitchReconnectSignalSlot();
+        slot.Offer(Request(generation: 2, TwitchSessionEndReason.Disconnected, "TwitchClient getrennt"));
+        slot.CondemnGeneration(2);
+
+        var request = Request(generation: 3, TwitchSessionEndReason.ConnectionError, "Fatal network error.");
+        var outcome = slot.Offer(request);
+
+        Assert.Equal(TwitchReconnectSignalOutcome.Deposited, outcome);
+
+        var taken = await slot.TakeAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(request, taken);
+    }
+
+    [Fact]
+    public async Task CondemnGeneration_LeavesAHigherGenerationsSignalUntouched()
+    {
+        // Retiring generation 2 must not swallow the loss of the client that replaced it — the
+        // rule condemns the past, never the present.
+        var slot = new TwitchReconnectSignalSlot();
+        var request = Request(generation: 3, TwitchSessionEndReason.Disconnected, "TwitchClient getrennt");
+        slot.Offer(request);
+
+        slot.CondemnGeneration(2);
+
+        var taken = await slot.TakeAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(request, taken);
+    }
+
+    [Fact]
+    public async Task CondemnGeneration_GrowsTheWatermarkMonotonically()
+    {
+        // Same watermark as taking uses, and it never moves backward: retiring an older generation
+        // after a newer one has been condemned may not re-admit anything in between.
+        var slot = new TwitchReconnectSignalSlot();
+        slot.CondemnGeneration(5);
+        slot.CondemnGeneration(2);
+
+        Assert.Equal(TwitchReconnectSignalOutcome.Discarded, slot.Offer(Request(generation: 3)));
+        Assert.Equal(TwitchReconnectSignalOutcome.Discarded, slot.Offer(Request(generation: 5)));
+        Assert.Equal(TwitchReconnectSignalOutcome.Deposited, slot.Offer(Request(generation: 6)));
+
+        var taken = await slot.TakeAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(6, taken.ClientGeneration);
+    }
+
+    [Fact]
+    public async Task CondemnGeneration_AfterATakeOfALaterGeneration_DoesNotResurrectAnything()
+    {
+        // The ordinary path stays intact when both condemning points meet: the loop takes the
+        // signal of generation 4 (condemning 4), the rebuild then retires generation 4 as well —
+        // the second condemnation is a no-op and the empty slot stays empty.
+        var slot = new TwitchReconnectSignalSlot();
+        slot.Offer(Request(generation: 4));
+        await slot.TakeAsync(CancellationToken.None);
+
+        slot.CondemnGeneration(4);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slot.TakeAsync(cts.Token));
+    }
 }

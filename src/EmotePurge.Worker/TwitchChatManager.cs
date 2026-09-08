@@ -65,6 +65,26 @@ public class TwitchChatManager(
     private readonly SemaphoreSlim _joinGate = new(1, 1);
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
 
+    // Guards the identity of the current client against the handlers that act on it. An identity
+    // check on its own protects nothing: a handler can be preempted between passing it and writing,
+    // and resume after a rebuild has installed the successor — check and state change therefore
+    // share one critical section, held under the same latch as the swap itself.
+    //
+    // Deliberately *not* _reconnectLock. ReconnectOnceAsync holds that one while it waits for the
+    // "004", and that "004" arrives through OnConnected: a handler taking the same latch would wait
+    // for the loop that is waiting for the handler. This one is its own, and it bounds exactly two
+    // things against each other — (a) the swap of _client, its generation, its wiring and its
+    // handshake source in ReconnectOnceAsync, and (b) per handler the unit of "am I still the
+    // current client" plus the state change that answer authorises.
+    //
+    // Two properties keep it deadlock-free, and both are checkable by reading this file: no `await`
+    // runs inside any of its critical sections (grep for `lock (_clientStateGate)` — every one of
+    // them is straight-line field work), and nothing that holds it ever acquires _reconnectLock, so
+    // it is only ever the *inner* latch (ReconnectOnceAsync takes _reconnectLock first, then this)
+    // and there is no cycle to deadlock on. The only other latch taken from inside it is the signal
+    // slot's own, always in that direction and never the reverse.
+    private readonly Lock _clientStateGate = new();
+
     // The one place a loss becomes a rebuild. Deliberately not injected: it is this manager's own
     // state, and the loop reaches it only through WaitForReconnectRequestAsync.
     private readonly TwitchReconnectSignalSlot _signalSlot = new();
@@ -105,7 +125,13 @@ public class TwitchChatManager(
 
     public void Initialize()
     {
-        WireUpClient(_client, Volatile.Read(ref _clientGeneration));
+        // Under the gate like every other wiring step, although nothing races with it at boot:
+        // _unwireCurrentClient and _client are the gate's state, and one unguarded writer is how
+        // an invariant quietly stops being one.
+        lock (_clientStateGate)
+        {
+            WireUpClient(_client, Volatile.Read(ref _clientGeneration));
+        }
     }
 
     public async Task ConnectAsync(CancellationToken ct)
@@ -207,8 +233,17 @@ public class TwitchChatManager(
         return roster;
     }
 
-    public void RequestReconnect(TwitchSessionEndReason reason, string detail) =>
-        OfferSignal(Volatile.Read(ref _clientGeneration), reason, detail);
+    public void RequestReconnect(TwitchSessionEndReason reason, string detail)
+    {
+        // The tick's and the debug trigger's way in. Under the gate so that reading the current
+        // generation and offering it are one step: a rebuild starting in between would condemn the
+        // generation this stamp names, and the signal would be discarded although the caller meant
+        // the client that is current *now*.
+        lock (_clientStateGate)
+        {
+            OfferSignal(Volatile.Read(ref _clientGeneration), reason, detail);
+        }
+    }
 
     public Task<TwitchReconnectRequest> WaitForReconnectRequestAsync(CancellationToken ct) =>
         _signalSlot.TakeAsync(ct);
@@ -218,29 +253,51 @@ public class TwitchChatManager(
         await _reconnectLock.WaitAsync(ct);
         try
         {
-            // Step 1 — detach the old client. From here on nothing it raises reaches us, and the
-            // signal slot discards anything it deposited before the loop condemned its generation.
-            var oldClient = _client;
-            var oldGeneration = Volatile.Read(ref _clientGeneration);
-            UnwireClient();
-            SetConnected(false);
-            Interlocked.Exchange(ref _sessionStartedUtcTicks, 0);
-            MarkAllChannelsUnconfirmed();
+            TwitchClient oldClient;
+            int oldGeneration;
+            TwitchClient newClient;
+            int generation;
 
-            // Step 2 — clean it up in the background rather than awaiting it (E4). Its socket is
-            // already gone, and DisconnectAsync alone carries ~1.9s of built-in waits that would be
-            // pure counting gap.
+            // Steps 1 and 3 are one indivisible section, not two: in between, _client still *is*
+            // the old one, so a handler slipping through there would pass its identity check and
+            // write into state that is being torn down. Holding the gate across both also parks
+            // every handler that entered before the detach until the swap is complete — when they
+            // resume, they see the successor, fail their check and discard themselves.
+            lock (_clientStateGate)
+            {
+                oldClient = _client;
+                oldGeneration = Volatile.Read(ref _clientGeneration);
+
+                // Step 1 — detach the old client. From here on nothing it raises reaches us.
+                UnwireClient();
+                SetConnected(false);
+                Interlocked.Exchange(ref _sessionStartedUtcTicks, 0);
+                MarkAllChannelsUnconfirmed();
+
+                // Condemn the generation being retired — every attempt, successful or failed, and
+                // not only the one whose signal the loop took out of the slot. A failed attempt's
+                // client stays current and wired for the whole backoff; a late "004" can still
+                // start its session, and the loss it reports afterwards would be deposited like a
+                // fresh one — tearing a *healthy* successor down one round later (see
+                // TwitchReconnectSignalSlot.CondemnGeneration for the full sequence).
+                _signalSlot.CondemnGeneration(oldGeneration);
+
+                // Step 3 — a fresh object, never OpenAsync() on the old one: a reused client drags
+                // along TwitchLib's half-emptied join queue and its _currentlyJoiningChannels flag,
+                // while a new one has an empty queue and exactly one read loop (E3).
+                newClient = CreateClient(loggerFactory);
+                // The generation is drawn before wiring, because the handlers capture it
+                // (WireUpClient) rather than reading it when they fire.
+                generation = Interlocked.Increment(ref _clientGeneration);
+                WireUpClient(newClient, generation);
+                _client = newClient;
+            }
+
+            // Step 2 — clean the old one up in the background rather than awaiting it (E4). Its
+            // socket is already gone, and DisconnectAsync alone carries ~1.9s of built-in waits
+            // that would be pure counting gap. Outside the gate on purpose: it hands work to
+            // another task and has no business widening the critical section.
             DisconnectInBackground(oldClient, oldGeneration);
-
-            // Step 3 — a fresh object, never OpenAsync() on the old one: a reused client drags
-            // along TwitchLib's half-emptied join queue and its _currentlyJoiningChannels flag,
-            // while a new one has an empty queue and exactly one read loop (E3).
-            var newClient = CreateClient(loggerFactory);
-            // The generation is drawn before wiring, because the handlers capture it (WireUpClient)
-            // rather than reading it when they fire.
-            var generation = Interlocked.Increment(ref _clientGeneration);
-            WireUpClient(newClient, generation);
-            _client = newClient;
 
             // Steps 4 and 5.
             return await OpenAndAwaitHandshakeAsync(newClient, generation, ct);
@@ -295,7 +352,14 @@ public class TwitchChatManager(
         // Created before the connect, because OnConnected can fire the moment the socket is up.
         // RunContinuationsAsynchronously so the loop never resumes inside TwitchLib's read loop.
         var handshake = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _handshakeSource = handshake;
+
+        // Published under the same gate OnConnected reads it through, so that "the client is
+        // current" and "this is its attempt's handshake" can never be observed apart: OnConnected
+        // captures the source while it holds the gate and completes exactly that instance.
+        lock (_clientStateGate)
+        {
+            _handshakeSource = handshake;
+        }
 
         bool opened;
         try
@@ -393,7 +457,14 @@ public class TwitchChatManager(
             logger.LogInformation(
                 "JOIN für {Channel} angestoßen (Quelle {Source}, Client #{Generation}).",
                 channelName, source, Volatile.Read(ref _clientGeneration));
-            await _client.JoinChannelAsync(channelName);
+            // WaitAsync(ct) bounds *our* wait, not the send. TwitchLib's JoinChannelAsync can
+            // block on its send semaphore and on the WebSocket send, and neither is cancellable —
+            // cancelled here therefore means abandoned, exactly as the connect in
+            // OpenAndAwaitHandshakeAsync is abandoned rather than aborted; the send may still
+            // complete on its own afterwards. Nobody should read this as a real abort. Without the
+            // token a shutdown could park the watchdog in here and break the "StopAsync returns
+            // within about a second" promise — the seconds the final usage flush needs (#122).
+            await _client.JoinChannelAsync(channelName).WaitAsync(ct);
         }
         catch (OperationCanceledException)
         {
@@ -519,6 +590,13 @@ public class TwitchChatManager(
     /// time*, never taken from TwitchLib's <c>sender</c> and never re-read from the fields — see
     /// <see cref="WireUpClient"/> for why that distinction is the whole point of this method.
     /// </para>
+    /// <para>
+    /// <b>Precondition: the caller holds <c>_clientStateGate</c>.</b> Both checks read state the
+    /// rebuild replaces, and the offer stamps a generation the rebuild condemns — read outside the
+    /// gate they would be a second check-then-act next to the one the caller already closed. Every
+    /// call site below is inside a <c>lock (_clientStateGate)</c> block; the method must not take
+    /// the gate itself, or the nesting would stop being visible at the call sites.
+    /// </para>
     /// </summary>
     private void SignalFromHandler(TwitchClient source, int generation, TwitchSessionEndReason reason, string detail)
     {
@@ -594,9 +672,11 @@ public class TwitchChatManager(
     /// manager state checks its bound identity first — before any field write and before any log
     /// line, mirroring the guard below — and returns on mismatch; a handler that only logs, or
     /// only records a fact about Twitch itself rather than about this connection's identity (a
-    /// received frame, a chat message someone actually sent), does not need the check. Three
+    /// received frame, a chat message someone actually sent), does not need the check. Four
     /// defects in this file so far were all the same shape: a handler that either skipped the
-    /// check entirely, or ran it only after already mutating the state it was meant to guard.
+    /// check entirely, ran it only after already mutating the state it was meant to guard, or ran
+    /// it in a separate step from that mutation — which is the same defect stretched over a thread
+    /// switch, and why check and mutation now share one <c>lock (_clientStateGate)</c> block.
     /// </para>
     /// </summary>
     private void WireUpClient(TwitchClient client, int generation)
@@ -661,16 +741,29 @@ public class TwitchChatManager(
         // _sessionStartedUtcTicks hold *now* — the successor's — completing a handshake the
         // successor never actually saw and reporting a rebuild as successful against a connection
         // that isn't up.
-        if (!ReferenceEquals(source, _client))
+        // Check and state change share one critical section: passing the check and then being
+        // preempted long enough for the rebuild to install its successor would land every write
+        // below on that successor — its connection flag set, its handshake satisfied without a
+        // "004" of its own.
+        TaskCompletionSource? handshake;
+        lock (_clientStateGate)
         {
-            logger.LogDebug(
-                "OnConnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
-                generation);
-            return Task.CompletedTask;
+            if (!ReferenceEquals(source, _client))
+            {
+                logger.LogDebug(
+                    "OnConnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
+                    generation);
+                return Task.CompletedTask;
+            }
+
+            SetConnected(true);
+            Interlocked.Exchange(ref _sessionStartedUtcTicks, DateTime.UtcNow.Ticks);
+
+            // Captured, not re-read afterwards: what gets completed below must be the source of
+            // the attempt that was current when the identity check passed.
+            handshake = _handshakeSource;
         }
 
-        SetConnected(true);
-        Interlocked.Exchange(ref _sessionStartedUtcTicks, DateTime.UtcNow.Ticks);
         logger.LogInformation("TwitchClient verbunden.");
 
         // No rejoin here (E2). This handler runs synchronously inside TwitchLib's read loop —
@@ -678,7 +771,10 @@ public class TwitchChatManager(
         // has to process the join confirmations, and TwitchLib then reported joins as failed whose
         // "366" was already sitting in the socket buffer. The rebuild loop rejoins instead, on its
         // own task, once this handshake is signalled below.
-        _handshakeSource?.TrySetResult();
+        //
+        // Outside the gate: this releases the rebuild loop, whose next step takes the gate itself —
+        // there is no reason to make it queue behind this handler.
+        handshake?.TrySetResult();
         return Task.CompletedTask;
     }
 
@@ -691,21 +787,28 @@ public class TwitchChatManager(
         // starts deferring every JOIN, TwitchWatchdogPolicy.Decide sees isConnected: false and can
         // trip the backstop, and the rejoin round's K figure goes positive against a connection
         // that never actually failed).
-        if (!ReferenceEquals(source, _client))
+        // ... and inside the same critical section as those changes, not merely ahead of them: a
+        // handler preempted after the check writes into the *successor's* state — clearing its
+        // confirmations and reporting a connection that is up as lost.
+        lock (_clientStateGate)
         {
-            logger.LogDebug(
-                "OnDisconnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
-                generation);
-            return Task.CompletedTask;
+            if (!ReferenceEquals(source, _client))
+            {
+                logger.LogDebug(
+                    "OnDisconnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
+                    generation);
+                return Task.CompletedTask;
+            }
+
+            // Without a log line here a silent drop (a Twitch-side PING timeout, say) would freeze
+            // chat matching for every channel without a trace. Marking the channels unconfirmed
+            // lets the rejoin round and EnsureJoinedAsync verify them again.
+            SetConnected(false);
+            MarkAllChannelsUnconfirmed();
+            logger.LogWarning("TwitchClient getrennt.");
+            SignalFromHandler(source, generation, TwitchSessionEndReason.Disconnected, "TwitchLib meldet OnDisconnected.");
         }
 
-        // Without a log line here a silent drop (a Twitch-side PING timeout, say) would freeze chat
-        // matching for every channel without a trace. Marking the channels unconfirmed lets the
-        // rejoin round and EnsureJoinedAsync verify them again.
-        SetConnected(false);
-        MarkAllChannelsUnconfirmed();
-        logger.LogWarning("TwitchClient getrennt.");
-        SignalFromHandler(source, generation, TwitchSessionEndReason.Disconnected, "TwitchLib meldet OnDisconnected.");
         return Task.CompletedTask;
     }
 
@@ -733,7 +836,14 @@ public class TwitchChatManager(
         logger.LogInformation(
             "TwitchClient meldet Verbindungsfehler für {BotUsername}: {Error}",
             e.BotUsername, e.Error.Message);
-        SignalFromHandler(source, generation, TwitchSessionEndReason.ConnectionError, e.Error.Message);
+
+        // This handler changes no state of its own, but SignalFromHandler's two checks read state
+        // the rebuild replaces — so it runs under the gate like every other signalling path.
+        lock (_clientStateGate)
+        {
+            SignalFromHandler(source, generation, TwitchSessionEndReason.ConnectionError, e.Error.Message);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -744,28 +854,32 @@ public class TwitchChatManager(
         // is not a reason to skip this guard; the tripwire has already been silently blind to a
         // wrong sender once (the sender-defekt this whole audit traces back to), and this is the
         // one handler where a false positive is otherwise invisible.
-        if (!ReferenceEquals(source, _client))
+        lock (_clientStateGate)
         {
-            logger.LogDebug(
-                "OnReconnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
-                generation);
-            return Task.CompletedTask;
+            if (!ReferenceEquals(source, _client))
+            {
+                logger.LogDebug(
+                    "OnReconnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
+                    generation);
+                return Task.CompletedTask;
+            }
+
+            // Tripwire. With NoReconnectionPolicy this cannot fire: RaiseReconnected sits behind a
+            // successful OpenPrivateAsync(isReconnect: true), whose retry loop runs zero times
+            // because Reset(true) does not clear the attempt counter — the call raises OnFatality
+            // instead and returns false. If this line ever appears, the library changed underneath
+            // us and the client may again be running two read loops on one socket (#114); the
+            // policy's 10s floor then keeps our rejoin out of the burst TwitchLib would have sent.
+            SetConnected(true);
+            logger.LogError(
+                "TwitchClient reconnected — das darf mit NoReconnectionPolicy nicht auftreten (Issue #114/#68).");
+            SignalFromHandler(
+                source,
+                generation,
+                TwitchSessionEndReason.UnexpectedInPlaceReconnect,
+                "TwitchLib hat am selben Objekt reconnectet.");
         }
 
-        // Tripwire. With NoReconnectionPolicy this cannot fire: RaiseReconnected sits behind a
-        // successful OpenPrivateAsync(isReconnect: true), whose retry loop runs zero times because
-        // Reset(true) does not clear the attempt counter — the call raises OnFatality instead and
-        // returns false. If this line ever appears, the library changed underneath us and the
-        // client may again be running two read loops on one socket (#114); the policy's 10s floor
-        // then keeps our rejoin out of the burst TwitchLib would have sent.
-        SetConnected(true);
-        logger.LogError(
-            "TwitchClient reconnected — das darf mit NoReconnectionPolicy nicht auftreten (Issue #114/#68).");
-        SignalFromHandler(
-            source,
-            generation,
-            TwitchSessionEndReason.UnexpectedInPlaceReconnect,
-            "TwitchLib hat am selben Objekt reconnectet.");
         return Task.CompletedTask;
     }
 
@@ -778,19 +892,26 @@ public class TwitchChatManager(
         // wrongly-set true here is load-bearing: EnsureJoinedAsync trusts it and stops retrying,
         // and AllConfirmed/WaitForJoinConfirmationsAsync would call the rejoin round done while the
         // new client's own join for that channel is still outstanding or has actually failed.
-        if (!ReferenceEquals(source, _client))
+        lock (_clientStateGate)
         {
-            logger.LogDebug(
-                "Channel {Channel} gejoint (Client #{Generation}) — bereits ersetzter Client, verworfen.",
-                e.Channel, generation);
-            return Task.CompletedTask;
+            if (!ReferenceEquals(source, _client))
+            {
+                logger.LogDebug(
+                    "Channel {Channel} gejoint (Client #{Generation}) — bereits ersetzter Client, verworfen.",
+                    e.Channel, generation);
+                return Task.CompletedTask;
+            }
+
+            // Only a confirmed join stops EnsureJoinedAsync from retrying it every minute. Under
+            // the gate together with the check, because MarkAllChannelsUnconfirmed runs inside the
+            // swap: a confirmation that passed its check just before it would otherwise be written
+            // back *after* it and mark a channel confirmed that the successor never joined.
+            // TryUpdate deliberately does not insert: a confirmation arriving after a leave must
+            // not resurrect the channel as desired.
+            _desiredChannels.TryUpdate(e.Channel, true, false);
+            logger.LogInformation("Channel {Channel} gejoint.", e.Channel);
         }
 
-        // Only a confirmed join stops EnsureJoinedAsync from retrying it every minute. TryUpdate
-        // deliberately does not insert: a confirmation arriving after a leave must not resurrect
-        // the channel as desired.
-        _desiredChannels.TryUpdate(e.Channel, true, false);
-        logger.LogInformation("Channel {Channel} gejoint.", e.Channel);
         return Task.CompletedTask;
     }
 

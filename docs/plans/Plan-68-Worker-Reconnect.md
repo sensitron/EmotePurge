@@ -255,7 +255,12 @@ ihn), `TwitchJoinSource` im Manager, der Slot als eigene Datei
 ### 2.3 Der Signal-Slot (reine Klasse, vom Manager gehalten)
 
 `TwitchReconnectSignalSlot` — TwitchLib-frei, uhrfrei (Zeitstempel kommen von außen), getestet in
-Task 1. Kapazität 1, latchend, nicht flankengetriggert. Drei Operationen, in Prosa:
+Task 1. Kapazität 1, latchend, nicht flankengetriggert. **Vier** Operationen, in Prosa — die vierte
+(**Ausmustern**) kam am 2026-09-08 aus dem Astra-Review dazu: Verurteilt wurde ursprünglich nur
+beim Nehmen, womit die Generation eines **gescheiterten** Versuchs nie auf die Liste kam. Deren
+spätes Signal wurde angenommen und riss nach dem gelungenen Aufbau den gesunden Nachfolger ab —
+PG1 durch die Hintertür des Fehlversuchs. Ausmustern verurteilt beim Ersetzen **jedes** Clients
+und entfernt ein bereits liegendes Signal dieser Generation:
 
 - **Anbieten** (`RequestReconnect` ruft es): Ist die Generation des Signals **≤ der zuletzt
   verurteilten**, wird das Signal **verworfen** — Rückgabe sagt das, der Manager loggt Information
