@@ -976,6 +976,23 @@ Gegenrede berührte sie; sie stehen weiter unter den Vorbehalten aus Abschnitt 8
 `Information`, sonst ist Fall B auch auf Prod unsichtbar — eine kleine `appsettings.json`-Änderung
 mit eigener Abwägung (Log-Volumen: eine Zeile je JOIN/PART/Connect, vernachlässigbar).
 
+**Nachtrag 2026-09-08 (aus der Gegenrede zum Umsetzungsplan, `docs/plans/Plan-68-Worker-Reconnect.md`
+Abschnitt 7).** Drei Stellen dieses Papiers sind durch den Plan überholt; verbindlich ist dort der
+Plan. (1) Der Eingang `reconnectInFlight` der `TwitchWatchdogPolicy` (3.7, 3.8) **entfällt**: die
+Schleife ist sequentiell, der Tick läuft nur, während sie wartet — der Wert wäre an seiner einzigen
+Aufrufstelle für immer `false`, seine Tests prüften einen Zweig ohne Aufrufer. Der
+`clientSpent`-Zweig entfällt ersatzlos. (2) Der Signal-Slot (3.3, 4.7) trägt eine
+**Client-Generation**: das Nehmen eines Signals verurteilt die Generation seines Clients, spätere
+Signale derselben Generation werden verworfen — sonst füllte der `OnConnectionError` des ersetzten,
+aber während eines 5-/10-s-Bodens noch verdrahteten Clients den geleerten Slot und risse die
+frische Verbindung nach dem Rejoin wieder ab. (3) „`OnConnectionError` kommt einmal pro Verlust"
+(3.7) und „Fatal network error genau einmal" (6.3, S1 Schritt 3; „drei Logzeilen", 4.7) gelten nur,
+wenn die Zeile den Ersatz **überholt**: sie kommt ≈ 2,1 s nach `OnDisconnected` (3.2), der Ersatz
+bei 0 s Verzögerung ≈ 0,6 s — in S1/S2 erscheint sie regulär **nicht**, erst ein Boden (S4) lässt
+sie zu; 3.3 („fällt ins Leere") hatte das schon richtig. Dazu verlangt der Plan für SLO-2 eine
+Ursprungszeile je JOIN mit Quelle, damit der minütliche `EnsureJoinedAsync`-Tick keine Bestätigung
+der Rejoin-Runde zuschreiben kann (Plan 7, PG3).
+
 ---
 
 ## Anhang A — Was beim Gegenprüfen anders vorgefunden wurde als im Auftrag

@@ -16,22 +16,37 @@ dreizeiliges Schema, alles andere ist Absicht, Grenzfall und Reihenfolge. Jeder 
 Subagent mit frischem Kontext geschrieben; er liest vor der Arbeit das Konzept **ganz** und die
 unter „Betroffene Dateien" genannten Dateien ganz. Der Plan setzt das Konzept um, er entscheidet
 nichts neu — wo er eine Lücke des Konzepts schließen musste, steht das ausdrücklich dabei
-(Abschnitt 1.3).
+(Abschnitt 1.3). Die Fassung vom Abend des 2026-09-08 ist die Antwort auf die adversariale
+Gegenrede zum Plan (Abschnitt 7); ihre Änderungen sind in die betroffenen Abschnitte eingearbeitet,
+nicht nur dort notiert.
 
 Reihenfolge der Arbeit in jedem Task: **Tests zuerst** (rot), dann Umsetzung (grün), dann die im
 Task genannte Doku, dann die Gates aus Task 8. Commit und Push je Task ohne Rückfrage, Conventional
 Commits, mehrere logische Commits (Regel 1 in der Fassung vom 2026-09-08, Regel 2); **der Merge
-gehört dem Nutzer** (Regel 1, Regel 22).
+gehört dem Nutzer** (Regel 1, Regel 22) **und liegt nach dem 2026-10-08** (Abschnitt 0).
 
 ---
 
-## 0. Deploy-Sperre — zuerst lesen
+## 0. Merge- und Deploy-Sperre — zuerst lesen
 
-**Bauen, lokal verifizieren und mergen ist im Messfenster frei. Der Deploy wartet bis nach dem
-2026-10-08.** Er ist der erste Stack-Update nach dem bindenden Harness-Lauf und wird mit #122
-(`stop_grace_period`, Task 5) und allem gebündelt, was bis dahin sonst auf dem Stapel liegt — jeder
-Deploy kostet einen Worker-Neustart und damit den Zeitanker aus #117 (Epic #118, Abschnitt 4;
-Konzept 5.4).
+**Worker-Code wird vor dem 2026-10-08 nicht auf `main` gemergt.** Entscheidung des Nutzers vom
+2026-09-08 nach der Gegenrede zum Plan (Abschnitt 7, PG5). Der Branch `feat/worker-reconnect-68`
+bleibt bis dahin offen und wird lokal vollständig fertig verifiziert (Task 9); der PR wird
+vorbereitet, aber nicht gemergt. Die erste Fassung dieses Abschnitts hatte „mergen frei, deployen
+nicht" gesagt — das war falsch, und zwar aus einem technischen Grund, nicht aus Vorsicht:
+
+- `.github/workflows/publish.yml` läuft bei `push` auf `main` und veröffentlicht die Images unter
+  dem mutablen Tag `:latest` (Zeile ~135); `docker-compose.prod.yml` referenziert genau dieses Tag
+  ohne `pull_policy`. Jeder Portainer-Redeploy — auch ein sachfremder, auch ein versehentlicher —
+  hätte nach einem Merge den Umbau mitgenommen und den Worker neu gestartet. Das ist der Zeitanker
+  aus #117 (Epic #118, Abschnitt 4; Konzept 5.4), und es hätte niemand bewusst deployt.
+- **Aber:** derselbe Workflow trägt `paths-ignore: ["**.md", "docs/**"]`. Ein Merge, der nur
+  Dokumente berührt (dieser Plan, das Konzept, ein Befund), löst **nichts** aus. Das Risiko entsteht
+  mit dem ersten gemergten Commit, der `src/`, `tests/` oder eine Compose-Datei berührt — also ab
+  **Task 1**, nicht erst ab Task 4: auch eine ungenutzte Policy (Task 1) oder zwei Zähler (Task 2)
+  bauen ein neues Image mit neuem Digest, und ein blinder Re-Pull startet den Container dafür neu
+  (der Kommentar im Workflow sagt genau das). Die CI wird **nicht** umgebaut (kein SHA-only-Publish,
+  keine Promotion-Stufe) — die Sperre ist die Reihenfolge, nicht ein Mechanismus.
 
 Was das für jeden Task dieses Plans heißt:
 
@@ -40,12 +55,16 @@ Was das für jeden Task dieses Plans heißt:
   wird committet und **nicht** ausgerollt.
 - Lokal (Compose-Projekt `emote-purge-dev`, Container `emotepurge-dev-worker`) ist alles erlaubt,
   auch `up -d --build worker` — das ist die Verifikation aus Task 9, kein Deploy.
-- Der PR-Text (Task 9) nennt die Sperre ausdrücklich: „mergen ja, deployen erst nach dem
-  2026-10-08, zusammen mit #122". Der Merge selbst setzt die Uhr aus #118 **nicht** zurück
-  (kein `AlgorithmVersion`-Bump, keine Migration, keine Zählregel — Konzept 5.4); erst der
-  Stack-Update zählt.
-- Vor dem späteren Deploy sichert der Nutzer die #117-Zahlen als Baseline (Konzept 6.6); das
-  steht als Übergabe am Ende von Task 9, nicht als Task.
+- Commit und Push auf den Branch je Task wie gehabt; ein PR gegen `main` ist ungefährlich (der
+  Publish-Job läuft nur bei `push` auf `main`, nie aus einem Pull Request). Der PR-Text (Task 9)
+  nennt die Sperre: „nicht mergen vor dem 2026-10-08; Deploy danach zusammen mit #122". Reine
+  Doku-Commits (Plan, Konzept, Befunde) dürfen im Fenster gemergt werden — `paths-ignore` garantiert,
+  dass daraus kein Image wird.
+- Nach dem 2026-10-08: Merge, dann der erste Stack-Update nach dem bindenden Harness-Lauf,
+  gebündelt mit #122 (`stop_grace_period`, Task 5) und allem, was bis dahin sonst auf dem Stapel
+  liegt — jeder Deploy kostet einen Worker-Neustart und damit den Zeitanker. Vor dem Deploy sichert
+  der Nutzer die #117-Zahlen als Baseline (Konzept 6.6); das steht als Übergabe am Ende von Task 9,
+  nicht als Task.
 
 ---
 
@@ -122,15 +141,27 @@ Zahlen oder den SLOs. Der Nutzer kann jede davon kippen; dann ändert sich der j
    aktuellen Client **und nur, wenn dieser den Handshake hatte** (`_isConnected` war wahr); ein
    Client ohne Handshake meldet seinen Fehlschlag über den Rückgabewert des Versuchs, nicht über
    den Slot. Die zweite `OnDisconnected` aus Fall A wird — wie das Konzept sagt — durch das
-   Unwiren neutralisiert, nicht durch den Slot.
+   Unwiren neutralisiert, nicht durch den Slot. **Nachtrag aus der Gegenrede (Abschnitt 7, PG1):**
+   das reicht nur bei 0 s Verzögerung. Liegt zwischen Konsumieren und Ersatz ein Boden (5 s, 10 s),
+   ist der alte Client noch verdrahtet, hatte den Handshake und füllt den geleerten Slot mit seinem
+   `OnConnectionError` (≈ 2 s) erneut — nach dem gelungenen Rejoin risse die Schleife die frische
+   Verbindung wieder ab. Deshalb trägt jeder Client eine **Generation**, jedes Signal die Generation
+   seines Clients, und das Konsumieren **verurteilt** diese Generation: Signale einer verurteilten
+   Generation werden verworfen, nicht abgelegt (2.3). Der Slot ist dafür eine reine, getestete
+   Klasse (Task 1).
 2. **Die Schleife ist sequentiell, nicht nebenläufig.** „Wartet auf Signal oder Tick" (3.3) ist als
    *ein* Warten mit Zeitschranke umgesetzt: kommt binnen 60 s kein Signal, ist das der Tick. Während
    eines Wiederaufbaus wird nicht gewartet, also fallen Ticks aus („werden übersprungen", 3.3).
-   Folge: Der Eingang `reconnectInFlight` der `TwitchWatchdogPolicy` (3.7, 3.8) ist am Tick
-   **konstruktionsbedingt immer falsch**. Der Plan behält ihn samt Tests trotzdem, weil das Konzept
-   ihn vorsieht und er die Invariante trägt, falls der Tick je auf einen eigenen Timer wandert —
-   das ist eine Zeile und ein Kommentar, kein Mechanismus. Wer ihn für tot hält, streicht ihn in
-   Task 3 und 4; das Konzept müsste dann in 3.7/3.8 nachgezogen werden.
+   Folge: Der Eingang `reconnectInFlight`, den das Konzept der `TwitchWatchdogPolicy` gibt (3.7,
+   3.8), wäre am Tick **konstruktionsbedingt immer falsch** — die Schleife ist der einzige Aufrufer
+   und tickt nur, während sie wartet. Die erste Fassung dieses Plans behielt ihn „für den Fall, dass
+   der Tick je auf einen eigenen Timer wandert". **Gestrichen** (Abschnitt 7, Nebenbefund): ein
+   Parameter, der an seiner einzigen Aufrufstelle für immer `false` ist, plus zwei Tests für einen
+   Zweig ohne Aufrufer, sind toter Code mit Alibi-Tests — genau das, was Regel 11 und 12 nicht
+   wollen. Wandert der Tick je auf einen eigenen Timer, ist das ein Umbau der Schleife und der
+   Eingang kommt mit ihm zurück; eine Zeile im Klassenkommentar der Policy hält das fest. Task 3
+   entfernt den `clientSpent`-Zweig ersatzlos; das Konzept trägt dazu einen Nachtrag am Ende von
+   Abschnitt 10.
 3. **Kein explizites Trennen beim Shutdown.** 3.3 sagt für `Stopped`: „der aktuelle Client wird
    getrennt". `DisconnectAsync` enthält ≥ 1,9 s eingebaute Wartezeiten (2.2, Punkt 3) und stünde
    damit gegen die Shutdown-Zusage ≤ 1 s (3.4, 4.6). Plan: beim Shutdown wird **nichts** getrennt —
@@ -173,15 +204,18 @@ und **nur** über sie (Konzept 9.3, E5); die Schleife abonniert keine TwitchLib-
   Clients plus Handshake-Warten (≤ ~25 s), bei Fehlschlag Signal `InitialConnectFailed` statt
   Hintergrundschleife; kehrt beim Token sofort zurück.
 - `void RequestReconnect(TwitchSessionEndReason reason, string detail)` — legt ein Signal ab
-  (Slot-Regel s. 2.3). Vom Tick und vom Debug-Auslöser genutzt; die TwitchLib-Handler rufen intern
-  dasselbe.
+  (Slot-Regel s. 2.3), gestempelt mit der Generation des aktuellen Clients. Vom Tick und vom
+  Debug-Auslöser genutzt; die TwitchLib-Handler rufen intern dasselbe mit der Generation ihres
+  `sender`.
 - `Task<TwitchReconnectRequest> WaitForReconnectRequestAsync(CancellationToken ct)` — wartet auf ein
-  Signal und **konsumiert** es (Slot danach leer). Ein Signal, das vor dem Warten abgelegt wurde,
-  wird sofort geliefert (der Boot-Fehlschlag kommt, bevor der Watchdog wartet).
+  Signal, **konsumiert** es (Slot danach leer) und **verurteilt** die Generation des Signals: alles,
+  was dieser Client danach noch meldet, wird verworfen (2.3). Ein Signal, das vor dem Warten
+  abgelegt wurde, wird sofort geliefert (der Boot-Fehlschlag kommt, bevor der Watchdog wartet).
 - `Task<TwitchConnectOutcome> ReconnectOnceAsync(CancellationToken ct)` — Schritte 1–5 der
   Recreate-Sequenz (Konzept 3.4): alten Client abkoppeln und im Hintergrund aufräumen, neuen mit
   `NoReconnectionPolicy` bauen, öffnen, `004` abwarten (10 s). Rückgabe sagt Handshake ja/nein,
-  bei nein den Grund (`ConnectFailed` / `ConnectFaulted` / `HandshakeTimeout`) und die Dauer.
+  bei nein den Grund (`ConnectFailed` / `ConnectFaulted` / `HandshakeTimeout`), die Dauer und die
+  Generation des neuen Clients (für die Logzeilen, 2.7).
 - `Task<TwitchRejoinOutcome> RejoinDesiredChannelsAsync(CancellationToken ct)` — Schritt 6:
   gedrosselte Runde über einen Snapshot von `_desiredChannels`, dann bis zu 5 s Warten auf die
   Bestätigungen; Rückgabe N gewünscht / M bestätigt / K offen / abgebrochen (Verbindung weg oder
@@ -192,7 +226,11 @@ und **nur** über sie (Konzept 9.3, E5); die Schleife abonniert keine TwitchLib-
 
 Unverändert: `Initialize`, `JoinChannelAsync`, `EnsureJoinedAsync`, `LeaveChannelAsync`,
 `IsConnected`, `LastMessageReceivedUtc`, `LastFrameReceivedUtc`, `ConnectAttemptedUtc`,
-`GetRoster`.
+`GetRoster`. Intern tragen die drei JOIN-Pfade eine **Quelle** (`TwitchJoinSource`, 2.2):
+`JoinChannelAsync` → `Command` (Boot-Recovery und Redis-`JOIN`), `EnsureJoinedAsync` →
+`ConvergenceNet` (Resync-Tick und Redis-`RESYNC`), die Rejoin-Runde → `Rejoin`. Die Quelle
+erscheint in der Ursprungszeile jedes JOIN (2.7) und nirgends sonst — sie ist das Messinstrument
+aus Abschnitt 7, PG3, kein Vertrag nach außen.
 
 Damit trägt die Schnittstelle zwischen Watchdog und Manager **vier** Mitglieder (Wait, ReconnectOnce,
 Rejoin, RequestReconnect) statt der drei, die 9.3 zählt — `RequestReconnect` ist der Eingang des
@@ -209,24 +247,55 @@ Abschnitt 6 als Befund festgehalten.
 - `TwitchSessionResult(TwitchSessionEndReason Reason, TimeSpan? SessionDuration)` — Eingang der
   Backoff-Policy, analog `SevenTvSessionResult`. `SessionDuration` ist die Zeit vom `004` bis zum
   Verlust; **`null` heißt: es gab keinen Handshake** (Fehlversuch).
-- `TwitchReconnectRequest(TwitchSessionEndReason Reason, string Detail, TimeSpan? SessionDuration, DateTime RequestedUtc)`
-  — was der Slot hält. Der Manager füllt `SessionDuration` aus seinem `004`-Zeitstempel.
-- `TwitchConnectOutcome(bool HandshakeCompleted, TwitchSessionEndReason? FailureReason, TimeSpan Elapsed)`.
+- `TwitchReconnectRequest(TwitchSessionEndReason Reason, string Detail, TimeSpan? SessionDuration, DateTime RequestedUtc, int ClientGeneration)`
+  — was der Slot hält. Der Manager füllt `SessionDuration` aus seinem `004`-Zeitstempel und
+  `ClientGeneration` aus dem Client, der das Signal ausgelöst hat (beim Tick und beim Boot: der
+  aktuelle).
+- `TwitchConnectOutcome(bool HandshakeCompleted, TwitchSessionEndReason? FailureReason, TimeSpan Elapsed, int ClientGeneration)`.
 - `TwitchRejoinOutcome(int Desired, int Confirmed, int Open, bool Aborted)`.
+- `enum TwitchJoinSource`: `Command`, `ConvergenceNet`, `Rejoin` — manager-intern (2.1), nicht auf
+  dem Interface.
+- **Client-Generation:** der Manager nummeriert jeden erzeugten `TwitchClient` fortlaufend ab 1
+  (der Boot-Client ist #1, jeder Versuch der Schleife erzeugt die nächste Nummer). Die Nummer ist
+  der Schlüssel der Slot-Regel (2.3) und die „Rebuild-ID" der Logzeilen (2.7); sie wird nie
+  zurückgesetzt.
 
 Wo sie liegen: die beiden Policy-Typen (`TwitchSessionEndReason`, `TwitchSessionResult`) in der Datei
 der Policy (Muster `SevenTvBackoffPolicy.cs`), die drei Manager-Typen neben `TwitchRosterEntry` in
-`ITwitchChatManager.cs`.
+`ITwitchChatManager.cs` (den Request darf Task 1 vorläufig beim Slot ablegen, Task 4 verschiebt
+ihn), `TwitchJoinSource` im Manager, der Slot als eigene Datei
+`src/EmotePurge.Worker/TwitchReconnectSignalSlot.cs` (Task 1).
 
-### 2.3 Der Signal-Slot (im Manager)
+### 2.3 Der Signal-Slot (reine Klasse, vom Manager gehalten)
 
-Kapazität 1, latchend, nicht flankengetriggert. `RequestReconnect` auf leeren Slot: ablegen, Warter
-wecken, Information-Log. Auf vollen Slot: **nur den Grund und das Detail ersetzen** (Konzept 4.7),
-Zeitstempel und Sitzungsdauer bleiben vom ersten Signal; Information-Log „… zusammengefasst".
-`WaitForReconnectRequestAsync` leert den Slot beim Liefern. Die TwitchLib-Handler
-(`OnDisconnected`, `OnConnectionError`, `OnReconnected`) rufen `RequestReconnect` nur, wenn
-`sender` der aktuelle `_client` ist **und** dieser Client den Handshake hatte (1.3, Punkt 1);
-sonst loggen sie und tun nichts. Kein Handler baut auf, wartet oder rejoint (E1).
+`TwitchReconnectSignalSlot` — TwitchLib-frei, uhrfrei (Zeitstempel kommen von außen), getestet in
+Task 1. Kapazität 1, latchend, nicht flankengetriggert. Drei Operationen, in Prosa:
+
+- **Anbieten** (`RequestReconnect` ruft es): Ist die Generation des Signals **≤ der zuletzt
+  verurteilten**, wird das Signal **verworfen** — Rückgabe sagt das, der Manager loggt Information
+  „… verworfen, Client #g ist bereits ersetzt". Sonst auf leeren Slot: ablegen, Warter wecken,
+  Information-Log. Auf vollen Slot: **nur den Grund und das Detail ersetzen** (Konzept 4.7),
+  Zeitstempel, Sitzungsdauer und Generation bleiben vom ersten Signal; Information-Log „…
+  zusammengefasst".
+- **Nehmen** (`WaitForReconnectRequestAsync`): wartet, bis ein Signal liegt, liefert es, leert den
+  Slot **und verurteilt die Generation des gelieferten Signals** — beides unter demselben Lock, als
+  ein Schritt, sonst kann ein Handler auf dem Lese-Thread zwischen Leeren und Verurteilen ablegen.
+- **Verurteilt** ist die höchste bisher genommene Generation; sie wächst monoton.
+
+Warum das nötig ist (Abschnitt 7, PG1): Fall A liefert bis zu zwei `OnDisconnected` und ein
+`OnConnectionError` binnen 2,5 s (Konzept 3.2). Bei 0 s Verzögerung ist der alte Client ersetzt,
+bevor die Nachzügler kommen, und sie fallen ins Leere. Bei 5 s (Flap-Boden) oder 10 s
+(Stolperdraht) ist er noch verdrahtet: ohne die Generationsregel füllte sein `OnConnectionError`
+den gerade geleerten Slot, und die Schleife risse nach dem gelungenen Rejoin die frische Verbindung
+ab — „viele Signale = ein Wiederaufbau" wäre verletzt. Die Regel macht das Verhalten
+zeitunabhängig; die drei Logzeilen aus Konzept 4.7 bleiben, wo der Boden sie zulässt.
+
+Die TwitchLib-Handler (`OnDisconnected`, `OnConnectionError`, `OnReconnected`) rufen
+`RequestReconnect` nur, wenn `sender` der aktuelle `_client` ist **und** dieser Client den
+Handshake hatte (1.3, Punkt 1) — die Handshake-Regel bleibt neben der Generationsregel nötig, weil
+ein Versuchs-Client ohne `004` eine **höhere** Generation als die verurteilte trägt und sein
+`OnDisconnected` sonst als echtes Signal läge; sonst loggen sie und tun nichts. Kein Handler baut
+auf, wartet oder rejoint (E1).
 
 ### 2.4 `TwitchReconnectBackoffPolicy` (rein, uhrfrei, injizierbarer Jitter)
 
@@ -251,10 +320,13 @@ Unterschied zur ersten Konzeptfassung; die Tests in Task 1 pinnen genau das.
 
 ### 2.5 `TwitchWatchdogPolicy`
 
-`Decide(bool reconnectInFlight, bool isConnected, TimeSpan? sinceOpenAttempt, TimeSpan? sinceLastFrame, TimeSpan? sinceLastForcedReconnect)`.
-Erster Zweig: `reconnectInFlight` → nichts. Danach unverändert: Disconnected-Zweig mit 1-min-Cooldown
-(jetzt der Backstop, Grund-Text unverändert „TwitchClient meldet sich als getrennt."), Stale-Zweig
-15 min mit 15-min-Cooldown. Der `clientSpent`-Zweig samt Parameter entfällt.
+`Decide(bool isConnected, TimeSpan? sinceOpenAttempt, TimeSpan? sinceLastFrame, TimeSpan? sinceLastForcedReconnect)`.
+Unverändert: Disconnected-Zweig mit 1-min-Cooldown (jetzt der Backstop, Grund-Text unverändert
+„TwitchClient meldet sich als getrennt."), Stale-Zweig 15 min mit 15-min-Cooldown. Der
+`clientSpent`-Zweig samt Parameter entfällt **ersatzlos** — kein `reconnectInFlight` (1.3, Punkt 2;
+Abschnitt 7, Nebenbefund). Der Klassenkommentar sagt, warum es keinen In-Flight-Eingang gibt: die
+Schleife ist der einzige Aufrufer und tickt nur, während sie wartet; ein solcher Eingang käme mit
+einem eigenen Tick-Timer zurück, nicht vorher.
 
 ### 2.6 Die Schleife in `TwitchConnectionWatchdog`
 
@@ -264,7 +336,7 @@ fehlerisoliert je Durchlauf (Muster `SevenTvEventWorker`), nie den Host mitreiß
 ```
 warten(Signal, ≤ 60 s)
   ├─ Zeitschranke → Tick: Decide(...) → ggf. LogLiveContext + RequestReconnect(FrameStale | DisconnectedBackstop)
-  └─ Signal → Wiederaufbau: delay = NextDelay(Signal) → [Delay(ct) → ReconnectOnceAsync(ct) → bei Fehlschlag delay = NextDelay(Fehlversuch), wiederholen] → RejoinDesiredChannelsAsync(ct) → zurück zu warten
+  └─ Signal (Nehmen verurteilt dessen Generation) → Wiederaufbau: delay = NextDelay(Signal) → [Delay(ct) → ReconnectOnceAsync(ct) → bei Fehlschlag delay = NextDelay(Fehlversuch), wiederholen] → RejoinDesiredChannelsAsync(ct) → zurück zu warten
 ```
 
 - Zähler: je Signal `WorkerStats.RecordTwitchRebuild()`, je Fehlversuch
@@ -288,16 +360,18 @@ Implementer. Log-Messages deutsch (Sprachregel).
 | Anker (grep-fähig) | Ebene | Wann |
 |---|---|---|
 | `TwitchClient getrennt` | Warning | `OnDisconnected` des aktuellen Clients mit Handshake |
-| `TwitchClient meldet Verbindungsfehler` … `Fatal network error` | **Information** | `OnConnectionError` — erwartete Folgezeile eines Verlusts, genau einmal je Verlust (3.7) |
-| `Twitch-Verbindung verloren` … `Wiederaufbau #1 in {Delay}s` | Warning | Signal konsumiert; Grund und Sitzungsdauer in der Zeile |
+| `TwitchClient meldet Verbindungsfehler` … `Fatal network error` | **Information** | `OnConnectionError` — erwartete Folgezeile eines Verlusts, **höchstens** einmal je Verlust: sie kommt ≈ 2 s nach `OnDisconnected` (Konzept 3.2) und erreicht uns nur, wenn der alte Client dann noch verdrahtet ist — bei 0 s Verzögerung regulär **nicht**, bei 5-/10-s-Boden ja (Abschnitt 7, Widerspruch W1) |
+| `Twitch-Verbindung verloren` … `Wiederaufbau #1 in {Delay}s` … `Client #{Generation}` | Warning | Signal konsumiert; Grund, Sitzungsdauer und Generation des verlorenen Clients in der Zeile |
 | `Wiederaufbau #{n} fehlgeschlagen` … `nächster Versuch in {Delay}s` | Warning | je Fehlversuch mit Grund (`ConnectAsync` false / Exception / `Handshake nicht abgeschlossen`) |
 | `TwitchClient verbunden` | Information | `OnConnected` (`004`), wie heute |
-| `Twitch-Verbindung steht nach {Seconds}s (Versuch #{n})` | Information | nach dem Handshake; **SLO-1-Zeile** (6.6) |
+| `Twitch-Verbindung steht nach {Seconds}s (Versuch #{n}, Client #{Generation})` | Information | nach dem Handshake; **SLO-1-Zeile** (6.6) |
+| `JOIN für {Channel} angestoßen (Quelle {Source}, Client #{Generation})` | Information | `TryJoinAsync` unmittelbar vor `_client.JoinChannelAsync`, nach Gate und Wunschzustandsprüfung; die **Ursprungszeile** — sie sagt, wer den JOIN wollte, TwitchLibs „Joining channel" sagt, dass er gesendet wurde (Abschnitt 7, PG3) |
 | `Rejoine {Count} gewünschte(n) Channel(s)` | Information | Start der Runde, wie heute |
 | `Channel {Channel} gejoint` | Information | wie heute |
-| `Rejoin abgeschlossen: {N} gewünscht, {M} bestätigt, {K} offen, {T}s seit Verlust` + `seit Prozessstart: {Rebuilds} Wiederaufbauten, {Failures} Fehlversuche` | Information; **Warning bei K > 0 oder Abbruch** | Ende der Runde; **SLO-2-Zeile** |
+| `Rejoin abgeschlossen (Client #{Generation}): {N} gewünscht, {M} bestätigt, {K} offen, {T}s seit Verlust` + `seit Prozessstart: {Rebuilds} Wiederaufbauten, {Failures} Fehlversuche` | Information; **Warning bei K > 0 oder Abbruch** | Ende der Runde; **SLO-2-Zeile** |
 | `Join für {Channel} aufgeschoben` | **Information** (war Warning; Entscheidung 7.7) | `TryJoinAsync` bei `!_isConnected` |
 | `Weiteres Verlust-Signal` … `zusammengefasst` | Information | `RequestReconnect` auf vollen Slot |
+| `Verlust-Signal verworfen` … `Client #{Generation} ist bereits ersetzt` | Information | `RequestReconnect` mit verurteilter Generation (2.3) — der positive Beleg für PG1 in S4 |
 | `Erzwinge Reconnect: {Reason}` | Warning | Tick; Reason ist `Kein IRC-Frame seit …` oder `TwitchClient meldet sich als getrennt.` (Backstop — darf nie erscheinen, R1) |
 | `TwitchClient reconnected` … `darf mit NoReconnectionPolicy nicht auftreten` | **Error** | Stolperdraht `OnReconnected` |
 | `Aufräumen des alten TwitchClient` … `fehlgeschlagen (ignoriert)` | Warning | Hintergrund-Cleanup (E4, R5) |
@@ -314,6 +388,9 @@ TwitchLib selbst liefert nach Task 4 auf `Information`: „Joining channel: …"
   `Worker__Debug__AllowTwitchReconnectTrigger=true`) — schaltet den Debug-Auslöser frei (Task 6).
   Kommt **nicht** in `docker-compose.yml`, nicht in `.env.example`; wird nur für Lauf A/B über eine
   lokale Override-Datei gesetzt (Task 9).
+- `SevenTv__ResyncIntervalSeconds` (bestehend, Default 60) wird für die Messläufe in Task 9 über
+  dieselbe Override-Datei auf **3600** gesetzt, damit der Konvergenz-Tick (`EnsureJoinedAsync`)
+  nicht in ein Messfenster fällt (Abschnitt 7, PG3). Nichts davon ändert Code oder Defaults.
 - `docker-compose.yml` und `docker-compose.prod.yml`: `stop_grace_period: 60s` am `worker`
   (Task 5). `ShutdownTimeout` des Hosts bleibt beim .NET-Default 30 s; die 60 s decken ihn mit
   Reserve (#122).
@@ -421,10 +498,21 @@ weiter zu probieren (Projektnotiz vom 2026-08-30).
   oder eine `NOTICE`, wörtlich.
 - F3: Serie von fünf Verbindungsaufbauten binnen 60 s (Connect → `001`/`004` → ein JOIN → `366` →
   trennen), dann zehn binnen 60 s, dann zwanzig; Abbruch bei der ersten Serie, in der ein Aufbau
-  kein `001` liefert oder Twitch die Verbindung schließt — mit der Kontrolle, dass nach 60 s Ruhe
-  ein Aufbau wieder gelingt. Positiver Beleg je Serie: n × `001` mit Zeitstempeln. Zur Einordnung
-  im Befund: die Schleife aus Task 4 erzeugt im schlimmsten Fall (Dauer-Flapping, 5-s-Boden) zwölf
-  Aufbauten pro Minute — die zweite Serie liegt darüber, die dritte deutlich.
+  kein `001` liefert oder Twitch die Verbindung schließt. Positiver Beleg je Serie: n × `001` mit
+  Zeitstempeln. **Drei mögliche Ergebnisse, und nur eines davon ist eine Zuschreibung** (Abschnitt
+  7, PG4 — ein fehlendes `001` ist kein Kausalbeleg, so wenig wie eine fehlende „Joining"-Zeile in
+  G4 einer war): (a) **kein Befund** — jede Serie liefert n × `001`; (b) **zugeschrieben** — nur
+  mit expliziter Servermeldung: eine `NOTICE`- oder Fehlerzeile im Rohlog, wörtlich zitiert, **oder**
+  ein serverseitiges Schließen **nach** gelungenem TLS-/WebSocket-Aufbau (Close-Frame bzw. `001`
+  bleibt bei offenem Socket aus), das an **derselben Seriengrenze in zwei unabhängigen Durchgängen
+  ≥ 5 min auseinander** wiederkehrt, **und** eine zwischengeschaltete Niedrigraten-Kontrolle (ein
+  einzelner Aufbau zwischen zwei Serienversuchen) gelingt sofort — sie zeigt, dass es die Rate war
+  und nicht die Leitung; (c) **inconclusive** — alles andere: ein einzelner Aufbau ohne `001`, ein
+  DNS-/TLS-/Timeout-Fehler ohne Servermeldung, ein Fehler, der sich nicht reproduziert. Die
+  Kontrolle „nach 60 s Ruhe gelingt ein Aufbau wieder" bleibt Teil des Protokolls, belegt aber nur
+  die Erholung, keine Ursache. Zur Einordnung im Befund: die Schleife aus Task 4 erzeugt im
+  schlimmsten Fall (Dauer-Flapping, 5-s-Boden) zwölf Aufbauten pro Minute — die zweite Serie liegt
+  darüber, die dritte deutlich.
 
 **Ergebnisverwertung — der Task endet mit einem Befund, nicht mit einer Logdatei.**
 
@@ -438,35 +526,48 @@ weiter zu probieren (Projektnotiz vom 2026-08-30).
    Sonde offen; sie ist mit `EmotePurgeBot` messbar, aber nicht in diesem Task.
 2. Der Befund sagt **ausdrücklich**, ob und wie er verändert: (a) **Konzept 7.2 / `WorkerCapacity.cs:26`**
    — bleibt die 20 mit der neuen Begründung aus Task 7 (lineare Rejoin-Dauer, Decke, 7TV-Grenze),
-   oder gibt es eine gemessene Zahl, die die Begründung ersetzt; (b) **R3 in Abschnitt 5** — ist der
-   0-s-Erstversuch durch F3 gedeckt oder muss Task 1 den ersten Delay auf 1–2 s und den Flap-Boden
-   auf die zweite Sitzung setzen (das Konzept nennt genau diese beiden Stellschrauben, R3); (c) die
+   oder gibt es eine gemessene Zahl, die die Begründung ersetzt; (b) **R3 in Abschnitt 5 — als
+   Go/No-Go, nicht als Zahl.** Ergebnis (a) oder (c) aus F3 heißt **Go**: Task 1 baut die
+   Konzeptzahlen aus 2.4 (0 s, Boden ab der dritten kurzen Sitzung), und ein inconclusive-Befund
+   steht mit seinem Wortlaut in R3 — der R3-Beleg bleibt Prod (24-h-Zahlen, Konzept 6.5). Ergebnis
+   (b) heißt **Stop**: Task 1 startet nicht; der Nutzer entscheidet, das Konzept bekommt in 3.6
+   einen Nachtrag, und **dieser Plan wird vor Task 1 in einer neuen Fassung durchgezogen** — 2.4,
+   Task 1, Task 4-Doku, S1/S3/S4 in Task 9, R3 — mit den beiden Stellschrauben aus R3 (erster Delay
+   1–2 s, Boden ab der zweiten Sitzung) als **einem** konkreten Wert je Konstante. Die erste Fassung
+   ließ Task 1 die Konstanten allein ändern, während Task 9 auf 0 s abnahm — das war ein
+   eingebauter Widerspruch (Abschnitt 7, PG2). Innerhalb dieses Plans ändert F3 **keine** Konstante;
+   (c) die
    **Dauerauflage aus Epic #118** („keine Ausweitung über ~20 gejointe Kanäle") — trägt ihre
    Begründung (der ungedrosselte Rejoin sprengt das Fenster) angesichts von F1 noch, und was gilt
    nach dem Deploy dieses Plans, wenn es den ungedrosselten Pfad nicht mehr gibt. Die Entscheidung
    über die Auflage trifft der Nutzer in #118; der Befund liefert die Zahl.
 3. Was der Befund **nicht** ändert, egal wie er ausfällt: das Modell (E1–E5), die Drosselung auf
-   600 ms (7.6), die Deploy-Sperre (Abschnitt 0). Die Sonde misst Twitch, nicht unser Design — sie
-   entscheidet Zahlen, keine Form.
+   600 ms (7.6), die Merge- und Deploy-Sperre (Abschnitt 0), und — innerhalb dieses Plans — die
+   Konstanten in 2.4 (Punkt 2b). Die Sonde misst Twitch, nicht unser Design — sie liefert Zahlen
+   für Begründungen (2a, 2c) und ein Go/No-Go (2b), keine Form.
 
-**Fertig.** Kommentar an #68 steht; Task 1 startet erst, wenn die Konsequenz für R3 (Punkt 2b) im
-Befund steht; Task 7 übernimmt die Konsequenz für 7.2 (Punkt 2a) in den Kommentar an
+**Fertig.** Kommentar an #68 steht; Task 1 startet erst, wenn Punkt 2b **Go** sagt (bei Stop:
+neue Planfassung zuerst); Task 7 übernimmt die Konsequenz für 7.2 (Punkt 2a) in den Kommentar an
 `WorkerCapacity.cs`. Kein Commit (nichts im Repo berührt).
 
-### Task 1 — `TwitchReconnectBackoffPolicy` und die Sitzungs-Typen (rein, getestet)
+### Task 1 — `TwitchReconnectBackoffPolicy`, die Sitzungs-Typen und der Signal-Slot (rein, getestet)
 
 **Zweck.** Die Backoff-Kurve aus Konzept 3.6 samt G1-Korrektur als reine Klasse nach dem Muster
-`SevenTvBackoffPolicy`, bevor irgendein Transportcode sie braucht.
+`SevenTvBackoffPolicy`, und der Signal-Slot mit der Generationsregel (2.3) als zweite reine Klasse
+— beides, bevor irgendein Transportcode sie braucht. Der Slot ist hier und nicht in Task 4, weil
+Task 4 nach Regel 11/16 keine Fake-Tests bekommt, die Generationsregel aber genau den
+deterministischen Zustandstest braucht, den die Gegenrede verlangt (Abschnitt 7, PG1).
 
 **Betroffene Dateien.** Neu: `src/EmotePurge.Worker/TwitchReconnectBackoffPolicy.cs` (Policy plus
-`TwitchSessionEndReason` und `TwitchSessionResult`, 2.2), `tests/EmotePurge.Worker.Tests/TwitchReconnectBackoffPolicyTests.cs`.
+`TwitchSessionEndReason` und `TwitchSessionResult`, 2.2), `tests/EmotePurge.Worker.Tests/TwitchReconnectBackoffPolicyTests.cs`;
+`src/EmotePurge.Worker/TwitchReconnectSignalSlot.cs`, `tests/EmotePurge.Worker.Tests/TwitchReconnectSignalSlotTests.cs`.
+`TwitchReconnectRequest` (2.2) zieht mit dem Slot in dessen Datei, wenn `ITwitchChatManager.cs`
+in diesem Task noch unangetastet bleiben soll; Task 4 darf ihn dorthin verschieben.
 Lesen: `SevenTv/SevenTvBackoffPolicy.cs`, `tests/…/SevenTvBackoffPolicyTests.cs`.
 
-**Voraussetzung.** Punkt 2b des Befunds aus Task 0 liegt vor. Sagt er, dass Twitch schnelle
-anonyme Wiederverbindungen ablehnt (F3), gelten statt der Konzeptzahlen die beiden Stellschrauben
-aus R3: erster Versuch nach 1–2 s statt 0 s, Flap-Boden ab der **zweiten** kurzen Sitzung — zwei
-Konstanten, zwei Testerwartungen (Fälle 1 und 8), sonst nichts. Sagt er nichts dergleichen, bleiben
-die Konzeptzahlen.
+**Voraussetzung.** Punkt 2b des Befunds aus Task 0 sagt **Go**. Die Konstanten sind die aus 2.4,
+ohne Variante — ein Stop-Befund erzeugt erst eine neue Planfassung, nie eine abweichende Task-1-
+Implementierung gegen unveränderte Gates in Task 9 (Abschnitt 7, PG2).
 
 **Vertrag.** 2.4. Klassenkommentar (englisch) nennt: warum 30 s und nicht 60 s wie 7TV (Deckel =
 maximale zusätzliche Zähllücke nach Ende eines Twitch-Ausfalls), warum der Streak nur Fehlversuche
@@ -497,8 +598,32 @@ Rohwert.
 13. `UnexpectedInPlaceReconnect` nach einer langen Sitzung liefert 10 s.
 14. `FrameStale` mit einer Sitzung von 20 min liefert 0 s und hebt eine vorher aktive Dämpfung auf.
 
-**Fertig.** Tests grün, Datei ohne `using TwitchLib.*`, Build ohne neue Warnung. Commit
-`feat(worker): add the pure Twitch reconnect backoff policy`.
+**Vertrag Slot.** 2.3. Uhrfrei: der Zeitstempel kommt im Request mit. Der Klassenkommentar
+(englisch) erklärt die Generationsregel an dem Ablauf, der sie nötig macht (Signal genommen →
+Boden → Nachzügler des alten Clients → gelungener Rejoin → ohne die Regel ein zweiter Abriss).
+Kein TwitchLib-Typ, keine Logger-Abhängigkeit — der Slot **meldet** das Ergebnis des Anbietens
+(abgelegt / zusammengefasst / verworfen), der Manager loggt.
+
+**Tests Slot (Verhaltensbeschreibungen).**
+
+1. Anbieten auf leeren Slot legt ab; Nehmen liefert genau dieses Signal und leert den Slot.
+2. Anbieten auf vollen Slot ersetzt nur Grund und Detail; Zeitstempel, Sitzungsdauer und
+   Generation bleiben vom ersten Signal; das Ergebnis heißt „zusammengefasst".
+3. Ein Signal, das vor dem Warten abgelegt wurde, wird beim Nehmen sofort geliefert (Boot-Fall).
+4. Nehmen weckt einen wartenden Nehmer; Abbruch über das Token beendet das Warten ohne Signal.
+5. **Der PG1-Ablauf:** Signal der Generation 1 genommen → weiteres Signal der Generation 1
+   (`ConnectionError`) wird **verworfen**, der Slot bleibt leer → ein Nehmen mit Zeitschranke läuft
+   in die Schranke, nicht in ein Signal.
+6. Nach dem Ablauf aus 5 legt ein Signal der Generation 2 ab (die neue Verbindung ist ein neuer
+   Client) — die Regel verwirft nur Vergangenes.
+7. Die verurteilte Generation wächst monoton: nach Nehmen von Generation 3 wird auch ein Signal
+   der Generation 2 verworfen.
+8. Anbieten auf vollen Slot mit einer verurteilten Generation wird verworfen, nicht zusammengefasst
+   (die Reihenfolge der Prüfungen: erst Generation, dann Slot).
+
+**Fertig.** Tests grün, beide Dateien ohne `using TwitchLib.*`, Build ohne neue Warnung. Commits
+`feat(worker): add the pure Twitch reconnect backoff policy` und
+`feat(worker): add the pure Twitch reconnect signal slot`.
 
 ### Task 2 — Zwei kumulative Zähler in `WorkerStats` (rein, getestet)
 
@@ -520,34 +645,34 @@ Abschlusszeile des Wiederaufbaus).
 **Fertig.** Tests grün; `WorkerHealthPublisher.cs` und `IWorkerHealthReader.cs` **unverändert**
 (`git diff` leer). Commit `feat(worker): count Twitch rebuilds and failed attempts in WorkerStats`.
 
-### Task 3 — `TwitchWatchdogPolicy`: `clientSpent` → `reconnectInFlight`
+### Task 3 — `TwitchWatchdogPolicy`: der `clientSpent`-Zweig entfällt ersatzlos
 
-**Zweck.** Der Spent-Zweig wird gegenstandslos (Konzept 3.1/3.7); an seine Stelle tritt der
-In-Flight-Eingang.
+**Zweck.** Der Spent-Zweig wird gegenstandslos (Konzept 3.1/3.7). Ein Ersatz-Eingang
+`reconnectInFlight`, wie das Konzept ihn vorsieht, kommt **nicht** — er wäre an seiner einzigen
+Aufrufstelle für immer `false` (1.3, Punkt 2; Abschnitt 7, Nebenbefund).
 
 **Betroffene Dateien.** `src/EmotePurge.Worker/TwitchWatchdogPolicy.cs`,
 `tests/EmotePurge.Worker.Tests/TwitchWatchdogPolicyTests.cs`, **und** die eine Aufrufstelle
 `src/EmotePurge.Worker/TwitchConnectionWatchdog.cs:33-38` (positionales Argument, kompiliert sonst
 nicht).
 
-**Vertrag.** 2.5. Die XML-Doku des neuen Parameters sagt: während die Wiederaufbau-Schleife läuft,
-entscheidet der Tick nichts; und dass die Schleife nach Task 4 sequentiell ist, der Wert am Tick
-also konstruktionsbedingt falsch ist (1.3, Punkt 2). Der Klassenkommentar verweist nicht mehr auf
-`ReconnectPolicy` (Vorgriff auf Task 4, sonst `CS1574`).
+**Vertrag.** 2.5. Der Klassenkommentar sagt in zwei Sätzen, warum die Policy keinen
+In-Flight-Eingang hat (sequentielle Schleife, Tick nur beim Warten) und dass er mit einem eigenen
+Tick-Timer zurückkäme. Der Klassenkommentar verweist nicht mehr auf `ReconnectPolicy` (Vorgriff auf
+Task 4, sonst `CS1574`).
 
-**Übergangszustand — bewusst und benannt.** Bis Task 4 übergibt der Watchdog `false` (er ist
-synchron, nichts kann in flight sein) und ruft weiter `ForceReconnectAsync`. Damit fehlt zwischen
-Task 3 und Task 4 der Ersatz eines verbrauchten Clients (#114). Die Solution baut, alle Tests sind
-grün, aber **dieser Zwischenstand darf nicht live laufen und nicht allein gemergt werden** — Task 3
-und 4 gehören in denselben PR. Das ist die einzige Stelle im Plan, an der „baut und Tests grün"
-nicht „funktioniert" heißt.
+**Übergangszustand — bewusst und benannt.** Bis Task 4 ruft der Watchdog `Decide` ohne den
+Spent-Eingang und weiter `ForceReconnectAsync`. Damit fehlt zwischen Task 3 und Task 4 der Ersatz
+eines verbrauchten Clients (#114). Die Solution baut, alle Tests sind grün, aber **dieser
+Zwischenstand darf nicht live laufen und nicht allein gemergt werden** — Task 3 und 4 gehören in
+denselben PR. Das ist die einzige Stelle im Plan, an der „baut und Tests grün" nicht „funktioniert"
+heißt.
 
-**Tests.** Die zehn bestehenden Fälle mit `reconnectInFlight: false` statt `clientSpent: false`;
-die beiden `ClientSpent…`-Fälle entfallen. Neu: (a) getrennt, außerhalb des Cooldowns, in flight →
-nichts; (b) verbunden, Frames 16 min alt, außerhalb des Cooldowns, in flight → nichts.
+**Tests.** Die zehn bestehenden Fälle ohne das `clientSpent`-Argument; die beiden
+`ClientSpent…`-Fälle entfallen. **Keine** neuen Fälle — es gibt keinen neuen Zweig.
 
-**Fertig.** 12 Fälle grün; `ReconnectPolicy.cs` in diesem Task **nicht** angefasst. Commit
-`refactor(worker): replace the spent-client branch of the watchdog policy with an in-flight input`.
+**Fertig.** 10 Fälle grün; `ReconnectPolicy.cs` in diesem Task **nicht** angefasst. Commit
+`refactor(worker): drop the spent-client branch from the watchdog policy`.
 
 ### Task 4 — Transport und Schleife (atomar): `TwitchChatManager`, `ITwitchChatManager`, `TwitchConnectionWatchdog`, `ReconnectPolicy` weg
 
@@ -583,6 +708,12 @@ Stoppdauer zählt).
   `004` binnen 10 s über eine je Versuch neue `TaskCompletionSource`, die `OnConnected` erfüllt —
   sonst `HandshakeTimeout`. `ConnectAttemptedUtc` je Versuch stempeln (Health-Snapshot und
   Stale-Fallback lesen es weiter). Unter dem bestehenden `_reconnectLock`.
+- **Generation und Slot:** `CreateClient` vergibt die nächste Generation (2.2); der Manager hält
+  die Zuordnung Client → Generation (ein Feld für den aktuellen reicht, wenn die Handler `sender`
+  gegen `_client` prüfen, bevor sie die Generation lesen). Der Slot ist die Klasse aus Task 1;
+  `RequestReconnect` stempelt die Generation, loggt das Ergebnis des Anbietens (abgelegt /
+  zusammengefasst / verworfen — drei Zeilen aus 2.7); `WaitForReconnectRequestAsync` delegiert an
+  das Nehmen.
 - `OnConnected`: `_isConnected = true`, `004`-Zeitstempel für die Sitzungsdauer, TCS erfüllen, Log.
   **Kein Rejoin** (E2); `_joinsIssuedForCurrentClient` entfällt.
 - `OnDisconnected`: `_isConnected = false`, `MarkAllChannelsUnconfirmed`, Log, Signal nach 2.3.
@@ -593,11 +724,18 @@ Stoppdauer zählt).
   10 s). Kommentar: warum das nicht mehr feuern kann und was es hieße, wenn doch.
 - `OnFailureToReceiveJoinConfirmation`: Verhalten unverändert, Kommentar neu — nach dem Umbau
   bedeutet die Zeile wieder, was sie sagt (die Runde blockiert die Lese-Schleife nicht mehr, 3.5).
-- `TryJoinAsync(channel, ct)`: `_joinGate.WaitAsync(ct)`, die 600-ms-Pause mit `ct`; **nach** dem
-  Gate, unmittelbar vor dem Senden, erneut prüfen, ob der Kanal in `_desiredChannels` steht — sonst
-  kein JOIN, Debug-Log (4.5, G5, R9). Die „aufgeschoben"-Zeile auf Information (7.7). Aufrufer
-  `JoinChannelAsync`/`EnsureJoinedAsync` reichen `CancellationToken.None` (Interface unverändert);
-  nur die Runde reicht das Stopping-Token.
+- `TryJoinAsync(channel, source, ct)`: `_joinGate.WaitAsync(ct)`, die 600-ms-Pause mit `ct`;
+  **nach** dem Gate, unmittelbar vor dem Senden, erneut prüfen, ob der Kanal in `_desiredChannels`
+  steht — sonst kein JOIN, Debug-Log (4.5, G5, R9); dann die **Ursprungszeile** mit Quelle und
+  Generation (2.7), dann `_client.JoinChannelAsync`. Die „aufgeschoben"-Zeile auf Information
+  (7.7). Aufrufer `JoinChannelAsync` (`Command`) / `EnsureJoinedAsync` (`ConvergenceNet`) reichen
+  `CancellationToken.None` (Interface unverändert); nur die Runde (`Rejoin`) reicht das
+  Stopping-Token. Am Binärstand belegt: TwitchLibs `JoinChannelAsync` dedupliziert nur gegen
+  `JoinedChannels` (dort landet ein Kanal unmittelbar nach dem Senden, vor der Bestätigung) — ein
+  zweiter Aufruf für einen gesendeten, unbestätigten Kanal sendet **nicht** erneut, stempelt aber
+  unser `_lastJoinIssuedUtc` und dehnt das Raster. Deshalb ist die Ursprungszeile die einzige
+  Stelle, an der sich ein JOIN des Konvergenznetzes von einem der Runde unterscheiden lässt
+  (Abschnitt 7, PG3).
 - `RejoinDesiredChannelsAsync(ct)`: Snapshot der Keys; je Kanal vorher `_isConnected` und `ct`
   prüfen, sonst Abbruch (keine N Aufschub-Zeilen); nach dem letzten Aufruf bis zu 5 s auf die
   Bestätigung aller Snapshot-Kanäle warten (Polling im 100–200-ms-Raster über `_desiredChannels`
@@ -624,7 +762,10 @@ verworfene Alternativen), warum sequentiell (1.3, Punkt 2), und die Shutdown-Zus
 an den aktuellen `_client`, Fehler ist Warning, Kanal bleibt unbestätigt); Redis-`JOIN`/`LEAVE`
 während eines Wiederaufbaus (4.5); zwei Signale in kurzer Folge (4.7); Shutdown in jedem Zustand
 (4.6); Verlust während der Runde (Runde bricht ab, das Signal des neuen Clients liegt schon im
-Slot, die Schleife findet es beim nächsten Warten).
+Slot, die Schleife findet es beim nächsten Warten); **Nachzügler des ersetzten Clients während
+eines Bodens** (Signal genommen → 5 s Boden → `OnConnectionError` und zweites `OnDisconnected`
+des alten, noch verdrahteten Clients → beide „verworfen" → nach dem Rejoin wartet die Schleife auf
+einen leeren Slot, PG1).
 
 **Konfiguration.** Beide `appsettings`-Dateien: `TwitchLib.Client.TwitchClient` auf `Information`
 (7.10). Kommentar in `appsettings.json` ist nicht möglich (JSON) — die Begründung steht im
@@ -647,10 +788,12 @@ denselben Deploy gehört (G3); (9) die beiden SLOs als Abnahmekriterien, mit dem
 Verfehlung ein Befund und kein Anlass zur Korrektur der Zahl ist (G2, R10); (10) die drei
 Log-Entscheidungen (Fatal-Zeile Information, „aufgeschoben" Information, TwitchLib auf
 Information — und warum das Volumen vernachlässigbar ist); (11) die gesetzten Entscheidungen 7.3,
-7.4, 7.5 in je einem Satz; (12) die Deploy-Sperre aus Abschnitt 0 und was der Prod-Beleg für Fall B
+7.4, 7.5 in je einem Satz; (12) die Merge- und Deploy-Sperre aus Abschnitt 0 und was der Prod-Beleg für Fall B
 ist (6.5); (13) „Brücke, nicht Endstation" — Conduits in drei Sätzen mit Verweis auf Konzept 9, und
 dass die Entscheidung transportfrei liegt (E5). Die Slot-Regel, die Sequentialität und die anderen
-Punkte aus 1.3 stehen als Umsetzungsentscheidungen dabei.
+Punkte aus 1.3 stehen als Umsetzungsentscheidungen dabei — die Generationsregel des Slots, die
+Ursprungszeile je JOIN und das gestrichene `reconnectInFlight` mit ihrer Herkunft aus der
+Gegenrede zum Plan (Abschnitt 7).
 
 **Der #114-Eintrag (`DECISIONS.md:132-225`) wird nicht gelöscht und nicht umgeschrieben.** Er bekommt
 am Ende einen **Nachtrag** nach dem Muster von `DECISIONS.md:4771` („Nachtrag 2026-07-30 — die
@@ -722,8 +865,9 @@ Fall B minus Thread-Kontext: `OnDisconnected` (Signal), später `OnConnectionErr
 unwireten alten Client (ins Leere), kein `OnReconnected`.
 
 **Grenzfälle.** Kommando bei getrenntem Client → `OnReadLineTestAsync` läuft trotzdem; das Ergebnis
-ist ein zweites Signal auf einen vollen Slot oder ein Signal während eines laufenden Wiederaufbaus
-— beides harmlos, beides geloggt. Kommando im Harness-Einstiegspunkt → unerreichbar, der Harness
+ist ein zweites Signal auf einen vollen Slot, ein verworfenes Signal eines bereits verurteilten
+Clients (2.3) oder — ist der Client schon unwired — gar nichts; alles harmlos, das Sichtbare
+geloggt. Kommando im Harness-Einstiegspunkt → unerreichbar, der Harness
 abonniert keine Kommandos (`AddHarness` ohne Hosted Service).
 
 **Tests.** `WorkerBootSequenceTests` weiter grün. Kein Test für den Auslöser selbst — er ist
@@ -750,7 +894,8 @@ DECISIONS.
   Verlust ist ein Signal, der Watchdog trägt die Wiederaufbau-Schleife (Ersatz des Objekts, `004`,
   gedrosselter Rejoin außerhalb der Lese-Schleife); Entscheidung in `TwitchReconnectBackoffPolicy`
   und `TwitchWatchdogPolicy`, beide pur und getestet; Verweis auf DECISIONS.
-- `CLAUDE.md:85` (Testprojekt-Liste): `ReconnectPolicy` → `TwitchReconnectBackoffPolicy`.
+- `CLAUDE.md:85` (Testprojekt-Liste): `ReconnectPolicy` → `TwitchReconnectBackoffPolicy`,
+  `TwitchReconnectSignalSlot`.
 - `CLAUDE.md:208` (Bekannte offene Grenzen, JOIN-Limits): „TwitchLibs eigener Rejoin nach einem
   Reconnect nicht" entfällt; neu: alle JOIN-Pfade sind gedrosselt, die Rejoin-Dauer wächst linear
   (0,6 s × N), die Grenzen sind jetzt Twitchs 100 Chatrooms und die 7TV-EventAPI (Konzept 7.2). Die
@@ -789,8 +934,8 @@ einem Stand läuft, der die Gates schon hält.
 1. `dotnet format EmotePurge.slnx --verify-no-changes`, `dotnet build EmotePurge.slnx --no-incremental`
    (keine neue Warnung, insbesondere kein `CS1574`), `dotnet test EmotePurge.slnx` (braucht Docker
    für die Infrastructure-Tests). Erwartung: Baseline 1.047 Fälle (Projektnotiz 2026-09-08) minus 13
-   (`ReconnectPolicyTests`) minus 2 (`ClientSpent…`) plus 14 (Task 1) plus ≥ 3 (Task 2) plus 2
-   (Task 3) plus ≤ 1 (Task 6).
+   (`ReconnectPolicyTests`) minus 2 (`ClientSpent…`) plus 14 + 8 (Task 1: Policy und Slot) plus ≥ 3
+   (Task 2) plus 0 (Task 3) plus ≤ 1 (Task 6).
 2. Frontend unberührt: `git diff --stat origin/main -- web` ist leer; keine E2E nötig (keine
    UI-Änderung).
 3. **Coverage — erst nach den Commits** (`scripts/coverage-local.mjs` misst nur Committetes):
@@ -827,7 +972,10 @@ davor.
   `-f docker-compose.yml -f <scratchpad>/reconnect-verify.override.yml` (der `.env`-Pfad hängt an
   der ersten Datei, deshalb aus dem Haupt-Checkout starten). Sie setzt am `worker`:
   `Logging__LogLevel__TwitchLib.Client.TwitchClient=Information` (seit Task 4 ohnehin, hier als
-  Gegenprobe), `Worker__Debug__AllowTwitchReconnectTrigger=true`, und **nur in Lauf A**
+  Gegenprobe), `Worker__Debug__AllowTwitchReconnectTrigger=true`, `SevenTv__ResyncIntervalSeconds=3600`
+  (der Konvergenz-Tick darf in kein Messfenster fallen, PG3 — die 7TV-Reconciliation verliert
+  dadurch für die Dauer der Läufe nichts, was die Zähler aus 6.4 berührt: der Emote-Cache startet
+  warm aus Postgres und läuft live über die EventAPI), und **nur in Lauf A**
   `Logging__LogLevel__TwitchLib.Communication=Trace`. Nichts davon wird committet.
 - **Kontrollfrage vor jedem Lauf:** erscheint beim ersten Join nach dem Containerstart
   „Joining channel: …"? Wenn nicht, ist die Ebene nicht wirksam und der Lauf zählt nicht.
@@ -839,9 +987,22 @@ davor.
   ein lauter echter Kanal. Beweist: SLO-1, SLO-2, Bestätigungen, Sentinel, Flush.
 - **t₀** ist der Host-Zeitstempel des Kill-Kommandos (`date +%T.%N` unmittelbar davor); Container
   und Host teilen die Uhr. Die Log-Zahl „T s seit Verlust" wird daneben notiert (1.3, Punkt 6).
-- Vor jedem Szenario den `EnsureJoinedAsync`-Minutentakt abwarten, bis alle Kanäle bestätigt sind
-  (Roster im Admin-Bereich); **N** ist die Zahl der bestätigten Kanäle zum Zeitpunkt t₀. SLO-2-Grenze
-  = 6 s + 0,6 s × (N − 1), vor dem Lauf ausrechnen und hinschreiben.
+- Vor jedem Szenario im Roster (Admin-Bereich) prüfen, dass alle Kanäle bestätigt sind — mit dem
+  Intervall-Override gibt es keinen Minutentakt mehr, der das nachzöge; nach Task 4 stellt die
+  Boot-Recovery beim Start und die Rejoin-Runde nach jedem Ereignis das selbst sicher, und ein
+  unbestätigter Kanal vor t₀ ist bereits der Befund des vorherigen Laufs (K > 0), kein Startfehler.
+  **N** ist die Zahl der bestätigten Kanäle zum Zeitpunkt t₀. SLO-2-Grenze = 6 s + 0,6 s × (N − 1),
+  vor dem Lauf ausrechnen und hinschreiben.
+- **Gültigkeitsregel für jeden SLO-Lauf (PG3):** Der Beleg für SLO-2 ist nur dann einer, wenn
+  **jede** Bestätigung im Fenster [t₀, letzte Bestätigung] positiv der Rejoin-Runde zugeordnet ist:
+  genau N Ursprungszeilen mit Quelle `Rejoin` und der Generation aus der „steht"-Zeile, **null**
+  Ursprungszeilen mit Quelle `ConvergenceNet` oder `Command` im Fenster, und jede „Joining
+  channel"-Zeile folgt unmittelbar auf eine Rejoin-Ursprungszeile. Steht eine fremde Ursprungszeile
+  im Fenster, ist der Lauf **ungültig** — weder grün noch rot — und wird wiederholt; er zählt nicht
+  zu den fünf. Ohne diese Regel hätte der Minutentakt (`EnsureJoinedAsync`, Konvergenznetz des
+  Resync-Workers) ausgelassene Kanäle nachziehen und einen defekten Rejoin-Pfad mit K = 0 und N
+  Zeilen beglaubigen können — dasselbe Muster wie beim Audit-Harness am 2026-09-07 („Selbstprüfung
+  am falschen Ort"), und der Merge-Blocker wäre keiner gewesen.
 - Läuft parallel eine Api auf `:5151`, ist das hier egal — E2E fährt dieser Task nicht.
 
 **Szenarien (Konzept 6.3), jedes mit seinem Widerleger aus 6.2.**
@@ -849,19 +1010,30 @@ davor.
 - **S1 — Socket-Abbruch (Fall A), fünfmal, ≥ 2 min Abstand, Lauf B (einmal zusätzlich Lauf A für
   Schritt 7).** Kill über `nsenter … ss -K dport = :443` im Netz-Namespace des Containers (der Kernel
   kann es, 1.1). Reihenfolge der Belege: (1) „TwitchClient getrennt" ≤ 1 s nach t₀; (2)
-  „Wiederaufbau #1 in 0 s"; (3) „Fatal network error" als Information, **genau einmal**; (4)
-  „Twitch-Verbindung steht nach … s" — Δ zu t₀ ist SLO-1; (5) **genau N** „Joining channel"-Zeilen
-  (TwitchLib) und N „Channel … gejoint" (wir), erstere im 600-ms-Raster ± 100 ms, letztere je
-  ~200 ms dahinter, keine „nicht bestätigt"-Zeile; (6) „Rejoin abgeschlossen: N gewünscht, N
-  bestätigt, 0 offen, T s" — Δ letzte Bestätigung zu t₀ ist SLO-2; (7) Lauf A: genau eine
-  „ListenTaskActionAsync"-Trace-Zeile für den neuen Client, kein „TwitchClient reconnected".
+  „Wiederaufbau #1 in 0 s, Client #g"; (3) **keine** „Fatal network error"-Zeile — der alte Client
+  ist bei ≈ t₀ + 0,6 s ersetzt, sein `OnConnectionError` kommt erst bei ≈ t₀ + 2,1 s und fällt ins
+  Leere (2.7; Abschnitt 7, W1 — die erste Fassung erwartete hier „genau einmal", und das hätte den
+  Lauf grundlos rot gemacht); erscheint sie doch, folgt ihr eine „verworfen"-Zeile und **kein**
+  zweiter Wiederaufbau; (4) „Twitch-Verbindung steht nach … s (Client #g+1)" — Δ zu t₀ ist SLO-1;
+  (5) **genau N** Ursprungszeilen mit Quelle `Rejoin` und Client #g+1, **genau N** „Joining
+  channel"-Zeilen (TwitchLib) und N „Channel … gejoint" (wir), Joining-Zeilen im 600-ms-Raster
+  ± 100 ms, Bestätigungen je ~200 ms dahinter, keine „nicht bestätigt"-Zeile, **null**
+  Ursprungszeilen anderer Quelle im Fenster (Gültigkeitsregel); (6) „Rejoin abgeschlossen (Client
+  #g+1): N gewünscht, N bestätigt, 0 offen, T s" — Δ letzte Bestätigung zu t₀ ist SLO-2; (7) Lauf
+  A: genau eine „ListenTaskActionAsync"-Trace-Zeile für den neuen Client, kein „TwitchClient
+  reconnected".
   Widerlegt durch: mehr als N Joining-Zeilen, ein Abstand < 400 ms, N Zeilen binnen < 0,4 × N s,
   Median SLO-1 > 3 s oder p95 > 5 s über die fünf Läufe, **SLO-2 in einem Lauf gerissen oder K > 0**.
-  Ergebnis: eine Tabelle mit fünf Zeilen — t_Signal, t_004, t_letzte Bestätigung, K, Zahl der
-  Joining-Zeilen, kleinster und größter Abstand, Log-T.
+  Ungültig (wiederholen, nicht zählen) durch: eine fremde Ursprungszeile im Fenster.
+  Ergebnis: eine Tabelle mit fünf gültigen Zeilen — t_Signal, t_004, t_letzte Bestätigung, K, Zahl
+  der Joining-Zeilen, Ursprungszeilen je Quelle im Fenster, kleinster und größter Abstand, Log-T;
+  ungültige Läufe stehen darunter mit dem Grund.
 - **S2 — `RECONNECT` (Fall B) über den Debug-Auslöser (Task 6).** Ohne Freigabe: nur die
-  „ignoriert"-Zeile, Verbindung steht. Mit Freigabe: „wird injiziert", dann `OnDisconnected`, genau
-  ein „Fatal network error", **kein** „TwitchClient reconnected", danach S1-Schritte 2–6. Ehrlich
+  „ignoriert"-Zeile, Verbindung steht. Mit Freigabe: „wird injiziert", dann `OnDisconnected`,
+  **kein** „TwitchClient reconnected", danach S1-Schritte 2–6 — einschließlich Schritt 3 in seiner
+  korrigierten Form: die „Fatal network error"-Zeile bleibt aus, weil der alte Client bei 0 s vor
+  ihrem Eintreffen ersetzt ist (Task 6 sagt das selbst: „ins Leere"; die erste Fassung dieses
+  Szenarios erwartete sie trotzdem „genau einmal", W1). Ehrlich
   festhalten: das beweist die Policy-Reaktion, **nicht** den Thread-Kontext — E1 („Handler tun in
   der sterbenden Schleife nichts") wird **per Code-Lesen** abgenommen, als eigener Punkt im Bericht
   mit Zeilenangabe der drei Handler.
@@ -875,9 +1047,17 @@ davor.
   nach Entfernen der Regel „Twitch-Verbindung steht" ≤ 30 s + 25 s, dann S1-Schritte 5–6.
   Container-IP: `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' emotepurge-dev-worker`.
 - **S4 — Flapping.** S1 dreimal binnen 90 s: Verzögerungen **0 s, 0 s, 5 s**; dann 2 min Ruhe,
-  vierter Kill → wieder 0 s; „Fatal network error" viermal. Nebenbeobachtung für R3: schlägt ein
-  Aufbau in dieser Serie fehl, ist das der einzige lokale Hinweis auf Twitch-seitiges Verhalten (von
-  der Wohn-IP).
+  vierter Kill → wieder 0 s. **Der PG1-Beleg liegt im dritten Ereignis:** während des 5-s-Bodens
+  ist der alte Client noch verdrahtet, sein `OnConnectionError` (≈ 2 s) und sein zweites
+  `OnDisconnected` (≈ 2,5 s) treffen ein — erwartet: genau **eine** „Fatal network error"-Zeile
+  (Information) und **mindestens eine** „Verlust-Signal verworfen … Client #g ist bereits
+  ersetzt"-Zeile, danach „Rejoin abgeschlossen" und dann **Stille**: kein „Twitch-Verbindung
+  verloren" ohne vorangehenden Kill. Widerlegt durch: ein Wiederaufbau ohne Kill in den 2 min Ruhe
+  (der Slot hat einen Nachzügler gespeichert), oder eine „Fatal"-Zeile ohne „verworfen"-Zeile beim
+  dritten Ereignis (die Generationsregel greift nicht). Bei den Ereignissen mit 0 s gilt S1
+  Schritt 3: keine „Fatal"-Zeile. Nebenbeobachtung für R3: schlägt ein Aufbau in dieser Serie
+  fehl, ist das der einzige lokale Hinweis auf Twitch-seitiges Verhalten (von der Wohn-IP) — und
+  nach Task 0, F3, auch nur ein Hinweis, keine Zuschreibung.
 - **S5 — Redis-Kommandos.** (a) Während S3: `PUBLISH channel:bot:commands JOIN:<kanal-a>` und
   `LEAVE:<kanal-b>` — nach der Rückkehr ein JOIN für a, keiner für b; die Aufschub-Zeile für a ist
   Information (7.7). (b) **Während einer Rejoin-Runde** (R9): in S1 unmittelbar nach „Twitch-Verbindung
@@ -902,7 +1082,9 @@ Kill (Flush läuft weiter, kein Tag mit Null); Indeterminate- und Sentinel-Summe
 „Wiederaufbauten seit Prozessstart" am Ende gleich der Zahl der provozierten Ereignisse, nicht mehr.
 
 **Beweistabelle im Bericht.** Die Tabelle aus Konzept 6.2, um eine Spalte „Ergebnis" ergänzt: je
-Zeile grün / rot / nicht messbar, mit der Zahl. Dazu die S1-Tabelle, die S3-Abstände, die S4-Folge,
+Zeile grün / rot / nicht messbar, mit der Zahl, plus zwei Zeilen, die das Konzept nicht hat: „ein
+Signal je Wiederaufbau auch über einen Boden" (PG1, S4) und „jede Bestätigung der Runde
+zugeordnet" (PG3, Gültigkeitsregel, je S1-Lauf). Dazu die S1-Tabelle, die S3-Abstände, die S4-Folge,
 die drei S6-Stoppdauern, die S7-Zeit. Was **lokal nicht beweisbar** ist, steht als eigene Liste
 (6.5): Fall B in der echten Lese-Schleife, Twitchs Verhalten bei schnellen Wiederverbindungen,
 SLO-1 unter Prod-Latenz, der Zähleffekt, die Ereignisrate — jeweils mit dem Prod-Beleg, wie er
@@ -917,14 +1099,16 @@ Commit `docs: record the local verification of the Twitch reconnect`.
 1. `/codex:review --model gpt-5.6-sol --scope branch --base origin/main` — **immer mit `--scope`**
    (ohne reviewt Codex den Working Tree und entwarnt bei sauberem Tree falsch), aus der Session-CWD
    des Haupt-Checkouts (im Worktree diffte es `main` gegen `origin/main`). Fokus im Prompt: die
-   Slot-Regel (1.3, Punkt 1), die Token-Kette der Shutdown-Zusage, die Wunschzustandsprüfung nach dem
-   Gate, das Verwerfen halbfertiger Clients. Findings sind Input, kein Auftrag; widersprechen sich
+   Slot-Regel samt Generation (1.3, Punkt 1; 2.3 — Nehmen und Verurteilen unter einem Lock), die
+   Token-Kette der Shutdown-Zusage, die Wunschzustandsprüfung nach dem Gate, das Verwerfen
+   halbfertiger Clients, die Ursprungszeile an genau einer Stelle. Findings sind Input, kein Auftrag; widersprechen sich
    Opus-Review und Codex bei einem P1/P2, entscheidet Fable. „Reviewer failed to output a response"
    mit Exit 1 ist das Kontingent, kein Absturz.
-2. PR-Text nennt: **Deploy-Sperre** (mergen ja, deployen erst nach dem 2026-10-08, gebündelt mit
-   #122); die SLO-Ergebnisse; was lokal nicht beweisbar ist; die Coverage-Zahl aus Task 8 mit der
-   R8-Einordnung; keine Migration, kein Frontend, kein neuer Fehlercode; die Umsetzungsentscheidungen
-   aus 1.3.
+2. PR-Text nennt: **Merge- und Deploy-Sperre** (nicht mergen vor dem 2026-10-08 — der Merge
+   veröffentlicht `:latest`; Deploy danach gebündelt mit #122; Abschnitt 0); die SLO-Ergebnisse mit
+   der Zahl der ungültigen Läufe; was lokal nicht beweisbar ist; die Coverage-Zahl aus Task 8 mit
+   der R8-Einordnung; keine Migration, kein Frontend, kein neuer Fehlercode; die
+   Umsetzungsentscheidungen aus 1.3 und Abschnitt 7.
 3. **Übergabe an den Nutzer für die Zeit nach dem Deploy** (Konzept 6.6, kein Agent): vor dem Deploy
    die #117-Zahlen als Baseline sichern; 24 h ab Containerstart zählen: „Wiederaufbau #1"
    (Ereignisse), „Wiederaufbau #≥ 2" (Fehlversuche), p50/p95 von „Twitch-Verbindung steht nach"
@@ -935,8 +1119,9 @@ Commit `docs: record the local verification of the Twitch reconnect`.
    mehrere Stunden → Rollback bzw. Cooldown nachziehen. Danach der Harness-Vergleich Σ|Log − Live| /
    ΣLive vor/nach (R7).
 
-**Fertig.** Alle sieben Szenarien mit positivem Beleg, SLO-2 fünfmal gehalten mit K = 0, Codex
-vorgelegt, PR offen. **Der Merge selbst bleibt beim Nutzer.**
+**Fertig.** Alle sieben Szenarien mit positivem Beleg, SLO-2 in fünf **gültigen** Läufen gehalten
+mit K = 0, Codex vorgelegt, PR offen. **Der Merge selbst bleibt beim Nutzer und liegt nach dem
+2026-10-08** (Abschnitt 0).
 
 ---
 
@@ -946,15 +1131,17 @@ vorgelegt, PR offen. **Der Merge selbst bleibt beim Nutzer.**
 → 1 ∥ 2 ∥ 3 (unabhängig, parallel startbar) → 4 (braucht alle drei) → 5 ∥ 6 ∥ 7 (brauchen 4: Task 5
 und 6 hängen ihren Absatz an den Eintrag aus 4, Task 7 beschreibt den Zustand nach 4 und übernimmt
 die 7.2-Konsequenz aus Task 0) → 8 → 9. Task 2 und 3 hängen fachlich nicht an Task 0; wer die
-Messung nicht abwarten will, darf sie parallel fahren — nur Task 1 wartet auf Punkt 2b des Befunds.
+Messung nicht abwarten will, darf sie parallel fahren — nur Task 1 wartet auf das **Go** aus Punkt
+2b des Befunds (ein Stop erzeugt zuerst eine neue Planfassung, Task 0).
 
 Die Hauptsession prüft nach jedem Task die Fertig-Bedingung, bevor der nächste startet. Task 3 und 4
 sind ein Paar (Übergangszustand, s. Task 3); sie werden nie einzeln gemergt — und ohnehin wird erst
-nach Task 9 gemergt.
+nach Task 9 **und** nicht vor dem 2026-10-08 gemergt (Abschnitt 0).
 
 Commits (Conventional Commits, je Task): `feat(worker): add the pure Twitch reconnect backoff policy`
+· `feat(worker): add the pure Twitch reconnect signal slot`
 · `feat(worker): count Twitch rebuilds and failed attempts in WorkerStats` ·
-`refactor(worker): replace the spent-client branch of the watchdog policy with an in-flight input` ·
+`refactor(worker): drop the spent-client branch from the watchdog policy` ·
 `feat(worker): let the worker drive its own Twitch reconnect` (+ ggf. `chore(worker): log TwitchLib.Client at Information`) ·
 `chore(compose): give the worker a 60s stop grace period (#122)` ·
 `feat(worker): env-gated debug trigger for the Twitch RECONNECT path` ·
@@ -971,7 +1158,7 @@ Aus Konzept 8, ergänzt um die Risiken des Plans selbst.
 |---|---|---|---|
 | R1 | TwitchLib liefert in einem Verlustmodus kein Signal; nur der 15-min-Watchdog fängt es | Task 4 (Backstop-Zeile bleibt als Fehlerindikator), Task 9 | „TwitchClient meldet sich als getrennt" aus dem Tick / S1, S3, S4 liefern ≤ 1 s ein Signal; Prod 24 h 0 × Backstop |
 | R2 | Unser Recreate scheitert, wo TwitchLibs Schleife durchgekommen wäre | Task 9, S3 | nach Freigabe kein Erfolg in 30 + 25 s / S3 grün, fünfmal |
-| R3 | Twitch wertet den 0-s-Wiederaufbau oder die S4-Serie als Missbrauch | Task 9, S4; danach nur Prod | Fehlschlag ab dem zweiten/dritten Kill / S4 grün; Prod-24-h ohne Serie. Falls bestätigt: erster Delay 1–2 s, Flap-Boden ab der zweiten Sitzung — beides Policy-Konstanten (Task 1), kein Transport |
+| R3 | Twitch wertet den 0-s-Wiederaufbau oder die S4-Serie als Missbrauch | Task 0, F3 (Go/No-Go, keine Zahl); Task 9, S4 (Hinweis, keine Zuschreibung); danach nur Prod | Nur eine Zuschreibung nach Task 0 (b) — Servermeldung oder reproduziertes serverseitiges Schließen mit Niedrigraten-Kontrolle — ist ein Stop; ein einzelner Fehlschlag ist inconclusive (PG4). Prod-24-h ohne Fehlschlag-Serie räumt es aus. Falls je bestätigt: erster Delay 1–2 s, Flap-Boden ab der zweiten Sitzung — beides Policy-Konstanten, aber **nur über eine neue Planfassung**, nie durch Task 1 allein (PG2) |
 | R4 | Rejoin außerhalb der Lese-Schleife kippt TwitchLibs Queue-Zustand | Task 4 (E2), Task 9 S1 Schritt 5–6 | Raster ≠ 600 ms, „nicht bestätigt"-Zeilen, unbestätigte Kanäle > 60 s / S1 grün, Roster vollständig |
 | R5 | Hintergrund-Aufräumen des alten Clients rennt gegen den neuen | Task 4 (Exceptions gefangen und geloggt), Task 9 | „Aufräumen … fehlgeschlagen" häufig, Prozessabsturz / Lauf ohne diese Zeilen |
 | R6 | Log-Flut bei langem Ausfall (≈ 80 Warnings/h) | Task 9 S3 misst die Zeilenzahl | wenn nötig: ab Streak 5 nur jeder fünfte Versuch Warning — Policy-Entscheidung, nicht Teil dieses Plans |
@@ -983,12 +1170,14 @@ Aus Konzept 8, ergänzt um die Risiken des Plans selbst.
 | R12 | Shutdown-Zusage hält nicht, der Abschluss-Flush kommt nicht dran | Task 4 (Token in jedem Warten), Task 5, Task 9 S6 | Stoppdauer ≥ 10 s oder Flush-Fehler beim Stop / S6 grün in allen drei Zuständen |
 | P1 | Übergangszustand zwischen Task 3 und 4 ohne Spent-Ersatz | Task 3 benennt ihn; Task 4 folgt unmittelbar | nie einzeln gemergt, nie live gefahren |
 | P2 | Stale `<see cref="ReconnectPolicy"/>` erzeugt `CS1574`, unsichtbar ohne `--no-incremental` | Task 4 zieht alle sieben Stellen; Task 8 baut `--no-incremental` | neue Warnung im Build |
-| P3 | Ein Signal aus einem fehlgeschlagenen Versuch bleibt im Slot und löst einen zweiten Wiederaufbau aus | Task 4, Slot-Regel (1.3, Punkt 1) | „Wiederaufbau #1" ohne vorangehendes „getrennt" nach einem gelungenen Aufbau in S3 |
+| P3 | Ein Signal aus einem fehlgeschlagenen Versuch **oder ein Nachzügler des ersetzten Clients während eines Bodens** bleibt im Slot und löst einen zweiten Wiederaufbau aus | Task 1 (Slot mit Generationsregel, Test 5–8), Task 4 (Handshake-Regel), Task 9 S3 und S4 | „Twitch-Verbindung verloren" ohne vorangehenden Kill nach einem gelungenen Aufbau in S3 oder S4; „Fatal"-Zeile ohne „verworfen"-Zeile beim dritten S4-Ereignis (PG1) |
 | P4 | `WorkerBootSequenceTests` bricht am `Worker`-Konstruktor | Task 6 | Compile-Fehler im Testprojekt |
 | P5 | `appsettings.Development.json` überschreibt 7.10 bei lokalem `dotnet run` | Task 4 (beide Dateien) | Kontrollfrage aus 6.1 fällt bei `dotnet run` durch |
 | P6 | Die Host-Kommandos in S1/S3 brauchen `sudo` mit Passwort | Task 9, Rollen | Sonde hängt; nach zwei Fehlschlägen abbrechen und den Nutzer fragen (Projektnotiz) |
 | P7 | **Annahme:** Twitch drosselt oder sperrt IP-seitig — die JOIN-Limit-Sonde von der Wohn-IP träfe dann die laufende #73-Negativprobe im Dev-Worker mit | Task 0 (Stufen, Abbruchkriterium, Dev-Worker-Log läuft mit) | Dev-Worker loggt während der Sonde „Join … nicht bestätigt" oder „TwitchClient getrennt" → sofort stoppen, im Befund festhalten; bleibt er still, ist die Annahme für diesen Lauf nicht bestätigt — nicht widerlegt |
-| P8 | Der Befund aus Task 0 verändert Zahlen, nachdem Task 1 schon gebaut ist | Reihenfolge in Abschnitt 4 | Task 1 startet erst mit Punkt 2b des Befunds; ändert sich R3, sind es zwei Konstanten und zwei Testerwartungen in Task 1, kein Umbau |
+| P8 | Der Befund aus Task 0 verändert Zahlen, nachdem Task 1 schon gebaut ist — oder Task 1 baut andere Zahlen, als Task 9 abnimmt | Reihenfolge in Abschnitt 4; Task 0 Punkt 2b als Go/No-Go | Task 1 startet erst mit dem Go; ein Stop erzeugt eine neue Planfassung, in der 2.4, Task 1, Task 4-Doku, S1/S3/S4 und R3 **gemeinsam** geändert sind — nie eine Konstante allein (PG2) |
+| P9 | Der Konvergenz-Tick (`EnsureJoinedAsync`, jede Minute) zieht während eines SLO-Laufs ausgelassene Kanäle nach; K = 0 und N Zeilen beglaubigen einen defekten Rejoin-Pfad | Task 4 (Ursprungszeile je JOIN mit Quelle und Generation), Task 9 (Intervall-Override 3600 s, Gültigkeitsregel) | eine Ursprungszeile mit Quelle ≠ `Rejoin` im Messfenster → Lauf ungültig, wiederholen; fünf gültige Läufe mit N Rejoin-Ursprungszeilen räumen es aus (PG3) |
+| P10 | Ein Code-Merge vor dem 2026-10-08 veröffentlicht ein neues `:latest`-Worker-Image; ein blinder Portainer-Re-Pull deployt den Umbau und setzt den #117-Anker zurück | Abschnitt 0 (Merge-Sperre; Doku-Merges sind durch `paths-ignore` ungefährlich) | ein `publish`-Lauf für den Worker vor dem Datum / der Branch bleibt bis dahin ungemergt (PG5) |
 
 ---
 
@@ -1003,11 +1192,151 @@ Aus Konzept 8, ergänzt um die Risiken des Plans selbst.
   gilt der Befund nicht; die Sonde ändert Zahlen im Plan, nicht seine Form.
 - Er bereitet den Transportwechsel auf Conduits (Konzept 9) nur insofern vor, als die Entscheidung
   transportfrei liegt (E5); er baut nichts davon.
-- Er deployt nicht (Abschnitt 0).
+- Er merged keinen Code und deployt nicht vor dem 2026-10-08 (Abschnitt 0).
 
 **Vorgelegt, weil der Plan hier über den Wortlaut des Konzepts hinaus entscheiden musste** (1.3):
-die Slot-Regel (Handler signalisieren nur nach Handshake, Slot leert beim Konsumieren), die
-sequentielle Schleife mit dem dadurch am Tick immer falschen `reconnectInFlight`, kein Trennen beim
+die Slot-Regel (Handler signalisieren nur nach Handshake, Slot leert beim Konsumieren und verurteilt
+die Generation), die sequentielle Schleife — und deshalb **kein** `reconnectInFlight`-Eingang
+(gestrichen, Abschnitt 7) —, kein Trennen beim
 Shutdown, der Flap-Boden als untere Schranke auch für Fehlversuche, 2 s nach einem gescheiterten
 Boot-Connect, zwei Uhren für T, S7 in Lauf A, beide `appsettings`-Dateien. Kippt der Nutzer eine
 davon, ändert sich der genannte Task, sonst nichts.
+
+---
+
+## 7. Gegenrede zum Plan und was daraus folgt (2026-09-08)
+
+Die Fassung des Plans in `115fc2d`/`0268a34` wurde derselben adversarialen Gegenrede unterzogen wie
+das Konzept (Codex Sol, `/codex:adversarial-review`): Verdikt „needs-attention", vier Befunde
+`high`, einer `medium`. Wie in Konzept 10 steht hier je Befund, was angenommen und was
+zurückgewiesen wurde, und was sich dadurch **im Plan** geändert hat — die Änderungen stehen an den
+betroffenen Stellen, dieser Abschnitt ist die Begründung, nicht der Ort. Dazu ein Nebenbefund, den
+die Gegenrede nicht gemeldet hat, und ein Widerspruch, der beim Beantworten auffiel. Findings sind
+Input, kein Auftrag; jeder ist am Plantext, am Code auf `86eedcd` oder am Binärstand geprüft.
+
+**PG1 [high] — Der beim Konsumieren geleerte Slot koalesziert nicht über den Backoff.**
+*Angenommen.* Der Ablauf tritt am Plantext ein: 2.3 leerte den Slot beim Liefern, 2.6 legte den
+Delay **vor** `ReconnectOnceAsync`, und erst dessen Schritt 1 unwired den alten Client. Fall A
+liefert nach dem ersten `OnDisconnected` (≈ 0,6 s) noch ein `OnConnectionError` (≈ 2,1 s) und ein
+zweites `OnDisconnected` (≈ 2,5 s) desselben Clients (Konzept 3.2, am Binärstand belegt). Bei 0 s
+Verzögerung ist der Client vorher ersetzt und die Nachzügler fallen ins Leere — bei 5 s (Flap-Boden
+ab der dritten kurzen Sitzung) oder 10 s (Stolperdraht) ist er noch verdrahtet, hatte den
+Handshake, ist der aktuelle `_client`: die Handler-Regel aus 1.3, Punkt 1, ließ ihn durch, der
+leere Slot nahm ihn an, und nach dem gelungenen Rejoin hätte die Schleife die frische Verbindung
+abgerissen. Die Regel aus 1.3 war gegen Signale **fehlgeschlagener** Versuche gebaut und hat den
+Fall des **ersetzten, aber noch verdrahteten** Clients nicht gesehen — der Plan hatte 1.3, Punkt 1,
+als geschlossene Lücke markiert, sie war es nicht. Von den beiden Auswegen der Gegenrede ist der
+zweite („alten Client vor dem Delay entwiren") nicht hinreichend: das Unwiren ist kein atomarer
+Schnitt gegen einen Handler, der auf dem Lese-Thread gerade läuft, und es kostete die drei
+Logzeilen aus Konzept 4.7, die die Beobachtung sind. Gewählt: die **Client-Generation** — jeder
+Client trägt eine Nummer, jedes Signal die Nummer seines Clients, das Nehmen aus dem Slot verurteilt
+die Nummer unter demselben Lock, und ein Signal einer verurteilten Nummer wird verworfen (2.3). Die
+Handshake-Regel bleibt daneben nötig (ein Versuchs-Client ohne `004` hat eine höhere Nummer). Das
+passt zu E1 (Handler signalisieren nur — sie signalisieren jetzt mit Absender) und E3/E4 (Ersatz
+statt Reparatur, Aufräumen im Hintergrund — das Aufräumen darf jetzt beliebig lang dauern, ohne
+dass der alte Client noch etwas bewirken kann). Die Nummer ist zugleich die Rebuild-ID, die PG3
+braucht. Geändert: 1.3 Punkt 1 (Nachtrag), 2.1, 2.2 (Generation, `ClientGeneration` in Request und
+Outcome), 2.3 (Slot als reine Klasse mit der Regel), 2.6, 2.7 (Generation in vier Zeilen, neue
+„verworfen"-Zeile), Task 1 (Slot mit acht Verhaltensfällen — Fall 5 ist der Ablauf der Gegenrede,
+deterministisch), Task 4 (Grenzfall), Task 9 S4 (der Live-Beleg: „Fatal"-Zeile plus
+„verworfen"-Zeile beim dritten Ereignis, danach Stille), P3.
+
+**PG2 [high] — Die von Task 0 erlaubte Backoff-Variante widerspricht den Gates in Task 9.**
+*Angenommen.* Nachgeprüft: Task 0, Punkt 2b, und Task 1 („Voraussetzung") erlaubten bei einem
+F3-Befund „1–2 s statt 0 s" und den Boden ab der zweiten Sitzung; 2.4, S1 („Wiederaufbau #1 in
+0 s"), S3 (0/2/4/…), S4 (0/0/5), R3 und der DECISIONS-Auftrag in Task 4 blieben auf den
+Konzeptzahlen. Eine vertragsgemäße Task-1-Implementierung wäre in Task 9 zwingend rot geworden —
+oder hätte zum nachträglichen Verschieben der Abnahme verleitet, also genau zu dem, was das Konzept
+bei R10 zurückgenommen hat. Von den beiden Auswegen gewählt: **F3 ist ein Go/No-Go, keine Zahl.**
+Innerhalb dieses Plans ändert Task 0 keine Konstante; ein Stop-Befund erzeugt zuerst eine neue
+Planfassung, in der 2.4, Task 1, Task 4-Doku, S1/S3/S4 und R3 gemeinsam auf je **einen** Wert je
+Konstante gezogen sind, und das Konzept bekommt in 3.6 einen Nachtrag. Nicht gewählt: jetzt einen
+konkreten Alternativwert festzulegen und beide Zweige durch den Plan zu ziehen — das hieße, zwei
+Pläne zu pflegen für einen Befund, den PG4 ohnehin auf einen engen Fall eingrenzt, und eine
+Zielzahl vor der ersten Messung zu ändern, ohne dass die Messung stattgefunden hat. Geändert: Task
+0 (Punkt 2b und 3, „Fertig"), Task 1 („Voraussetzung"), Abschnitt 4, R3 und P8.
+
+**PG3 [high] — SLO-2 kann durch das periodische Konvergenznetz falsch grün werden.** *Angenommen,
+und der Befund ist der schwerste der fünf, weil er den Merge-Blocker selbst entwertet.* Am Code
+geprüft: `SevenTvPeriodicResyncWorker` ruft jede Minute (`SevenTv:ResyncIntervalSeconds`, Default
+60) für jeden aktiven Kanal `EnsureJoinedAsync`; das geht für jeden unbestätigten Kanal durch
+`JoinChannelAsync` → `TryJoinAsync` → `_client.JoinChannelAsync` — derselbe Pfad, dieselbe
+„Joining channel"-Zeile von TwitchLib, dieselbe Bestätigung in `_desiredChannels` und dieselbe
+„Channel … gejoint"-Zeile wie die Rejoin-Runde; nach einem Wiederaufbau sind alle Kanäle
+unbestätigt (`MarkAllChannelsUnconfirmed`), also zieht ein Tick im Fenster jeden Kanal nach, den
+die Runde ausließ. Am Binärstand belegt: TwitchLibs `JoinChannelAsync` dedupliziert nur gegen
+`JoinedChannels`, in das ein Kanal unmittelbar nach dem Senden fällt — ein Doppelaufruf sendet
+also nicht doppelt, hinterlässt aber auch keine Spur. Das Fenster einer Runde (≈ 8–17 s) trifft bei
+Minutentakt in rund jedem fünften Lauf auf einen Tick; über fünf Läufe ist das kein Randfall. Auch
+der Redis-`RESYNC:`-Pfad ruft `EnsureJoinedAsync`. Dasselbe Muster hatte der Audit-Harness am
+2026-09-07 (Projektnotiz „Selbstprüfung am falschen Ort"). Beide Vorschläge der Gegenrede sind
+übernommen, weil keiner allein reicht: der Intervall-Override (3600 s) macht den Tick im Fenster
+unwahrscheinlich, beweist aber nichts; die **Ursprungszeile** je JOIN mit Quelle und Generation
+(2.7) macht die Herkunft jeder Bestätigung positiv belegbar — und daraus folgt die
+**Gültigkeitsregel** in Task 9: ein Lauf mit einer fremden Ursprungszeile im Fenster ist ungültig
+und wird wiederholt, er ist weder grün noch rot. Bewusst nicht gemacht: den Resync-Worker für die
+Läufe abzuschalten oder das Konvergenznetz im Code zu unterbrechen — es ist auf Prod aktiv, und
+die Messung soll das Prod-Verhalten zeigen, nur mit belegbarer Herkunft. Geändert: 2.1 (Quelle je
+Pfad), 2.2 (`TwitchJoinSource`), 2.7 (Ursprungszeile), 2.8 (Override), Task 4 (`TryJoinAsync` mit
+Quelle; Binärbefund zur Deduplizierung), Task 9 (Override, Roster-Prüfung statt Minutentakt,
+Gültigkeitsregel, S1 Schritt 5, Tabelle, Beweistabelle, PR-Text), P9.
+
+**PG4 [medium] — F3 wertet ein fehlendes `001` als Kausalbeleg.** *Angenommen.* Ein einzelner
+Aufbau ohne `001`, gefolgt von Erfolg nach 60 s Ruhe, unterscheidet Twitch-seitige Drosselung
+nicht von DNS, TLS oder einem Netzfehler — und genau dieser Befund durfte über Punkt 2b Konstanten
+ändern. Das ist G4 auf Kausalitätsebene. Geändert: F3 hat drei Ergebnisklassen (kein Befund /
+zugeschrieben / inconclusive); **zugeschrieben** verlangt eine Servermeldung im Rohlog oder ein
+serverseitiges Schließen nach gelungenem Aufbau, reproduziert an derselben Seriengrenze in zwei
+unabhängigen Durchgängen, plus eine zwischengeschaltete Niedrigraten-Kontrolle, die sofort gelingt;
+die 60-s-Kontrolle bleibt als Erholungsbeleg, nicht als Ursache. Zusammen mit PG2 heißt das: nur
+eine Zuschreibung ist ein Stop, und auch ein Stop ändert keine Zahl innerhalb dieses Plans. S4 in
+Task 9 nennt einen Fehlschlag jetzt ausdrücklich Hinweis, nicht Zuschreibung. R3 nachgezogen.
+
+**PG5 [high] — Die Deploy-Sperre schützt den automatisch veröffentlichten `latest`-Stand nicht.**
+*Angenommen, mit einer Differenzierung, die der Gegenrede fehlte.* Der Mechanismus stimmt:
+`publish.yml` läuft bei `push` auf `main` und pusht `:latest`, `docker-compose.prod.yml`
+referenziert das Tag ohne `pull_policy` — ein Merge hätte den Umbau in jeden späteren
+Portainer-Redeploy gelegt, und „mergen frei, deployen nicht" war damit eine Sperre aus Text ohne
+Mechanik. **Aber** derselbe Workflow trägt `paths-ignore: ["**.md", "docs/**"]`: ein Merge, der nur
+Dokumente berührt, veröffentlicht nichts. Das Risiko beginnt mit dem ersten gemergten Commit unter
+`src/`, `tests/` oder in einer Compose-Datei — also ab **Task 1** (auch eine noch ungenutzte Policy
+baut ein Image mit neuem Digest, und der Workflow-Kommentar nennt den blinden Re-Pull als Folge),
+nicht erst ab dem Vertragsbruch in Task 4. Entscheidung des Nutzers (2026-09-08, gesetzt): der
+Worker-Code wird **vor dem 2026-10-08 nicht gemergt**; der Branch bleibt offen und wird lokal
+fertig verifiziert; die CI wird nicht umgebaut (kein SHA-only-Publish, keine Promotion-Stufe — die
+Sperre ist die Reihenfolge). Der zweite Vorschlag der Gegenrede (technische Promotion-Sperre) ist
+damit nicht abgelehnt, sondern unnötig geworden: für ein Fenster von vier Wochen ist ein nicht
+gemergter Branch die billigere und prüfbarere Sperre als ein Workflow-Umbau, der danach wieder
+zurückgebaut werden müsste. Geändert: Abschnitt 0 (ganz neu), Kopfzeile, Task 0 Punkt 3, Task 4
+DECISIONS-Punkt 12, Task 9 (PR-Text, „Fertig"), Abschnitt 4, Abschnitt 6, P10.
+
+**Nebenbefund, nicht gemeldet — `reconnectInFlight`.** Die Gegenrede war gezielt danach gefragt
+worden; 1.3, Punkt 2, hatte den Eingang selbst als „am Tick konstruktionsbedingt immer falsch"
+markiert und ihn trotzdem behalten, weil das Konzept ihn nennt. Dass ein Review ihn nicht
+beanstandet, macht ihn nicht lebendig. Entscheidung: **gestrichen.** Begründung, damit die Frage
+nicht in jeder Folgesitzung neu aufgeht: die Schleife ist der einzige Aufrufer der Policy und
+tickt nur, während sie wartet — der Wert ist an seiner einzigen Aufrufstelle für immer `false`;
+die beiden Tests aus Task 3 hätten einen Zweig ohne Aufrufer geprüft, und das ist ein Alibi-Test
+im Sinne von Regel 11/12, nicht Abdeckung; „falls der Tick je auf einen eigenen Timer wandert" ist
+ein Umbau der Schleife, der den Eingang mitbringt, und keine Invariante, die man vorhält. Das
+Konzept (3.7, 3.8) sieht den Eingang vor; es bekommt dazu einen Nachtrag am Ende von Abschnitt 10,
+kein Umschreiben. Geändert: 1.3 Punkt 2, 2.5, Task 3 (jetzt „entfällt ersatzlos", 10 Fälle, kein
+neuer), Task 8 (Zählung), Abschnitt 4 (Commit-Message), Abschnitt 6.
+
+**W1 — ein Widerspruch, der beim Beantworten auffiel: „Fatal network error genau einmal".** 2.7,
+S1 Schritt 3 und S2 erwarteten die `OnConnectionError`-Zeile genau einmal je Verlust (aus Konzept
+3.7 und 6.3). Am Binärstand: die Zeile ist unser Handler, TwitchLib selbst loggt sie nur als
+Trace-Methodenaufruf; sie kommt ≈ 2,1 s nach dem ersten `OnDisconnected`. Bei 0 s Verzögerung ist
+der alte Client bei ≈ 0,6 s unwired — die Zeile **kann** in S1 und S2 regulär nicht erscheinen,
+und ein korrekter Lauf wäre an diesem Schritt rot geworden; Task 6 sagte für S2 bereits „ins
+Leere" und S2 erwartete sie trotzdem. Konzept 3.3 („kommt sie nach dem Ersatz, fällt sie ins
+Leere") und Konzept 6.3/4.7 („genau einmal", „drei Logzeilen") standen von Anfang an
+gegeneinander; der Plan hat es übernommen. Korrigiert: 2.7 („höchstens einmal", mit Bedingung), S1
+Schritt 3 (keine Zeile; erscheint sie, folgt „verworfen" und kein zweiter Wiederaufbau), S2, und
+die Beobachtung wandert nach S4, wo der 5-s-Boden sie erzwingt — dort ist sie zugleich der
+PG1-Beleg. Das Konzept bekommt denselben Nachtrag wie zum Nebenbefund.
+
+**Was unverändert blieb, und warum.** Das Modell (E1–E5), alle Zahlen aus 2.4, die SLOs, die
+Trägerin der Schleife, die Reihenfolge der Tasks, die Sonde in Task 0 bis auf F3, die Regel „keine
+Fake-Tests für den Transport" — der Slot ist deshalb eine eigene reine Klasse geworden, nicht ein
+Test gegen `TwitchChatManager`. Kein Befund der Gegenrede berührte sie.
