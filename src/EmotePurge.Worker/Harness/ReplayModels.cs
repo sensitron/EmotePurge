@@ -187,15 +187,61 @@ public sealed record ReplayDayRatio(DateOnly Day, long LogTotal, long LiveTotal,
 /// report sums both sides <b>with</b> bots. The three numbers are not comparable.
 /// </para>
 /// <para>
-/// <c>BottomQuartileLiveTieCount</c> and <c>BottomQuartileLogTieCount</c> are read-only visibility
-/// into the tie-break, never a second gate: both rankings break ties ordinally by emote id, so
-/// <c>TakeLast(BottomQuartileSize)</c> can cut in the middle of a block of equal counts, and which
-/// side of the cut an id lands on is then decided by its GUID rather than by anything about its
-/// usage. Each field counts how many population entries share the exact count value sitting at that
-/// ranking's cut point — a long-tailed population (many emotes tied at, say, one use over the whole
-/// window) can make this most of <c>BottomQuartileSize</c>, at which point
-/// <c>BottomQuartilePrecision</c> is largely tie-break noise rather than a measured rank deviation.
-/// The pre-registered threshold and the ranking itself are unchanged; this is purely a reading aid.
+/// <b>The bottom-quartile pair was rebuilt in #97 to stop reading the tie-break's GUID instead of
+/// the counts.</b> The old formula ranked both sides with <see cref="ReplayFidelityCalculator"/>'s
+/// <c>Ranking</c> — descending by count, ties broken ordinally by the emote's internal id — and took
+/// the bottom <c>BottomQuartileSize</c> ids off each ranking. Live and log share the very same id
+/// space (one <c>PopulationEntry</c> per emote, on both sides), so at an exact-tie block straddling
+/// the cutoff, the same id decided inclusion on <i>both</i> sides at once, nesting the two selections
+/// into one another and forcing their overlap towards its maximum — a papaplatte trial run over 28
+/// days measured a 182-entry quartile with an 88-entry (live) / 87-entry (log) tie block sitting
+/// exactly on the boundary, and the reported precision of 0.9505 was in large part that nesting, not
+/// a measured rank deviation. <c>BottomQuartilePrecision</c> now compares two value-defined sets
+/// instead: <c>QuartileLiveSet = { e : e.Live &lt;= liveCutoff }</c> and the same for
+/// <c>QuartileLogSet</c> with <c>logCutoff</c>, where each cutoff is the count sitting at position
+/// <c>PopulationSize - BottomQuartileSize</c> of its own descending order (exactly what
+/// <c>BottomQuartileLiveTieCount</c>/<c>BottomQuartileLogTieCount</c> already located). Neither set
+/// construction looks at an id to decide membership, so a tie block straddling the cutoff is included
+/// or excluded <b>whole</b>, identically regardless of which GUIDs its members happen to carry.
+/// <c>BottomQuartilePrecision = |QuartileLiveSet ∩ QuartileLogSet| / |QuartileLogSet|</c>. A perfect
+/// log (<c>Log == Live</c> for every entry) makes both cutoffs equal and the two sets identical, so
+/// the value is still exactly 1.0 — the pre-registered 0.8 threshold keeps the meaning it always had.
+/// <c>BottomQuartileLiveSize</c> and <c>BottomQuartileLogSize</c> report the two sets' actual sizes:
+/// each is at least <c>BottomQuartileSize</c> and can run well past it when a plateau sits on the
+/// cutoff, at which point the "quartile" is, honestly, a larger plateau than a quarter of the
+/// population. <c>Ranking</c> and its ordinal id tie-break are unchanged and still decide Top20Recall
+/// (D-97 leaves that formula untouched — see <c>Top20LiveTieCount</c> below for why that is
+/// acceptable rather than the same defect left standing).
+/// </para>
+/// <para>
+/// <c>BottomQuartileLiveTieCount</c> and <c>BottomQuartileLogTieCount</c> are unchanged since the
+/// #69 nachtrag and keep read-only visibility into the tie-break: each counts how many population
+/// entries share the exact count value sitting at its side's cutoff. They now explain why
+/// <c>BottomQuartileLiveSize</c>/<c>BottomQuartileLogSize</c> can exceed the nominal
+/// <c>BottomQuartileSize</c> — a long-tailed population (many emotes tied at, say, one use over the
+/// whole window) can make a tie count most of <c>BottomQuartileSize</c>, at which point the quartile
+/// sets above are mostly that one plateau. They were never a second gate and still are not.
+/// </para>
+/// <para>
+/// <c>TailDeviation</c> is <c>Σ|e.Log − e.Live| / Σ e.Live</c> over <c>QuartileLiveSet</c> — a
+/// reporting-only figure, deliberately excluded from the gate and from <c>GateIneligibleReasons</c>.
+/// It exists because a rank-based set comparison, however tie-safe, cannot see a uniform tail loss: a
+/// log that undercounts every low-traffic emote by the same fraction never changes who ranks at the
+/// bottom, so <c>BottomQuartilePrecision</c> stays perfect while real volume silently disappears.
+/// There is no pre-registered, calibrated threshold for this number (unlike the three #69 figures),
+/// so it is reported for a human to read, never compared against a cutoff. <c>null</c> when
+/// <c>Σ e.Live</c> over <c>QuartileLiveSet</c> is 0 — possible when <c>liveCutoff</c> is 0, i.e. at
+/// least <c>BottomQuartileSize</c> emotes never occurred live at all — because that is "no
+/// denominator", not "zero deviation".
+/// </para>
+/// <para>
+/// <c>Top20LiveTieCount</c> and <c>Top20LogTieCount</c> are the same visibility as the quartile tie
+/// counts, mirrored at the top cutoff (position <c>Top20Size - 1</c> of each descending order,
+/// counted over the <b>whole</b> population, not just the top 20) — added in #97 purely for
+/// symmetry with the quartile's now-visible tie-break. <c>Top20Recall</c>'s formula is unchanged:
+/// exact ties are rare at the qualified channels' four/five-digit usage counts, so the structural
+/// defect that forced the quartile rebuild is not worth the same rebuild here — these two counts
+/// exist so a reader can confirm that for a given run rather than assume it.
 /// </para>
 /// <para>
 /// <c>SharedChatLogTotal</c> and <c>SharedChatLiveTotal</c> are the two sides of the #73 split over
@@ -224,10 +270,15 @@ public sealed record ReplayGateMetrics(
     double? TotalDeviation,
     double? Top20Recall,
     int Top20Size,
+    int Top20LiveTieCount,
+    int Top20LogTieCount,
     double? BottomQuartilePrecision,
     int BottomQuartileSize,
+    int BottomQuartileLiveSize,
+    int BottomQuartileLogSize,
     int BottomQuartileLiveTieCount,
     int BottomQuartileLogTieCount,
+    double? TailDeviation,
     bool GateEligible,
     ValueList<string> GateIneligibleReasons);
 

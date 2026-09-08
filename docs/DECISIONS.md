@@ -10,6 +10,90 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Die Quartils-Precision misst wieder Zählwerte statt der GUID (#97)
+
+**Betrifft:** `src/EmotePurge.Worker/Harness/ReplayFidelityCalculator.cs` (`BuildGate`,
+`BoundaryValue`, `CountTiesAtBoundary`, `BuildQuartileSet`) ·
+`src/EmotePurge.Worker/Harness/ReplayModels.cs` (`ReplayGateMetrics`) ·
+`src/EmotePurge.Worker/Harness/HarnessRunner.cs` (`BuildMarkdown`) ·
+`tests/EmotePurge.Worker.Tests/ReplayFidelityCalculatorTests.cs` ·
+`tests/EmotePurge.Worker.Tests/HarnessRunnerTests.cs` ·
+`tests/EmotePurge.Worker.Tests/HarnessReportFileTests.cs`
+
+**Der Mechanismus.** `BottomQuartilePrecision` bildete Live- und Log-Ranking über dieselbe
+Methode `Ranking()`: absteigend nach Zählwert, Gleichstand ordinal über den internen Emote-Guid
+gebrochen. Die Population ist eine gemeinsame Liste — `Live` und `Log` sind zwei Felder desselben
+`PopulationEntry` —, also benutzen beide Rankings denselben Sekundärschlüssel für dieselbe Menge
+von Ids. An einem Gleichstandsblock, der die untere Quartilsgrenze überspannt, entscheidet dann
+nicht mehr die Zählung, sondern die Guid: dieselbe Id fällt auf beiden Rankings auf dieselbe Seite
+des Schnitts, weil beide Rankings sie mit demselben Schlüssel sortieren. `TakeLast(quartileSize)`
+auf beiden Seiten liefert damit zwei Auswahlen, die ineinander geschachtelte Suffixe derselben
+Ordnung sind — ihr Überlapp im Gleichstandsblock ist per Konstruktion `min(k_live, k_log)`, also
+das erreichbare Maximum, unabhängig davon, ob die Zählungen sich tatsächlich ähneln. Der Zustand
+war seit dem `BottomQuartileLiveTieCount`/`BottomQuartileLogTieCount`-Nachtrag (s. u.) als Risiko
+dokumentiert (`ReplayModels.cs:190-199` vor diesem Commit, weiter unten in diesem Log
+bei :1224-1231) — die Konsequenz wurde nie gezogen, bis ein 28-Tage-Probelauf gegen `papaplatte`
+sie zeigte: Quartilsgröße 182, Gleichstandsblock 88 Einträge auf der Live-Grenze, 87 auf der
+Log-Grenze, gemeldete Precision 0,9505 — größtenteils Gleichstandsrauschen, keine gemessene
+Rangabweichung.
+
+**Die neue Mengendefinition.** `BottomQuartilePrecision` vergleicht jetzt zwei über den
+Grenz*wert* definierte Mengen statt zweier `TakeLast`-Ausschnitte. `liveCutoff` ist der Zählwert
+an Position `PopulationSize - BottomQuartileSize` der absteigenden Live-Ordnung — exakt der Wert,
+den `BottomQuartileLiveTieCount` schon vorher bestimmt hat, jetzt unter `BoundaryValue` geteilt.
+`QuartileLiveSet = { e : e.Live <= liveCutoff }`, analog `QuartileLogSet` mit `logCutoff` über
+`e.Log`. `BottomQuartilePrecision = |QuartileLiveSet ∩ QuartileLogSet| / |QuartileLogSet|`. Keine
+der beiden Mengen sieht dabei je eine Id an, um über Mitgliedschaft zu entscheiden — ein
+Gleichstandsblock am Schnittpunkt geht deshalb auf beiden Seiten vollständig hinein oder
+vollständig heraus, nie zerschnitten durch eine Guid. `BottomQuartileSize` bleibt als Feld und als
+nominale Zielgröße bestehen; `BottomQuartileLiveSize`/`BottomQuartileLogSize` (neu) melden die
+tatsächlichen Mengengrößen, die bei einem Plateau am Schnittpunkt größer als `BottomQuartileSize`
+ausfallen können — die unveränderten `BottomQuartileLiveTieCount`/`BottomQuartileLogTieCount`
+erklären dann, warum. `Ranking()` und ihr ordinaler Tie-Break bleiben unverändert im Code: Top-20-
+Recall und Spearman brauchen sie weiter, nur die Quartilsauswahl benutzt sie nicht mehr.
+
+Ein perfektes Log (`Log == Live` für jeden Eintrag) macht `liveCutoff == logCutoff` und damit
+`QuartileLiveSet == QuartileLogSet` — die Precision bleibt exakt 1,0, unabhängig davon, wie breit
+ein Plateau am Schnittpunkt liegt. Die präregistrierte Schwelle 0,8 behält damit ihren Sinn: ein
+Lauf, der die Live-Zählung tatsächlich reproduziert, liest weiterhin 1,0, nicht irgendeinen Wert,
+den die Guid-Verteilung zufällig ergibt.
+
+**`TailDeviation` ist Bericht, kein Gate.** Neu: `Σ|e.Log − e.Live| / Σ e.Live` über
+`QuartileLiveSet`. Eine mengenbasierte Kennzahl — ob tie-sicher oder nicht — kann einen
+gleichmäßigen Schwanzverlust strukturell nicht sehen: ein Log, das jedes wenig genutzte Emote um
+denselben Anteil unterzählt, ändert nie, wer am unteren Ende rangiert, also bleibt
+`BottomQuartilePrecision` makellos, während reales Volumen unbemerkt verschwindet. Für diese Zahl
+gibt es — anders als für die drei #69-Kennzahlen — keine kalibrierte, präregistrierte Schwelle,
+also geht sie **nicht** ins Gate und nicht in `GateIneligibleReasons`; sie ist eine Diagnosezahl für
+einen menschlichen Leser. `null` statt `0`, wenn `Σ e.Live` über `QuartileLiveSet` 0 ist (möglich,
+wenn `liveCutoff` 0 ist, also mindestens `BottomQuartileSize` Emotes nie live vorkamen und nur aus
+dem Log stammen) — das ist „kein Nenner", nicht „keine Abweichung".
+
+**Top-20 bekommt nur Sichtbarkeit, keine neue Formel.** Der Top-20-Recall hat denselben
+strukturellen Defekt wie die alte Quartils-Precision, ist bei den qualifizierten Kanälen aber
+praktisch harmlos: exakte Gleichstände sind bei den dort üblichen vier- bis fünfstelligen
+Zählwerten selten. Die Formel bleibt deshalb unverändert — ein Rebuild wie beim Quartil wäre hier
+Aufwand ohne belegten Nutzen. Neu sind nur `Top20LiveTieCount`/`Top20LogTieCount`, dieselbe
+Zählweise wie bei den Quartils-Tie-Feldern, gespiegelt an der oberen Grenze (Position
+`Top20Size - 1` der jeweiligen absteigenden Ordnung, gezählt über die **gesamte** Population, nicht
+nur die Top 20) — rein beschreibend, damit ein Leser die Prämisse „hier kommen kaum exakte
+Gleichstände vor" pro Lauf nachprüfen kann, statt sie annehmen zu müssen.
+
+**Kein `AlgorithmVersion`-Bump.** Bleibt `harness-2`. Alle fünf neuen Felder
+(`BottomQuartileLiveSize`, `BottomQuartileLogSize`, `TailDeviation`, `Top20LiveTieCount`,
+`Top20LogTieCount`) sind rein additive Report-Felder im `.report.json`/Markdown, berechnet aus
+genau denselben Eingaben (`ReplayDayLine`, `ReplayUsageRow`), die der Zählpfad ohnehin schon
+produziert — keiner der drei Bump-Auslöser aus `HarnessRunner.cs:56-63` (Matching, Tagesgrenzen,
+Form der Tageszeile) ist berührt. Die Tageszeilen bleiben byte-identisch, ein Resume einer alten
+Datei bleibt korrekt, weil `HarnessInputHash`/`HarnessRunIdentity` unverändert sind. Zwei
+Präzedenzien stehen in diesem Log für genau dieses Muster: das `Bytes`-Feld auf
+`HarnessEventLine` (Default 0 für ältere Dateien ohne das Feld, kein Bump — Nachtrag „die
+Byte-Decke zählte nicht, was sie versprach" weiter unten) und die beiden Tie-Felder
+`BottomQuartileLiveTieCount`/`BottomQuartileLogTieCount` selbst, die aus demselben Anlass wie
+jetzt ergänzt wurden, ebenfalls ohne Bump. Ein Bump hier hätte die 30-Tage-Messuhr aus #69
+zurückgesetzt und 30 Tage gekostet — der teuerste vermeidbare Fehler an dieser Stelle, und
+ausdrücklich keiner, den diese Änderung macht.
+
 ### 2026-09-08 — Nach jedem Reconnect am selben Objekt wird der TwitchLib-Client ersetzt (#114)
 
 **Betrifft:** `src/EmotePurge.Worker/ReconnectPolicy.cs` ·
