@@ -89,6 +89,12 @@ public class TwitchChatManager(
     // so a late "004" of an abandoned client can never satisfy the wait of a newer one.
     private TaskCompletionSource? _handshakeSource;
 
+    // Detaches the handlers currently registered on _client, through the very delegate instances
+    // WireUpClient registered — they are closures, and a freshly built lambda would remove none of
+    // them (see UnwireClient). Always the current client's: set when one is wired, replaced when the
+    // next one is, and both happen under _reconnectLock (or once at boot).
+    private Action? _unwireCurrentClient;
+
     public bool IsConnected => Volatile.Read(ref _connected) == 1;
 
     public DateTime? LastMessageReceivedUtc => ReadTimestamp(ref _lastMessageReceivedUtcTicks);
@@ -99,7 +105,7 @@ public class TwitchChatManager(
 
     public void Initialize()
     {
-        WireUpClient(_client);
+        WireUpClient(_client, Volatile.Read(ref _clientGeneration));
     }
 
     public async Task ConnectAsync(CancellationToken ct)
@@ -216,7 +222,7 @@ public class TwitchChatManager(
             // signal slot discards anything it deposited before the loop condemned its generation.
             var oldClient = _client;
             var oldGeneration = Volatile.Read(ref _clientGeneration);
-            UnwireClient(oldClient);
+            UnwireClient();
             SetConnected(false);
             Interlocked.Exchange(ref _sessionStartedUtcTicks, 0);
             MarkAllChannelsUnconfirmed();
@@ -230,8 +236,10 @@ public class TwitchChatManager(
             // along TwitchLib's half-emptied join queue and its _currentlyJoiningChannels flag,
             // while a new one has an empty queue and exactly one read loop (E3).
             var newClient = CreateClient(loggerFactory);
-            WireUpClient(newClient);
+            // The generation is drawn before wiring, because the handlers capture it (WireUpClient)
+            // rather than reading it when they fire.
             var generation = Interlocked.Increment(ref _clientGeneration);
+            WireUpClient(newClient, generation);
             _client = newClient;
 
             // Steps 4 and 5.
@@ -506,10 +514,15 @@ public class TwitchChatManager(
     /// generation rule: a fresh attempt's client carries a *higher* generation than the condemned
     /// one, so its own OnDisconnected would otherwise pass as a genuine loss instead of being
     /// reported through the attempt's return value.
+    /// <para>
+    /// Both <paramref name="source"/> and <paramref name="generation"/> are *captured at wiring
+    /// time*, never taken from TwitchLib's <c>sender</c> and never re-read from the fields — see
+    /// <see cref="WireUpClient"/> for why that distinction is the whole point of this method.
+    /// </para>
     /// </summary>
-    private void SignalFromHandler(object? sender, TwitchSessionEndReason reason, string detail)
+    private void SignalFromHandler(TwitchClient source, int generation, TwitchSessionEndReason reason, string detail)
     {
-        if (!ReferenceEquals(sender, _client))
+        if (!ReferenceEquals(source, _client))
         {
             logger.LogDebug("Ereignis {Reason} eines bereits ersetzten TwitchClient ignoriert.", reason);
             return;
@@ -523,7 +536,7 @@ public class TwitchChatManager(
             return;
         }
 
-        OfferSignal(Volatile.Read(ref _clientGeneration), reason, detail);
+        OfferSignal(generation, reason, detail);
     }
 
     private TimeSpan? CurrentSessionDuration()
@@ -549,34 +562,86 @@ public class TwitchChatManager(
         }
     });
 
-    private void WireUpClient(TwitchClient client)
+    /// <summary>
+    /// Binds one client's events to this manager. Every handler that has to know which client it
+    /// belongs to is a closure over *this* client and *this* client's generation; not one of them
+    /// looks at TwitchLib's <c>sender</c>, which is why <see cref="Bind{TArgs}"/> discards it.
+    /// <para>
+    /// <b>Why bound identity instead of <c>sender</c>.</b> TwitchLib does not raise all of these
+    /// events with the same sender: <c>OnDisconnected</c> and <c>OnReconnected</c> pass the
+    /// <see cref="WebSocketClient"/> straight through from TwitchLib.Communication, while every
+    /// other event passes the <see cref="TwitchClient"/> itself (verified against
+    /// TwitchLib.Client 4.0.1: <c>_client_OnDisconnected</c> and <c>_client_OnReconnected</c>
+    /// forward their own <c>sender</c>, <c>_client_OnFatality</c> and the IRC handlers pass
+    /// <c>this</c>). A <c>ReferenceEquals(sender, _client)</c> guard was therefore permanently false
+    /// for exactly those two — measured on 2026-09-08 on the dev worker: after a killed socket the
+    /// "TwitchClient getrennt" line was followed immediately by "Ereignis Disconnected eines bereits
+    /// ersetzten TwitchClient ignoriert" although nothing had been replaced, and the rebuild only
+    /// started ~1.5 s later off the trailing <c>OnConnectionError</c>. Had that follow-up stayed
+    /// away in some loss mode, the only remaining catch would have been the watchdog's 60 s backstop
+    /// (risk R1) — the very counting gap #68 exists to close. Capturing the client removes the
+    /// assumption about the foreign library rather than correcting it.
+    /// </para>
+    /// <para>
+    /// <b>And why the generation is captured too.</b> Reading <c>_client</c> and
+    /// <c>_clientGeneration</c> as two separate steps is a race: a rebuild can swap the client
+    /// between them, and the signal would then be stamped with the *new* generation — whereupon the
+    /// slot's generation rule (plan 7, PG1) would admit precisely the straggler of the replaced
+    /// client that it exists to discard. A generation fixed at wiring time cannot drift.
+    /// </para>
+    /// </summary>
+    private void WireUpClient(TwitchClient client, int generation)
     {
         client.Initialize(new ConnectionCredentials()); // anonym/read-only
-        client.OnConnected += OnConnected;
-        client.OnReconnected += OnReconnected;
-        client.OnDisconnected += OnDisconnected;
-        client.OnFailureToReceiveJoinConfirmation += OnFailureToReceiveJoinConfirmation;
-        client.OnConnectionError += OnConnectionError;
-        client.OnJoinedChannel += OnJoinedChannel;
-        client.OnLeftChannel += OnLeftChannel;
-        client.OnMessageReceived += OnMessageReceived;
-        client.OnSendReceiveData += OnSendReceiveData;
+
+        var connected = Bind<OnConnectedEventArgs>(_ => OnConnected());
+        var reconnected = Bind<OnConnectedEventArgs>(_ => OnReconnected(client, generation));
+        var disconnected = Bind<OnDisconnectedArgs>(_ => OnDisconnected(client, generation));
+        var joinConfirmationFailed = Bind<OnFailureToReceiveJoinConfirmationArgs>(OnFailureToReceiveJoinConfirmation);
+        var connectionError = Bind<OnConnectionErrorArgs>(e => OnConnectionError(client, generation, e));
+        var joinedChannel = Bind<OnJoinedChannelArgs>(OnJoinedChannel);
+        var leftChannel = Bind<OnLeftChannelArgs>(OnLeftChannel);
+        var messageReceived = Bind<OnMessageReceivedArgs>(OnMessageReceived);
+        var sendReceiveData = Bind<OnSendReceiveDataArgs>(OnSendReceiveData);
+
+        client.OnConnected += connected;
+        client.OnReconnected += reconnected;
+        client.OnDisconnected += disconnected;
+        client.OnFailureToReceiveJoinConfirmation += joinConfirmationFailed;
+        client.OnConnectionError += connectionError;
+        client.OnJoinedChannel += joinedChannel;
+        client.OnLeftChannel += leftChannel;
+        client.OnMessageReceived += messageReceived;
+        client.OnSendReceiveData += sendReceiveData;
+
+        // The detach closure holds the very delegate instances registered above — see UnwireClient.
+        _unwireCurrentClient = () =>
+        {
+            client.OnConnected -= connected;
+            client.OnReconnected -= reconnected;
+            client.OnDisconnected -= disconnected;
+            client.OnFailureToReceiveJoinConfirmation -= joinConfirmationFailed;
+            client.OnConnectionError -= connectionError;
+            client.OnJoinedChannel -= joinedChannel;
+            client.OnLeftChannel -= leftChannel;
+            client.OnMessageReceived -= messageReceived;
+            client.OnSendReceiveData -= sendReceiveData;
+        };
     }
 
-    private void UnwireClient(TwitchClient client)
-    {
-        client.OnConnected -= OnConnected;
-        client.OnReconnected -= OnReconnected;
-        client.OnDisconnected -= OnDisconnected;
-        client.OnFailureToReceiveJoinConfirmation -= OnFailureToReceiveJoinConfirmation;
-        client.OnConnectionError -= OnConnectionError;
-        client.OnJoinedChannel -= OnJoinedChannel;
-        client.OnLeftChannel -= OnLeftChannel;
-        client.OnMessageReceived -= OnMessageReceived;
-        client.OnSendReceiveData -= OnSendReceiveData;
-    }
+    /// <summary>
+    /// Detaches the current client's handlers, through the closure
+    /// <see cref="WireUpClient(TwitchClient, int)"/> left behind. It has to go through stored
+    /// delegate instances because closures cannot be removed the way method groups can — two lambdas
+    /// with the same body are different objects, so a <c>-=</c> against a freshly built one would
+    /// silently remove nothing and leave the replaced client wired for the rest of the process.
+    /// Getting this right is what keeps decision E4 exact: once this returns, the old client reaches
+    /// none of our state, however long its background <c>DisconnectAsync</c> still takes, and its
+    /// stragglers during a backoff floor land nowhere.
+    /// </summary>
+    private void UnwireClient() => _unwireCurrentClient?.Invoke();
 
-    private Task OnConnected(object? sender, OnConnectedEventArgs e)
+    private Task OnConnected()
     {
         SetConnected(true);
         Interlocked.Exchange(ref _sessionStartedUtcTicks, DateTime.UtcNow.Ticks);
@@ -591,7 +656,7 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
-    private Task OnDisconnected(object? sender, OnDisconnectedArgs e)
+    private Task OnDisconnected(TwitchClient source, int generation)
     {
         // Without a log line here a silent drop (a Twitch-side PING timeout, say) would freeze chat
         // matching for every channel without a trace. Marking the channels unconfirmed lets the
@@ -599,11 +664,11 @@ public class TwitchChatManager(
         SetConnected(false);
         MarkAllChannelsUnconfirmed();
         logger.LogWarning("TwitchClient getrennt.");
-        SignalFromHandler(sender, TwitchSessionEndReason.Disconnected, "TwitchLib meldet OnDisconnected.");
+        SignalFromHandler(source, generation, TwitchSessionEndReason.Disconnected, "TwitchLib meldet OnDisconnected.");
         return Task.CompletedTask;
     }
 
-    private Task OnFailureToReceiveJoinConfirmation(object? sender, OnFailureToReceiveJoinConfirmationArgs e)
+    private Task OnFailureToReceiveJoinConfirmation(OnFailureToReceiveJoinConfirmationArgs e)
     {
         // Since the rejoin left the read loop (E2), this line means again what it says: Twitch
         // really did not confirm the join within TwitchLib's 5s window. Before the rebuild, our own
@@ -616,7 +681,7 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
-    private Task OnConnectionError(object? sender, OnConnectionErrorArgs e)
+    private Task OnConnectionError(TwitchClient source, int generation, OnConnectionErrorArgs e)
     {
         // Information, not Warning: with NoReconnectionPolicy this is the expected follow-up of a
         // loss, not a fault. TwitchLib raises it from RaiseFatal after its (single, already spent)
@@ -627,11 +692,11 @@ public class TwitchChatManager(
         logger.LogInformation(
             "TwitchClient meldet Verbindungsfehler für {BotUsername}: {Error}",
             e.BotUsername, e.Error.Message);
-        SignalFromHandler(sender, TwitchSessionEndReason.ConnectionError, e.Error.Message);
+        SignalFromHandler(source, generation, TwitchSessionEndReason.ConnectionError, e.Error.Message);
         return Task.CompletedTask;
     }
 
-    private Task OnReconnected(object? sender, OnConnectedEventArgs e)
+    private Task OnReconnected(TwitchClient source, int generation)
     {
         // Tripwire. With NoReconnectionPolicy this cannot fire: RaiseReconnected sits behind a
         // successful OpenPrivateAsync(isReconnect: true), whose retry loop runs zero times because
@@ -643,13 +708,14 @@ public class TwitchChatManager(
         logger.LogError(
             "TwitchClient reconnected — das darf mit NoReconnectionPolicy nicht auftreten (Issue #114/#68).");
         SignalFromHandler(
-            sender,
+            source,
+            generation,
             TwitchSessionEndReason.UnexpectedInPlaceReconnect,
             "TwitchLib hat am selben Objekt reconnectet.");
         return Task.CompletedTask;
     }
 
-    private Task OnJoinedChannel(object? sender, OnJoinedChannelArgs e)
+    private Task OnJoinedChannel(OnJoinedChannelArgs e)
     {
         // Only a confirmed join stops EnsureJoinedAsync from retrying it every minute. TryUpdate
         // deliberately does not insert: a confirmation arriving after a leave must not resurrect
@@ -659,13 +725,13 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
-    private Task OnLeftChannel(object? sender, OnLeftChannelArgs e)
+    private Task OnLeftChannel(OnLeftChannelArgs e)
     {
         logger.LogInformation("Channel {Channel} verlassen.", e.Channel);
         return Task.CompletedTask;
     }
 
-    private Task OnSendReceiveData(object? sender, OnSendReceiveDataArgs e)
+    private Task OnSendReceiveData(OnSendReceiveDataArgs e)
     {
         // Any received IRC line proves the socket is alive — including the server PING Twitch sends
         // roughly every five minutes even when every joined channel is silent. This is the liveness
@@ -682,7 +748,7 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
-    private Task OnMessageReceived(object? sender, OnMessageReceivedArgs e)
+    private Task OnMessageReceived(OnMessageReceivedArgs e)
     {
         // Aktualisiert für JEDE Nachricht, nicht nur gematchte — der Watchdog erkennt so
         // auch ein stilles Einfrieren der Verbindung auf Channels ohne Emote-Nutzung. This must
@@ -779,6 +845,15 @@ public class TwitchChatManager(
             new ClientOptions(new NoReconnectionPolicy()),
             loggerFactory.CreateLogger<WebSocketClient>()),
         loggerFactory: loggerFactory);
+
+    /// <summary>
+    /// Wraps a handler that takes only the event arguments into the delegate TwitchLib's events
+    /// expect, discarding <c>sender</c> at the single place where that is visible. Which client an
+    /// event belongs to is decided by what the handler closed over at wiring time, never by what the
+    /// library passes as the sender — see <see cref="WireUpClient(TwitchClient, int)"/>.
+    /// </summary>
+    private static TwitchLib.Communication.Events.AsyncEventHandler<TArgs> Bind<TArgs>(Func<TArgs, Task> handler) =>
+        (_, args) => handler(args);
 
     private static DateTime? ReadTimestamp(ref long ticksField)
     {
