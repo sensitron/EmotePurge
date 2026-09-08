@@ -435,9 +435,23 @@ wie `TwitchChatManager.cs:255`). Es tut drei Dinge: verbinden, JOINs in einer vo
 senden, und **jede** empfangene IRC-Zeile mit Host-Zeitstempel in eine Datei schreiben
 (`OnSendReceiveData`, Richtung `Received` — nur so sind `NOTICE`-Zeilen und die `366`-Bestätigungen
 als Rohtext greifbar; TwitchLibs `OnJoinedChannel`/`OnFailureToReceiveJoinConfirmation` werden
-daneben mitgeschrieben, sind aber nicht der Primärbeleg). Zwei Kadenzen müssen wählbar sein:
+daneben mitgeschrieben, sind aber nicht der Primärbeleg).
+
+> **Korrektur vom 2026-09-08, am Binärstand belegt:** Für die **Sende**richtung ist
+> `OnSendReceiveData` **nicht** verwendbar. Das Event hat genau zwei Aufrufstellen; `Sent` feuert
+> ausschließlich aus `SendRawAsync`, während `JoinChannelAsync` über die interne Queue
+> (`QueueingJoinCheckAsync`) direkt `SendAsync` auf dem Socket-Client aufruft und das Event damit
+> umgeht. Ein Join-only-Lauf erzeugt strukturell **null** `Sent`-Zeilen. Belastbarer Ersatz ist
+> TwitchLibs eigener strukturierter Logeintrag `LogJoiningChannel`, der synchron unmittelbar vor
+> dem `SendAsync` abgesetzt wird (dazwischen nur ein unbelasteter Semaphor). Der Sendezeitpunkt
+> wird daraus gestempelt; die eigene Zeile „JOIN angestoßen" ist **nicht** der Sendezeitpunkt,
+> weil `JoinChannelAsync` sofort zurückkehrt. Das gilt auch für Task 9: Wer dort Sendezeitpunkte
+> braucht, nimmt dieselbe Quelle.
+
+Zwei Kadenzen müssen wählbar sein:
 **Queue-Kadenz** (TwitchLibs `JoinChannelAsync`, sendet den nächsten JOIN auf die Bestätigung des
-vorherigen, ≈ 200 ms — der Pfad, den Prod bis heute fährt) und **gedrosselt** (600 ms, unser
+vorherigen — **gemessen 126–231 ms Median je Lauf**, nicht die zuvor angenommenen konstanten
+≈ 200 ms; der Pfad, den Prod bis heute fährt) und **gedrosselt** (600 ms, unser
 `TryJoinAsync`-Abstand). Das ist alles; der Prozess schreibt weder in Postgres noch in Redis und
 kennt keine Projektabhängigkeit.
 
