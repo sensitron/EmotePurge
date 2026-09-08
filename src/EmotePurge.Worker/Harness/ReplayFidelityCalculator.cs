@@ -206,13 +206,7 @@ public static class ReplayFidelityCalculator
     /// The full import population over the given days, human-only on both sides: live is
     /// <c>UseCount</c>, log is the human hit count. Every emote that appears on at least one side
     /// is in, log-only and live-only included — that is exactly the case the gate must not hide
-    /// (Codex-adversarial D1).
-    /// <para>
-    /// <c>UseCount</c> is the target contract (D3), not necessarily what the grid renders today:
-    /// during the D5 transition period the grid still shows <c>UseCount + SharedChatUseCount</c>,
-    /// because the harness reads raw rows and measures against the target the deletion decision is
-    /// meant to rest on, not against that bridge.
-    /// </para>
+    /// (Codex-adversarial D1). <c>UseCount</c> is the target contract (D3).
     /// </summary>
     private static List<PopulationEntry> BuildPopulation(
         IReadOnlyList<ReplayDayLine> days,

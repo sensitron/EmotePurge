@@ -44,6 +44,18 @@ namespace EmotePurge.Core.Services;
 /// traffic is effectively all mirrored keeps this <c>null</c> forever even though bots are in fact
 /// excluded: a known, accepted gap (DECISIONS.md, D2), not evidence the channel never saw a bot.
 /// </param>
+/// <param name="SharedChatSeparatedSince">
+/// The earliest UTC day on which this channel has a <c>UsageStat</c> row with
+/// <c>SharedChatUseCount &gt; 0</c> — the first time a mirrored shared-chat message was
+/// <em>seen</em> here, not the day that usage started being counted apart. Same E4 imprecision as
+/// <paramref name="BotsExcludedSince"/> and for the same reason: the separation began with a
+/// deploy, an event in the deploy history and not in the data. Numbers for days before this one
+/// carry usage from other channels' shared chat inside <c>UseCount</c>, indistinguishably — that is
+/// what a consumer has to say when it shows this date. <c>null</c> means no shared chat has ever
+/// been seen here: nothing was separated away for this channel, so a consumer shows nothing. Note
+/// what <c>null</c> does <em>not</em> mean — the separation itself applies to every channel, so a
+/// later consumer must not read it as "shared chat is still counted here".
+/// </param>
 public record EmoteSetStatusDto(
     string ActiveEmoteSetId,
     int? Capacity,
@@ -51,7 +63,8 @@ public record EmoteSetStatusDto(
     DateTime TrackedSince,
     string? SyncFailureReason,
     DateTime? LastSyncAttemptAtUtc,
-    DateOnly? BotsExcludedSince);
+    DateOnly? BotsExcludedSince,
+    DateOnly? SharedChatSeparatedSince);
 
 public interface IEmoteSetStatusService
 {

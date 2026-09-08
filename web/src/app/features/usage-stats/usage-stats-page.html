@@ -238,13 +238,22 @@
       @if (liveDaysInRangeKey(); as liveKey) {
         {{ liveKey | transloco: { live: liveDayDates().length } }}
       }
-      <!-- One more sentence in the same caption, not a banner: an honesty statement belongs with the
-           other honesty statement it sits next to, not as a control of its own (E3). Absent entirely
-           when botsExcludedKey() is null — a channel with no bot ever seen has nothing to explain,
-           and this is also the known-limitation case (see botsExcludedCaptionKey): the date names
-           when a bot was first SEEN, not when the separation began. -->
+      <!-- Two more sentences in the same caption, not banners: an honesty statement belongs with the
+           other honesty statements it sits next to, not as a control of its own (E3). Each is absent
+           entirely when its key is null — a channel that never saw a bot, or never saw shared chat,
+           has nothing to explain there — and both are the same known-limitation case (see
+           botsExcludedCaptionKey / sharedChatSeparatedCaptionKey): the date names when that kind of
+           usage was first SEEN, not when the separation began. The order in this paragraph is a
+           contract, not an accident (Designsprache §2.5): tracking start, live days, bots, shared
+           chat — the order the exclusions came into being, and a new one queues up at the end. -->
       @if (botsExcludedKey(); as botsKey) {
         {{ botsKey | transloco: { date: formatDate(setStatus()?.botsExcludedSince ?? null) } }}
+      }
+      @if (sharedChatSeparatedKey(); as sharedChatKey) {
+        {{
+          sharedChatKey
+            | transloco: { date: formatDate(setStatus()?.sharedChatSeparatedSince ?? null) }
+        }}
       }
     </p>
     @if (rangeStartsBeforeTracking()) {

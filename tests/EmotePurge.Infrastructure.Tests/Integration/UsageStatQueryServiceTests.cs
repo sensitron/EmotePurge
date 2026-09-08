@@ -11,11 +11,11 @@ namespace EmotePurge.Infrastructure.Tests.Integration;
 // plain emote-ID list (see the comment in UsageStatQueryService.cs) — InMemory would happily
 // evaluate the naive, untranslatable version client-side and never catch a regression back to it.
 //
-// SharedOnlyRow_ReadsAsUsedUntilZug2 nails down the D5 transition (#73): until Zug 2 turns the
-// read path around, every query here sums and filters over UseCount + SharedChatUseCount, so a
-// shared-only row reads as used. Zug 2 is expected to deliberately break and invert this test —
-// a shared-only row will then read as unused, the same as a bot-only row does today — this test
-// is the marker for that future change, not a comment.
+// SharedOnlyRow_ReadsAsUnused_LikeBotOnly is the inverted marker of the D5 transition (#73). The
+// bridge has fallen: every query here sums and filters over UseCount alone, so a shared-only row
+// reads as unused, exactly like a bot-only row. It is the same seed as the test that used to
+// assert the opposite, kept rather than deleted — a deleted test would prove nothing about which
+// side of the cutover this code is on.
 [Collection("Postgres")]
 public class UsageStatQueryServiceTests(PostgresFixture fixture)
 {
@@ -168,20 +168,21 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task SharedOnlyRow_ReadsAsUsedUntilZug2()
+    public async Task SharedOnlyRow_ReadsAsUnused_LikeBotOnly()
     {
-        // D5 transition (#73): the UI read path sums UseCount + SharedChatUseCount and filters on
-        // that sum, so a shared-only row reads as used everywhere a human row would — while a
-        // bot-only row (unaffected by this task) keeps reading as unused. Zug 2 is expected to
-        // deliberately break and invert this test.
+        // The inverted D5 marker (#73, Zug 2): the read path sums and filters over UseCount alone
+        // again, so a shared-only row reads as unused everywhere — exactly the way a bot-only row
+        // always did. Same seed as the test that asserted the opposite during the transition, so
+        // the diff between the two is the whole behaviour change. If this ever goes green with the
+        // old numbers again, the bridge is back.
         await using var db = fixture.CreateDbContext();
         var channel = await SeedChannelAsync(db, "sharedchat_transition");
         var from = new DateOnly(2026, 7, 10);
         var to = new DateOnly(2026, 7, 20);
 
         // Older human day outside the requested range, younger shared-only day inside it — proves
-        // LastUsedDate (unbounded in time) now picks the younger, shared-only day as "used", and
-        // that the range-bounded sums pick up only the shared-only day's 3.
+        // LastUsedDate (unbounded in time) falls back to the older HUMAN day rather than naming the
+        // younger foreign one, and that the range-bounded sums see nothing at all here.
         var sharedThenHuman = await SeedEmoteAsync(db, channel.Id, "SharedThenHuman");
         var olderHumanDay = new DateOnly(2026, 7, 1);
         var youngerSharedDay = new DateOnly(2026, 7, 15);
@@ -189,12 +190,13 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
             new UsageStat { EmoteId = sharedThenHuman.Id, Date = olderHumanDay, UseCount = 5 },
             new UsageStat { EmoteId = sharedThenHuman.Id, Date = youngerSharedDay, UseCount = 0, BotUseCount = 0, SharedChatUseCount = 3 });
 
-        // A mixed row: own and shared-chat usage on the same day must add up.
+        // A mixed row: only the own half of the day counts.
         var mixed = await SeedEmoteAsync(db, channel.Id, "MixedHumanAndShared");
-        db.UsageStats.Add(new UsageStat { EmoteId = mixed.Id, Date = new DateOnly(2026, 7, 12), UseCount = 2, SharedChatUseCount = 3 });
+        var mixedDay = new DateOnly(2026, 7, 12);
+        db.UsageStats.Add(new UsageStat { EmoteId = mixed.Id, Date = mixedDay, UseCount = 2, SharedChatUseCount = 3 });
 
-        // Regression guard: an emote with exclusively shared-only rows (no human usage, ever) must
-        // still show up with TotalUseCount > 0 — a forgotten predicate would silently drop it.
+        // An emote with exclusively shared-only rows (no own usage, ever) counts as never used and
+        // drops out of the channel series entirely, the same way a bot-only emote does.
         var sharedOnly = await SeedEmoteAsync(db, channel.Id, "ExclusivelySharedChat");
         db.UsageStats.Add(new UsageStat { EmoteId = sharedOnly.Id, Date = new DateOnly(2026, 7, 14), UseCount = 0, SharedChatUseCount = 4 });
 
@@ -204,26 +206,31 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
 
         var context = await service.GetUsageContextAsync(channel.ChannelName, from, to);
         var sharedThenHumanContext = context.Single(c => c.EmoteId == sharedThenHuman.Id);
-        Assert.Equal(3, sharedThenHumanContext.TotalUseCount);
-        Assert.Equal(youngerSharedDay, sharedThenHumanContext.LastUsedDate);
-        Assert.Equal(5, context.Single(c => c.EmoteId == mixed.Id).TotalUseCount);
-        Assert.True(context.Single(c => c.EmoteId == sharedOnly.Id).TotalUseCount > 0);
+        Assert.Equal(0, sharedThenHumanContext.TotalUseCount);
+        Assert.Equal(olderHumanDay, sharedThenHumanContext.LastUsedDate);
+        Assert.Equal(2, context.Single(c => c.EmoteId == mixed.Id).TotalUseCount);
+        var sharedOnlyContext = context.Single(c => c.EmoteId == sharedOnly.Id);
+        Assert.Equal(0, sharedOnlyContext.TotalUseCount);
+        Assert.Null(sharedOnlyContext.LastUsedDate);
 
         var dailySeries = await service.GetDailySeriesAsync(channel.ChannelName, sharedThenHuman.Id, from, to);
         Assert.NotNull(dailySeries);
-        var day = Assert.Single(dailySeries.Days);
-        Assert.Equal(youngerSharedDay, day.Date);
-        Assert.Equal(3, day.UseCount);
-        Assert.Equal(3, dailySeries.TotalUseCount);
-        Assert.Equal(youngerSharedDay, dailySeries.LastUsedDate);
+        Assert.Empty(dailySeries.Days);
+        Assert.Equal(0, dailySeries.TotalUseCount);
+        Assert.Equal(olderHumanDay, dailySeries.FirstUsedDate);
+        Assert.Equal(olderHumanDay, dailySeries.LastUsedDate);
 
         var channelSeries = await service.GetChannelSeriesAsync(channel.ChannelName, from, to);
-        var sharedThenHumanEntry = channelSeries.Emotes.Single(e => e.EmoteId == sharedThenHuman.Id);
-        var sharedDayOffset = youngerSharedDay.DayNumber - from.DayNumber;
-        Assert.Equal([[sharedDayOffset, 3]], sharedThenHumanEntry.Days);
+        Assert.DoesNotContain(channelSeries.Emotes, e => e.EmoteId == sharedThenHuman.Id);
+        Assert.DoesNotContain(channelSeries.Emotes, e => e.EmoteId == sharedOnly.Id);
+        var mixedEntry = channelSeries.Emotes.Single(e => e.EmoteId == mixed.Id);
+        Assert.Equal([[mixedDay.DayNumber - from.DayNumber, 2]], mixedEntry.Days);
 
-        var totals = await service.GetTotalsByEmoteIdsAsync([sharedThenHuman.Id], from, to);
-        Assert.Equal(3, totals[sharedThenHuman.Id]);
+        // No UseCount > 0 filter here, only the date range — so the shared-only day still forms a
+        // group, it just sums to nothing.
+        var totals = await service.GetTotalsByEmoteIdsAsync([sharedThenHuman.Id, mixed.Id], from, to);
+        Assert.Equal(0, totals[sharedThenHuman.Id]);
+        Assert.Equal(2, totals[mixed.Id]);
     }
 
     [Fact]
@@ -730,6 +737,78 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_IsTheEarliestSharedChatDay_NotTheEarliestRowOverall()
+    {
+        // A human-only row from before the first mirrored message must not win — the answer is
+        // "since when is shared-chat usage separated", not "since when is this emote used at all".
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest1");
+        var emoteOne = await SeedEmoteAsync(db, channel.Id, "One");
+        var emoteTwo = await SeedEmoteAsync(db, channel.Id, "Two");
+        db.UsageStats.AddRange(
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10 },
+            // The normal case this query has to find: no own usage at all on that day, only mirrored.
+            new UsageStat { EmoteId = emoteTwo.Id, Date = new DateOnly(2026, 8, 15), UseCount = 0, BotUseCount = 0, SharedChatUseCount = 2 },
+            new UsageStat { EmoteId = emoteOne.Id, Date = new DateOnly(2026, 8, 20), UseCount = 1, SharedChatUseCount = 1 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Equal(new DateOnly(2026, 8, 15), earliestSharedChatDate);
+    }
+
+    [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_NoSharedChatRowsAtAll_ReturnsNull()
+    {
+        // Includes a bot row on purpose: the two columns are separate, and a bot sighting must not
+        // be mistaken for a shared-chat one.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest2");
+        var emote = await SeedEmoteAsync(db, channel.Id, "One");
+        db.UsageStats.Add(new UsageStat { EmoteId = emote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 10, BotUseCount = 4, SharedChatUseCount = 0 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Null(earliestSharedChatDate);
+    }
+
+    [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_SharedChatRowOnAnArchivedEmote_StillCounts()
+    {
+        // An emote deleted from 7TV since the sighting still tells us when the separation started
+        // for this channel — archived emotes are deliberately not excluded here.
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest3");
+        var archived = await SeedEmoteAsync(db, channel.Id, "GoneEmote", isArchived: true);
+        db.UsageStats.Add(new UsageStat { EmoteId = archived.Id, Date = new DateOnly(2026, 8, 5), UseCount = 0, SharedChatUseCount = 4 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Equal(new DateOnly(2026, 8, 5), earliestSharedChatDate);
+    }
+
+    [Fact]
+    public async Task GetEarliestSharedChatUsageDateAsync_AnotherChannelsSharedChatRow_DoesNotCount()
+    {
+        await using var db = fixture.CreateDbContext();
+        var channel = await SeedChannelAsync(db, "sharedtest4");
+        var otherChannel = await SeedChannelAsync(db, "sharedtest4_other");
+        var otherEmote = await SeedEmoteAsync(db, otherChannel.Id, "Foreign");
+        db.UsageStats.Add(new UsageStat { EmoteId = otherEmote.Id, Date = new DateOnly(2026, 8, 1), UseCount = 0, SharedChatUseCount = 9 });
+        await db.SaveChangesAsync();
+
+        var service = new UsageStatQueryService(db);
+        var earliestSharedChatDate = await service.GetEarliestSharedChatUsageDateAsync(channel.Id);
+
+        Assert.Null(earliestSharedChatDate);
+    }
+
+    [Fact]
     public async Task GetEmoteLifetimesAsync_IncludesActiveAndArchivedEmotes_WithFieldsPassedThrough()
     {
         await using var db = fixture.CreateDbContext();
@@ -852,9 +931,9 @@ public class UsageStatQueryServiceTests(PostgresFixture fixture)
     [Fact]
     public async Task GetRowsAsync_IncludesSharedChatOnlyRows_WithTheColumnPassedThroughRaw()
     {
-        // GetRowsAsync is the raw pass-through the #73 design's B4 requires: unlike the produced
-        // UI queries (D5, still bridged via UseCount + SharedChatUseCount at this point in the
-        // rollout), the harness needs SharedChatUseCount itself, unfiltered.
+        // GetRowsAsync is the raw pass-through the #73 design's B4 requires: unlike the product UI
+        // queries, which drop a row without own usage entirely, the harness needs
+        // SharedChatUseCount itself, unfiltered.
         await using var db = fixture.CreateDbContext();
         var channel = await SeedChannelAsync(db, "rowstest-sharedonly");
         var emote = await SeedEmoteAsync(db, channel.Id, "SharedOnly");

@@ -6,9 +6,9 @@ public record EmoteUsageDto(string EmoteName, DateOnly Date, int UseCount);
 /// One emote with everything needed to judge it as a deletion candidate.
 /// </summary>
 /// <param name="TotalUseCount">
-/// Sum over the requested range. Transitionally (D5, #73) <c>UseCount + SharedChatUseCount</c>
-/// rather than <c>UseCount</c> alone — until Zug 2 turns the read path around and explains the
-/// split, the grid keeps showing the familiar total instead of an unexplained drop.
+/// Sum of <c>UseCount</c> over the requested range — this channel's own human usage, and nothing
+/// else. Messages from known bots (<c>BotUseCount</c>) and messages mirrored in from another
+/// channel's shared chat (<c>SharedChatUseCount</c>) are both outside it.
 /// </param>
 /// <param name="LastUsedDate">
 /// The last day this emote was used at all — deliberately <em>not</em> bounded by the requested
@@ -16,13 +16,13 @@ public record EmoteUsageDto(string EmoteName, DateOnly Date, int UseCount);
 /// switching the range to 7 days would report almost the whole set as never used. <c>null</c> means
 /// never used since tracking began: the flush only ever writes rows for days with actual usage, so
 /// an absent maximum is the honest answer rather than a missing one. A row with
-/// <c>UseCount + SharedChatUseCount = 0</c> (bot-only usage) does not count as "used" for this field
-/// either — the flush can now write such a row, and it is not a day this emote was used. A
-/// shared-only row (<c>UseCount = 0, SharedChatUseCount &gt; 0</c>) does count, transitionally (D5).
+/// <c>UseCount = 0</c> does not count as "used" for this field either — the flush can write such a
+/// row for a day that saw only bot messages or only mirrored shared-chat messages, and neither is a
+/// day this channel used the emote.
 /// </param>
 /// <param name="PreviousWindowUseCount">
 /// Sum over the equally long window immediately preceding the requested range (<c>from</c>
-/// exclusive), same transitional <c>UseCount + SharedChatUseCount</c> total as
+/// exclusive), the same own-usage total as
 /// <see cref="TotalUseCount"/>. Deliberately a raw number: whether that reads as rising, stable or
 /// falling is a wording decision, and one the caller has to be able to suppress when the history is
 /// too short to support it.
@@ -46,21 +46,22 @@ public record EmoteDailyUsageDto(DateOnly Date, int UseCount);
 /// One emote's day-by-day usage series for the drilldown (idea A5).
 /// </summary>
 /// <param name="Days">
-/// Only days with actual usage, ascending, each day's <c>UseCount</c> transitionally (D5, #73) the
-/// sum of <c>UseCount + SharedChatUseCount</c> — see <see cref="EmoteUsageContextDto.TotalUseCount"/>.
+/// Only days with actual usage, ascending, each day's <c>UseCount</c> this channel's own human
+/// usage — see <see cref="EmoteUsageContextDto.TotalUseCount"/>.
 /// A missing day inside [From, To] means 0 — the flush only ever writes rows for days with real
 /// usage, and inventing zero rows server-side just to transport them would be the expensive way to
-/// say nothing; the client zero-fills for rendering. A day whose row has
-/// <c>UseCount + SharedChatUseCount = 0</c> (bot-only usage) is missing here too, for the same
-/// reason.
+/// say nothing; the client zero-fills for rendering. A day whose row has <c>UseCount = 0</c>
+/// (only bot or only mirrored shared-chat messages) is missing here too, for the same reason.
 /// </param>
-/// <param name="TotalUseCount">Sum over [From, To] of the transitional per-day values in <see cref="Days"/>.</param>
+/// <param name="TotalUseCount">Sum over [From, To] of the per-day values in <see cref="Days"/>.</param>
 /// <param name="FirstUsedDate">
 /// First use ever, deliberately not bounded by the range — same reasoning as
 /// <see cref="EmoteUsageContextDto.LastUsedDate"/>. <c>null</c> = never used since tracking began,
-/// and a <c>UseCount + SharedChatUseCount = 0</c> (bot-only) row does not count as a use.
+/// and a <c>UseCount = 0</c> row does not count as a use.
 /// </param>
-/// <param name="LastUsedDate">Last use ever, equally unbounded and equally blind to bot-only rows.</param>
+/// <param name="LastUsedDate">
+/// Last use ever, equally unbounded and equally blind to rows without own usage.
+/// </param>
 /// <param name="LiveDays">
 /// Days within [From, To] on which the channel was live (any coverage at all), ascending — so the
 /// chart can tell "offline day" apart from "dead emote" (idea A10). Coverage data only exists
@@ -83,8 +84,8 @@ public record EmoteUsageSeriesDto(
 /// </summary>
 /// <param name="Days">
 /// One <c>[dayOffset, useCount]</c> pair per day with actual usage, ascending, where the offset
-/// counts days from the range's <c>From</c> and <c>useCount</c> is transitionally (D5, #73)
-/// <c>UseCount + SharedChatUseCount</c> — see <see cref="EmoteUsageContextDto.TotalUseCount"/>.
+/// counts days from the range's <c>From</c> and <c>useCount</c> is the day's <c>UseCount</c> — see
+/// <see cref="EmoteUsageContextDto.TotalUseCount"/>.
 /// Sparse for the same reason the single-emote series is sparse, and offset-encoded rather than
 /// ISO-dated because this is the batch: a channel-wide response carries thousands of these, an ISO
 /// date costs about five times what an offset does, and nothing between the Api and the browser
@@ -110,10 +111,10 @@ public record EmoteSeriesEntryDto(string EmoteId, IReadOnlyList<int[]> Days);
 /// "absent means unknown, not offline" caveat as <see cref="EmoteUsageSeriesDto.LiveDays"/>.
 /// </param>
 /// <param name="Emotes">
-/// Only emotes with at least one day of usage in the range under the transitional D5 total (rows
-/// with <c>UseCount + SharedChatUseCount = 0</c>, bot-only usage, do not count), and only unarchived
-/// ones. An emote the caller knows about but does not find here has no usage in the window under
-/// that total — the same statement the omitted days inside an entry make, one level up.
+/// Only emotes with at least one day of own usage in the range (rows with <c>UseCount = 0</c>, be
+/// they bot-only or shared-chat-only, do not count), and only unarchived ones. An emote the caller
+/// knows about but does not find here has no own usage in the window — the same statement the
+/// omitted days inside an entry make, one level up.
 /// </param>
 public record ChannelUsageSeriesDto(
     DateOnly From,
@@ -180,9 +181,8 @@ public interface IUsageStatQueryService
     /// <summary>
     /// Range totals for a known set of emote ids, keyed by id and omitting the ones without usage.
     /// Scoped to the caller's ids rather than to a whole channel, because the one caller (a vote
-    /// session's ballot) may hold twenty emotes out of a thousand. Transitionally (D5, #73) each
-    /// total is <c>UseCount + SharedChatUseCount</c> — see
-    /// <see cref="EmoteUsageContextDto.TotalUseCount"/>.
+    /// session's ballot) may hold twenty emotes out of a thousand. Each total is <c>UseCount</c>
+    /// alone — see <see cref="EmoteUsageContextDto.TotalUseCount"/>.
     /// </summary>
     Task<IReadOnlyDictionary<string, int>> GetTotalsByEmoteIdsAsync(
         IReadOnlyCollection<string> emoteIds, DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
@@ -196,6 +196,17 @@ public interface IUsageStatQueryService
     /// need the same cutover day rather than two copies of this rule.
     /// </summary>
     Task<DateOnly?> GetEarliestBotUsageDateAsync(string channelId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The earliest day across all of the channel's emotes — including archived ones — with a
+    /// <c>UsageStat</c> row that has <c>SharedChatUseCount &gt; 0</c>, or <c>null</c> if no mirrored
+    /// shared-chat message has ever been seen here. The twin of
+    /// <see cref="GetEarliestBotUsageDateAsync"/>, deliberately a separate method rather than a
+    /// parameterized generalization of it: that would make the frozen bot method touchable for the
+    /// sake of two callers. See <see cref="EmoteSetStatusDto.SharedChatSeparatedSince"/> for what
+    /// "seen" means (first sighting, not the deploy day the separation itself started).
+    /// </summary>
+    Task<DateOnly?> GetEarliestSharedChatUsageDateAsync(string channelId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Every emote of the channel — including archived ones — sorted by <see cref="EmoteLifetimeDto.Id"/>

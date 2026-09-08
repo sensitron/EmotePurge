@@ -19,6 +19,7 @@ import { Subscription, catchError, first, merge, of, switchMap, timer } from 'rx
 
 import { ChannelService } from '../../core/channels/channel.service';
 import { botsExcludedCaptionKey } from '../../core/emotes/bots-excluded-caption';
+import { sharedChatSeparatedCaptionKey } from '../../core/emotes/shared-chat-separated-caption';
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { sevenTvSyncFailureKey } from '../../core/emotes/seven-tv-sync-failure';
@@ -316,6 +317,13 @@ export class UsageStatsPage {
    *  that must read exactly like "no bot ever seen here", not throw or render `undefined`. */
   protected readonly botsExcludedKey = computed(() =>
     botsExcludedCaptionKey(this.setStatus()?.botsExcludedSince ?? null),
+  );
+
+  /** Same `?? null` guard and the same reason as `botsExcludedKey`: an older Api response taken
+   *  mid-deploy omits the field, and that has to read exactly like "no shared chat ever seen
+   *  here". */
+  protected readonly sharedChatSeparatedKey = computed(() =>
+    sharedChatSeparatedCaptionKey(this.setStatus()?.sharedChatSeparatedSince ?? null),
   );
 
   /** Why the last 7TV sync produced nothing, or null when it worked (or was never attempted). */
@@ -818,11 +826,16 @@ export class UsageStatsPage {
         // remaining probes run would only ask the same question again.
         this.stopAwaitingSync();
         this.refreshSetStatus();
-      } else if (seen.has(LIVE_EVENT_TYPES.usageFlushed) && !this.setStatus()?.botsExcludedSince) {
-        // A flush can move the same DTO's botsExcludedSince: it is set the moment a flush first
-        // counts bot usage for this channel, not by a sync. Left unguarded this would refetch after
-        // every later flush too, forever, for a field that is a MIN over growing dates and therefore
-        // provably done changing once it holds a date — so only ask again while it is still null.
+      } else if (
+        seen.has(LIVE_EVENT_TYPES.usageFlushed) &&
+        (!this.setStatus()?.botsExcludedSince || !this.setStatus()?.sharedChatSeparatedSince)
+      ) {
+        // A flush can move the same DTO's botsExcludedSince and sharedChatSeparatedSince: each is
+        // set the moment a flush first counts that kind of usage for this channel, not by a sync.
+        // Left unguarded this would refetch after every later flush too, forever, for two fields
+        // that are MINs over growing dates and therefore provably done changing once they hold a
+        // date — so only ask again while at least one of them is still null. Still at most one
+        // status request per flush event either way, exactly as before.
         this.refreshSetStatus();
       }
     });
@@ -1055,7 +1068,8 @@ export class UsageStatsPage {
       return '—';
     }
 
-    // A bare yyyy-MM-dd value (lastUsedDate, peak.date, botsExcludedSince — all date-only, no time
+    // A bare yyyy-MM-dd value (lastUsedDate, peak.date, botsExcludedSince, sharedChatSeparatedSince
+    // — all date-only, no time
     // of their own) must read as local midnight, not UTC midnight: `new Date('yyyy-MM-dd')` parses
     // as the latter, and toLocaleDateString then renders it in the viewer's zone, which reads as the
     // previous day for anyone west of UTC. A value that already carries a time part (e.g.

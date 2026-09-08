@@ -39,4 +39,14 @@ export interface EmoteSetStatus {
    * consumer may read anything sharper into this than "show the sentence, or don't".
    */
   botsExcludedSince: string | null;
+
+  /**
+   * `yyyy-MM-dd` of the earliest day this channel has a UsageStat row with shared-chat usage, or
+   * `null` when no mirrored message has ever been seen here. Same "first *seen*, not the day the
+   * separation started" caveat as {@link botsExcludedSince} — see
+   * {@link sharedChatSeparatedCaptionKey} for why no consumer may read anything sharper into this
+   * than "show the sentence, or don't". In particular `null` does not mean "shared chat is still
+   * counted here": the separation applies everywhere, this channel just never saw any.
+   */
+  sharedChatSeparatedSince: string | null;
 }
