@@ -560,6 +560,43 @@ weiter zu probieren (Projektnotiz vom 2026-08-30).
    Konstanten in 2.4 (Punkt 2b). Die Sonde misst Twitch, nicht unser Design — sie liefert Zahlen
    für Begründungen (2a, 2c) und ein Go/No-Go (2b), keine Form.
 
+### Task 0 — Ergebnis vom 2026-09-08 (F1 und F2 gemessen, F3 offen)
+
+**Gefahren:** sieben Läufe von der Devbox (Wohn-IP), Belege in zwei Kommentaren an #68.
+
+- **F1 — die 20-JOINs-pro-10-s-Grenze griff nicht.** 208 JOINs anonym über fünf Läufe, alle
+  bestätigt, Höchstwert **45 JOINs in einem 10-s-Fenster** (Faktor 2,2), keine limitbezogene
+  `NOTICE`. **Go** für Punkt 2b: Task 1 bleibt bei den Konzeptzahlen.
+- **F2 — die 100er-Decke existiert, gilt aber dem Account.** A/B mit identischem Aufbau und nur
+  getauschter Identität: anonym **120/120**, als `emotepurgebot` Schluss bei Kanal 101 mit
+  `msg_concurrent_channel_limit_reached` — eine explizite Servermeldung, kein Rückschluss aus einer
+  fehlenden Zeile. **Damit hängt die Decke am Account, nicht an der Client-ID.**
+- **F3 — nicht gefahren.** Bleibt offen; R3 und der 0-s-Erstversuch sind dadurch unberührt.
+
+**Die Sendekadenz ist keine Konstante.** Der ungedrosselte Queue-Pfad — derselbe Mechanismus, den
+TwitchLibs Rejoin nach einem Reconnect benutzt — lag im Median je Lauf zwischen **126 und 231 ms**,
+nicht bei den zuvor angenommenen festen ≈ 200 ms. Für die SLO-2-Formel heißt das: `0,6 s × (N−1)`
+beschreibt die **gedrosselte** Runde und bleibt gültig; wer die ungedrosselte Dauer abschätzt, darf
+keine feste Konstante unterstellen. Bei unseren 15 Kanälen liegt die ungedrosselte Rejoin-Runde bei
+rund 2–3,5 s und damit strukturell unter 20 JOINs je Fenster — die Rate-Grenze ist bei heutiger
+Größe kein Risiko, unabhängig von der Drosselung.
+
+**Konsequenz für 7.2 (Task 7):** Die Zahl 20 bleibt, aber **beide** bisherigen Begründungen tragen
+für den anonymen Betrieb nicht mehr — weder die Rate noch die Decke wurde bis 120 Kanäle erreicht.
+Was bleibt, ist die lineare Rejoin-Dauer und das, was diese Sonde **nicht** misst: Dauerbetrieb über
+Stunden, Chat-Volumen, Worker-Speicher. Der Kommentar an `WorkerCapacity.cs` muss das so sagen und
+darf die Messung nicht als Freibrief lesen.
+
+**Konsequenz außerhalb dieses Plans:** Ein Umstieg auf einen benannten Login (#125, EventSub-
+Conduits) **führt die 100er-Decke ein**, die der heutige anonyme Betrieb nicht hat. Ob die
+Bot-Verification sie hebt, ist unbelegt — das Formular spricht von *rate limits*, getroffen hätte
+uns ein *concurrency*-Limit. Nicht als gegeben behandeln.
+
+**Nicht belegt, aber beobachtet:** Ein anonymer Lauf brach bei 80 ab, 2 min nach einem Lauf mit
+100 Kanälen; nach zwei Stunden Ruhe lieferte derselbe Lauf 120/120. Das legt eine **verzögerte
+Freigabe der Kanäle einer eben getrennten Verbindung** nahe. Falls das zutrifft, beträfe es den
+Rejoin unmittelbar — vor dem bindenden Lauf nicht darauf verlassen, sondern eigens messen.
+
 **Fertig.** Kommentar an #68 steht; Task 1 startet erst, wenn Punkt 2b **Go** sagt (bei Stop:
 neue Planfassung zuerst); Task 7 übernimmt die Konsequenz für 7.2 (Punkt 2a) in den Kommentar an
 `WorkerCapacity.cs`. Kein Commit (nichts im Repo berührt).
