@@ -10,7 +10,7 @@ name: Publish Docker images
 # (see docs/DECISIONS.md, 2026-09-06 — "Das Quality Gate bekommt Zähne").
 # The publish job stays PR-free through its own if: — no image is ever built from a pull request
 # (optional branches for risky work get CI without changing the trunk-based flow, Review 2026-07-29,
-# S3-37).
+# S3-37). Which of the two images it builds is decided per push by the `changes` job below.
 on:
   push:
     branches: [main]
@@ -99,21 +99,127 @@ jobs:
           path: web/playwright-report/
           retention-days: 7
 
+  # Decides which of the two images the push can actually have changed (#129). Both Dockerfiles
+  # copy `src/` only (S4-17) — the Api one plus `web/` — so `web/**` and `src/EmotePurge.Api/**`
+  # provably cannot alter what `dotnet publish EmotePurge.Worker.csproj` emits, and `tests/**`,
+  # `docs/**` and Markdown reach neither image. Without this, every non-docs push republished
+  # `emotepurge-worker:latest` under a fresh digest (nothing here is cached, so two runs of the
+  # same tree differ), and because docker-compose.prod.yml pins `:latest` without a pull_policy,
+  # the next Portainer redeploy restarted the worker for nothing — losing the time anchor of a
+  # running observation (#117) and up to 30s of buffered counting while #122 is open.
+  #
+  # The classification is an allowlist of what is safe to SKIP, not a list of what to build:
+  # anything unrecognised (EmotePurge.Core, EmotePurge.Infrastructure, .dockerignore, .github/**,
+  # a new top-level file) falls through to building both. A path added later is therefore
+  # over-built, never silently skipped — the failure mode that matters is prod running a stale
+  # worker, and the harness entrypoint of #69 rides on the same image.
+  changes:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.classify.outputs.matrix }}
+      any: ${{ steps.classify.outputs.any }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The diff below needs the pushed-from commit, which the default depth-1 checkout omits.
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          # Via env, not inline ${{ }}, so the shell never re-parses interpolated text.
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          build_api=true
+          build_worker=true
+          reason="fail-safe default (no usable diff base)"
+
+          # workflow_dispatch has no before-SHA, and a push can carry the all-zero one (branch
+          # created, or force-pushed over a deleted history). Both keep the default above: an
+          # undecidable diff must over-build, never skip.
+          if [ "$EVENT_NAME" = "push" ] \
+            && [ -n "$BEFORE_SHA" ] \
+            && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] \
+            && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+
+            # --no-renames on purpose: with rename detection a file moved out of EmotePurge.Core
+            # into EmotePurge.Worker would be reported under its new path only, and the Api — which
+            # just lost a Core file — would be classified as unaffected. Listing both sides makes
+            # the old location count too.
+            changed=$(git diff --name-only --no-renames "$BEFORE_SHA" "$AFTER_SHA")
+
+            build_api=false
+            build_worker=false
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              case "$file" in
+                web/*|src/EmotePurge.Api/*) build_api=true ;;
+                src/EmotePurge.Worker/*) build_worker=true ;;
+                # Copied into neither image; docs/** and *.md only ever arrive mixed into a code
+                # push, since paths-ignore already drops the pure ones before the workflow starts.
+                tests/*|docs/*|*.md) ;;
+                *)
+                  build_api=true
+                  build_worker=true
+                  ;;
+              esac
+            done <<< "$changed"
+
+            reason="diff ${BEFORE_SHA}..${AFTER_SHA}"
+            echo "Changed files:"
+            echo "$changed" | sed 's/^/  /'
+          fi
+
+          entries=""
+          if [ "$build_api" = true ]; then
+            entries='{"image":"emotepurge-api","dockerfile":"src/EmotePurge.Api/Dockerfile"}'
+          fi
+          if [ "$build_worker" = true ]; then
+            if [ -n "$entries" ]; then
+              entries="${entries},"
+            fi
+            entries="${entries}"'{"image":"emotepurge-worker","dockerfile":"src/EmotePurge.Worker/Dockerfile"}'
+          fi
+
+          if [ -n "$entries" ]; then
+            any=true
+          else
+            any=false
+          fi
+
+          {
+            echo "matrix={\"include\":[${entries}]}"
+            echo "any=${any}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Images to publish"
+            echo ""
+            echo "- Basis: \`${reason}\`"
+            echo "- \`emotepurge-api\`: **${build_api}**"
+            echo "- \`emotepurge-worker\`: **${build_worker}**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish:
     # Tests gate every event; images are only ever published from main (push/manual), never from PRs.
-    if: github.event_name != 'pull_request'
-    needs: [test, test-web]
+    # The `any` guard covers the case where the push touched only paths that reach no image at all
+    # (a tests-only or mixed docs push): an empty matrix would otherwise fail the job outright.
+    if: github.event_name != 'pull_request' && needs.changes.outputs.any == 'true'
+    needs: [test, test-web, changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     strategy:
-      matrix:
-        include:
-          - image: emotepurge-api
-            dockerfile: src/EmotePurge.Api/Dockerfile
-          - image: emotepurge-worker
-            dockerfile: src/EmotePurge.Worker/Dockerfile
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
