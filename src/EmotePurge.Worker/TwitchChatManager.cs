@@ -522,7 +522,8 @@ public class TwitchChatManager(
             var tagBlock = IrcLineSpliceRule.TagBlockForLog(rawIrc);
 
             // No message text here on purpose (data minimisation) — the tag block alone is enough
-            // to diagnose the splice.
+            // to diagnose the splice. That holds for *foreign* text too: TagBlockForLog redacts the
+            // value of reply-parent-msg-body, which on a reply carries the parent message verbatim.
             logger.LogWarning(
                 "Gespleißte IRC-Zeile erkannt (#114) in Channel {Channel}, RoomId {RoomId}: {TagBlock}",
                 e.ChatMessage.Channel, e.ChatMessage.RoomId, tagBlock);

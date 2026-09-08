@@ -15,7 +15,10 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 **Betrifft:** `src/EmotePurge.Worker/ReconnectPolicy.cs` ·
 `src/EmotePurge.Worker/TwitchWatchdogPolicy.cs` ·
 `src/EmotePurge.Worker/TwitchConnectionWatchdog.cs` ·
-`src/EmotePurge.Worker/TwitchChatManager.cs` (`OnReconnected`, `IsClientSpent`) ·
+`src/EmotePurge.Worker/TwitchChatManager.cs` (`OnReconnected`, `IsClientSpent`, `OnMessageReceived`) ·
+`src/EmotePurge.Worker/IrcLineSpliceRule.cs` ·
+`tests/EmotePurge.Worker.Tests/IrcLineSpliceRuleTests.cs` ·
+`tests/EmotePurge.Worker.Tests/IrcLineSpliceRuleTwitchLibTests.cs` ·
 `src/EmotePurge.Worker/ITwitchChatManager.cs` ·
 `tests/EmotePurge.Worker.Tests/ReconnectPolicyTests.cs` ·
 `tests/EmotePurge.Worker.Tests/TwitchWatchdogPolicyTests.cs` ·
@@ -58,14 +61,38 @@ er wird nach einem Reconnect **ersetzt statt repariert**. Die alte Regel „nie 
 instanziieren" gilt unverändert; der Auslöser für einen Neuaufbau ist weiterhin ausschließlich
 eine Verbindungsentscheidung, nie ein Join.
 
-**Nachweisinstrument statt Vertrauen.** `IrcLineSpliceRule` erkennt eine gespleißte Zeile am
-zweiten `@` im Tag-Block der Rohzeile (`ChatMessage.RawIrcMessage` — der Plan nannte sie
-`RawIRC`, so heißt sie in TwitchLib.Client 4.0.1 nicht; nicht `UndocumentedTags`: liegt der
-Schnitt im Wert eines *typisierten* Tags, endet der Tag-Wert erst am nächsten `;`, das zweite `@`
-bleibt darin verschluckt und taucht nie als eigener Schlüssel auf — nur die Rohzeile ist
-vollständig, und genau das nagelt `IrcLineSpliceRuleTwitchLibTests` fest). Treffer werden gewarnt und je Flush summiert — **nie verworfen**: die Zählregel
-im laufenden #69-Messfenster bleibt unangetastet. Bekannte Untergrenze: ein Spleiß, der die Zeile
-unparsebar macht, erreicht `OnMessageReceived` nie und wird nicht gezählt.
+**Nachweisinstrument statt Vertrauen.** `IrcLineSpliceRule` erkennt eine gespleißte Zeile im
+Tag-Block der Rohzeile (`ChatMessage.RawIrcMessage` — der Plan nannte sie `RawIRC`, so heißt sie
+in TwitchLib.Client 4.0.1 nicht; nicht `UndocumentedTags`: liegt der Schnitt im Wert eines
+*typisierten* Tags, endet der Tag-Wert erst am nächsten `;`, das zweite `@` bleibt darin
+verschluckt und taucht nie als eigener Schlüssel auf — nur die Rohzeile ist vollständig, und genau
+das nagelt `IrcLineSpliceRuleTwitchLibTests` fest). Treffer werden gewarnt und je Flush summiert —
+**nie verworfen**: die Zählregel im laufenden #69-Messfenster bleibt unangetastet. Bekannte
+Untergrenze: ein Spleiß, der die Zeile unparsebar macht, erreicht `OnMessageReceived` nie und wird
+nicht gezählt.
+
+**Korrektur am selben Tag: ein bloßes zweites `@` ist nicht das Merkmal.** Die erste Fassung der
+Regel suchte genau das — und schlug damit auf **jeder Reply-Nachricht** an. Das IRCv3-Tag-Escaping
+ersetzt nur `;`, Leerzeichen, `\`, CR und LF; `@` bleibt unescaped. Twitch stellt in seiner
+Reply-Oberfläche jeder Antwort `@nutzername` voran und liefert den Elterntext wörtlich im Tag
+`reply-parent-msg-body` — eine gewöhnliche Reply trägt also `…;reply-parent-msg-body=@TestUser0\shallo;…`
+im Tag-Block. Drei Folgen: das Messinstrument maß die Reply-Quote statt des Spleißes (und damit
+war Task 6 des Plans nicht durchführbar), auf `Warning` floss das Log in jedem lebhaften Kanal
+über, und der geloggte Tag-Block gab **fremden Nachrichtentext** aus, obwohl der Kommentar daneben
+Datensparsamkeit zusicherte. Die geschärfte Regel verlangt zweierlei: (1) das `@` muss einen
+*neuen Tag-Block* eröffnen, also von einem nicht-leeren Tag-Schlüssel (`[A-Za-z0-9-]`, Twitch
+sendet nichts anderes) und einem `=` gefolgt sein — eine Erwähnung endet dagegen am Trennzeichen,
+ohne je ein `=` zu erreichen; (2) der Wert eines Freitext-Tags (Schlüssel auf `msg-body` endend)
+wird **ganz übersprungen**, denn er steht unter der Kontrolle eines Fremden und kann jede Form
+imitieren, auch `@badge-info=`. Dieselbe Ausnahme redigiert den Wert in `TagBlockForLog`
+(`reply-parent-msg-body=<entfernt>`), womit die Zusage im Code wieder stimmt. Preis: ein Spleiß,
+der ausgerechnet *in* einem Freitext-Wert landet, bleibt unsichtbar — bewusst, denn die Alternative
+wäre ein Sentinel, den jeder Chatter durch Tippen von `@badge-info=` auslösen kann. Die
+Untergrenze oben wird dadurch etwas größer, die Aussage „beweist die Existenz, misst nicht
+erschöpfend" bleibt. **Lehre, zum zweiten Mal in diesem Repo:** Code und Test teilten dieselbe
+falsche Annahme über ein Fremdformat und waren beide grün — belegt ist die neue Regel deshalb
+nicht durch die reinen Tests, sondern in `IrcLineSpliceRuleTwitchLibTests` an
+`IrcParser.ParseMessage` + `ChatMessage` der installierten TwitchLib.Client 4.0.1.
 
 **Freeze-Bezug.** Der Fix **umgeht** den Bibliotheksfehler, statt ihn zu beheben; die
 `TwitchLib.*`-`ignore`-Regel in `.github/dependabot.yml` bis zum Ende des bindenden #69-Laufs
