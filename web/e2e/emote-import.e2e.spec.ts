@@ -314,14 +314,23 @@ test.describe('push flow: picker to confirmation dialog', () => {
    * #80 review fix: a silent totals reload (`usage.flushed`/`channel.synced`, both routed through
    * `loadTotals(..., { preserveSelection: true })`) can drop a marked row out of `atlasOrder()` —
    * an emote archived on 7TV from outside this tab is the concrete cause, since the totals query
-   * filters `!e.IsArchived` — without touching `selection.selectedKeys()`, which `preserveSelection`
-   * only ever leaves alone. Before this fix the dock shortcut's count and lock followed that raw,
-   * now-stale key count: the label kept promising the old row count and the button stayed enabled,
-   * so a click ran straight into `openImportTarget`'s `captured.selection.length === 0` guard and
-   * did nothing — no dialog, no error, no feedback. This proves both the label and the lock now
-   * follow `importShortcutSelectionCount` (built on `selection.selectedItems()`) instead.
+   * filters `!e.IsArchived`. At the time of the #80 fix this happened without touching
+   * `selection.selectedKeys()`, which `preserveSelection` back then only ever left alone: the dock
+   * shortcut's count and lock followed that raw, now-stale key count, so the label kept promising
+   * the old row count and the button stayed enabled — a click ran straight into
+   * `openImportTarget`'s `captured.selection.length === 0` guard and did nothing, no dialog, no
+   * error, no feedback. The #80 fix put the label and the lock on `importShortcutSelectionCount`
+   * (built on `selection.selectedItems()`) instead, which is what kept a *partial* loss (see the
+   * `#94` block below) from relanding on that same silent-no-op.
+   *
+   * #94 went one step further and started pruning `selectedKeySet` itself
+   * (`ListSelection.retainAmong`) against the reload's payload, so the outcome asserted below is
+   * no longer a relocked "(0)" button — with the raw key count now also at zero, the dock's own
+   * mount condition (`actionDockHasContent`) is false and the whole dock, this button included,
+   * disappears. See the `#94` block for that mechanism's own coverage; this test only needs to
+   * keep proving the reload really happened (Pog survives, CatJAM does not).
    */
-  test('a live reload that archives every marked row relocks the dock shortcut instead of running silently into an empty capture', async ({
+  test('a live reload that archives every marked row makes the dock disappear instead of running silently into an empty capture', async ({
     page,
   }) => {
     await mockAuthMe(page, AUTH_USER);
@@ -353,12 +362,134 @@ test.describe('push flow: picker to confirmation dialog', () => {
     await expect(cell(page, 'Pog')).toBeVisible();
     await expect(cell(page, 'CatJAM')).toHaveCount(0);
 
-    // The raw selection is untouched by preserveSelection (still 2 keys — see the dock's own "2
-    // markiert", not asserted here since it is explicitly out of scope for this fix), but neither
-    // marked row resolves against the reloaded grid any more, so the shortcut must show and enforce
-    // zero, not the stale two.
+    // Since #94, the raw selection no longer survives untouched: both marked keys are pruned, so
+    // the dock's own mount condition drops to false and the whole thing — not just this button — is
+    // gone, rather than sitting there relocked at "(0)".
     await expect(dockCopyButton(page, 2)).toHaveCount(0);
-    await expect(dockCopyButton(page, 0)).toBeDisabled();
+    await expect(page.getByRole('button', { name: /^Übertragen \(\d+\)$/ })).toHaveCount(0);
+  });
+});
+
+/**
+ * #94: the #80 fix above made the dock shortcut's own count/lock follow `selectedItems()`, but left
+ * the underlying `selectedKeySet` — and therefore the dock's own "N markiert" line — holding a key
+ * for a row that no longer exists. This block covers the actual fix: a silent, `preserveSelection`d
+ * reload now prunes `selectedKeySet` itself (`ListSelection.retainAmong`, against the reload's raw,
+ * unfiltered payload) and surfaces what it dropped as a `role="status"` notice next to the emote
+ * count — placed there, not in the dock, because the dock unmounts outright once nothing remains
+ * selected, which is exactly the case the second test below pins down. Reuses this file's own
+ * `mockWorkspace`/`gotoUsageStats`/`cell`/`dockCopyButton` helpers and the same silent-reload
+ * mechanism as the #80 test (re-registering `/usage-stats/totals` before `emitLive`), since both
+ * exercise the identical `loadTotals(..., { preserveSelection: true, silent: true })` path.
+ */
+test.describe('silent reload: selection reconciliation feedback (#94)', () => {
+  // `role="status"` is not in the "name from content" category of the ARIA accessible-name spec —
+  // Chromium's accessibility tree gives this element an EMPTY computed name despite its visible
+  // text, so `getByRole('status', { name })` can never match it (confirmed against this exact
+  // element: a bare `getByRole('status')` query lists it with its full text, but the same query
+  // with any `name` — regex, substring, or the exact string — returns zero). `usage-atlas.e2e.spec.ts`
+  // already establishes the fix for this shape: match the role, then `.filter({ hasText })` on the
+  // DOM text content instead of the computed name. Matches both the singular and plural translation
+  // without depending on which one fired — the exact wording is covered by the unit tests
+  // (usage-stats-page.spec.ts), this only needs to identify the notice among the page's other
+  // role="status" elements (the emote-count line never contains this phrase).
+  const prunedNotice = (page: Page) =>
+    page.getByRole('status').filter({ hasText: 'aus der Auswahl entfernt' });
+
+  test('a silent reload that drops one of several marked rows shows the notice and lowers the dock count by one', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    // All three rows marked, none left as an unmarked witness — the point here is the count
+    // dropping by exactly one, not which row keeps standing (that's the other test below).
+    await cell(page, 'CatJAM').click();
+    await cell(page, 'KEKW').click({ modifiers: ['Shift'] });
+    await cell(page, 'Pog').click({ modifiers: ['Shift'] });
+    await expect(dockCopyButton(page, 3)).toBeEnabled();
+    await expect(prunedNotice(page)).toHaveCount(0);
+
+    // Re-registering the same route wins over mockWorkspace's earlier one (see the #80 test above):
+    // the next totals fetch answers as if KEKW had just been removed from outside this tab.
+    await mockUsageTotals(page, SOURCE_CHANNEL, [SOURCE_EMOTES[0], SOURCE_EMOTES[2]]);
+    await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
+    await page.clock.runFor(1_500);
+
+    await expect(prunedNotice(page)).toBeVisible();
+    // The dock count follows the now-pruned selectedKeySet, not just importShortcutSelectionCount:
+    // three markiert rows become two, and no stale "(3)" button lingers behind it.
+    await expect(dockCopyButton(page, 2)).toBeEnabled();
+    await expect(dockCopyButton(page, 3)).toHaveCount(0);
+  });
+
+  /**
+   * The case the notice's placement exists for: mark exactly one row, have the silent reload
+   * remove precisely that one, and the dock — bound to a now-empty selection — unmounts entirely.
+   * Proven via two independent controls the dock carried (the shortcut button and, since the
+   * source channel's broadcaster can manage it, the vote-session button) rather than one, so this
+   * is evidence the whole dock is gone and not just that one button's label stopped matching.
+   */
+  test('a silent reload that removes the only marked row still shows the notice after the dock unmounts', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    await cell(page, 'CatJAM').click();
+    await expect(dockCopyButton(page, 1)).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^Zur Abstimmung stellen/ })).toBeVisible();
+
+    // CatJAM — the only marked row — is gone from the next totals answer; KEKW and Pog remain.
+    await mockUsageTotals(page, SOURCE_CHANNEL, [SOURCE_EMOTES[1], SOURCE_EMOTES[2]]);
+    await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
+    await page.clock.runFor(1_500);
+
+    // The dock is gone outright — both of its controls, not merely relocked at zero.
+    await expect(page.getByRole('button', { name: /^Übertragen \(\d+\)$/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Zur Abstimmung stellen/ })).toHaveCount(0);
+    // ...yet the reconciliation notice survives it, because it was never inside the dock.
+    await expect(prunedNotice(page)).toBeVisible();
+  });
+
+  test('a silent reload that loses nothing selected shows no notice', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.clock.install();
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    await cell(page, 'CatJAM').click();
+    await expect(dockCopyButton(page, 1)).toBeEnabled();
+
+    // Same three rows come back unchanged — a flush with nothing archived in between.
+    await mockUsageTotals(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
+    await page.clock.runFor(1_500);
+
+    await expect(dockCopyButton(page, 1)).toBeEnabled();
+    await expect(prunedNotice(page)).toHaveCount(0);
   });
 });
 
