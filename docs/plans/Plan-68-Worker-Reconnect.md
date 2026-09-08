@@ -340,7 +340,13 @@ grün; die volle Suite fährt Task 8. Task 0 berührt das Repo nicht.
   unbelegt), eine `NOTICE`, ein Verbindungsabbruch, oder ein stiller Drop?
 - **F2 — die Decke.** Gilt die Decke von 100 gleichzeitig gejointen Chatrooms für eine anonyme
   Verbindung? Das Konzept führt sie in 4.5 und 7.2 als bleibende Grenze; gemessen ist sie für
-  `justinfan` nicht.
+  `justinfan` nicht. **Geltungsbereich, der in jeden Satz über F2 gehört:** Die Sonde verbindet
+  anonym. Sie kann zeigen, **ob** Twitch die Decke durchsetzt und **wie** sie sich meldet — sie
+  belegt **nicht**, dass für einen benannten Account dasselbe gilt. Das ist die zweite offene Frage
+  aus #68 (hängt die Grenze am Account oder an der Client-ID?), und die Sonde beantwortet sie nicht.
+  Ein benannter Gegentest ist seit dem 2026-09-08 technisch möglich (Account `EmotePurgeBot` mit 2FA
+  besteht), gehört aber nicht in diesen Task: der Worker verbindet weiterhin anonym, und das ändert
+  sich frühestens nach dem 2026-10-08.
 - **F3 — Flapping (Konzept 7.8).** Lehnt Twitch schnell wiederholte anonyme Verbindungsaufbauten
   ab, und ab welcher Rate? Die Zuschreibung vom 2026-07-27 ist überholt; es gibt keinen belegten
   Fall.
@@ -383,7 +389,7 @@ vor jedem Schritt gilt:
 | 2 | 40 | Queue | F1 |
 | 3 | 60 | Queue | F1 |
 | 4 | 100 | **gedrosselt 600 ms** | F2 — gedrosselt, damit die Decke von der Rate getrennt ist (≈ 60 s für 100 JOINs, unter 20/10 s) |
-| 5 | 120 | gedrosselt 600 ms | F2 über der Decke |
+| 5 | 120 | gedrosselt 600 ms | F2 über der Decke — Ergebnis gilt **anonym**, s. Geltungsbereich bei F2 |
 
 Je Stufe eine **frische** Verbindung; zwischen den Stufen Verbindung trennen und **≥ 2 min** warten.
 **Abbruchkriterium:** sobald in einer Stufe ein JOIN binnen 10 s unbestätigt bleibt, eine `NOTICE`
@@ -407,7 +413,9 @@ weiter zu probieren (Projektnotiz vom 2026-08-30).
   (Position in der Sendefolge — die ersten? die letzten? verstreute?), ob die Verbindung stand
   (nächste Server-Nachricht nach dem Ereignis, mit Zeit), ob eine Bestätigung später doch kam.
 - F2, Decke **gilt nicht** (oder liegt höher): 120 von 120 bestätigt, bei nachweislich ≤ 20 JOINs je
-  10-s-Fenster (die Drosselung isoliert die Frage).
+  10-s-Fenster (die Drosselung isoliert die Frage). **Dieser Satz wird nur mit seinem Geltungsbereich
+  notiert** — „für eine anonyme Verbindung von einer Wohn-IP, an diesem Tag". Ohne ihn wird daraus
+  später versehentlich „die Decke ist kein Problem", und genau das trägt der Beleg nicht.
 - F2, Decke **gilt:** JOIN #101 (und folgende) ohne `366` **und** die Kontrolle: nach `PART` von
   fünf bestätigten Kanälen werden fünf neue JOINs bestätigt (es war der Bestand, nicht die Rate) —
   oder eine `NOTICE`, wörtlich.
@@ -425,7 +433,9 @@ weiter zu probieren (Projektnotiz vom 2026-08-30).
    Tabellen der gefahrenen Stufen, das größte 10-s-Fenster je Stufe, welche Stufen ungemessen blieben
    und warum, das Rohlog als Anhang oder Pfad. Dazu die Einordnung: **ein Datenpunkt von einer
    Wohn-IP, gültig nur für den anonymen Betrieb** — bei einem Wechsel auf einen benannten Bot-Account
-   (#125) ist die Messung **neu zu erheben**, weil Twitch die Limits als Account-Limits dokumentiert.
+   ist die Messung **neu zu erheben**, weil Twitch die Limits als Account-Limits dokumentiert. Ob sie
+   am Account oder an der Client-ID hängen, ist die zweite offene Frage aus #68 und bleibt nach dieser
+   Sonde offen; sie ist mit `EmotePurgeBot` messbar, aber nicht in diesem Task.
 2. Der Befund sagt **ausdrücklich**, ob und wie er verändert: (a) **Konzept 7.2 / `WorkerCapacity.cs:26`**
    — bleibt die 20 mit der neuen Begründung aus Task 7 (lineare Rejoin-Dauer, Decke, 7TV-Grenze),
    oder gibt es eine gemessene Zahl, die die Begründung ersetzt; (b) **R3 in Abschnitt 5** — ist der
