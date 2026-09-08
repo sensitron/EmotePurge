@@ -55,6 +55,26 @@ public class TwitchReconnectBackoffPolicyTests
     }
 
     [Fact]
+    public void NextDelay_AtCap_LowerBandReflectsUncappedRawBeforeJitter()
+    {
+        // Regression for jitter-before-cap (plan 2.4): at the fifth failure the raw value is 32s,
+        // so the correct lower-band bound is 32 * 0.8 = 25.6s. Capping to 30s *before* jitter — the
+        // defect this guards against — would have produced 30 * 0.8 = 24s instead. Fact 3 above
+        // (factor 1.0 -> exactly 30s) stays valid either way: upper-band jitter always exceeds the
+        // cap and collapses to the same clamped value regardless of which side capping happens on.
+        var policy = new TwitchReconnectBackoffPolicy(() => 0.0);
+
+        for (var i = 0; i < 4; i++)
+        {
+            policy.NextDelay(Failed());
+        }
+
+        var fifth = policy.NextDelay(Failed());
+
+        Assert.Equal(TimeSpan.FromSeconds(25.6), fifth);
+    }
+
+    [Fact]
     public void NextDelay_BelowCap_JitterStaysWithinTwentyPercentBand()
     {
         var low = new TwitchReconnectBackoffPolicy(() => 0.0).NextDelay(Failed());

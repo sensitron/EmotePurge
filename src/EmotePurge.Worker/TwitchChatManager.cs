@@ -589,17 +589,26 @@ public class TwitchChatManager(
     /// slot's generation rule (plan 7, PG1) would admit precisely the straggler of the replaced
     /// client that it exists to discard. A generation fixed at wiring time cannot drift.
     /// </para>
+    /// <para>
+    /// <b>The rule for every handler added here, going forward.</b> Every handler that touches
+    /// manager state checks its bound identity first — before any field write and before any log
+    /// line, mirroring the guard below — and returns on mismatch; a handler that only logs, or
+    /// only records a fact about Twitch itself rather than about this connection's identity (a
+    /// received frame, a chat message someone actually sent), does not need the check. Three
+    /// defects in this file so far were all the same shape: a handler that either skipped the
+    /// check entirely, or ran it only after already mutating the state it was meant to guard.
+    /// </para>
     /// </summary>
     private void WireUpClient(TwitchClient client, int generation)
     {
         client.Initialize(new ConnectionCredentials()); // anonym/read-only
 
-        var connected = Bind<OnConnectedEventArgs>(_ => OnConnected());
+        var connected = Bind<OnConnectedEventArgs>(_ => OnConnected(client, generation));
         var reconnected = Bind<OnConnectedEventArgs>(_ => OnReconnected(client, generation));
         var disconnected = Bind<OnDisconnectedArgs>(_ => OnDisconnected(client, generation));
         var joinConfirmationFailed = Bind<OnFailureToReceiveJoinConfirmationArgs>(OnFailureToReceiveJoinConfirmation);
         var connectionError = Bind<OnConnectionErrorArgs>(e => OnConnectionError(client, generation, e));
-        var joinedChannel = Bind<OnJoinedChannelArgs>(OnJoinedChannel);
+        var joinedChannel = Bind<OnJoinedChannelArgs>(e => OnJoinedChannel(client, generation, e));
         var leftChannel = Bind<OnLeftChannelArgs>(OnLeftChannel);
         var messageReceived = Bind<OnMessageReceivedArgs>(OnMessageReceived);
         var sendReceiveData = Bind<OnSendReceiveDataArgs>(OnSendReceiveData);
@@ -641,8 +650,25 @@ public class TwitchChatManager(
     /// </summary>
     private void UnwireClient() => _unwireCurrentClient?.Invoke();
 
-    private Task OnConnected()
+    private Task OnConnected(TwitchClient source, int generation)
     {
+        // Bound identity, same as every other handler below — but the guard here cannot go through
+        // SignalFromHandler: this handler doesn't signal, it *sets* the very fields
+        // SignalFromHandler's second check reads (_sessionStartedUtcTicks), so it must decide on
+        // its own and before touching anything. The straggler this closes: OpenAndAwaitHandshakeAsync
+        // gives up on HandshakeTimeout (10s) while the old client's socket can still be alive
+        // underneath, and its late "004" would otherwise land on whatever _handshakeSource and
+        // _sessionStartedUtcTicks hold *now* — the successor's — completing a handshake the
+        // successor never actually saw and reporting a rebuild as successful against a connection
+        // that isn't up.
+        if (!ReferenceEquals(source, _client))
+        {
+            logger.LogDebug(
+                "OnConnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
+                generation);
+            return Task.CompletedTask;
+        }
+
         SetConnected(true);
         Interlocked.Exchange(ref _sessionStartedUtcTicks, DateTime.UtcNow.Ticks);
         logger.LogInformation("TwitchClient verbunden.");
@@ -658,6 +684,21 @@ public class TwitchChatManager(
 
     private Task OnDisconnected(TwitchClient source, int generation)
     {
+        // Identity first, before any state change or log line (same rule as OnConnected and
+        // OnJoinedChannel): this handler flips the connection-wide flag and unconfirms every
+        // channel, so a straggler from a replaced-but-still-delivering client must never reach
+        // either — it would otherwise report an intact, rejoined connection as lost (TryJoinAsync
+        // starts deferring every JOIN, TwitchWatchdogPolicy.Decide sees isConnected: false and can
+        // trip the backstop, and the rejoin round's K figure goes positive against a connection
+        // that never actually failed).
+        if (!ReferenceEquals(source, _client))
+        {
+            logger.LogDebug(
+                "OnDisconnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
+                generation);
+            return Task.CompletedTask;
+        }
+
         // Without a log line here a silent drop (a Twitch-side PING timeout, say) would freeze chat
         // matching for every channel without a trace. Marking the channels unconfirmed lets the
         // rejoin round and EnsureJoinedAsync verify them again.
@@ -698,6 +739,19 @@ public class TwitchChatManager(
 
     private Task OnReconnected(TwitchClient source, int generation)
     {
+        // Identity first, before any state change or log line — same rule as OnDisconnected above,
+        // mirror-imaged: a straggler here would report a dead connection as up. "Must never fire"
+        // is not a reason to skip this guard; the tripwire has already been silently blind to a
+        // wrong sender once (the sender-defekt this whole audit traces back to), and this is the
+        // one handler where a false positive is otherwise invisible.
+        if (!ReferenceEquals(source, _client))
+        {
+            logger.LogDebug(
+                "OnReconnected eines bereits ersetzten TwitchClient (Client #{Generation}) ignoriert.",
+                generation);
+            return Task.CompletedTask;
+        }
+
         // Tripwire. With NoReconnectionPolicy this cannot fire: RaiseReconnected sits behind a
         // successful OpenPrivateAsync(isReconnect: true), whose retry loop runs zero times because
         // Reset(true) does not clear the attempt counter — the call raises OnFatality instead and
@@ -715,8 +769,23 @@ public class TwitchChatManager(
         return Task.CompletedTask;
     }
 
-    private Task OnJoinedChannel(OnJoinedChannelArgs e)
+    private Task OnJoinedChannel(TwitchClient source, int generation, OnJoinedChannelArgs e)
     {
+        // Same defect class as OnConnected, on a different field: _desiredChannels is keyed by
+        // channel name only, not by client, so a stale confirmation from an abandoned-but-still-
+        // delivering socket would mark the channel confirmed for the *current* client without it
+        // ever having joined. Unlike OnFailureToReceiveJoinConfirmation below (log only), a
+        // wrongly-set true here is load-bearing: EnsureJoinedAsync trusts it and stops retrying,
+        // and AllConfirmed/WaitForJoinConfirmationsAsync would call the rejoin round done while the
+        // new client's own join for that channel is still outstanding or has actually failed.
+        if (!ReferenceEquals(source, _client))
+        {
+            logger.LogDebug(
+                "Channel {Channel} gejoint (Client #{Generation}) — bereits ersetzter Client, verworfen.",
+                e.Channel, generation);
+            return Task.CompletedTask;
+        }
+
         // Only a confirmed join stops EnsureJoinedAsync from retrying it every minute. TryUpdate
         // deliberately does not insert: a confirmation arriving after a leave must not resurrect
         // the channel as desired.

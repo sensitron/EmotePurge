@@ -139,8 +139,15 @@ public sealed class TwitchReconnectBackoffPolicy(Func<double>? jitter = null)
         // streak (plan 1.3, point 4/11) — only Reset via a completed session does that.
         _failureStreak = Math.Min(_failureStreak + 1, MaxFailureStreak);
 
+        // Uncapped on purpose (plan 2.4: "Jitter ± 20 % auf den Rohwert, danach auf 30 s gekappt").
+        // Capping the raw value here first would shrink the jittered band itself: at the fifth
+        // failure the raw value is 32s, so the correct band is 25.6s-30s (32 * 0.8, then capped by
+        // Jittered) — capping to 30s before jitter narrowed it to 24s-30s (30 * 0.8), 1.6s too
+        // aggressive at the lower bound. No overflow risk: the exponent is bounded by
+        // MaxFailureStreak (5) at 4, and BaseDelay.Ticks (2s = 20,000,000 ticks) << 4 is
+        // 320,000,000 — far below long's ~9.2 * 10^18 range.
         var exponent = _failureStreak - 1;
-        var raw = TimeSpan.FromTicks(Math.Min(BaseDelay.Ticks << exponent, MaxDelay.Ticks));
+        var raw = TimeSpan.FromTicks(BaseDelay.Ticks << exponent);
         var delay = Jittered(raw);
 
         if (_shortSessionStreak >= FlapDampeningThreshold && delay < FlapFloor)
