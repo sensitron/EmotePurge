@@ -770,8 +770,10 @@ export async function mockActiveEmoteSet(
     syncFailureReason?: string | null;
     lastSyncAttemptAtUtc?: string | null;
     // Default null, matching today's behaviour for every existing caller that does not set it: no
-    // bot ever seen, no caption.
+    // bot ever seen, no caption. The same holds for the shared-chat date below — no mirrored
+    // message ever seen, so no shared-chat sentence.
     botsExcludedSince?: string | null;
+    sharedChatSeparatedSince?: string | null;
   } = {},
 ): Promise<void> {
   await page.route(`**/api/channels/${channelName}/emotes/active-set`, (route) =>
@@ -783,6 +785,7 @@ export async function mockActiveEmoteSet(
       syncFailureReason: status.syncFailureReason ?? null,
       lastSyncAttemptAtUtc: status.lastSyncAttemptAtUtc ?? null,
       botsExcludedSince: status.botsExcludedSince ?? null,
+      sharedChatSeparatedSince: status.sharedChatSeparatedSince ?? null,
     }),
   );
 }
