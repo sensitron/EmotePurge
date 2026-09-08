@@ -32,10 +32,16 @@ der seit 2026-07-26 produktiv ist), nie ein Reconnect am selben Objekt — Letzt
 Der Watchdog behält genau eine Aufgabe: das Netz gegen stille Verbindungen (15 min ohne Frame), und
 er wird zum Träger der neuen Wiederaufbau-Schleife.
 
-Zielzahlen, gegen die später gemessen wird (Abschnitt 3.6): **Verbindung steht ≤ 3 s** nach dem
-Verlust, **erster JOIN ≤ 4 s**, **letzter von N Kanälen ≤ 4 s + 0,6 s × (N − 1)** — bei 13 Kanälen
-also ≈ 11 s, bei 20 ≈ 15,5 s. Heute (seit #114) sind es pro Ereignis **zwei** Lücken statt einer,
-und die zweite davon ist ohnehin der Recreate, den dieses Papier zum einzigen Weg macht.
+Zwei Zielgrößen, gegen die später gemessen wird (Abschnitt 3.6): **SLO-1, Verlust → `004`**
+(Verbindung steht): Median ≤ 3 s, p95 ≤ 5 s, harte Schranke 25 s je Versuch — diagnostisch.
+**SLO-2, Verlust → letzte Join-Bestätigung (`OnJoinedChannel`) aller N gewünschten Kanäle:
+≤ 6 s + 0,6 s × (N − 1)**, bei 13 Kanälen also ≤ 13,2 s, bei 20 ≤ 17,4 s, und **null
+unbestätigte Kanäle** am Ende der Runde — SLO-2 trägt das Abbruchkriterium, weil es die
+Wiederaufnahme der Zählung misst, nicht das Senden. Heute (seit #114) sind es pro Ereignis
+**zwei** Lücken statt einer, und die zweite davon ist ohnehin der Recreate, den dieses Papier zum
+einzigen Weg macht. Die Fassung vom Abend des 2026-09-08 hatte nur eine Zielgröße (Verlust →
+letzter gesendeter JOIN); die Gegenrede hat sie zu Recht als Messung des Sendens statt der
+Zählung verworfen (Abschnitt 10).
 
 Der wichtigste Nebenbefund, der in keiner der beiden Untersuchungen stand: **unser gedrosselter
 Rejoin läuft heute inline in der Lese-Schleife des frischen Clients** — `Handle004` awaitet unser
@@ -254,14 +260,22 @@ Einmal pro Versuch, unter dem bestehenden `_reconnectLock`:
    einsetzen, `_joinsIssuedForCurrentClient = 0`.
 4. **Öffnen:** `ConnectAsync()`. Mit `NoReconnectionPolicy` ist das **genau ein** Versuch, durch
    TwitchLibs `TimeOutEstablishConnection` = 15 s beschränkt (belegt). Rückgabe `false` oder
-   Exception = Fehlschlag.
+   Exception = Fehlschlag. Gewartet wird mit `WaitAsync(stoppingToken)`: TwitchLibs Connect ist
+   nicht abbrechbar, er wird beim Shutdown **verlassen**, nicht abgewartet — der halbfertige Client
+   wird wie in Schritt 2 im Hintergrund verworfen.
 5. **Auf den Handshake warten:** `OnConnected` (`Handle004`) binnen 10 s nach erfolgreichem
-   Öffnen, sonst Fehlschlag (Signal „Handshake nicht abgeschlossen"). Der Handler selbst tut nur
-   noch: `_isConnected = true`, Zeitstempel, ein `TaskCompletionSource` erfüllen. **Kein Rejoin
-   im Handler** (E2).
-6. **Erfolg:** Streak an die Backoff-Policy melden, Zustand `Rejoining`, dann
-   `RejoinDesiredChannelsAsync` aus der Schleife heraus (Abschnitt 3.5).
-7. **Fehlschlag:** Streak erhöhen, `NextDelay` abwarten (abbrechbar durch Shutdown), zurück zu 1.
+   Öffnen, sonst Fehlschlag (Signal „Handshake nicht abgeschlossen"); ebenfalls auf dem
+   Stopping-Token. Der Handler selbst tut nur noch: `_isConnected = true`, Zeitstempel, ein
+   `TaskCompletionSource` erfüllen. **Kein Rejoin im Handler** (E2).
+6. **Erfolg:** Streak an die Backoff-Policy melden (Streak → 0 beim `004`, Abschnitt 3.6),
+   Zustand `Rejoining`, dann `RejoinDesiredChannelsAsync(stoppingToken)` aus der Schleife heraus
+   (Abschnitt 3.5).
+7. **Fehlschlag:** Streak erhöhen, `NextDelay` abwarten (auf dem Stopping-Token), zurück zu 1.
+
+**Shutdown-Zusage der Sequenz:** Jeder wartende Schritt — 4, 5, 6, 7 und das `_joinGate` in
+`TryJoinAsync` — nimmt das Stopping-Token. `TwitchConnectionWatchdog.StopAsync` kehrt damit
+**≤ 1 s** nach dem Token zurück, unabhängig davon, in welchem Zustand die Sequenz steht.
+Warum das eine Zusage und keine Selbstverständlichkeit ist, steht in 4.6 (Wechselwirkung mit #122).
 
 Damit entfallen: `OpenWaitTimeout` (30 s) samt `ObserveInBackground`/`LogOpenStillRunning` — ein
 Versuch endet jetzt beweisbar binnen ~15 s + 10 s —, der `Wait`-Zweig mit `StuckOpenThreshold`,
@@ -295,10 +309,23 @@ Folgen heute (**plausibel**, aus dem Binärstand abgeleitet, live nicht gemessen
   die Warnung „Twitch hat den Join für … nicht bestätigt" heute nicht bedeutet, was sie sagt.
 
 Vertrag neu: Der Rejoin ist **Schritt 6 der Recreate-Sequenz**, ausgeführt von der
-Wiederaufbau-Schleife, nicht vom Handler. `TryJoinAsync` bleibt unverändert (600-ms-Gate über alle
-Aufrufer). Die Runde bricht ab, sobald `_isConnected` falsch wird, statt N Warnungen „Join
-aufgeschoben" zu produzieren. Am Ende eine Information-Zeile mit Anzahl und Dauer — die Messgröße
-aus Abschnitt 6.
+Wiederaufbau-Schleife, nicht vom Handler. `TryJoinAsync` behält sein 600-ms-Gate über alle
+Aufrufer, bekommt aber zwei Änderungen: (1) das Token (Shutdown-Zusage aus 3.4) und (2) **nach**
+dem Erwerb des Gates, unmittelbar vor dem Senden, eine erneute Prüfung, ob der Kanal noch in
+`_desiredChannels` steht — sonst kein JOIN (Grenzfall 4.5). Die Runde bricht ab, sobald
+`_isConnected` falsch wird oder das Token feuert, statt N Warnungen „Join aufgeschoben" zu
+produzieren.
+
+**Was `TryJoinAsync` nicht weiß — und die Abschlusszeile deshalb wissen muss.** `TryJoinAsync`
+kehrt zurück, wenn TwitchLibs `JoinChannelAsync` zurückkehrt, und das ist **nach dem Senden oder
+nach dem Einreihen**, nie nach der Bestätigung (belegt: `QueueingJoinCheckAsync` awaitet nur
+`SendAsync`; ein Sendefehler wird von TwitchLib als `false` verschluckt). Eine Zeile „Rejoin
+abgeschlossen: N" nach der letzten Rückkehr bewiese also nur, dass N Aufrufe stattgefunden haben.
+Vertrag: Die Runde wartet nach dem letzten Aufruf **bis zu 5 s** (die Timeout-Spanne von TwitchLibs
+`_joinTimer`) auf die Bestätigungen und loggt dann „Rejoin abgeschlossen: N gewünscht, M bestätigt,
+K offen, T s seit Verlust" — mit **Warning statt Information, sobald K > 0**. K ist die Zahl, die
+SLO-2 (Abschnitt 3.6) verlangt; die K offenen Kanäle bleiben unbestätigt in `_desiredChannels`
+und werden von `EnsureJoinedAsync` ≤ 60 s später nachgeholt, wie heute — aber jetzt **sichtbar**.
 
 Was das für den 2026-07-30-Messwert heißt: „alle 25 im 600-ms-Takt sauber gejoint" wurde über den
 `EnsureJoinedAsync`-Pfad gemessen, der **nicht** in der Lese-Schleife läuft. Der Rejoin-Pfad nach
@@ -312,20 +339,33 @@ einem Recreate wurde nie einzeln vermessen; Abschnitt 6 holt das nach.
 | Basis nach Fehlschlag | **2 s**, verdoppelnd | Wie `SevenTvBackoffPolicy` (`BaseDelay = 2 s`) — dasselbe Muster, damit ein Leser im Repo nur eine Kurve kennen muss. |
 | Deckel | **30 s** | Der Deckel ist die **maximale zusätzliche Zähllücke nach Ende eines Twitch-Ausfalls**: kommt Twitch zurück, merken wir es spätestens nach einem Deckel-Intervall plus Versuchsdauer. TwitchLib fuhr 30 s, und das hat auf Twitch nie Ärger gemacht. `SevenTvBackoffPolicy` nimmt 60 s — dort kostet ein 7TV-Ausfall keine Zählung (der REST-Resync deckt ihn). Bewusst abweichend. |
 | Exponent-Deckel | 5 (2 → 4 → 8 → 16 → 30) | Streak-Zähler wächst nicht unbegrenzt (wie `MaxFailureStreak` in 7TV). |
-| Jitter | ± 20 % | Wie 7TV; ein zweiter Worker (Harness, künftiges Sharding) soll nicht im Gleichschritt wiederkommen. |
+| Jitter | ± 20 %, **am Deckel gekappt** | Wie 7TV; ein zweiter Worker (Harness, künftiges Sharding) soll nicht im Gleichschritt wiederkommen. Gekappt heißt: der Jitter wird auf den Rohwert angewandt und das Ergebnis auf 30 s begrenzt — 30 s ist ein echter Deckel, nicht 36 s. |
 | Versuchsobergrenze | **keine** | S2-1-Lehre: ein still erschöpftes Budget hat die Verbindung am 2026-07-26 für > 45 min gekostet. |
-| **Reset-Bedingung** | Streak → 0, wenn eine Sitzung **≥ 60 s** bestanden hat (Handshake bis Verlust) | Nicht schon beim Handshake: Am 2026-07-26 kippten Reconnects im Minutentakt ab dem dritten auf „Fatal network error" (DECISIONS 2026-07-27) — eine flappende Verbindung darf den Backoff nicht bei jedem kurzen Erfolg auf 0 zurücksetzen. Eine Sitzung < 60 s zählt für den nächsten Delay wie ein Fehlschlag. |
+| **Reset-Bedingung** | Streak → 0 **beim Handshake (`004`)** | Der Streak zählt **Fehlversuche**, nichts anderes. Eine erfolgreich aufgebaute Sitzung, die kurz danach wieder abreißt, ist kein Fehlversuch — sie eskaliert den Fehlversuchs-Backoff nicht. Die erste Fassung dieses Papiers hatte hier eine 60-s-Stabilitätsregel (Sitzungen < 60 s zählten wie Fehlschläge); die Gegenrede hat vorgerechnet, dass anhaltendes Flapping damit 34–47 s Lücke je Ereignis kostete statt heute ~14 s, und die Regel stützte sich auf die Abuse-Hypothese vom 2026-07-27, die das Repo selbst am 2026-07-30 durch die Zehn-Versuche-Falle ersetzt hat (`TwitchChatManager.cs:573-581`). Gestrichen (Abschnitt 10, G1). |
+| **Flap-Dämpfung** (getrennt vom Backoff) | nach **3** aufeinanderfolgenden Sitzungen < 60 s: fester Boden **5 s** vor dem nächsten Aufbau; aufgehoben, sobald eine Sitzung ≥ 60 s hält | Ohne jede Dämpfung wäre eine Verbindung, die Twitch unmittelbar nach dem Handshake wieder trennt, eine Schleife mit ~2-s-Periode — ≈ 1.800 Aufbauten und Log-Zeilen pro Stunde. Fünf Sekunden begrenzen das auf ≤ 720/h und kosten im Flapping-Fall **5 s** je Ereignis statt bis zu 36 s. Kein Exponent, kein Wachstum: die Dämpfung ist eine Schranke gegen eine Schleife, kein zweiter Backoff. Die Zahl ist Vorsicht, nicht Kalibrierung (7.8). |
 
-Zeitleiste im Normalfall (ein Verlust, erster Versuch gelingt; **plausibel**, Messung in Abschnitt 6):
+**Zielgrößen** (zwei, getrennt — die erste Fassung hatte eine, und sie maß das Falsche):
+
+| | Was gemessen wird | Ziel | Rolle |
+|---|---|---|---|
+| **SLO-1** | Verlust (Zeitstempel des Signals) → `004` des neuen Clients | Median ≤ 3 s, p95 ≤ 5 s; harte Schranke 25 s je Versuch (15 s Connect + 10 s Handshake) | **diagnostisch** — sagt, ob eine Verfehlung von SLO-2 im Aufbau oder im Rejoin liegt |
+| **SLO-2** | Verlust → letzte Bestätigung (`OnJoinedChannel`) aller N zum Zeitpunkt des Verlusts gewünschten Kanäle, **und** K = 0 offene am Ende der Runde | ≤ **6 s + 0,6 s × (N − 1)**: N = 13 → 13,2 s; N = 20 → 17,4 s | **Abbruchkriterium** — lokal ein Merge-Blocker, wenn einer von fünf Läufen ihn reißt (6.3); auf Prod ein Rollback- bzw. Cooldown-Auslöser, wenn p95 über 24 h ihn reißt oder ein Wiederaufbau mit K > 0 endet (6.6) |
+
+Eine Verfehlung ist ein Befund, **kein Anlass, die Zahl zu korrigieren**. Wer eine Zielgröße
+ändert, tut das vor dem nächsten Lauf mit Begründung — wie T11/T12 an #69 —, nicht danach.
+
+Zeitleiste im Normalfall (ein Verlust, erster Versuch gelingt; **plausibel**, Messung in
+Abschnitt 6 — der Unterschied zwischen „plausibel" und der harten Schranke ist genau der Grund,
+warum SLO-1 eine Verteilung nennt und nicht einen Wert):
 
 | Schritt | Zeit ab Verlust t₀ |
 |---|---|
 | `OnDisconnected` (Fall A) / (Fall B) | ≈ 0,6 s / ≈ 0,4 s |
 | neuer Client geöffnet (TLS + WS) | ≈ 1,0–1,5 s |
-| `004` empfangen, `Connected` | **≈ 1,5–2,5 s** (Ziel: ≤ 3 s) |
-| erster JOIN gesendet | ≈ 2–3 s (Ziel: ≤ 4 s) |
-| JOIN für Kanal k (0-basiert) | ≈ 2–3 s + 0,6 s × k |
-| letzter von 13 / 20 Kanälen | ≈ 10–11 s / ≈ 14–15,5 s |
+| `004` empfangen, `Connected` | **≈ 1,5–2,5 s** (SLO-1) |
+| erster JOIN gesendet / bestätigt | ≈ 2–3 s / ≈ 2,2–3,5 s |
+| JOIN für Kanal k (0-basiert) bestätigt | ≈ 2,2–3,5 s + 0,6 s × k |
+| letzter von 13 / 20 Kanälen bestätigt | ≈ 10–11 s / ≈ 14–15,5 s (SLO-2: ≤ 13,2 / ≤ 17,4 s) |
 
 Zum Vergleich heute, seit #114, pro Ereignis (Fall B): Lücke 1 ≈ 1,5 s + Aufbau + 0,2 s × k;
 dann bis zu 60 s Doppelschleife; dann Lücke 2 ≈ 1,9 s + Aufbau + 0,6 s × k. Für k = 12 also
@@ -366,7 +406,7 @@ Nichts davon ausprogrammiert; Namen sind Vorschläge.
 
 | Klasse | Art | Test |
 |---|---|---|
-| `TwitchReconnectBackoffPolicy` (neu) | rein, uhr- und TwitchLib-frei; Eingang: Sitzungsergebnis (Handshake ja/nein, Sitzungsdauer, Grund), Ausgang: nächste Verzögerung; injizierbarer Jitter wie `SevenTvBackoffPolicy` | `tests/EmotePurge.Worker.Tests`: erster Delay 0; Verdopplung; Deckel 30 s; Exponent-Deckel; Jitter-Grenzen; Sitzung ≥ 60 s setzt zurück; Sitzung < 60 s eskaliert; Handshake-Timeout eskaliert |
+| `TwitchReconnectBackoffPolicy` (neu) | rein, uhr- und TwitchLib-frei; Eingang: Sitzungsergebnis (Handshake ja/nein, Sitzungsdauer, Grund), Ausgang: nächste Verzögerung; injizierbarer Jitter wie `SevenTvBackoffPolicy` | `tests/EmotePurge.Worker.Tests`: erster Delay 0; Verdopplung nur bei Fehlversuchen; Deckel 30 s **inklusive** Jitter; Exponent-Deckel; Handshake setzt den Streak zurück; kurze Sitzung eskaliert den Streak **nicht**; Flap-Boden 5 s ab der dritten kurzen Sitzung, aufgehoben nach einer Sitzung ≥ 60 s; Handshake-Timeout zählt als Fehlversuch |
 | `TwitchWatchdogPolicy` (geändert) | rein wie heute, ohne `clientSpent`, mit `reconnectInFlight` | bestehende Fälle minus zwei, plus „in flight → nichts" für beide Zweige |
 | `ReconnectPolicy` (entfällt) | — | Tests entfallen |
 | `TwitchChatManager` (Transport) | erhält: Signal-Quelle (koaleszierend, mit Grund), `ReconnectOnceAsync()` = Schritte 1–5, `RejoinDesiredChannelsAsync` öffentlich für die Schleife; verliert: `ForceReconnectAsync`-Entscheidung, `ReconnectClientAsync`, Open-Beobachtung | **keine Fake-Tests** (Regel 11/16: live verifiziert, Abschnitt 6) — Konsequenz für die Sonar-Schwelle in Abschnitt 8, R8 |
@@ -414,17 +454,43 @@ die Absicht ein, `TryJoinAsync` sieht `!_isConnected` → „Join aufgeschoben" 
 Information werden, weil es im neuen Modell ein erwarteter Zustand ist) → der Rejoin der laufenden
 Sequenz nimmt den Kanal mit, sofern er die Absicht **vor** dem Snapshot (`Keys.ToArray()`) sieht;
 sonst greift `EnsureJoinedAsync` ≤ 60 s später (unverändertes Netz). `LEAVE:` → Absicht wird
-entfernt, PART wird übersprungen; der neue Client joint ihn nie. Bekannte Restlücke, heute wie neu:
-ein `LEAVE`, das **nach** dem Snapshot, aber **vor** dem JOIN des Kanals eintrifft, führt zu einem
-ungewollten Join — `OnJoinedChannel` belebt die Absicht nicht wieder (`TryUpdate(true,false)`), der
-Match-Cache ist leer, es wird nichts gezählt, und der nächste Recreate räumt auf. Kein Handlungsbedarf.
+entfernt, PART wird übersprungen; der neue Client joint ihn nie. Ein `LEAVE`, das **nach** dem
+Snapshot (`Keys.ToArray()`), aber **vor** dem JOIN des Kanals eintrifft, würde ohne Gegenmaßnahme zu
+einem ungewollten Join führen — und der bliebe, bis der nächste Wiederaufbau ihn beseitigt, was Tage
+dauern kann; solange belegt der Kanal einen der 100 Chatroom-Plätze und wird von niemandem
+verlassen, weil `_desiredChannels` ihn nicht mehr kennt. Die erste Fassung hatte das als
+„Restlücke, kein Handlungsbedarf" abgetan; die Gegenrede hat zu Recht widersprochen (Abschnitt 10,
+G5). Vertrag: `TryJoinAsync` prüft **nach** dem Erwerb des `_joinGate`, unmittelbar vor dem Senden,
+ob der Kanal noch gewünscht ist (Abschnitt 3.5). Der Snapshot bleibt (die Runde muss über eine
+stabile Liste laufen), aber jeder einzelne JOIN wird gegen den aktuellen Wunschzustand entschieden.
+Was bleibt: ein `LEAVE`, das zwischen dieser Prüfung und dem Eintreffen des JOIN bei Twitch liegt
+(Millisekunden) — dann folgt der PART von `LeaveChannelAsync` selbst, weil `_isConnected` wahr ist.
 
-**4.6 Prozess-Shutdown mitten im Backoff.** Das Warten läuft auf dem Stopping-Token des Hosted
-Service → sofortiger Abbruch, kein neuer `ConnectAsync`, `Stopped`. Der aktuelle Client wird
-getrennt (heute gibt es keinen expliziten Trennpfad beim Shutdown; der Prozess endet einfach —
-ändert sich nur insofern, als kein Versuch mehr *gestartet* wird). Zusammenhang mit #122: das
-Grace-Budget (Docker-Default 10 s) ist eine Compose-Frage und nicht Teil dieses Konzepts; ein
-Backoff-Warten hält den Shutdown **nicht** auf, weil es abbrechbar ist.
+**4.6 Prozess-Shutdown — in jedem Zustand der Sequenz, nicht nur im Backoff.** Die erste Fassung
+hatte nur das Backoff-Warten als abbrechbar beschrieben; die Gegenrede hat die Lücke benannt
+(Abschnitt 10, G3): ein Connect kann 25 s dauern, ein Rejoin bei 20 Kanälen ≥ 11,4 s, und beides
+lief ohne Token. Das kollidiert mit #122 — und zwar in beide Richtungen:
+
+- Hosted Services stoppen sequenziell in umgekehrter Registrierungsreihenfolge
+  (`WorkerServiceRegistration.cs:54-62`; `ServicesStopConcurrently` ist nicht gesetzt). Der Watchdog
+  ist als fünfter registriert und stoppt damit **vor** `UsageFlushWorker` (zweiter). Jede Sekunde,
+  die sein `StopAsync` braucht, fehlt dem Abschluss-Flush.
+- Docker killt nach `stop_grace_period`, Default 10 s (#122). Ein Watchdog, der 25 s auf einen
+  Connect wartet, bedeutet: der Flush kommt **nie** dran — bis zu 30 s bereits gezählter Nutzung
+  gehen verloren, genau die Signatur des offenen Verdachts aus #97.
+- Das ist **heute schon so**: `CheckOnceAsync` awaitet `ForceReconnectAsync` → `RecreateClientAsync`
+  → `OpenAsync` bis zu 30 s ohne Token (`TwitchChatManager.cs:138-164`). Das Konzept erfindet das
+  Problem nicht, aber es hätte es ohne die Zusage aus 3.4 verlängert (Connect + Rejoin statt nur
+  Connect).
+
+Vertrag: Die Shutdown-Zusage aus 3.4 — `TwitchConnectionWatchdog.StopAsync` kehrt ≤ 1 s nach dem
+Token zurück, in jedem Zustand (Backoff, Connect, Handshake, Rejoin). Ein laufender Connect wird
+verlassen und der Client im Hintergrund verworfen; eine laufende Rejoin-Runde bricht ab (die
+restlichen Kanäle sind egal, der Prozess stirbt). Nachweis in 6.3, S6, in allen drei Zuständen.
+**Und** #122 gehört in denselben Deploy: `stop_grace_period ≥ 30 s`. Ohne die Zusage nützt das
+Grace-Budget wenig (25 + 12 s verbrauchten es vor dem Flush); ohne das Grace-Budget nützt die
+Zusage dem Flush nichts, wenn die übrigen sieben Dienste die 10 s aufbrauchen. Beides zusammen macht
+den Abschluss-Flush erst planbar.
 
 **4.7 Zwei Signale in kurzer Folge** (Fall A liefert bis zu zwei `OnDisconnected` plus ein
 `OnConnectionError` binnen 2,5 s). Koaleszenz: ein Signal-Slot mit Kapazität 1, neue Signale
@@ -451,8 +517,9 @@ mit.
 | dasselbe bei N = 20 / 30 | Lücke 1 ≈ 4–6 s mit Schwall über der 20/10-s-Grenze: zufällige Kanäle bis 60 s stumm (wenn Twitch durchsetzt); dann Lücke 2 ≈ 14 s / 20 s | ≈ 15 s / 21 s, kein Schwall | **besser** und **kalkulierbar**: die Lücke wächst linear mit N, statt an einer Grenze zu kippen |
 | stille Verbindung (Fall C) | 15 min + Recreate | 15 min + Recreate | **gleich** |
 | Twitch-Ausfall, Rückkehr nach T | ≤ 30 s (TwitchLib) bzw. bis 10 min (`Wait`-Zweig) | ≤ 30 s ± 20 % + Versuch | **gleich bis besser** |
-| flappende Verbindung (3 Verluste in 2 min) | 3 × (Lücke 1 + Lücke 2), dazu 2026-07-26-Risiko | Verluste 2 und 3 mit 2 s / 4 s Zusatz (Reset erst nach 60 s Stabilität) | **schlechter um 2–4 s** je Ereignis, bewusst: Schutz vor dem Muster, das am 2026-07-26 in „Fatal network error" endete |
-| Twitch lehnt schnelle Neuverbindung ab (Abuse-Erkennung) | TwitchLib 3 s → 30 s | 0 s, dann 2 s → 30 s | **offen** — R3 in Abschnitt 8 |
+| flappende Verbindung (3 Verluste in 2 min) | 3 × (Lücke 1 + Lücke 2) ≈ 3 × 14 s | Verluste 1 und 2 wie im Normalfall (≈ 10 s), ab dem dritten +5 s Flap-Boden | **besser** bei den ersten zwei, **≈ gleich** ab dem dritten (15 s statt 14 s). Die erste Fassung hätte hier 34–47 s je Ereignis gekostet (Abschnitt 10, G1) |
+| Twitch trennt unmittelbar nach jedem Handshake (Dauer-Flapping) | TwitchLib: 1,5 s je Runde, kein Wachstum; dazu je Runde ein Recreate ≤ 60 s später | 5 s je Runde ab der dritten (Flap-Boden) | **gleich bis besser**: begrenzte Rate, keine Doppelschleife |
+| Twitch lehnt schnelle Neuverbindung ab (Abuse-Erkennung) | TwitchLib 1,5 s, dann bei Fehlschlag 3 s → 30 s | 0 s, dann bei Fehlschlag 2 s → 30 s | **offen** — R3 in Abschnitt 8; der Unterschied liegt in 1,5 s beim ersten Versuch |
 
 Wo es **schlechter** wird, sind es Sekunden im Flapping-Fall; wo es besser wird, sind es Sekunden pro
 Ereignis **und** ein ganzes Risiko (zufällige Kanäle für bis zu 60 s, Spleiße). Der Zählgewinn in
@@ -491,11 +558,20 @@ Zwei Fragen, zwei Antworten:
 nicht, nur der Stack-Update — #118, Abschnitt 4). Deploy als **erster Deploy nach dem bindenden
 Lauf** (ab 2026-10-08), gebündelt mit #122 (`stop_grace_period`) und allem, was bis dahin sonst
 auf dem Stapel liegt — jeder Deploy kostet einen Worker-Neustart, also bündeln. Vor dem Deploy die
-#117-Zahlen als Baseline sichern; nach dem Deploy dieselbe Zählung wiederholen (Abschnitt 6.5).
+#117-Zahlen als Baseline sichern; nach dem Deploy dieselbe Zählung wiederholen (Abschnitt 6.6).
 
 ---
 
 ## 6. Wie ein lokaler Lauf beweist, dass es funktioniert (Regel 16)
+
+Prinzip dieser Fassung: **Jede Behauptung des Papiers bekommt eine Beobachtung, die sie widerlegen
+könnte** (6.2), und jede Beobachtung eine Einstufung — lokal beweisbar, lokal nur teilweise, nur
+auf Prod. Was lokal nicht beweisbar ist, steht als solches in 6.5, mit dem Beleg, wie er auf Prod
+aussähe. Die erste Fassung hatte an drei Stellen Belege, die grün geworden wären, ohne etwas zu
+zeigen (Abschnitt 10, G4). Der schwerste: Sie nahm die **Abwesenheit** von TwitchLibs „Joining
+channel"-Zeilen als Beweis für den verschwundenen Schwall — bei einer Log-Ebene, die diese Zeilen
+ohnehin unterdrückt hätte. Ein grüner Lauf hätte den Defekt beglaubigt; dasselbe Muster hat den
+Audit-Harness am 2026-09-07 getroffen (Projektnotiz „Selbstprüfung am falschen Ort").
 
 ### 6.1 Aufbau
 
@@ -504,102 +580,157 @@ auf dem Stapel liegt — jeder Deploy kostet einen Worker-Neustart, also bündel
   `emote-purge-dev`, Container `emotepurge-dev-worker`, Netz `emote-purge-dev_emotepurge-network`
   (`docker-compose.yml:4,87,179`).
 - `docker compose up -d --build worker` (Regel 15) — `up` allein fährt ein altes Image.
-- **≥ 20 Testkanäle** seeden wie am 2026-07-30 (SQL in `Channels`, `IsBotActive = true`; das
-  Rezept steht in `docs/Review-2026-07-29-Umsetzung.md`), dazu **mindestens ein lauter echter
-  Kanal**, damit Zählung und Sentinel etwas zu tun haben. Den `EnsureJoinedAsync`-Minutentakt
-  abwarten, bis alle bestätigt sind (Roster im Admin-Bereich oder Logzeilen „Channel … gejoint").
-- Log-Ebenen nur für den Lauf per Env anheben: `Logging__LogLevel__TwitchLib.Client.TwitchClient=Warning`
-  (macht Fragmente und Join-Fehler sichtbar; heute `Error`, `appsettings.json:8`) und
-  `Logging__LogLevel__TwitchLib.Communication=Trace` — die Trace-Zeilen „try to connect", „Client
-  couldn't establish a connection", „ListenTaskActionAsync" und die Monitor-Meldungen sind der
-  Beleg, dass TwitchLib **genau einen** Versuch macht und **genau eine** Schleife je Client startet.
+- **Log-Ebenen per Env am Containerstart** (nicht zur Laufzeit umschaltbar):
+  - `Logging__LogLevel__TwitchLib.Client.TwitchClient=Information` — **nicht** `Warning`. Am
+    Binärstand belegt (`TwitchLib.Client.Extensions.LogExtensions`): „Joining channel: {channel}",
+    „Leaving channel", „Connecting Twitch Chat Client…" und „Reconnecting to Twitch" liegen auf
+    **Information**; „Received: {line}" liegt auf Trace und bleibt aus. Heute steht der Wert auf
+    `Error` (`appsettings.json:8`); ein Lauf ohne diese Anhebung kann über TwitchLibs JOINs
+    **nichts** aussagen. **Kontrollfrage vor jedem Lauf:** erscheint beim ersten Join nach dem
+    Containerstart „Joining channel: …"? Wenn nicht, ist die Ebene nicht wirksam, und der Lauf
+    zählt nicht.
+  - `Logging__LogLevel__TwitchLib.Communication=Trace` — **nur in Lauf A** (s. u.):
+    `ClientBase.RaiseMessage` traced jede empfangene Zeile, ein lauter Kanal macht daraus eine Flut.
+- **Zwei Läufe**, weil sich die Anforderungen widersprechen:
+  - **Lauf A — Struktur.** Communication auf Trace, **nur stille Testkanäle** (≥ 20 per SQL in
+    `Channels` mit `IsBotActive = true`, Rezept in `docs/Review-2026-07-29-Umsetzung.md`). Beweist:
+    ein Versuch je Aufbau, eine Lese-Schleife je Client, Backoff-Kurve, Shutdown-Zusage.
+  - **Lauf B — Zählung und Timing.** Communication auf Warning, dieselben Testkanäle plus
+    **mindestens ein lauter echter Kanal**. Beweist: SLO-1, SLO-2, Bestätigungen, Sentinel, Flush.
+- **t₀ ist der Zeitstempel des Kill-Kommandos auf dem Host** (`date +%T.%N` unmittelbar davor);
+  Container und Host teilen die Uhr. Alle Abstände werden gegen t₀ gerechnet, nicht gegen die erste
+  Logzeile — sonst misst man die Latenz ab dem Signal statt ab dem Verlust.
+- Vor jedem Szenario den `EnsureJoinedAsync`-Minutentakt abwarten, bis alle Kanäle bestätigt sind
+  (Roster im Admin-Bereich); N ist die Zahl der bestätigten Kanäle **zum Zeitpunkt t₀**.
 - **`:5151` beachten:** Wer parallel E2E fahren will, muss die lokale Api beenden — betrifft
   diesen Lauf nur, wenn beides gleichzeitig läuft.
 
-### 6.2 Szenarien und was als Beleg gilt
+### 6.2 Beweistabelle
 
-**S1 — Socket-Abbruch (Fall A), der schnelle Pfad.** Die Verbindung von außen hart beenden, ohne
-das Netz zu kappen, damit `ReceiveAsync` einen Fehler sieht statt zu hängen:
+| Behauptung (Abschnitt) | Widerlegt durch | Szenario | Beweisbar |
+|---|---|---|---|
+| Signal ≤ 1 s nach Verlust (3.2) | erste „TwitchClient getrennt"-Zeile > 1 s nach t₀, oder keine vor dem nächsten Watchdog-Tick | S1 | lokal für Fall A; Fall B **nur Prod** (6.5) |
+| Genau ein Verbindungsversuch je Aufbau, keine TwitchLib-eigene Schleife (3.1) | Communication-Trace: zwei „try to connect" ohne ein „Wiederaufbau #n" dazwischen; oder „TwitchClient reconnected" | S1, S3 (Lauf A) | lokal |
+| Eine Lese-Schleife je Client (2.2, 3.2) | zwei „ListenTaskActionAsync"-Trace-Zeilen zwischen zwei „Wiederaufbau"-Zeilen | S1 (Lauf A) | lokal für Fall A; für Fall B — den Pfad, der die zweite Schleife erzeugt hat — **nur Prod, und dort nur indirekt** (6.5) |
+| Kein Schwall: TwitchLib sendet nur, was wir anstoßen, im 600-ms-Raster (3.5) | **positiv:** je Ereignis genau N „Joining channel"-Zeilen mit Abständen 600 ms ± 100 ms; **widerlegt** durch mehr als N Zeilen, einen Abstand < 400 ms, oder N Zeilen binnen < 0,4 × N s | S1 (Lauf B) | lokal |
+| SLO-1 (3.6) | Median > 3 s oder p95 > 5 s über fünf Läufe (t₀ → „TwitchClient verbunden") | S1 × 5 | lokal von der Wohn-IP; Prod-Latenz kann abweichen (6.5) |
+| SLO-2 (3.6) | t₀ → letzte „Channel … gejoint" > 6 s + 0,6 s × (N − 1) in **einem** Lauf; oder „K offen" > 0 | S1 × 5 | lokal |
+| Rejoin blockiert die Lese-Schleife nicht mehr (3.5) | „Twitch hat den Join für … nicht bestätigt" während einer Runde; oder die „gejoint"-Zeilen kommen als Block nach Ende der Runde statt je ~600 ms | S1 (Lauf B) | lokal |
+| Backoff 0 / 2 / 4 / 8 / 16 / 30 s, Deckel echt (3.6) | Abstände der „Wiederaufbau #n"-Zeilen weichen > 20 % ab; ein Abstand > 30 s + Versuchsdauer | S3-REJECT | lokal |
+| Fehlversuch-Schranke 25 s (3.4) | Abstand „Wiederaufbau #n" → zugehörige Fehlschlag-Warning > 26 s | S3-DROP | lokal |
+| Handshake setzt den Streak zurück; Flap-Boden 5 s ab der 3. kurzen Sitzung (3.6) | Verzögerungen in S4 ≠ 0 / 0 / 5 s; nach einer Sitzung ≥ 60 s ≠ 0 s | S4 | lokal |
+| Watchdog-Backstop feuert nie (3.3, R1) | „TwitchClient meldet sich als getrennt" aus dem Tick | alle | lokal und Prod |
+| `LEAVE` während der Runde erzeugt keinen JOIN (4.5) | „Joining channel: X" oder „Channel X gejoint" nach „Redis-Kommando: verlasse X" | S5 | lokal |
+| Shutdown-Zusage ≤ 1 s in jedem Zustand (3.4, 4.6) | Stoppdauer ≥ 10 s; „try to connect" oder „Wiederaufbau" nach „Application is shutting down"; „Usage-Stat-Flush fehlgeschlagen" beim Stop | S6 × 3 | lokal |
+| Stille Verbindung wird weiter nach 15 min erkannt (4.2) | kein Watchdog-Reconnect nach 16 min Schnitt | S7 | lokal |
+| „Fatal network error." genau einmal je Verlust (3.7) | Zahl der Zeilen ≠ Zahl der Verluste | S1, S4 | lokal |
+| Sentinel 0 (5.3) | „Gespleißte IRC-Zeile erkannt" > 0 | Lauf B, ≥ 2 h lauter Kanal | lokal, aber **schwacher** Beleg — heute ebenfalls ≈ 0; die strukturelle Aussage trägt die Schleifen-Zählung oben |
+| Zähleffekt je Ereignis (5.1) | — | — | **nur Prod**: Harness-Vergleich vor/nach (6.5) |
+| Twitchs Reaktion auf schnelle Wiederverbindung (R3) | — | — | **nur Prod** (6.5) |
+
+### 6.3 Szenarien
+
+**S1 — Socket-Abbruch (Fall A), der schnelle Pfad.** Die bestehende Verbindung hart beenden, so
+dass `ReceiveAsync` einen Fehler sieht statt zu hängen. Erster Weg: `ss --kill` im Netz-Namespace
+des Containers —
 `sudo nsenter -t $(docker inspect -f '{{.State.Pid}}' emotepurge-dev-worker) -n ss -K dport = :443`
-(`ss --kill` braucht `CAP_NET_ADMIN` und den Kernel-Schalter `SOCK_DESTROY`; **offen**, ob der
-Devbox-Kernel ihn hat — Fallback: auf dem Host eine `nft`/`iptables`-Regel mit `reject
-with tcp reset` für den Container auf Port 443; sie greift beim nächsten gesendeten Paket, also
-spätestens beim nächsten Server-PING nach ≤ 5 min).
-Beleg: in dieser Reihenfolge und mit diesen Abständen
-1. „TwitchClient getrennt" **≤ 1 s** nach dem Kill (Zeitstempel des `ss`-Aufrufs notieren);
-2. „Twitch-Verbindung verloren (…) — Wiederaufbau #1 in 0 s" (neue Zeile);
-3. „Fatal network error." als Information ≈ 2 s nach dem Kill — **genau einmal**;
-4. „TwitchClient verbunden" **≤ 3 s** nach dem Kill;
-5. „Rejoine N gewünschte(n) Channel(s)" und dann N × „Channel … gejoint" im **600-ms-Raster**
-   (± 100 ms), **keine** Zeile „Twitch hat den Join für … nicht bestätigt";
-6. „Rejoin abgeschlossen: N Kanäle in T s" (neue Zeile) mit T ≈ 0,6 × (N − 1) s;
-7. Communication-Trace: **eine** „ListenTaskActionAsync"-Zeile für den neuen Client, keine zweite;
-8. TwitchLib-Client-Log: **keine** „Joining channel"-Zeilen außerhalb unseres Rasters (das wäre der
-   Schwall).
-Fünfmal wiederholen mit ≥ 2 min Abstand (Reset-Bedingung), die sechs Zeitabstände tabellieren.
+— braucht `CAP_NET_ADMIN` und den Kernel-Schalter `CONFIG_INET_DIAG_DESTROY` (prüfen:
+`grep INET_DIAG_DESTROY /boot/config-$(uname -r)`; **offen**, ob der Devbox-Kernel ihn hat). Dann ist
+t₀ der Zeitstempel des Kommandos. Zweiter Weg, wenn nicht: auf dem Host eine Regel
+`iptables -I DOCKER-USER -s <container-ip> -p tcp --dport 443 -j REJECT --reject-with tcp-reset`,
+die beim **nächsten gesendeten Paket** greift (PONG auf Twitchs ~5-min-PING oder ein JOIN) —
+t₀ ist dann der Zeitstempel von TwitchLibs Fehlerzeile, also aus dem Log statt vom Host: schwächer,
+und so zu vermerken. Regel nach dem Signal sofort entfernen.
+Beobachtungen, in dieser Reihenfolge, jede mit ihrem Widerleger in 6.2:
+1. „TwitchClient getrennt" ≤ 1 s nach t₀.
+2. „Twitch-Verbindung verloren (…) — Wiederaufbau #1 in 0 s".
+3. „Fatal network error." als Information — genau einmal.
+4. „TwitchClient verbunden" — Δ zu t₀ ist der SLO-1-Wert dieses Laufs.
+5. Genau N „Joining channel: …" (TwitchLib) und N „Channel … gejoint" (wir), erstere im
+   600-ms-Raster, letztere je ~200 ms dahinter; keine „nicht bestätigt"-Zeile.
+6. „Rejoin abgeschlossen: N gewünscht, N bestätigt, 0 offen, T s seit Verlust" — T ist der
+   SLO-2-Wert dieses Laufs.
+7. Lauf A: genau eine „ListenTaskActionAsync"-Zeile für den neuen Client.
+Fünfmal, ≥ 2 min Abstand. Ergebnis ist eine Tabelle mit fünf Zeilen: t_Signal, t_004,
+t_letzte Bestätigung, K, Zahl der „Joining channel"-Zeilen, kleinster und größter Abstand.
 
 **S2 — Twitch `RECONNECT` (Fall B), der Inline-Pfad.** Nicht auf Zuruf provozierbar. TwitchLib
-bietet `TwitchClient.OnReadLineTestAsync(rawIrc)`: eine Zeile `:tmi.twitch.tv RECONNECT` durch den
-Parser jagen löst `ReconnectAsync()` aus — allerdings vom Aufrufer-Thread, nicht aus der
-Lese-Schleife, der Doppelschleifen-Zustand der alten Policy wird damit **nicht** reproduziert. Für
-die neue Policy reicht es: erwartet ist dieselbe Zeilenfolge wie S1 und **kein** „TwitchClient
-reconnected". Ein Debug-only-Auslöser dafür (env-gated, nie in Prod aktiv) ist Implementierungs-
-sache und hier nur als Möglichkeit genannt (Abschnitt 7.5). Ohne ihn bleibt S2 ein Prod-Beweis
-über die Logzeile im Nachgang.
+bietet `TwitchClient.OnReadLineTestAsync(rawIrc)`; eine Zeile `:tmi.twitch.tv RECONNECT` löst
+`ReconnectAsync()` aus. Das beweist die **Policy-Reaktion** — `OnDisconnected`, genau ein „Fatal
+network error.", kein „TwitchClient reconnected", danach S1-Schritte 2–6 — aber **nicht den
+Thread-Kontext**: der Aufruf läuft auf dem Thread des Aufrufers, nicht in der Lese-Schleife. Die
+Eigenschaft, um die es in Fall B geht (unser Handler tut in der sterbenden Schleife nichts, E1), ist
+eine Konstruktionseigenschaft und wird **per Code-Lesen abgenommen**, nicht per Lauf. Ein
+Debug-Auslöser dafür (env-gated, nie in Prod aktiv) ist Implementierungssache (7.5). Ehrlich: Fall B
+ist lokal nicht vollständig beweisbar — s. 6.5.
 
-**S3 — Twitch über Minuten weg (Backoff-Kurve).** Auf dem Host Egress des Containers zu Port 443
-**droppen** (nicht rejecten) für ≥ 5 min. Beleg: Versuche mit Warning-Zeilen bei ≈ 0, 2, 4, 8,
-16, 30, 30, … s (± 20 %) ab dem ersten Fehlschlag, jede mit Streak-Nummer und Grund; keine
-Eskalation über 30 s; **kein** Recreate-Sturm im Minutentakt (Watchdog-Ticks während der Schleife
-müssen als No-op geloggt sein oder gar nicht). Nach dem Freigeben: „TwitchClient verbunden" **≤ 30 s
-+ 25 s** später, dann S1-Schritte 5–6. Stale-Zweig darf während des Ausfalls nicht feuern (er setzt
-`isConnected` voraus).
+**S3 — Twitch über Minuten weg (Backoff-Kurve).** Die erste Fassung ließ den Traffic einer
+**offenen** Verbindung droppen. Das ist Fall C: TwitchLib merkt nichts, bis der 15-min-Watchdog
+feuert — fünf Minuten hätten die Backoff-Schleife nie erreicht (G4). Korrekt braucht es zwei Dinge:
+(1) die bestehende Verbindung killen wie in S1 **und** (2) neue Verbindungen scheitern lassen. Zwei
+Varianten, beide ≥ 3 min halten:
+- **S3-REJECT:** `… -j REJECT --reject-with tcp-reset` auch für SYN → jeder Versuch scheitert in
+  Millisekunden; die Kurve 0 / 2 / 4 / 8 / 16 / 30 / 30 s ist in ~1,5 min ablesbar.
+- **S3-DROP:** `… -j DROP` → jeder Versuch läuft in TwitchLibs 15-s-Timeout; beweist die
+  25-s-Schranke und dass die Schleife auch mit langsamen Fehlschlägen nicht hängt.
+Beleg: Warning je Versuch mit Streak-Nummer und Grund; kein Abstand > 30 s + Versuchsdauer; **kein**
+„Erzwinge Reconnect" aus dem Watchdog-Tick (Backstop); Stale-Zweig feuert nicht. Nach dem Entfernen
+der Regel: „TwitchClient verbunden" ≤ 30 s + 25 s, dann S1-Schritte 5–6.
 
-**S4 — Flapping (Reset-Bedingung).** S1 dreimal binnen 90 s. Beleg: Verzögerungen 0 s, 2 s, 4 s
-(die Sitzungen dazwischen waren < 60 s); nach 2 min Ruhe und einem vierten Kill wieder 0 s.
-Nebenbeobachtung, die R3 (Abschnitt 8) prüft: kein Verbindungsaufbau schlägt in dieser Serie fehl.
+**S4 — Flapping (Reset und Dämpfung).** S1 dreimal binnen 90 s. Beleg: Verzögerungen **0 s, 0 s,
+5 s** (der Streak setzt beim Handshake zurück; der Boden greift ab der dritten kurzen Sitzung);
+danach 2 min Ruhe (eine Sitzung ≥ 60 s), vierter Kill → wieder 0 s. „Fatal network error." viermal.
+Nebenbeobachtung für R3: schlägt in dieser Serie ein Aufbau fehl, ist das der einzige lokale Hinweis
+auf ein Twitch-seitiges Verhalten — von der Wohn-IP.
 
-**S5 — Redis-Kommandos im Wiederaufbau.** Während S3:
+**S5 — Redis-Kommandos.** Zwei Teile. (a) Während S3:
 `docker compose exec redis redis-cli -a <REDIS_PASSWORD> PUBLISH channel:bot:commands JOIN:<testkanal>`
-und ein `LEAVE:` für einen anderen Kanal. Beleg: „Join für … aufgeschoben" sofort, nach der
-Rückkehr ein JOIN für den ersten, **kein** JOIN für den zweiten, Roster stimmt.
+und ein `LEAVE:` für einen anderen Kanal — nach der Rückkehr ein JOIN für den ersten, keiner für den
+zweiten. (b) **Während einer Rejoin-Runde** (R9): in S1 unmittelbar nach „TwitchClient verbunden" ein
+`LEAVE:` für den Kanal, der in der „Rejoine …"-Reihenfolge eines früheren Laufs **zuletzt** kam —
+Beleg: keine „Joining channel"-Zeile für ihn nach dem `LEAVE`, und er fehlt im Roster.
 
-**S6 — Shutdown im Backoff.** Während S3 `docker compose stop worker`. Beleg: nach „Application is
-shutting down" keine weitere „Wiederaufbau #n"-Zeile, kein „try to connect", Exit-Code 0, Stopp
-deutlich unter 10 s (sonst hat der Docker-Timeout gekillt — #122).
+**S6 — Shutdown in drei Zuständen.** `time docker compose stop worker`, jeweils:
+(a) im Backoff (während S3-REJECT); (b) im Connect (S3-DROP, Stop binnen 15 s nach einem
+„Wiederaufbau #n"); (c) im Rejoin (S1 mit N ≥ 20, Stop binnen 5 s nach „verbunden"). Beleg je
+Zustand: Wanduhrzeit des Stops **deutlich unter 10 s** (≥ 10 s heißt: Docker hat gekillt), nach
+„Application is shutting down" keine „Wiederaufbau"- und keine „try to connect"-Zeile, keine
+„Usage-Stat-Flush fehlgeschlagen"-Zeile, Exit-Code 0. Mit #122 (Grace ≥ 30 s) ist der Widerleger
+nicht mehr die 10-s-Grenze, sondern die Stoppdauer des Watchdogs allein — sie steht als Δ zwischen
+„Application is shutting down" und der nächsten Stopp-Zeile eines anderen Dienstes im Log.
 
 **S7 — Stille Verbindung (Fall C), unverändert.** `docker network disconnect
 emote-purge-dev_emotepurge-network emotepurge-dev-worker`, **> 15 min** halten (nicht > 5 min wie im
-Ticket — die Schwelle ist seit 2026-08-03 15 min, `TwitchWatchdogPolicy.cs:22`), dann `connect`.
-Erwartung: TwitchLib meldet nichts (kein „getrennt"), der Watchdog feuert bei ~15–16 min „Kein
-IRC-Frame seit …", danach S1-Schritte 2–6. Achtung: dieser Schnitt trennt auch Postgres/Redis — das
-war am 2026-07-30 gewollt („Totalausfall"), muss aber beim Lesen der Logs mitgedacht werden. Einmal
-reicht; er beweist nur, dass das Netz noch da ist.
+Ticket — Schwelle seit 2026-08-03, `TwitchWatchdogPolicy.cs:22`), dann `connect`. Erwartung:
+TwitchLib meldet nichts, der Watchdog feuert bei ~15–16 min „Kein IRC-Frame seit …", danach
+S1-Schritte 2–6. Dieser Schnitt trennt auch Postgres/Redis (am 2026-07-30 gewollt). Einmal reicht.
 
-### 6.3 Negativkontrollen, die nach dem Umbau **nie** erscheinen dürfen
+### 6.4 Zähler, die Lauf B begleiten
 
-- „TwitchClient reconnected" (Stolperdraht) — 0 ×.
-- „Gespleißte IRC-Zeile erkannt" — 0 × über den gesamten Lauf mit lautem Kanal (heute ebenfalls
-  erwartet ≈ 0, aber jetzt strukturell).
-- „TwitchClient meldet sich als getrennt" aus dem Watchdog-Tick — 0 × (Backstop, R1).
-- Mehr als eine „Fatal network error."-Zeile je Verlust.
-- „Twitch hat den Join für … nicht bestätigt" während eines Rejoins (Abschnitt 3.5).
-
-### 6.4 Zähler, die den Lauf begleiten
-
-- `UsageStats`-Zeilen des lauten Kanals vor und nach jedem Kill: kein Tag mit Null, Flush läuft
-  weiter (der 30-s-Flush ist vom Verbindungszustand unabhängig).
+- `UsageStats`-Zeilen des lauten Kanals vor und nach jedem Kill: Flush läuft weiter (der
+  30-s-Flush ist vom Verbindungszustand unabhängig); kein Tag mit Null.
 - Indeterminate-Zähler und Sentinel-Summe je Flush: 0.
-- Ein Zähler „Wiederaufbauten seit Prozessstart" in `WorkerStats` (Log-only, s. 7.4) — am Ende des
-  Laufs muss er der Zahl der provozierten Ereignisse entsprechen, nicht mehr.
+- „Wiederaufbauten seit Prozessstart" (`WorkerStats`, Log-only, 7.4): am Ende gleich der Zahl der
+  provozierten Ereignisse, nicht mehr.
 
-### 6.5 Was auf Prod nach dem Deploy zu lesen ist (Nutzer, kein Agent)
+### 6.5 Was lokal nicht beweisbar ist — und wie der Beleg auf Prod aussähe
 
-Dasselbe Rezept wie #117, mit den neuen Zeilen: Anzahl „Wiederaufbau #1" (= Ereignisse), Anzahl
-„Wiederaufbau #≥2" (= Fehlschläge), Median von „Twitch-Verbindung steht nach … s" und „Rejoin
-abgeschlossen … in … s" über 24 h, 0 × Stolperdraht, 0 × Sentinel. Abbruchgrenze analog #117:
-mehr als ~2 Ereignisse pro Stunde über mehrere Stunden, oder ein Kanal ohne Zählung nach einem
-Wiederaufbau → Cooldown nachziehen. Die Baseline dafür sind die #117-Zahlen **vor** dem Deploy.
+| Eigenschaft | Warum lokal nicht | Prod-Beleg |
+|---|---|---|
+| Fall B in der echten Lese-Schleife (3.2, E1) | kein Weg, Twitch zu einem `RECONNECT` zu bewegen; der Testhaken läuft auf einem anderen Thread | TwitchLib „Reconnecting to Twitch" (Information — setzt **7.10** voraus), unmittelbar gefolgt von „TwitchClient getrennt", „Wiederaufbau #1", „verbunden", ohne „TwitchClient reconnected". Die Ein-Schleifen-Aussage bleibt auch dort **indirekt** (kein Communication-Trace auf Prod): ihr einziger Zeuge ist der Sentinel, und der ist schwach. Das Papier behauptet Fall B deshalb aus dem Binärstand (3.2), nicht aus einer Messung |
+| Twitchs Verhalten bei schnellen Wiederverbindungen (R3, 7.8) | nur von der Wohn-IP, ein Datenpunkt | Fehlschlag-Serien unmittelbar nach Wiederaufbauten in den 24-h-Zahlen (6.6) |
+| SLO-1 unter Prod-Latenz | Devbox → Twitch ≠ VPS → Twitch | p50/p95 aus „Twitch-Verbindung steht nach … s" über 24 h |
+| Zähleffekt (5.1) | keine Referenz für „was hätte gezählt werden sollen" | Harness-Vergleich Σ\|Log − Live\| / ΣLive vor und nach dem Deploy, gleicher Kanal, gleiche Tageszahl |
+| Ereignisrate (5.2) | lokal provoziert, nicht natürlich | #117-Zahlen vor dem Deploy, dieselbe Zählung danach |
+
+### 6.6 Auf Prod nach dem Deploy (Nutzer, kein Agent)
+
+Dasselbe Rezept wie #117, mit den neuen Zeilen, über 24 h ab Containerstart: Anzahl „Wiederaufbau
+#1" (Ereignisse), Anzahl „Wiederaufbau #≥ 2" (Fehlversuche), p50/p95 von „Twitch-Verbindung steht
+nach … s" (SLO-1) und von „Rejoin abgeschlossen … T s" (SLO-2), Summe der „K offen"-Werte, 0 ×
+Stolperdraht, 0 × Backstop, 0 × Sentinel. **Abbruchkriterium:** SLO-2-p95 gerissen, oder ein
+Wiederaufbau mit K > 0, oder mehr als ~2 Ereignisse pro Stunde über mehrere Stunden (die
+#117-Grenze) → Rollback bzw. Cooldown nachziehen. Baseline sind die #117-Zahlen **vor** dem Deploy.
 
 ---
 
@@ -648,13 +779,23 @@ ist es ein erwarteter Zustand während weniger Sekunden. Vorschlag Information; 
 Implementieren.
 
 **7.8 Das Flapping-Verhalten von Twitch selbst.** Ob und ab welcher Rate Twitch anonyme
-Neuverbindungen ablehnt (2026-07-26: drei in drei Minuten, dann „Fatal"), ist nie sauber gemessen
-worden — die damalige Zuschreibung war „naheliegend", nicht belegt. Die 60-s-Stabilitätsregel ist
-Vorsicht, keine Kalibrierung.
+Neuverbindungen ablehnt, ist nie gemessen worden. Die Zuschreibung vom 2026-07-27 („drei in drei
+Minuten, dann Fatal" = Abuse-Erkennung) ist durch die spätere Erklärung derselben Ausfälle über die
+Zehn-Versuche-Falle der damaligen Default-Policy (`TwitchChatManager.cs:573-581`, Fix vom
+2026-07-30) **überholt** — es gibt keinen belegten Fall, in dem Twitch uns wegen Wiederverbindungen
+abgewiesen hätte. Die Flap-Dämpfung (5 s ab der dritten kurzen Sitzung) ist deshalb Schutz vor
+unserer eigenen Schleife und vor Log-Flut, keine Kalibrierung auf Twitch. Was Twitch tatsächlich
+tut, ist nur auf Prod beobachtbar (6.5).
 
 **7.9 Der Transportwechsel auf EventSub-Conduits.** Ob, wann und unter welchen Produktbedingungen
 (Bot-Account, Zustimmung je Kanal) er kommt. Nicht hier — aber das Modell ist darauf zugeschnitten,
 ihn nicht zu verbauen; Abschnitt 9 sagt, was das konkret heißt und was die Alternative kosten würde.
+
+**7.10 Die Prod-Log-Ebene von `TwitchLib.Client.TwitchClient`.** Heute `Error`
+(`appsettings.json:8`). Auf `Information` lägen „Joining channel", „Leaving channel", „Connecting"
+und „Reconnecting to Twitch" im Prod-Log — die letzte davon ist der einzige Prod-Zeuge für Fall B
+(6.5). Volumen: eine Zeile je JOIN/PART/Verbindungsaufbau, vernachlässigbar. Ob das mit dem Umbau
+oder getrennt kommt, ist offen; ohne die Änderung ist Fall B nirgends beobachtbar.
 
 ---
 
@@ -664,14 +805,16 @@ ihn nicht zu verbauen; Abschnitt 9 sagt, was das konkret heißt und was die Alte
 |---|---|---|---|
 | R1 | TwitchLib liefert in einem Verlustmodus **kein** `OnDisconnected`/`OnConnectionError`; wir sind dann auf den 15-min-Watchdog zurückgeworfen — wie heute, aber ohne TwitchLibs 30-s-Schleife als Netz | Backstop-Zeile „TwitchClient meldet sich als getrennt" aus dem Tick (Abschnitt 3.3) taucht auf; S1/S7 zeigen einen Verlust ohne Signal | S1, S3, S4 liefern in allen Fällen ein Signal ≤ 1 s; auf Prod über 24 h 0 × Backstop |
 | R2 | Unser Recreate-Versuch scheitert, wo TwitchLibs Schleife durchgekommen wäre (anderes Objekt, gleicher Endpunkt — unplausibel, aber die Annahme ist ungeprüft) | S3: nach Freigabe kein Erfolg binnen 30 s + 25 s; Streak steigt trotz erreichbarem Twitch | S3 grün, fünfmal |
-| R3 | Twitch wertet den **sofortigen** Wiederaufbau (0 s) oder die Serie in S4 als Missbrauch und lehnt ab (2026-07-26-Muster) | S4: ab dem zweiten oder dritten Kill scheitert der Aufbau, Trace „couldn't establish a connection", Streak eskaliert | S4 grün; Prod-24-h ohne Fehlschlag-Serie. Falls bestätigt: erster Delay auf 1–2 s, Stabilitätsschwelle hoch — beide Zahlen liegen in der Policy, nicht im Transport |
+| R3 | Twitch wertet den **sofortigen** Wiederaufbau (0 s) oder die Serie in S4 als Missbrauch und lehnt ab | S4: ab dem zweiten oder dritten Kill scheitert der Aufbau, Trace „couldn't establish a connection", Streak eskaliert — **lokal nur von der Wohn-IP prüfbar**; auf Prod: Fehlschlag-Serien nach Wiederaufbauten in den 24-h-Zahlen (6.6) | S4 grün; Prod-24-h ohne Fehlschlag-Serie. Falls bestätigt: erster Delay auf 1–2 s, Flap-Boden ab der zweiten statt dritten kurzen Sitzung — beide Zahlen liegen in der Policy, nicht im Transport |
 | R4 | Der Rejoin außerhalb der Lese-Schleife ändert das Timing so, dass Joins ausbleiben oder TwitchLibs Queue-Zustand kippt (`_currentlyJoiningChannels`) | S1 Schritt 5: Raster ≠ 600 ms, „nicht bestätigt"-Zeilen, Roster mit unbestätigten Kanälen > 60 s | S1 Schritt 5–6 grün; Roster nach jedem Ereignis vollständig bestätigt |
 | R5 | Hintergrund-Aufräumen des alten Clients (E4) rennt gegen den neuen: doppelte `Abort`, `ObjectDisposedException`, unbeobachtete Task-Exceptions | „Aufräumen des alten TwitchClient … fehlgeschlagen" häufig, oder Prozessabsturz durch unbeobachtete Exception | Lauf ohne diese Zeilen; Exception-Pfad im Hintergrund-Task ist gefangen und geloggt |
 | R6 | Log-Flut bei langem Twitch-Ausfall (≈ 80 Warnings/h) oder bei Flapping | S3 über 30 min: Zeilenzahl | Wenn nötig: ab Streak 5 nur noch jeder fünfte Versuch als Warning, Rest Information — Policy-Entscheidung, kein Transportcode |
 | R7 | Die Einordnung in 5.4 ist falsch und der Umbau muss doch die Uhr zurücksetzen | Der Harness-Vergleich vor/nach dem Deploy zeigt einen Sprung in Σ\|Log − Live\| **nach oben** (nur ein Regeländerung könnte das) | Sprung nach unten oder keiner: Erfassungsdeckung, wie erwartet |
 | R8 | Sonar-Gate: Die neuen Zeilen liegen zu großem Teil in `TwitchChatManager`/`TwitchConnectionWatchdog`, die nach Regel 11 bewusst keine Fake-Tests bekommen — PR #116 stand deshalb bei 48 % lokal | `analyze` rot | Policies tragen die Logik (3.8), Transport bleibt Delegation; wie bei #116: PR-Befund abwarten, ggf. gezielte Ausnahme statt Alibi-Tests (Projektnotiz vom 2026-09-08) |
-| R9 | Ein `LEAVE` während der Rejoin-Runde erzeugt einen ungewollten Join (4.5) | Roster zeigt einen Kanal, der nicht in `Channels` steht | Existiert heute genauso; nächster Recreate räumt auf. Kein Blocker |
-| R10 | Die Zeitleiste in 3.6 ist zu optimistisch (TLS-Handshake zu Twitch, `004`-Latenz) | S1 Schritt 4 regelmäßig > 3 s | Dann werden die Zielzahlen korrigiert, nicht das Modell — die Ziele sind Messgrößen, keine Zusagen |
+| R9 | Ein `LEAVE` während der Rejoin-Runde erzeugt einen ungewollten Join, der einen Chatroom-Platz belegt (4.5) | S5: nach dem `LEAVE` erscheint trotzdem „Channel … gejoint" für den Kanal, oder TwitchLibs `JoinedChannels` enthält ihn | S5 grün: kein JOIN nach dem `LEAVE`; die Prüfung nach dem Gate ist im Code sichtbar |
+| R10 | Die Zeitleiste in 3.6 ist zu optimistisch (TLS-Handshake zu Twitch, `004`-Latenz, Bestätigungslatenz) | SLO-1 p95 > 5 s oder SLO-2 gerissen in einem von fünf S1-Läufen | **Abbruchkriterium, nicht Lattenverschieben**: ein gerissenes SLO-2 blockiert den Merge, bis die Ursache benannt ist; eine Zielzahl wird nur vor dem nächsten Lauf mit Begründung geändert (3.6). Die erste Fassung hatte hier „dann werden die Zielzahlen korrigiert" stehen — zurückgenommen (Abschnitt 10, G2) |
+| R11 | Der Rejoin sendet, aber Twitch bestätigt nicht (Sendefehler, den TwitchLib verschluckt; Join-Timeout; Rate-Limit greift doch) — die Zählung bleibt bis zu 60 s stumm, während das Log „abgeschlossen" sagt | „Rejoin abgeschlossen: … K offen" mit K > 0, oder M < N ohne Warning | Die Abschlusszeile zählt Bestätigungen, nicht Aufrufe (3.5); K > 0 ist eine Warning und Teil von SLO-2; S1 zeigt fünfmal K = 0 |
+| R12 | Die Shutdown-Zusage hält nicht: `StopAsync` des Watchdogs dauert länger als 1 s, der Abschluss-Flush kommt nicht dran | S6 in einem der drei Zustände: Stoppdauer ≥ 10 s (Docker-Kill) oder „Usage-Stat-Flush fehlgeschlagen" beim Stop | S6 grün in allen drei Zuständen; mit #122 zusätzlich Grace ≥ 30 s |
 
 ---
 
@@ -727,7 +870,7 @@ Wiederaufbau-Aktion hinter dem bestehenden Interface.** Konkret:
 
 | Schicht | Klasse | Transportfrei? | Für Conduits |
 |---|---|---|---|
-| Wann/wie oft | `TwitchReconnectBackoffPolicy` — Eingang ist ein *Sitzungsergebnis* (Handshake ja/nein, Dauer, Grund), kein TwitchLib-Typ | **ja**, per Konstruktion (Abschnitt 3.8) | unverändert wiederverwendbar; auch die 60-s-Stabilitätsregel trägt |
+| Wann/wie oft | `TwitchReconnectBackoffPolicy` — Eingang ist ein *Sitzungsergebnis* (Handshake ja/nein, Dauer, Grund), kein TwitchLib-Typ | **ja**, per Konstruktion (Abschnitt 3.8) | unverändert wiederverwendbar; auch die Flap-Dämpfung trägt (ein Shard, der sofort wieder abreißt, ist dasselbe Muster) |
 | Verdacht bei Stille | `TwitchWatchdogPolicy` — Eingänge sind `bool` und Zeitspannen | **ja** | unverändert; „Frame" heißt dann „Keepalive-Nachricht" |
 | Die Schleife | `TwitchConnectionWatchdog` — wartet auf Signal oder Tick, ruft drei Mitglieder des `ITwitchChatManager` (`WaitForReconnectRequestAsync`, `ReconnectOnceAsync` → Sitzungsergebnis, `RejoinDesiredChannelsAsync`) | **ja**, sofern sie ausschließlich über diese drei Mitglieder spricht — das ist der Vertrag, den dieses Papier festlegt | unverändert; ein Conduit-Manager implementiert dieselben drei, der dritte ist dort ein No-op |
 | Die Aktion | `TwitchChatManager.ReconnectOnceAsync` (Schritte 1–5 aus 3.4), `RejoinDesiredChannelsAsync`, das Koaleszieren der TwitchLib-Ereignisse zum Signal | **nein**, bewusst | wird durch eine Conduit-Implementierung des Interfaces ersetzt |
@@ -755,6 +898,83 @@ Schnitt; der Mehraufwand der verworfenen fiele beim Transportwechsel an, dann ab
 unterscheiden sich nur in Deckel und Reset-Regel), und ob der Match-Cache mit EventSub-Fragmenten
 statt IRC-Text arbeiten soll — alles Fragen des Transportprojekts. Dieses Papier stellt nur sicher,
 dass die Antwort „die Entscheidung liegt schon transportfrei, nur die Aktion ist neu" dann wahr ist.
+
+---
+
+## 10. Gegenrede und was daraus folgt (2026-09-08)
+
+Die Fassung vom Abend des 2026-09-08 (Commit `3b793e7`) wurde einer adversarialen Gegenrede
+unterzogen: Verdikt „needs-attention", vier Befunde `high`, einer `medium`. Hier steht je Befund,
+was angenommen und was zurückgewiesen wurde, damit nachvollziehbar bleibt, welche Fassung wodurch
+entstanden ist — analog zur Praxis im Entscheidungslog. Nichts davon ist in `DECISIONS.md`
+eingetragen; das geschieht mit dem Commit, der die Topologie ändert.
+
+**G1 [high] — Kurze erfolgreiche Sitzungen eskalierten den Backoff.** *Angenommen, und der Befund
+war stärker als vorgetragen.* Die 60-s-Stabilitätsregel hätte bei anhaltendem Flapping 34–47 s
+Lücke je Ereignis gekostet statt heute ~14 s; die Rechnung der Gegenrede stimmt. Dazu kommt, was die
+Gegenrede nicht wusste: Die Regel stützte sich auf die Abuse-Hypothese vom 2026-07-27, und das Repo
+hat dieselben Ausfälle am 2026-07-30 durch die Zehn-Versuche-Falle der damaligen Default-Policy
+erklärt (`TwitchChatManager.cs:573-581`) — die Regel war also nicht nur ungemessen, ihre
+Begründung war überholt. Geändert: Streak zählt nur Fehlversuche und setzt beim `004` zurück;
+Flap-Dämpfung getrennt, fester Boden 5 s ab der dritten kurzen Sitzung; Jitter am Deckel gekappt
+(3.6). **Nicht** übernommen: eine Dämpfung ganz wegzulassen — eine Verbindung, die Twitch sofort
+nach dem Handshake trennt, wäre sonst eine Schleife mit ~2-s-Periode.
+
+**G2 [high] — Die Zielzahlen maßen das Senden, nicht die Zählung.** *Angenommen, beide Teile.*
+(a) Die Zeitleiste war als „plausibel" markiert, aber das Ziel war eine einzelne Zahl ohne
+Verteilung und ohne harte Schranke — jetzt Median/p95 plus die 25-s-Schranke je Versuch.
+(b) `TryJoinAsync` kehrt nach dem Senden oder Einreihen zurück, nie nach der Bestätigung, und
+TwitchLib verschluckt Sendefehler (am Binärstand bestätigt: `QueueingJoinCheckAsync` awaitet nur
+`SendAsync`). „Rejoin abgeschlossen: N" hätte also ein stummes Set beglaubigen können. Geändert:
+zwei Zielgrößen — **SLO-1** Verlust → `004` (diagnostisch), **SLO-2** Verlust → letzte Bestätigung
+aller N Kanäle plus K = 0 offene (Abbruchkriterium); die Abschlusszeile wartet bis zu 5 s auf
+Bestätigungen und nennt N/M/K (3.5, 3.6). R10 („dann werden die Zielzahlen korrigiert") war
+Lattenverschieben und ist zurückgenommen: eine Verfehlung blockiert den Merge; eine Zahl ändert sich
+nur vor dem nächsten Lauf mit Begründung, wie T11/T12 an #69.
+
+**G3 [high] — Shutdown war nur im Backoff abbrechbar.** *Angenommen, mit einer Korrektur.* Connect
+(bis 25 s) und Rejoin (≥ 11,4 s bei 20 Kanälen) trugen kein Token; der Watchdog stoppt vor dem
+`UsageFlushWorker`; Docker killt nach 10 s (#122) — der Abschluss-Flush käme nie dran. Die
+Korrektur: **das ist heute schon so** (`CheckOnceAsync` → `RecreateClientAsync` → `OpenAsync` bis
+30 s ohne Token), das Konzept hätte es nur verlängert. Geändert: Shutdown-Zusage ≤ 1 s in jedem
+Zustand, Token in jedem wartenden Schritt einschließlich `_joinGate`; #122 ausdrücklich in
+denselben Deploy gezogen, mit der Begründung, warum keines der beiden ohne das andere reicht (3.4,
+4.6); S6 misst alle drei Zustände; R12 neu.
+
+**G4 [high] — Die lokale Verifikation bewies die zentralen Eigenschaften nicht.** *Angenommen in
+zwei von drei Teilen; der dritte ist nicht zurückgewiesen, sondern anders eingeordnet.*
+(a) Log-Ebene: Das Rezept sagte `Warning`; „Joining channel" liegt auf **Information** (am
+Binärstand belegt, `LogExtensions`), die Abwesenheit der Zeilen hätte also nichts bewiesen — ein
+grüner Lauf hätte den Defekt beglaubigt. Geändert: `Information` mit Kontrollfrage vor dem Lauf,
+und der Beleg ist jetzt **positiv** (genau N Zeilen im 600-ms-Raster), nicht die Abwesenheit (6.1,
+6.2). (b) S3 droppte Traffic einer offenen Verbindung und erzeugte damit Fall C statt der
+Backoff-Schleife. Geändert: Kill plus Blockade neuer Verbindungen, in zwei Varianten (REJECT für die
+Kurve, DROP für die Schranke). (c) S2 läuft nicht in der echten Lese-Schleife — das stand schon in
+der ersten Fassung, aber als Fußnote unter einem Rezept, das trotzdem Beweis hieß. Die Antwort ist
+kein besseres Rezept, denn es gibt keins: Fall B ist lokal **nicht** beweisbar. Geändert: 6.5
+benennt das, mit dem Prod-Beleg (setzt 7.10 voraus) und der ehrlichen Einschränkung, dass die
+Ein-Schleifen-Aussage auf Prod nur indirekt bezeugt ist. Die ganze Beweisführung ist umgeschrieben:
+jede Behauptung hat jetzt ihren Widerleger und ihre Einstufung (6.2).
+
+**G5 [medium] — Gleichzeitiges `LEAVE` hinterließ dauerhaft einen ungewollten JOIN.** *Angenommen.*
+„Der nächste Recreate räumt auf" war keine Schranke; bis dahin belegt der Kanal einen der 100
+Chatroom-Plätze und niemand verlässt ihn, weil die Absicht fehlt. Geändert: `TryJoinAsync` prüft
+nach dem Erwerb des `_joinGate`, unmittelbar vor dem Senden, den aktuellen Wunschzustand (3.5,
+4.5); S5 (b) prüft es; R9 ist kein „kein Blocker" mehr.
+
+**Was sich an den Zielzahlen geändert hat.** Vorher eine Zielgröße: „Verbindung ≤ 3 s, erster JOIN
+≤ 4 s, letzter JOIN gesendet ≤ 4 s + 0,6 s × (N − 1)". Jetzt zwei: SLO-1 Verlust → `004` mit
+Median ≤ 3 s, p95 ≤ 5 s, harte Schranke 25 s je Versuch; SLO-2 Verlust → letzte **Bestätigung**
+≤ 6 s + 0,6 s × (N − 1) und K = 0 (13 Kanäle: 13,2 s; 20 Kanäle: 17,4 s). Das Abbruchkriterium
+trägt SLO-2. Im Flapping-Fall kostet die neue Fassung 5 s ab dem dritten Ereignis statt bis zu 36 s.
+
+**Was unverändert blieb, und warum.** Das Modell selbst (E1–E5), der 30-s-Deckel, der erste
+Versuch nach 0 s, die Trägerin der Schleife, die Conduit-Einordnung (Abschnitt 9). Kein Befund der
+Gegenrede berührte sie; sie stehen weiter unter den Vorbehalten aus Abschnitt 8.
+
+**Neu offen (7.10):** Die Prod-Log-Ebene von `TwitchLib.Client.TwitchClient` muss auf
+`Information`, sonst ist Fall B auch auf Prod unsichtbar — eine kleine `appsettings.json`-Änderung
+mit eigener Abwägung (Log-Volumen: eine Zeile je JOIN/PART/Connect, vernachlässigbar).
 
 ---
 
@@ -793,5 +1013,11 @@ dass die Antwort „die Entscheidung liegt schon transportfrei, nur die Aktion i
 - `docs/Architectur.md` A.1 (Verbindungsaufbau, Watchdog).
 - `src/EmotePurge.Api/Health/WorkerCapacity.cs:18-26`: Begründung der 20 neu schreiben (7.2).
 - `src/EmotePurge.Worker/TwitchChatManager.cs:22-39` (Klassenkommentar), `Worker.cs:23-25`.
+- `src/EmotePurge.Worker/appsettings.json:8`: Log-Ebene `TwitchLib.Client.TwitchClient` (7.10) —
+  falls mit dem Umbau, dann hier.
+- `docker-compose.prod.yml` und `docker-compose.yml`: `stop_grace_period` für `worker` (#122) —
+  derselbe Deploy, s. 4.6.
+- `src/EmotePurge.Worker/TwitchChatManager.cs:400-408` (`OnFailureToReceiveJoinConfirmation`)
+  und `:410-421` (`OnConnectionError`): Kommentare beschreiben nach dem Umbau ein anderes Verhalten.
 - `.github/dependabot.yml`: unberührt — kein Versionswechsel von `TwitchLib.*`, der Umbau umgeht
   die Bibliothek weiterhin.
