@@ -334,11 +334,21 @@ public class ReplayFidelityCalculatorTests
     }
 
     [Fact]
-    public void RankTies_AreBrokenByEmoteIdOrdinal()
+    public void RankTies_NoLongerDecideTheQuartileSelection()
     {
-        // Live totals a 400, b 400, c 800, d 1200; descending with ordinal id as tie-break gives
-        // d, c, a, b, so the bottom quartile (floor(4/4) = 1) is {b}. Log totals a 200, b 600,
-        // c 800, d 1200 have no tie and their bottom quartile is {a} -> precision 0.
+        // Before #97 this test was named *AreBrokenByEmoteIdOrdinal* and pinned the old defect:
+        // Ranking()'s ordinal id tie-break picked exactly one of the tied a/b pair for the live
+        // bottom quartile (floor(4/4) = 1) -- specifically "b", the larger id -- while the log side
+        // had no tie and picked "a" outright, so the two singleton selections never overlapped and
+        // precision read 0. That 0 said nothing about the counts: it was an artifact of which of a/b
+        // happened to sort last.
+        //
+        // The value-based cutoff (#97) does not pick a single winner out of the tie at all: both a
+        // and b sit at the live cutoff value (20) and both belong to QuartileLiveSet, i.e. BOTH are
+        // live-tail, not just whichever the GUID favoured. The log's lone cutoff entry is "a" (10),
+        // which is also a member of that live-tail set, so the overlap is now correctly 1 out of a
+        // 1-entry log quartile: precision 1.0. Top20Recall and TotalDeviation are untouched by #97
+        // and keep their old values.
         var emotes = new List<ReplayEmote> { Emote("a"), Emote("b"), Emote("c"), Emote("d") };
         var live = Counts(("a", 20), ("b", 20), ("c", 40), ("d", 60));
         var log = Counts(("a", 10), ("b", 30), ("c", 40), ("d", 60));
@@ -347,13 +357,17 @@ public class ReplayFidelityCalculatorTests
         var report = Compute(emotes, rows, days);
 
         Assert.Equal(1, report.Gate.BottomQuartileSize);
-        Assert.Equal(0d, report.Gate.BottomQuartilePrecision!.Value, 6);
+        Assert.Equal(1d, report.Gate.BottomQuartilePrecision!.Value, 6);
+        // The live tail is the whole a/b tie block (both at 20), not just the nominal one slot --
+        // the log tail stays a genuine singleton, since 10 is not tied with anything.
+        Assert.Equal(2, report.Gate.BottomQuartileLiveSize);
+        Assert.Equal(1, report.Gate.BottomQuartileLogSize);
         Assert.Equal(4, report.Gate.Top20Size);
         Assert.Equal(1d, report.Gate.Top20Recall!.Value, 6);
         Assert.Equal(0.1429, report.Gate.TotalDeviation!.Value, 6);
-        // Visibility into the tie-break, not a second gate (Abschluss-Review): the live side's
-        // bottom-quartile cut sits on the a/b tie at 20, so both of them share the boundary value
-        // even though the quartile itself only fits one; the log side's cut sits on a's lone 10.
+        // Visibility into the tie-break, still purely descriptive: the live side's cutoff sits on
+        // the a/b tie at 20, so both of them share the boundary value; the log side's cutoff sits on
+        // a's lone 10.
         Assert.Equal(2, report.Gate.BottomQuartileLiveTieCount);
         Assert.Equal(1, report.Gate.BottomQuartileLogTieCount);
     }
@@ -391,7 +405,12 @@ public class ReplayFidelityCalculatorTests
         Assert.Equal(0, report.Gate.PopulationSize);
         Assert.Null(report.Gate.TotalDeviation);
         Assert.Null(report.Gate.Top20Recall);
+        Assert.Equal(0, report.Gate.Top20LiveTieCount);
+        Assert.Equal(0, report.Gate.Top20LogTieCount);
         Assert.Null(report.Gate.BottomQuartilePrecision);
+        Assert.Equal(0, report.Gate.BottomQuartileLiveSize);
+        Assert.Equal(0, report.Gate.BottomQuartileLogSize);
+        Assert.Null(report.Gate.TailDeviation);
         Assert.Null(report.Diagnostics.DayRatioMedian);
         Assert.Null(report.Run.ResumePoint);
         Assert.False(report.Gate.GateEligible);
@@ -554,8 +573,211 @@ public class ReplayFidelityCalculatorTests
 
         var report = Compute(emotes, rows, days);
 
+        // No tie sits on either cutoff here, so the #97 rebuild changes nothing about this fixture:
+        // both value-defined sets have exactly the nominal size.
         Assert.Equal(3, report.Gate.BottomQuartileSize);
+        Assert.Equal(3, report.Gate.BottomQuartileLiveSize);
+        Assert.Equal(3, report.Gate.BottomQuartileLogSize);
         Assert.Equal(0.6667, report.Gate.BottomQuartilePrecision!.Value, 6);
+    }
+
+    [Fact]
+    public void QuartilePrecision_IsIndependentOfWhichEntityHoldsWhichEmoteId()
+    {
+        // Regression guard for #97 — the defect itself, not just its symptom. Live totals a/b 400
+        // (tied), c 800, d 1200 (the RankTies_NoLongerDecideTheQuartileSelection fixture, scaled by
+        // the same 20-day Build). Only the LOG values of the tied pair are swapped between the two
+        // calls below; every count that is not swapped (c, d, and both of the live values) is
+        // identical.
+        //
+        // Under the pre-#97 algorithm this swap alone flipped the reported precision between 0.0 and
+        // 1.0 — the id decided which of the tied pair the *live* ranking's TakeLast kept, and the
+        // very same id (now attached to a different log count) decided the *log* ranking's TakeLast
+        // too, so the overlap tracked the id rather than the counts. The value-based quartile of #97
+        // does not consult an id to decide membership, so both variants below report the identical,
+        // correct precision.
+        Assert.Equal(1d, QuartilePrecisionFor(logA: 10, logB: 30), 6);
+        Assert.Equal(1d, QuartilePrecisionFor(logA: 30, logB: 10), 6);
+
+        double QuartilePrecisionFor(int logA, int logB)
+        {
+            var emotes = new List<ReplayEmote> { Emote("a"), Emote("b"), Emote("c"), Emote("d") };
+            var live = Counts(("a", 20), ("b", 20), ("c", 40), ("d", 60));
+            var log = Counts(("a", logA), ("b", logB), ("c", 40), ("d", 60));
+            var (days, rows) = Build(20, log, live);
+
+            return Compute(emotes, rows, days).Gate.BottomQuartilePrecision!.Value;
+        }
+    }
+
+    [Fact]
+    public void PerfectLog_WithLargeTieBlock_YieldsExactPrecisionOfOne()
+    {
+        // A tie block wider than the nominal quartile straddles the cutoff on both sides identically
+        // when Log == Live everywhere: liveCutoff and logCutoff land on the same value, so
+        // QuartileLiveSet and QuartileLogSet are the same five-entry plateau (not just the nominal
+        // three) — precision is exactly 1.0 regardless of how large the plateau is or which ids sit
+        // in it. This is what keeps the pre-registered 0.8 threshold meaningful under #97: a run that
+        // truly reproduces the live counts still reads 1.0.
+        var emotes = new List<ReplayEmote>();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < 5; i++)
+        {
+            var id = $"e{i:00}";
+            emotes.Add(Emote(id));
+            counts[id] = 1;
+        }
+
+        for (var i = 5; i < 12; i++)
+        {
+            var id = $"e{i:00}";
+            emotes.Add(Emote(id));
+            counts[id] = i - 3; // 2..8: distinct and above the tie block
+        }
+
+        var (days, rows) = Build(30, counts, counts);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(12, report.Gate.PopulationSize);
+        Assert.Equal(3, report.Gate.BottomQuartileSize);
+        Assert.Equal(5, report.Gate.BottomQuartileLiveSize);
+        Assert.Equal(5, report.Gate.BottomQuartileLogSize);
+        Assert.Equal(1d, report.Gate.BottomQuartilePrecision!.Value, 6);
+        Assert.Equal(0d, report.Gate.TailDeviation!.Value, 6);
+    }
+
+    [Fact]
+    public void UniformTailLoss_IsInvisibleToPrecisionButVisibleToTailDeviation()
+    {
+        // The literal scenario named in the #97 decision and the reason TailDeviation exists as a
+        // separate, non-gate figure: population 8, nominal quartile size 2. Live 5,5,4,3,1,1,1,1;
+        // Log 5,5,4,3,0,0,0,0 — the bottom four emotes keep their rank (all four are still tied at
+        // the bottom on both sides, so QuartileLiveSet == QuartileLogSet == the same four ids) but
+        // lose their entire live volume in the log. A set-membership comparison structurally cannot
+        // see a uniform tail loss like this: precision stays exactly 1.0. TailDeviation, computed
+        // over the actual counts instead of set membership, reports the loss in full: 1.0, i.e. 100 %
+        // of the live tail's volume is gone from the log. Neither number is wrong; they answer
+        // different questions, and that division of labour is the point of D-97.
+        var emotes = new List<ReplayEmote>
+        {
+            Emote("e00"), Emote("e01"), Emote("e02"), Emote("e03"),
+            Emote("e04"), Emote("e05"), Emote("e06"), Emote("e07"),
+        };
+        var live = Counts(
+            ("e00", 5), ("e01", 5), ("e02", 4), ("e03", 3), ("e04", 1), ("e05", 1), ("e06", 1), ("e07", 1));
+        var log = Counts(
+            ("e00", 5), ("e01", 5), ("e02", 4), ("e03", 3), ("e04", 0), ("e05", 0), ("e06", 0), ("e07", 0));
+        var (days, rows) = Build(1, log, live);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(8, report.Gate.PopulationSize);
+        Assert.Equal(2, report.Gate.BottomQuartileSize);
+        Assert.Equal(4, report.Gate.BottomQuartileLiveSize);
+        Assert.Equal(4, report.Gate.BottomQuartileLogSize);
+        Assert.Equal(1d, report.Gate.BottomQuartilePrecision!.Value, 6);
+        Assert.Equal(1d, report.Gate.TailDeviation!.Value, 6);
+    }
+
+    [Fact]
+    public void LogTailLargerThanLiveTail_PullsPrecisionBelowOne()
+    {
+        // The denominator is |QuartileLogSet| (#97 decision): when the log's tail is a genuine
+        // four-wide plateau but the live tail is a clean two-entry cut, the log-side set is larger
+        // than the live-side set and precision must fall below 1 even though every live-tail id is
+        // also inside the log tail.
+        var emotes = new List<ReplayEmote>
+        {
+            Emote("e00"), Emote("e01"), Emote("e02"), Emote("e03"),
+            Emote("e04"), Emote("e05"), Emote("e06"), Emote("e07"),
+        };
+        var live = Counts(
+            ("e00", 8), ("e01", 7), ("e02", 6), ("e03", 5), ("e04", 4), ("e05", 3), ("e06", 2), ("e07", 1));
+        var log = Counts(
+            ("e00", 8), ("e01", 7), ("e02", 6), ("e03", 5), ("e04", 1), ("e05", 1), ("e06", 1), ("e07", 1));
+        var (days, rows) = Build(1, log, live);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(2, report.Gate.BottomQuartileSize);
+        Assert.Equal(2, report.Gate.BottomQuartileLiveSize);
+        Assert.Equal(4, report.Gate.BottomQuartileLogSize);
+        Assert.Equal(0.5, report.Gate.BottomQuartilePrecision!.Value, 6);
+    }
+
+    [Fact]
+    public void TailDeviation_IsNullWhenTheLiveTailHasNoVolume()
+    {
+        // liveCutoff can be 0 when at least BottomQuartileSize emotes never occurred live at all
+        // (they are log-only). Σ Live over QuartileLiveSet is then 0 — "no denominator", which must
+        // read as null, never as 0 (0 would silently claim a perfect tail) and never throw.
+        var emotes = new List<ReplayEmote>
+        {
+            Emote("e00"), Emote("e01"), Emote("e02"), Emote("e03"),
+            Emote("e04"), Emote("e05"), Emote("e06"), Emote("e07"),
+        };
+        var live = Counts(("e00", 8), ("e01", 7), ("e02", 6), ("e03", 5));
+        var log = Counts(
+            ("e00", 8), ("e01", 7), ("e02", 6), ("e03", 5), ("e04", 3), ("e05", 3), ("e06", 3), ("e07", 3));
+        var (days, rows) = Build(1, log, live);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(8, report.Gate.PopulationSize);
+        Assert.Equal(4, report.Gate.BottomQuartileLiveSize);
+        Assert.Null(report.Gate.TailDeviation);
+    }
+
+    [Fact]
+    public void Top20TieCounts_ReportTheBlockSizeAtTheTopCutoffOverTheWholePopulation()
+    {
+        // Visibility, not a gate (#97): Top20Recall's formula is untouched, but a reader can now see
+        // whether the top-20 cutoff sits on a tie at all. 25 emotes; Live ties four-wide at the
+        // cutoff (ids e18..e21, all at 50), Log ties two-wide at its own, different cutoff (ids
+        // e18..e19, both at 90). Two of the four live-tied ids (e20, e21) sit outside the nominal top
+        // 20 by *position* — the tie count still covers the whole four-wide block, not just the
+        // in-range members, exactly like CountTiesAtQuartileBoundary already did for the bottom.
+        var emotes = new List<ReplayEmote>();
+        var live = new Dictionary<string, int>(StringComparer.Ordinal);
+        var log = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < 18; i++)
+        {
+            var id = $"e{i:00}";
+            emotes.Add(Emote(id));
+            live[id] = 100 - i;
+            log[id] = 200 - i;
+        }
+
+        foreach (var id in new[] { "e18", "e19", "e20", "e21" })
+        {
+            emotes.Add(Emote(id));
+            live[id] = 50;
+        }
+
+        log["e18"] = 90;
+        log["e19"] = 90;
+        log["e20"] = 20;
+        log["e21"] = 19;
+
+        emotes.Add(Emote("e22"));
+        emotes.Add(Emote("e23"));
+        emotes.Add(Emote("e24"));
+        live["e22"] = 10;
+        live["e23"] = 9;
+        live["e24"] = 8;
+        log["e22"] = 18;
+        log["e23"] = 17;
+        log["e24"] = 16;
+
+        var (days, rows) = Build(1, log, live);
+
+        var report = Compute(emotes, rows, days);
+
+        Assert.Equal(25, report.Gate.PopulationSize);
+        Assert.Equal(20, report.Gate.Top20Size);
+        Assert.Equal(4, report.Gate.Top20LiveTieCount);
+        Assert.Equal(2, report.Gate.Top20LogTieCount);
     }
 
     [Fact]

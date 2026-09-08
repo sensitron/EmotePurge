@@ -301,7 +301,14 @@ public class HarnessReportFileTests : IDisposable
         Assert.True(File.Exists(file.ReportJsonPath));
         Assert.True(File.Exists(file.ReportMarkdownPath));
         Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));
-        Assert.Contains("\"run\"", File.ReadAllText(file.ReportJsonPath));
+        var reportJson = File.ReadAllText(file.ReportJsonPath);
+        Assert.Contains("\"run\"", reportJson);
+        // #97: the new gate fields round-trip through the JSON report even for an empty population.
+        Assert.Contains("\"bottomQuartileLiveSize\"", reportJson);
+        Assert.Contains("\"bottomQuartileLogSize\"", reportJson);
+        Assert.Contains("\"tailDeviation\"", reportJson);
+        Assert.Contains("\"top20LiveTieCount\"", reportJson);
+        Assert.Contains("\"top20LogTieCount\"", reportJson);
         Assert.Equal("# Bericht\n", File.ReadAllText(file.ReportMarkdownPath));
     }
 

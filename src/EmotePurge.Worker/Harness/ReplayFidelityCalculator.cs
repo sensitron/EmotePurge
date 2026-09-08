@@ -276,13 +276,30 @@ public static class ReplayFidelityCalculator
             ? null
             : (double)Overlap(liveRanking.Take(topSize), logRanking.Take(topSize)) / topSize;
 
-        var quartileSize = count == 0 ? 0 : Math.Max(1, count / 4);
-        double? bottomQuartilePrecision = quartileSize == 0
-            ? null
-            : (double)Overlap(liveRanking.TakeLast(quartileSize), logRanking.TakeLast(quartileSize)) / quartileSize;
+        var top20LiveTieCount = CountTiesAtBoundary(population, e => e.Live, topSize - 1);
+        var top20LogTieCount = CountTiesAtBoundary(population, e => e.Log, topSize - 1);
 
-        var liveTieCount = CountTiesAtQuartileBoundary(population, e => e.Live, quartileSize);
-        var logTieCount = CountTiesAtQuartileBoundary(population, e => e.Log, quartileSize);
+        var quartileSize = count == 0 ? 0 : Math.Max(1, count / 4);
+
+        // The tie-safe quartile sets (D-97): every entry at or below the cutoff *value*, not the
+        // nominal count of entries. See BuildQuartileSet for why this makes BottomQuartilePrecision
+        // independent of the ordinal id tie-break that Ranking() still applies for Top20Recall.
+        var liveCutoff = BoundaryValue(population, e => e.Live, count - quartileSize);
+        var logCutoff = BoundaryValue(population, e => e.Log, count - quartileSize);
+        var quartileLiveSet = BuildQuartileSet(population, e => e.Live, liveCutoff);
+        var quartileLogSet = BuildQuartileSet(population, e => e.Log, logCutoff);
+
+        double? bottomQuartilePrecision = quartileLogSet.Count == 0
+            ? null
+            : (double)Overlap(quartileLiveSet.Select(e => e.Id), quartileLogSet.Select(e => e.Id)) / quartileLogSet.Count;
+
+        var liveTailSum = quartileLiveSet.Sum(e => e.Live);
+        double? tailDeviation = liveTailSum == 0
+            ? null
+            : (double)quartileLiveSet.Sum(e => Math.Abs(e.Log - e.Live)) / liveTailSum;
+
+        var liveTieCount = CountTiesAtBoundary(population, e => e.Live, count - quartileSize);
+        var logTieCount = CountTiesAtBoundary(population, e => e.Log, count - quartileSize);
 
         var reasons = new List<string>();
         if (!runComplete)
@@ -327,10 +344,15 @@ public static class ReplayFidelityCalculator
             Round(totalDeviation),
             Round(top20Recall),
             topSize,
+            top20LiveTieCount,
+            top20LogTieCount,
             Round(bottomQuartilePrecision),
             quartileSize,
+            quartileLiveSet.Count,
+            quartileLogSet.Count,
             liveTieCount,
             logTieCount,
+            Round(tailDeviation),
             reasons.Count == 0,
             new ValueList<string>(reasons));
     }
@@ -363,23 +385,55 @@ public static class ReplayFidelityCalculator
     }
 
     /// <summary>
-    /// How many population entries share the exact value sitting at <paramref name="rankedValue"/>'s
-    /// bottom-quartile cut point — the size of the tie block <see cref="Ranking"/>'s ordinal
-    /// id tie-break has to arbitrate at the one place that changes <c>BottomQuartilePrecision</c>.
-    /// Purely descriptive: it does not change which ids <see cref="Ranking"/> puts in the quartile.
+    /// The value sitting at position <paramref name="indexFromTop"/> (0-based) of the population
+    /// ordered descending by <paramref name="rankedValue"/> — <c>null</c> when the index falls
+    /// outside the population (an empty population, or a nominal slice of size 0). Used both for the
+    /// bottom-quartile cutoff (<c>indexFromTop = count - quartileSize</c>, the largest value that
+    /// would still fall in the nominal quartile) and the top-20 cutoff
+    /// (<c>indexFromTop = topSize - 1</c>, the smallest value still inside the nominal top slice).
     /// </summary>
-    private static int CountTiesAtQuartileBoundary(
-        List<PopulationEntry> population, Func<PopulationEntry, long> rankedValue, int quartileSize)
+    private static long? BoundaryValue(
+        List<PopulationEntry> population, Func<PopulationEntry, long> rankedValue, int indexFromTop)
     {
-        if (quartileSize == 0 || population.Count == 0)
+        if (indexFromTop < 0 || indexFromTop >= population.Count)
         {
-            return 0;
+            return null;
         }
 
-        var ordered = population.OrderByDescending(rankedValue).ToList();
-        var boundaryValue = rankedValue(ordered[ordered.Count - quartileSize]);
-        return ordered.Count(e => rankedValue(e) == boundaryValue);
+        return rankedValue(population.OrderByDescending(rankedValue).ElementAt(indexFromTop));
     }
+
+    /// <summary>
+    /// How many population entries share the exact value sitting at <paramref name="indexFromTop"/>'s
+    /// cut point — the size of the tie block <see cref="Ranking"/>'s ordinal id tie-break would have
+    /// to arbitrate at that boundary. Purely descriptive: since #97 it does not change which ids the
+    /// bottom-quartile sets contain (<see cref="BuildQuartileSet"/>) and never did for the top-20
+    /// slice (Top20Recall keeps <see cref="Ranking"/>'s ordinal tie-break, D-97 leaves the formula
+    /// untouched there because exact ties are rare at the qualified channels' four/five-digit
+    /// counts).
+    /// </summary>
+    private static int CountTiesAtBoundary(
+        List<PopulationEntry> population, Func<PopulationEntry, long> rankedValue, int indexFromTop)
+    {
+        var boundaryValue = BoundaryValue(population, rankedValue, indexFromTop);
+        return boundaryValue is null ? 0 : population.Count(e => rankedValue(e) == boundaryValue);
+    }
+
+    /// <summary>
+    /// Every population entry whose <paramref name="rankedValue"/> is at or below
+    /// <paramref name="cutoff"/> — the tie-safe replacement for <c>Ranking(...).TakeLast(n)</c> in
+    /// the bottom-quartile gate (#97). Because membership is decided purely by value, a tie block
+    /// straddling the cutoff is included <b>whole</b> on both sides instead of being split by the
+    /// ordinal id tie-break, which is what let the id decide <c>BottomQuartilePrecision</c> instead
+    /// of the counts: with the same id used as the secondary sort key on both the live and the log
+    /// ranking, a tied entity's id pulled it into or out of <i>both</i> selections together, forcing
+    /// the overlap towards its maximum regardless of how the two sides actually compared. Can be
+    /// larger than the nominal <c>BottomQuartileSize</c> when a plateau sits on the cutoff; never
+    /// smaller. <c>null</c> (an empty population) yields the empty set.
+    /// </summary>
+    private static List<PopulationEntry> BuildQuartileSet(
+        List<PopulationEntry> population, Func<PopulationEntry, long> rankedValue, long? cutoff)
+        => cutoff is { } value ? population.Where(e => rankedValue(e) <= value).ToList() : [];
 
     /// <summary>
     /// Plausibility check (a), over every day that has a log and with bots and shared chat on both
