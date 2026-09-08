@@ -40,6 +40,7 @@ import {
   CreateVoteSessionDialogData,
   openCreateVoteSessionDialog,
 } from './create-vote-session-dialog';
+import { SetStatusFlushProbeGate } from './set-status-flush-probe-gate';
 import { LIVE_EVENT_TYPES, channelLiveUrl } from '../../core/live/live-event.model';
 import { CHANNEL_RELOAD_DEBOUNCE_MS, liveReload } from '../../core/live/live-reload';
 import { ChannelUsageSeries, EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
@@ -572,6 +573,12 @@ export class UsageStatsPage {
    *  channel. */
   private requestedSetStatusFor: string | null = null;
 
+  /** Bounds how many `usageFlushed` bursts since the last channel switch may still trigger an
+   *  active-set refetch — see the class doc for why an OR-linked staleness check on the two
+   *  completion fields was asking again after nearly every flush. Reset alongside
+   *  `requestedSetStatusFor` in load(), the same "once per channel" bookkeeping. */
+  private readonly setStatusFlushProbeGate = new SetStatusFlushProbeGate();
+
   /**
    * False while "all time" still means the placeholder span rather than this channel's tracking
    * start — see from()'s declaration. The set-status request is what resolves it.
@@ -823,19 +830,22 @@ export class UsageStatsPage {
       if (seen.has(LIVE_EVENT_TYPES.channelSynced)) {
         // This event is what awaitSync is really waiting for — the probes are only there for the
         // case where it never shows up. The totals have just been refetched above, so letting the
-        // remaining probes run would only ask the same question again.
+        // remaining probes run would only ask the same question again. This path is unconditional
+        // and does not touch setStatusFlushProbeGate — a sync is a real inventory change, not the
+        // bounded "did the flush catch up yet" question the gate answers.
         this.stopAwaitingSync();
         this.refreshSetStatus();
       } else if (
         seen.has(LIVE_EVENT_TYPES.usageFlushed) &&
-        (!this.setStatus()?.botsExcludedSince || !this.setStatus()?.sharedChatSeparatedSince)
+        this.setStatusFlushProbeGate.shouldRefreshOn(this.setStatus())
       ) {
         // A flush can move the same DTO's botsExcludedSince and sharedChatSeparatedSince: each is
         // set the moment a flush first counts that kind of usage for this channel, not by a sync.
-        // Left unguarded this would refetch after every later flush too, forever, for two fields
-        // that are MINs over growing dates and therefore provably done changing once they hold a
-        // date — so only ask again while at least one of them is still null. Still at most one
-        // status request per flush event either way, exactly as before.
+        // Both are MINs over growing dates and therefore provably done changing once they hold a
+        // date, but most channels never take part in a shared-chat session at all, so
+        // sharedChatSeparatedSince alone staying null must not license asking forever — the gate
+        // caps this at the first few bursts after a mount/channel switch (see its own doc) instead
+        // of deriving "still worth asking" from the data.
         this.refreshSetStatus();
       }
     });
@@ -1334,6 +1344,7 @@ export class UsageStatsPage {
     // to start it again.
     if (this.requestedSetStatusFor !== channelName) {
       this.requestedSetStatusFor = channelName;
+      this.setStatusFlushProbeGate.reset();
       this.stopAwaitingSync();
       this.emoteAdminService.getSetStatus(channelName).subscribe({
         next: (status) => {
