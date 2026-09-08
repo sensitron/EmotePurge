@@ -1321,9 +1321,23 @@ export class UsageStatsPage {
   // Quiet counterpart to the set-status fetch in load(): no sync-poll, and a failed refetch keeps
   // the current value — this runs unrequested, so it must never take the mass-delete panel away
   // over a transient error.
+  //
+  // The channel is frozen at request time because a live event can fire this while the user has
+  // already navigated to another channel within the same route (the import summary's "open target
+  // channel" link, see importScopeIsCurrent) — a late answer for the old channel must not land
+  // under the new one's name. setStatusChannel is written alongside setStatus on success, mirroring
+  // load()'s own success branch: a channel that only just recovered from a failed status fetch
+  // needs exactly this write to finally be allowed to claim it.
   private refreshSetStatus(): void {
-    this.emoteAdminService.getSetStatus(this.channelName()).subscribe({
-      next: (status) => this.setStatus.set(status),
+    const channelName = this.channelName();
+    this.emoteAdminService.getSetStatus(channelName).subscribe({
+      next: (status) => {
+        if (this.channelName() !== channelName) {
+          return;
+        }
+        this.setStatus.set(status);
+        this.setStatusChannel.set(channelName);
+      },
       error: () => undefined,
     });
   }
