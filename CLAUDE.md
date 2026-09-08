@@ -161,7 +161,7 @@ Verbindlich, und beim Review vom 2026-07-29 über alle `using`-Direktiven geprü
 
 Die Begründung zu jeder Regel steht in [docs/DECISIONS.md](docs/DECISIONS.md).
 
-1. **Vor jedem `git commit` erst den Nutzer fragen.** Gilt auch, wenn Code-Änderungen selbst ohne Rückfrage umgesetzt werden dürfen (z. B. nach freigegebenem Plan-Mode-Plan) — die Freigabe für Edits deckt den Commit-Schritt nicht ab.
+1. **Committen, auf einen Feature-Branch pushen und PRs aufmachen darf eine Session selbstständig — mergen nicht.** Der Merge gehört dem Nutzer, und **direkt auf `main` pushen ist ihm gleichgestellt**: Git nennt es anders, wirksam ist es dasselbe. Drei Dinge hebt diese Freiheit ausdrücklich **nicht** auf — die Fertigmeldungs-Gates aus [Arbeitsweise](#arbeitsweise) gelten vor dem Commit, nicht statt seiner; die Zweitmeinung aus Regel 22 wird eingeholt und dem Nutzer **vorgelegt**, nicht ihm erspart; und ein Push ist kein Deploy, ein Stack-Update bleibt eine getrennte, ausdrücklich abgestimmte Handlung.
 2. **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, …), in mehreren logisch getrennten Commits statt einem Sammel-Commit pro Feature.
 3. **Ein Commit, der eine Konvention, einen Vertrag oder eine Topologie ändert, enthält seinen Eintrag in `docs/DECISIONS.md` im selben Commit.**
 4. **Kein `AppDbContext` und kein `IConnectionMultiplexer` direkt aus Minimal-API-Handlern.** Neue Backend-Fähigkeiten bekommen ein Interface in `Core/Services/` und eine Implementierung in `Infrastructure/Services/`. Ausdrücklich **kein** generisches Repository-Pattern über EF Core.
