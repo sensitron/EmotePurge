@@ -22,12 +22,15 @@
  * order — when that happens, adjust the flushing choreography below to match the new sequence, not
  * the assertions at the end of the test, which are the actual thing under test.
  *
- * There are two cases below, not one, because A's stale answer can land in either of two windows —
- * before B's own load has finished, or after — and only the second is the shape #112 actually
- * reported: it is the one where `setStatusChannel` has already been bumped to `'b'` by B's own
- * success before A's answer arrives, which is what let the pre-fix code's unconditional
- * `setStatus.set(status)` slip A's set id in under a `setStatusChannel`/`importScopeCurrent` that
- * still read as correct.
+ * There are three cases below, not one. The first two cover the discard branch — A's stale answer
+ * can land in either of two windows, before B's own load has finished or after, and only the
+ * second is the shape #112 actually reported: it is the one where `setStatusChannel` has already
+ * been bumped to `'b'` by B's own success before A's answer arrives, which is what let the pre-fix
+ * code's unconditional `setStatus.set(status)` slip A's set id in under a
+ * `setStatusChannel`/`importScopeCurrent` that still read as correct. The third case covers the
+ * other branch of the same `if` — the successful silent refresh that *does* get to claim the
+ * channel, which is the other half of the fix (`setStatusChannel` being written at all, not just
+ * being guarded).
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -309,6 +312,59 @@ describe('UsageStatsPage — refreshSetStatus channel race (#112 regression)', (
 
     expect(component['setStatus']()?.activeEmoteSetId).toBe('set-b');
     expect(component['setStatusChannel']()).toBe('b');
+    expect(component['importScopeCurrent']()).toBe(true);
+  });
+
+  it('lets a channel.synced-triggered refreshSetStatus() claim the channel after the initial status fetch failed', () => {
+    // --- Mount on channel A, but the initial getSetStatus fails. load()'s error branch sets
+    // setStatus to null and setStatusFailedChannel to 'a', deliberately leaving setStatusChannel
+    // untouched (see its own comment) — nothing has "claimed" the channel yet. ---
+    httpMock
+      .expectOne('/api/channels/a/permissions')
+      .flush({ canManage: true, canViewUsageStats: true });
+
+    httpMock
+      .expectOne('/api/channels/a/emotes/active-set')
+      .flush(null, { status: 500, statusText: 'Server Error' });
+    // setStatusFailedChannel flips rangeResolved true for this channel (see its own comment), so
+    // the same effect rerun that absorbed the error also fires totals/series against the
+    // still-placeholder range — nothing ever corrected from() since setStatus stayed null.
+    fixture.detectChanges();
+
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', []);
+    flushByPath(httpMock, '/api/channels/a/usage-stats/series', {
+      from: '2025-09-09',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+
+    expect(component['setStatusChannel']()).toBeNull();
+    expect(component['importScopeCurrent']()).toBe(false);
+
+    // --- A channel.synced burst on A's live stream fires refreshSetStatus() for A. ---
+    const sourceA = FakeEventSource.instances[0];
+    sourceA.emit({ type: LIVE_EVENT_TYPES.channelSynced, channel: 'a' });
+    vi.advanceTimersByTime(1000); // CHANNEL_RELOAD_DEBOUNCE_MS
+    fixture.detectChanges();
+
+    // The same burst also re-triggers a quiet totals reload — drain it, it is not part of what
+    // this test is pinning down.
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', []);
+
+    // --- The silent refresh succeeds this time. ---
+    httpMock
+      .expectOne('/api/channels/a/emotes/active-set')
+      .flush(setStatus({ activeEmoteSetId: 'set-a', trackedSince: '2026-01-01T00:00:00Z' }));
+
+    // The successful refresh is what finally gets to name the channel — setStatusChannel was
+    // deliberately left null by the earlier failure (load()'s error branch, see its own comment),
+    // and this write is the fix's other half: refreshSetStatus()'s success branch mirrors load()'s
+    // own, writing setStatusChannel alongside setStatus rather than leaving it stale.
+    expect(component['setStatus']()?.activeEmoteSetId).toBe('set-a');
+    expect(component['setStatusChannel']()).toBe('a');
+    // totalsChannel was already 'a' — set alongside the totals fired earlier once the failure
+    // resolved rangeResolved — so this is also where importScopeCurrent() turns true.
     expect(component['importScopeCurrent']()).toBe(true);
   });
 });
