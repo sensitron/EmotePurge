@@ -86,6 +86,10 @@ interface Harness {
   scopeInput(value: 'visible' | 'selection'): HTMLInputElement;
   channelInput(name: string): HTMLInputElement | undefined;
   targetInputCount(): number;
+  /** The target radiogroup itself, keyed on its `aria-label` (`import.target.label`) rather than
+   *  just "any `[role=radiogroup]`" — the scope radiogroup above it (`export.scopeLabel`) is a
+   *  second, unrelated one and must not be picked up here by accident. */
+  targetRadiogroup(): Element | undefined;
 }
 
 describe('ImportTargetDialog', () => {
@@ -184,6 +188,10 @@ describe('ImportTargetDialog', () => {
       },
       channelInput: (name) => labelStartingWith(`#${name}`)?.querySelector('input') ?? undefined,
       targetInputCount: () => host.querySelectorAll('input[name="import-target"]').length,
+      targetRadiogroup: () =>
+        Array.from(host.querySelectorAll('[role="radiogroup"]')).find(
+          (el) => el.getAttribute('aria-label') === 'Zielkanal',
+        ),
     };
   }
 
@@ -408,6 +416,22 @@ describe('ImportTargetDialog', () => {
         'Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.',
       );
       expect(dialog.button(SUBMIT).disabled).toBe(true);
+      // ARIA forbids a radiogroup that owns zero radios — with the "none" message rendered as a
+      // sibling instead of inside the group (see import-target-dialog.ts), this state must not
+      // expose a `role="radiogroup"` at all.
+      expect(dialog.targetRadiogroup()).toBeUndefined();
+    });
+
+    it('still exposes the target radiogroup once at least one channel qualifies', async () => {
+      const dialog = render();
+      await resolve(
+        dialog,
+        0,
+        channelsResult({ channels: [channel({ channelName: 'alpha', isBroadcaster: true })] }),
+      );
+
+      expect(dialog.targetInputCount()).toBe(1);
+      expect(dialog.targetRadiogroup()).toBeDefined();
     });
   });
 

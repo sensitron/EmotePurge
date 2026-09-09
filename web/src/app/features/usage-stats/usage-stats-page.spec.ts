@@ -924,4 +924,27 @@ describe('UsageStatsPage — openExport() (#141)', () => {
     expect(downloads).toHaveLength(1);
     expect(downloads[0].mimeType).toBe(CSV_MIME);
   });
+
+  it('exports the range that produced the loaded rows, not a range signal that has since moved on (Codex #143 P2)', () => {
+    mountWithActiveSet([emote('a', 'PeepoA')]);
+    const loadedFrom = component['from']();
+    const loadedTo = component['to']();
+
+    // A range-menu change fires load() again — same as the constructor effect's own trigger — but
+    // nothing here flushes the resulting /usage-stats/totals request, so emotes()/totalsChannel()/
+    // totalsRange() all still describe the range loaded above. This is the same in-flight window a
+    // live usageFlushed reload or a channel switch opens (see totalsRange's declaration).
+    component['rangePreset'].set('custom');
+    component['from'].set('2026-03-01');
+    component['to'].set('2026-03-31');
+    fixture.detectChanges();
+
+    openSpy.mockReturnValue({ closed: of({ optionId: 'usage-csv', scope: 'visible' }) });
+    component['openExport']();
+
+    expect(downloads).toHaveLength(1);
+    // The filename embeds from/to verbatim (usageExportFilename) — proves the download describes
+    // the range the rows actually came from, not '2026-03-01'/'2026-03-31' set above.
+    expect(downloads[0].filename).toBe(`emotepurge_a_usage_${loadedFrom}_${loadedTo}.csv`);
+  });
 });

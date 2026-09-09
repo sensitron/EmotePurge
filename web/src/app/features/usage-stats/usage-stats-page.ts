@@ -142,10 +142,18 @@ interface CapturedImportScope {
  * that reads `emoteSetId` behind it. Holds the raw `EmoteUsageTotal` rows rather than `ImportRow`s
  * because the two usage branches (CSV/JSON) need the full totals; only the emote-list purpose
  * narrows them, inside `buildUsageExportPurposeDownload`.
+ *
+ * `channelName`/`from`/`to` are read from `totalsChannel`/`totalsRange`, not from
+ * `channelName()`/`from()`/`to()` — those move the instant a range change or a live reload starts,
+ * while `totalsChannel`/`totalsRange` only move once that reload's rows have actually landed (see
+ * their declarations). Reading the live signals here would let the capture pair rows from one
+ * query with the channel/range label of a newer, still in-flight one.
  */
 interface CapturedExportScope {
   readonly channelName: string;
   readonly emoteSetId: string | null;
+  readonly from: string;
+  readonly to: string;
   readonly filtered: boolean;
   readonly selection: readonly EmoteUsageTotal[];
   readonly visible: readonly EmoteUsageTotal[];
@@ -580,6 +588,16 @@ export class UsageStatsPage {
    *  Exists because the two requests answer independently: knowing that *something* has finished
    *  loading says nothing about whether the rows and the set id describe the same channel. */
   private readonly totalsChannel = signal<string | null>(null);
+
+  /** The `[from, to]` range the rows in `emotes()` were loaded for — totalsChannel's range
+   *  counterpart, written alongside it in the very same place for the very same reason: `from()`/
+   *  `to()` move the moment a range-menu change or a live `usageFlushed`/`channel.synced` event
+   *  starts a reload, while `emotes()` still holds the previous response until that reload's own
+   *  success branch replaces it. `openExport` reads this instead of `from()`/`to()` so the exported
+   *  file cannot label one moment's rows with another moment's range. */
+  private readonly totalsRange = signal<{ readonly from: string; readonly to: string } | null>(
+    null,
+  );
 
   /** The channel for which an active-set request is in flight or has already answered, success or
    *  failure. A plain field, not a signal: writing it must never itself retrigger load()'s effect —
@@ -1195,6 +1213,14 @@ export class UsageStatsPage {
    * unchanged one. Capturing up front also means the dialog's own `rowCount`/`selectionCount`
    * (read from this same capture) can no longer promise a count the download later disagrees with.
    *
+   * `channelName`/`from`/`to` are captured from `totalsChannel`/`totalsRange`, not from
+   * `channelName()`/`from()`/`to()`: `load()` sets `isLoading` without clearing `emotes()`, so an
+   * in-flight reload (a range change, a channel switch, a live event) leaves `atlasOrder()` still
+   * showing the previous query's rows while the route/range signals already report the next one.
+   * Reading those live would label one moment's rows with another moment's query — see
+   * `totalsChannel`'s and `totalsRange`'s declarations, which solve the same problem for the import
+   * push already.
+   *
    * `trendFor` stays a live callback, deliberately not captured — the trend column is derived from
    * live state at serialization time, same as before (E4).
    *
@@ -1204,9 +1230,15 @@ export class UsageStatsPage {
    * choice to that module.
    */
   protected openExport(): void {
+    // Falls back to the live signals only in the state atlasOrder().length === 0 already rules out
+    // for the button that calls this (see the template): before the very first totals response,
+    // totalsChannel()/totalsRange() are still null and there are no rows to mislabel anyway.
+    const range = this.totalsRange();
     const captured: CapturedExportScope = {
-      channelName: this.channelName(),
+      channelName: this.totalsChannel() ?? this.channelName(),
       emoteSetId: this.activeEmoteSetId(),
+      from: range?.from ?? this.from(),
+      to: range?.to ?? this.to(),
       filtered: this.usageFilter.isAnyActive(),
       selection: this.selection.selectedItems(),
       visible: this.atlasOrder(),
@@ -1234,8 +1266,8 @@ export class UsageStatsPage {
       const download = buildUsageExportPurposeDownload(choice.optionId, {
         channelName: captured.channelName,
         emoteSetId: captured.emoteSetId,
-        from: this.from(),
-        to: this.to(),
+        from: captured.from,
+        to: captured.to,
         filtered: captured.filtered,
         rows,
         scope: choice.scope,
@@ -1562,6 +1594,7 @@ export class UsageStatsPage {
           // Written next to the rows themselves, never before: until this line runs, the grid still
           // shows the previous channel's emotes (see totalsChannel's declaration).
           this.totalsChannel.set(channelName);
+          this.totalsRange.set({ from, to });
           if (options.preserveSelection) {
             // Reconciles against the freshly loaded, UNFILTERED `emotes` — not atlasOrder()/
             // retainVisible(), which read the filtered view and would wrongly drop a row that
