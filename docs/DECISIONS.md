@@ -10,6 +10,55 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-09 — Die beiden TwitchLib-Transporte sind von der Coverage-Messung ausgenommen (#68)
+
+**Betrifft:** [`../.github/workflows/sonarcloud.yml`](../.github/workflows/sonarcloud.yml)
+(`sonar.coverage.exclusions`) · `src/EmotePurge.Worker/TwitchChatManager.cs` ·
+`src/EmotePurge.Worker/TwitchConnectionWatchdog.cs`
+
+**Was sich ändert.** `sonar.coverage.exclusions` trug bisher `web/e2e/**`, `**/Migrations/**` und
+`scripts/**`. Dazu kommen jetzt zwei einzelne Dateien: `TwitchChatManager.cs` und
+`TwitchConnectionWatchdog.cs`. Sie zählen damit weder im Zähler noch im Nenner der Coverage —
+Befunde anderer Regeln (Code Smells, Sicherheitshinweise) melden sie unverändert, `sonar.exclusions`
+bleibt unangetastet.
+
+**Der Anlass, mit Zahlen.** Der PR zu #68 riss das Quality Gate mit **17,9 % Coverage auf neuem
+Code** gegen die Schwelle von 80 %. Die Aufschlüsselung je Datei (SonarCloud-API,
+`new_uncovered_lines`) zeigt keine breite Lücke, sondern zwei Klumpen: von 361 ungedeckten neuen
+Zeilen liegen **289 in `TwitchChatManager.cs` und 64 in `TwitchConnectionWatchdog.cs`**, beide bei
+exakt 0 %. Das sind **353 von 361, also 97,8 %.** Die übrigen acht verteilen sich auf
+`ITwitchChatManager.cs` (5), `Worker.cs` (2) und `TwitchReconnectSignalSlot.cs` (1). Ohne die beiden
+Dateien bleiben 80 zu deckende neue Zeilen mit 8 ungedeckten übrig — 90 %.
+
+**Warum Ausnahme und nicht Tests.** Regel 11 legt seit dem 2026-08-02 fest, dass die
+Transport-Klassen des Workers **bewusst live statt gegen Fakes** verifiziert werden (Regel 16), und
+benennt `TwitchChatManager` dort namentlich. Ein Unit-Test für diese Klasse müsste TwitchLibs
+Verbindungs-, Handshake- und Ereignisverhalten nachbauen; geprüft würde dann die Nachbildung, nicht
+der Transport. Genau solche Tests hätte das Gate hier erzwungen — und das Gate wurde am 2026-09-06
+nicht scharf gestellt, um sie zu erzeugen. Die Verifikation, die stattdessen stattfindet, ist
+dokumentiert und beziffert: der Eintrag vom 2026-09-08 zu #68 führt sieben gültige Messläufe gegen
+echtes Twitch-IRC samt SLO-Werten, Backoff-Kurve, Shutdown-Zeiten und dem 16-Minuten-Fall.
+
+**Warum die Ausnahme trotzdem etwas kostet.** Sie ist dauerhaft und gilt für die ganze Datei, nicht
+nur für das Diff dieses PRs. Zieht später testbare Entscheidungslogik in eine der beiden Klassen
+ein, meldet das Gate ihr Fehlen **nicht** — die Ausnahme schweigt genau dort, wo sie falsch liegt.
+Der Umgang damit ist derselbe wie bisher: Was sich testen lässt, wird herausgezogen, statt in der
+Transportklasse zu wachsen. Der Bestand belegt, dass das trägt — `TwitchWatchdogPolicy`,
+`TwitchReconnectBackoffPolicy` und `TwitchReconnectSignalSlot` sind aus genau diesen beiden Dateien
+herausgelöst und liegen im container-freien `tests/EmotePurge.Worker.Tests`. Die beiden, die dieser
+PR neu anlegt, misst Sonar voll mit: `TwitchReconnectSignalSlot` 94,6 %, `TwitchReconnectBackoffPolicy`
+94,9 % auf neuem Code. `TwitchWatchdogPolicy` steht schon seit dem 2026-08-03 und trägt hier keine
+neue Zeile.
+
+**Ausdrücklich nicht gewählt.** *Das Gate für diesen PR administrativ übergehen* — das Ruleset
+`main required checks` erlaubt es (`bypass_mode: always` für die Admin-Rolle), aber es hinterlässt
+keine Spur in der Konfiguration, nur einen roten Haken in einem PR, den in einem Jahr niemand mehr
+aufschlägt. *Die Schwelle senken* — sie gilt repoweit und träfe alles andere mit. *`SevenTvEventClient`
+gleich mit ausnehmen* — Regel 11 nennt ihn im selben Atemzug als Transport, er ist hier aber nicht
+betroffen, und eine Ausnahme auf Vorrat ist das Gegenteil einer gezielten.
+
+---
+
 ### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
 
 **Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,
