@@ -88,8 +88,8 @@ import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
 import {
   ExportDialogData,
+  ExportDialogOption,
   ExportScope,
-  FORMAT_EXPORT_OPTIONS,
   openExportDialog,
 } from '../../shared/export/export-dialog';
 import {
@@ -147,6 +147,24 @@ interface CapturedImportScope {
   readonly selection: readonly ImportRow[];
   readonly visible: readonly ImportRow[];
 }
+
+/**
+ * `openExport`'s counterpart to `CapturedImportScope` — same reasoning (see `openImportTarget`'s
+ * docstring), now applying to the export dialog too since the emote-list purpose put a file path
+ * that reads `emoteSetId` behind it. Holds the raw `EmoteUsageTotal` rows rather than `ImportRow`s
+ * because the two usage branches (CSV/JSON) need the full totals; only the emote-list branch
+ * narrows them via `toImportRow`.
+ */
+interface CapturedExportScope {
+  readonly channelName: string;
+  readonly emoteSetId: string | null;
+  readonly filtered: boolean;
+  readonly selection: readonly EmoteUsageTotal[];
+  readonly visible: readonly EmoteUsageTotal[];
+}
+
+/** The three purposes `openExport` offers, in display order (see the option list built there). */
+type ExportPurposeId = 'usage-csv' | 'usage-json' | 'emote-list';
 
 const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
   sevenTvEmoteId: emote.sevenTvEmoteId,
@@ -1177,43 +1195,110 @@ export class UsageStatsPage {
     openEmoteDrilldownDialog(this.dialog, data);
   }
 
-  // Exports the *visible* list (filtered + sorted, in atlas order) by default, or — chosen in the
-  // dialog — the current selection: the same rows that drive mass-delete and vote-session creation.
-  // Client-side serialization on purpose — the read model is already loaded, and a download must
-  // never see more than the page does (A12).
-  // Stopgap (Task 2 of #141): still CSV/JSON, unlike the purpose-sorted list T4 gives this page.
-  // A later task swaps `options`/`optionsLegendKey` for the purpose list and adds the emote-list
-  // branch — do not add it here.
+  /**
+   * Exports the *visible* list (filtered + sorted, in atlas order) by default, or — chosen in the
+   * dialog — the current selection: the same rows that drive mass-delete and vote-session
+   * creation. Client-side serialization on purpose — the read model is already loaded, and a
+   * download must never see more than the page does (A12).
+   *
+   * Sorted by purpose, not by format (#141): usage figures as CSV or JSON, or — when an active
+   * 7TV set makes it fulfillable (E3) — the emote list to re-import elsewhere. An option that
+   * fails on submit is exactly the trap E3 rules out, which is why the third row is a visibility
+   * check rather than an always-shown option.
+   *
+   * Everything is captured *before* the dialog opens, for the same reason `openImportTarget`
+   * captures early (see its docstring): this page keeps reloading while the dialog is open
+   * (`usageFlushed`, `channel.synced`), and the keyed selection deliberately survives that reload.
+   * Reading `rows`/`filtered`/the scope only after close would let a later reload swap in
+   * different rows under an unchanged-looking selection, silently pairing them with the
+   * already-captured `emoteSetId` — invisible, because a surviving selection looks exactly like an
+   * unchanged one. Capturing up front also means the dialog's own `rowCount`/`selectionCount`
+   * (read from this same capture) can no longer promise a count the download later disagrees with.
+   *
+   * `trendFor` stays a live callback, deliberately not captured — the trend column is derived from
+   * live state at serialization time, same as before (E4).
+   */
   protected openExport(): void {
-    const data: ExportDialogData = {
-      rowCount: this.atlasOrder().length,
+    const captured: CapturedExportScope = {
+      channelName: this.channelName(),
+      emoteSetId: this.activeEmoteSetId(),
       filtered: this.usageFilter.isAnyActive(),
-      selectionCount: this.selection.selectedKeys().length,
+      selection: this.selection.selectedItems(),
+      visible: this.atlasOrder(),
+    };
+
+    const options: (ExportDialogOption & { id: ExportPurposeId })[] = [
+      { id: 'usage-csv', labelKey: 'export.purposeAnalyse', hintKey: 'export.purposeAnalyseHint' },
+      {
+        id: 'usage-json',
+        labelKey: 'export.purposeProcess',
+        hintKey: 'export.purposeProcessHint',
+      },
+    ];
+    if (captured.emoteSetId !== null && this.importScopeCurrent()) {
+      options.push({
+        id: 'emote-list',
+        labelKey: 'export.purposeReimport',
+        hintKey: 'export.purposeReimportHint',
+      });
+    }
+
+    const data: ExportDialogData<ExportPurposeId> = {
+      rowCount: captured.visible.length,
+      filtered: captured.filtered,
+      selectionCount: captured.selection.length,
       // Whoever can open this page sees every usage figure — nothing to explain away here.
       noticeKeys: [],
-      optionsLegendKey: 'export.formatLabel',
-      options: FORMAT_EXPORT_OPTIONS,
+      optionsLegendKey: 'export.purposeLabel',
+      options,
     };
     openExportDialog(this.dialog, data).closed.subscribe((choice) => {
       if (!choice) {
         return;
       }
-      // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
-      // the same reason as selectedForDelete: everything that removes rows from the atlas also
-      // clears or prunes the selection.
-      const input: UsageExportInput = {
-        channelName: this.channelName(),
-        from: this.from(),
-        to: this.to(),
-        rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.atlasOrder(),
-        scope: choice.scope,
-        filtered: this.usageFilter.isAnyActive(),
-        trendFor: (row) => this.trendFor(row),
-      };
-      if (choice.optionId === 'csv') {
-        downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
-      } else {
-        downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
+      const rows = choice.scope === 'selection' ? captured.selection : captured.visible;
+
+      switch (choice.optionId) {
+        case 'usage-csv':
+        case 'usage-json': {
+          const input: UsageExportInput = {
+            channelName: captured.channelName,
+            from: this.from(),
+            to: this.to(),
+            rows,
+            scope: choice.scope,
+            filtered: captured.filtered,
+            trendFor: (row) => this.trendFor(row),
+          };
+          if (choice.optionId === 'usage-csv') {
+            downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
+          } else {
+            downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
+          }
+          return;
+        }
+        case 'emote-list': {
+          // Only reachable when the option above was offered, which already required
+          // emoteSetId !== null — mirrors startImportFromChoice's file branch exactly.
+          const deduped = dedupeImportRows(rows.map(toImportRow));
+          const envelope = buildEmoteListEnvelope({
+            channelName: captured.channelName,
+            emoteSetId: captured.emoteSetId as string,
+            scope: choice.scope,
+            rows: deduped.rows,
+          });
+          downloadFile(
+            emoteListFilename(captured.channelName, envelope.exportedAt),
+            emoteListJson(envelope),
+            JSON_MIME,
+          );
+          return;
+        }
+        default: {
+          // Exhaustiveness check: a new ExportPurposeId that reaches here fails the build.
+          const exhaustive: never = choice.optionId;
+          throw new Error(`Unhandled export purpose: ${String(exhaustive)}`);
+        }
       }
     });
   }
