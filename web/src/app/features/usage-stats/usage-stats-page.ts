@@ -1278,12 +1278,19 @@ export class UsageStatsPage {
           return;
         }
         case 'emote-list': {
-          // Only reachable when the option above was offered, which already required
-          // emoteSetId !== null — mirrors startImportFromChoice's file branch exactly.
+          const emoteSetId = captured.emoteSetId;
+          if (emoteSetId === null) {
+            // Unreachable: this option is only offered when the capture carried a set id (E3).
+            // Narrowing rather than asserting keeps that invariant checked instead of declared —
+            // if the offer rule and this branch ever drift apart, nothing is written.
+            return;
+          }
+          // Mirrors startImportFromChoice's file branch exactly: same dedupe, same envelope,
+          // same filename.
           const deduped = dedupeImportRows(rows.map(toImportRow));
           const envelope = buildEmoteListEnvelope({
             channelName: captured.channelName,
-            emoteSetId: captured.emoteSetId as string,
+            emoteSetId,
             scope: choice.scope,
             rows: deduped.rows,
           });
