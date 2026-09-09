@@ -12,7 +12,7 @@ import { RunQueueItem } from '../../core/seven-tv/seven-tv-run-engine';
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { CSV_MIME } from '../export/csv';
-import { ExportDialogData, openExportDialog } from '../export/export-dialog';
+import { ExportDialogData, FORMAT_EXPORT_OPTIONS, openExportDialog } from '../export/export-dialog';
 import { JSON_MIME } from '../export/export-envelope';
 import { downloadFile } from '../export/file-download';
 import {
@@ -308,15 +308,17 @@ export class MassDeletePanel {
       // The protocol is always the whole run — a scope choice would make no sense here.
       selectionCount: 0,
       noticeKeys: [],
+      optionsLegendKey: 'export.formatLabel',
+      options: FORMAT_EXPORT_OPTIONS,
     };
     openExportDialog(this.dialog, data).closed.subscribe((choice) => {
-      if (choice?.format === 'csv') {
+      if (choice?.optionId === 'csv') {
         downloadFile(
           purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'csv'),
           purgeRunCsv(protocol),
           CSV_MIME,
         );
-      } else if (choice?.format === 'json') {
+      } else if (choice?.optionId === 'json') {
         downloadFile(
           purgeRunFilename(run.channelName, protocol.meta.finishedAt, 'json'),
           purgeRunJson(protocol),

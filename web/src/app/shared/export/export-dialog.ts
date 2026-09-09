@@ -8,17 +8,22 @@ import { openAppDialog } from '../ui/dialog';
 import { DialogShell } from '../ui/dialog-shell';
 import { NoticeBanner } from '../ui/notice-banner';
 
-export type ExportFormat = 'csv' | 'json';
-
 /** What gets exported: the visible (filtered + sorted) list, or the current grid selection. */
 export type ExportScope = 'visible' | 'selection';
 
-export interface ExportChoice {
-  format: ExportFormat;
-  scope: ExportScope;
+/**
+ * One radio in the option group. `id` is opaque to the dialog — the caller is the one that
+ * switches on it. `labelKey` renders as the first line, `hintKey` (when present) as a second,
+ * quieter line beneath it, both inside the `<label>` and therefore both part of the accessible
+ * name (§7.4 — house pattern, see "(Kanal muss erst beitreten)" in `import-target-dialog.ts`).
+ */
+export interface ExportDialogOption {
+  readonly id: string;
+  readonly labelKey: string;
+  readonly hintKey?: string;
 }
 
-export interface ExportDialogData {
+export interface ExportDialogData<TId extends string = string> {
   /** Rows of the visible list — the default export, so the count is part of the confirmation. */
   rowCount: number;
   /** True when the visible list is a filtered subset; renders the "filtered" hint line. */
@@ -34,14 +39,36 @@ export interface ExportDialogData {
    * cannot carry it.
    */
   noticeKeys: readonly string[];
+  /** Legend of the option radiogroup — 'export.formatLabel' for the two unchanged callers,
+   *  'export.purposeLabel' for usage-stats' purpose-sorted list. */
+  optionsLegendKey: string;
+  /** Display order is the radio order; `options[0]` is the preselection — no second default
+   *  concept lives anywhere else in this dialog. */
+  options: readonly (ExportDialogOption & { id: TId })[];
+}
+
+export interface ExportChoice<TId extends string = string> {
+  optionId: TId;
+  scope: ExportScope;
 }
 
 /**
- * Closes with the chosen format + scope, or `undefined` on cancel/Escape/backdrop.
+ * The CSV/JSON pair the dialog used to hardwire, now a caller-supplied constant so the wording
+ * stays in one place for the two callers that keep it (voting export, delete protocol export).
+ */
+export const FORMAT_EXPORT_OPTIONS: readonly ExportDialogOption[] = [
+  { id: 'csv', labelKey: 'export.formatCsv' },
+  { id: 'json', labelKey: 'export.formatJson' },
+];
+
+/**
+ * Closes with the chosen option id + scope, or `undefined` on cancel/Escape/backdrop.
  *
- * The format used to be two footer buttons next to Cancel, which made a *choice* look like two
- * competing exits and forced one of the two equal formats into the quieter variant. It is a radio
- * group now, matching the scope choice directly above it, and the footer states one action.
+ * The option list used to be hardwired CSV/JSON. It is caller-supplied now (§7.4): the dialog
+ * treats `data.options` as opaque and pre-selects `options[0]`, which keeps "CSV first" for the
+ * two callers that still choose a format while letting usage-stats offer a purpose-sorted list
+ * instead. It was a radio group before this change too, matching the scope choice directly above
+ * it, and the footer states one action.
  */
 @Component({
   selector: 'app-export-dialog',
@@ -80,28 +107,25 @@ export interface ExportDialogData {
       <div
         class="flex flex-wrap gap-4 text-sm text-fg-secondary"
         role="radiogroup"
-        [attr.aria-label]="'export.formatLabel' | transloco"
+        [attr.aria-label]="data.optionsLegendKey | transloco"
       >
-        <label class="flex items-center gap-2 py-1">
-          <input
-            type="radio"
-            class="h-4 w-4 accent-accent-solid"
-            name="export-format"
-            [checked]="format() === 'csv'"
-            (change)="format.set('csv')"
-          />
-          {{ 'export.formatCsv' | transloco }}
-        </label>
-        <label class="flex items-center gap-2 py-1">
-          <input
-            type="radio"
-            class="h-4 w-4 accent-accent-solid"
-            name="export-format"
-            [checked]="format() === 'json'"
-            (change)="format.set('json')"
-          />
-          {{ 'export.formatJson' | transloco }}
-        </label>
+        @for (option of data.options; track option.id) {
+          <label class="flex items-start gap-2 py-1">
+            <input
+              type="radio"
+              class="h-4 w-4 accent-accent-solid"
+              name="export-option"
+              [checked]="optionId() === option.id"
+              (change)="optionId.set(option.id)"
+            />
+            <span class="flex flex-col">
+              <span>{{ option.labelKey | transloco }}</span>
+              @if (option.hintKey) {
+                <span class="text-xs text-fg-muted">{{ option.hintKey | transloco }}</span>
+              }
+            </span>
+          </label>
+        }
       </div>
 
       <div class="flex flex-col gap-1">
@@ -139,8 +163,10 @@ export class ExportDialog {
   // Defaults to the visible list even when a selection exists: the selection also drives
   // mass-delete and vote-session creation, and an export must never silently narrow to it.
   protected readonly scope = signal<ExportScope>('visible');
-  // CSV first — it is what the spreadsheet the mods actually use opens; JSON is the escape hatch.
-  protected readonly format = signal<ExportFormat>('csv');
+  // options[0] is the preselection (E1) — no second default concept lives here. This keeps "CSV
+  // first" for the two callers that pass FORMAT_EXPORT_OPTIONS without the dialog knowing what a
+  // "format" is.
+  protected readonly optionId = signal<string>(this.data.options[0].id);
 
   protected readonly exportRowCount = computed(() =>
     this.scope() === 'selection' ? this.data.selectionCount : this.data.rowCount,
@@ -151,13 +177,15 @@ export class ExportDialog {
   );
 
   protected submit(): void {
-    this.dialogRef.close({ format: this.format(), scope: this.scope() });
+    this.dialogRef.close({ optionId: this.optionId(), scope: this.scope() });
   }
 }
 
-export function openExportDialog(
+export function openExportDialog<TId extends string>(
   dialog: Dialog,
-  data: ExportDialogData,
-): DialogRef<ExportChoice | undefined> {
-  return openAppDialog<ExportChoice | undefined, ExportDialogData>(dialog, ExportDialog, { data });
+  data: ExportDialogData<TId>,
+): DialogRef<ExportChoice<TId> | undefined> {
+  return openAppDialog<ExportChoice<TId> | undefined, ExportDialogData<TId>>(dialog, ExportDialog, {
+    data,
+  });
 }

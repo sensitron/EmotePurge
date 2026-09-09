@@ -86,7 +86,12 @@ import {
 } from '../../shared/emotes/usage-bands';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportDialogData, ExportScope, openExportDialog } from '../../shared/export/export-dialog';
+import {
+  ExportDialogData,
+  ExportScope,
+  FORMAT_EXPORT_OPTIONS,
+  openExportDialog,
+} from '../../shared/export/export-dialog';
 import {
   buildEmoteListEnvelope,
   emoteListFilename,
@@ -1176,6 +1181,9 @@ export class UsageStatsPage {
   // dialog — the current selection: the same rows that drive mass-delete and vote-session creation.
   // Client-side serialization on purpose — the read model is already loaded, and a download must
   // never see more than the page does (A12).
+  // Stopgap (Task 2 of #141): still CSV/JSON, unlike the purpose-sorted list T4 gives this page.
+  // A later task swaps `options`/`optionsLegendKey` for the purpose list and adds the emote-list
+  // branch — do not add it here.
   protected openExport(): void {
     const data: ExportDialogData = {
       rowCount: this.atlasOrder().length,
@@ -1183,6 +1191,8 @@ export class UsageStatsPage {
       selectionCount: this.selection.selectedKeys().length,
       // Whoever can open this page sees every usage figure — nothing to explain away here.
       noticeKeys: [],
+      optionsLegendKey: 'export.formatLabel',
+      options: FORMAT_EXPORT_OPTIONS,
     };
     openExportDialog(this.dialog, data).closed.subscribe((choice) => {
       if (!choice) {
@@ -1200,7 +1210,7 @@ export class UsageStatsPage {
         filtered: this.usageFilter.isAnyActive(),
         trendFor: (row) => this.trendFor(row),
       };
-      if (choice.format === 'csv') {
+      if (choice.optionId === 'csv') {
         downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
       } else {
         downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);

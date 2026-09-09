@@ -414,6 +414,47 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   `file-import-trigger-gate.ts`, `restore-flow.ts`; Parser `shared/export/read-envelope.ts`,
   `purge-run-export.ts`, `import-source-parser.ts`.
 
+### 7.4 Export-Dialog (Zweck statt Format)
+
+- **Was gilt:** `ExportDialog` (`shared/export/export-dialog.ts`, `openExportDialog`) hat drei
+  Aufrufer — Nutzungsstatistik, Voting-Detailseite, Löschprotokoll —, aber nur einer von ihnen
+  sortiert seine Optionen nach Zweck statt nach Format. Der Dialog selbst verdrahtet dafür nichts
+  mehr fest: die Optionsliste kommt vom Aufrufer (`ExportDialogData.options`), der Dialog behandelt
+  jede `id` als undurchsichtig und schaltet nirgends selbst darauf.
+- **Zeilenreihenfolge im Body:**
+  1. Bereichs-Radiogruppe `visible`/`selection` (`export.scopeLabel`) — nur, wenn eine Grid-Auswahl
+     existiert (`selectionCount > 0`).
+  2. Optionsgruppe — Legende ist `optionsLegendKey`, je Option `labelKey` auf der ersten Zeile,
+     darunter `hintKey`, falls gesetzt.
+  3. Zeilenzahl (`export.rowCount`, folgt dem gewählten Bereich) plus `filteredHint`, wenn die
+     sichtbare Liste gefiltert ist.
+  4. Notice-Banner (`noticeKeys`) — Erklärungen für fehlende Spalten (geheime Abstimmung, nur für
+     Manager sichtbare Nutzungszahlen).
+  5. Abbrechen / Exportieren.
+- **`options[0]` ist die Vorbelegung — die einzige Default-Regel.** Es gibt keinen zweiten
+  Default-Begriff im Dialog. Das hält „CSV zuerst" für die beiden unveränderten Aufrufer (über die
+  geteilte Konstante `FORMAT_EXPORT_OPTIONS`) und macht „Zahlen auswerten" (= CSV) zur Vorbelegung
+  der Nutzungsstatistik, ohne dass der Dialog weiß, was ein „Format" ist.
+- **Die Zweck-Sortierung der Nutzungsstatistik ist Wortlaut-Vertrag** (`export.purposeLabel` als
+  Legende), in dieser Reihenfolge:
+  - „Zahlen auswerten" / „Nutzungsstatistik als CSV"
+  - „Zahlen weiterverarbeiten" / „Nutzungsstatistik als JSON"
+  - „Emotes später wieder einlesen" / „Emote-Liste als JSON"
+  Voting-Detailseite und Löschprotokoll bleiben bei CSV/JSON (`export.formatLabel`,
+  `FORMAT_EXPORT_OPTIONS`) — die Zweck-Liste gilt nur dort, wo mehr als ein Zweck hinter derselben
+  Aktion steckt.
+- **Die Hinweiszeile steht innerhalb des `<label>` und ist damit Teil des zugänglichen Namens**
+  („Zahlen auswerten Nutzungsstatistik als CSV") — Absicht, nicht Zufall. Der Ziel-Picker aus §7.2
+  hängt „(Kanal muss erst beitreten)" genauso in seinen Namen, und ein E2E-Fall matcht dort bereits
+  gegen das Ganze. Ein `aria-describedby` wäre die Alternative gewesen und hätte eine Abweichung
+  ohne Anlass eingeführt. Markup: das `<label>` steht auf `flex items-start` (statt `items-center`),
+  das Textpaar in einem `flex flex-col`. `export-dialog.ts` bleibt dabei die einzige Datei mit einem
+  zweizeiligen Radio-Label — eine geteilte Radio-Komponente wird bewusst **nicht** eingeführt (drei
+  Vorkommen sind kein Muster).
+- **Referenz:** `web/src/app/shared/export/export-dialog.ts`, `export-dialog.spec.ts`; Aufrufer
+  `features/usage-stats/usage-stats-page.ts`, `features/voting/vote-session-detail-page.ts`,
+  `shared/seven-tv/mass-delete-panel.ts`.
+
 ## 8. Navigation
 
 ### 8.1 Tab-Leisten (Router-Link-Muster)
