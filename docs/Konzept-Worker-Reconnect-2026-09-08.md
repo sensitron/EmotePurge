@@ -348,11 +348,31 @@ einem Recreate wurde nie einzeln vermessen; Abschnitt 6 holt das nach.
 
 | | Was gemessen wird | Ziel | Rolle |
 |---|---|---|---|
-| **SLO-1** | Verlust (Zeitstempel des Signals) → `004` des neuen Clients | Median ≤ 3 s, p95 ≤ 5 s; harte Schranke 25 s je Versuch (15 s Connect + 10 s Handshake) | **diagnostisch** — sagt, ob eine Verfehlung von SLO-2 im Aufbau oder im Rejoin liegt |
+| **SLO-1** | Verlust (Zeitstempel des Signals) → `004` des neuen Clients | Median ≤ 3 s, p95 ≤ 5 s; harte Schranke 40 s je Versuch (30 s Connect + 10 s Handshake) — **korrigiert, s. Kasten unter dieser Tabelle** | **diagnostisch** — sagt, ob eine Verfehlung von SLO-2 im Aufbau oder im Rejoin liegt |
 | **SLO-2** | Verlust → letzte Bestätigung (`OnJoinedChannel`) aller N zum Zeitpunkt des Verlusts gewünschten Kanäle, **und** K = 0 offene am Ende der Runde | ≤ **6 s + 0,6 s × (N − 1)**: N = 13 → 13,2 s; N = 20 → 17,4 s | **Abbruchkriterium** — lokal ein Merge-Blocker, wenn einer von fünf Läufen ihn reißt (6.3); auf Prod ein Rollback- bzw. Cooldown-Auslöser, wenn p95 über 24 h ihn reißt oder ein Wiederaufbau mit K > 0 endet (6.6) |
 
 Eine Verfehlung ist ein Befund, **kein Anlass, die Zahl zu korrigieren**. Wer eine Zielgröße
 ändert, tut das vor dem nächsten Lauf mit Begründung — wie T11/T12 an #69 —, nicht danach.
+
+> **Korrektur (2026-09-09): woher die Schranke je Versuch wirklich kommt.** Dieses Dokument hat sie
+> durchgängig mit „15 s TwitchLib-`TimeOutEstablishConnection` + 10 s Handshake-Frist" begründet.
+> Diese Begründung trägt nicht: `TimeOutEstablishConnection` steht in
+> `WebSocketClient.ConnectClientAsync` **nur** um `ClientWebSocket.ConnectAsync` und deckt damit
+> allein das Öffnen des Sockets. Der IRC-Handshake, den `ClientBase.OpenPrivateAsync` danach im
+> selben Aufruf über `RaiseConnected` → `SendHandshake()` → drei bis sechs `ClientBase.SendAsync`
+> sendet, wartet auf ein Semaphor und anschließend auf `ClientWebSocket.SendAsync(…, base.Token)` —
+> **ohne jedes Timeout**, und `base.Token` wird ausschließlich von `ClosePrivateAsync()` gecancelt,
+> also nur über `CloseAsync`/`DisconnectAsync`. Solange unsere eigene Schleife in diesem Aufruf
+> hängt, ruft niemand das auf. `ConnectAsync()` war damit bis 2026-09-09 **unbeschränkt**, und
+> dasselbe gilt für `JoinChannelAsync` → `QueueingJoinCheckAsync()`, das auf demselben Semaphor und
+> demselben timeoutlosen Send endet. Eine Schranke gibt es erst, seit `TwitchChatManager` sie selbst
+> setzt: `ConnectAttemptTimeout` = 30 s um den Connect (30 s + 10 s Handshake-Frist = 40 s je
+> Versuch) und `JoinSendTimeout` = 10 s um den JOIN-Send, beide mit
+> `Task.WaitAsync(TimeSpan, CancellationToken)`, beide mit eigenem Abbruchgrund
+> (`ConnectTimeout`, `JoinSendTimeout`) und beide mit dem Verwerfen des Clients als Folge — dessen
+> `DisconnectAsync` cancelt `base.Token` und löst den hängenden Send tatsächlich auf. Wo unten noch
+> „~25 s" steht, ist die Zahl aus derselben nicht tragenden Begründung abgeleitet; gemeint ist die
+> jetzt tatsächlich durchgesetzte Schranke von 40 s.
 
 Zeitleiste im Normalfall (ein Verlust, erster Versuch gelingt; **plausibel**, Messung in
 Abschnitt 6 — der Unterschied zwischen „plausibel" und der harten Schranke ist genau der Grund,
@@ -376,10 +396,10 @@ dann bis zu 60 s Doppelschleife; dann Lücke 2 ≈ 1,9 s + Aufbau + 0,6 s × k. 
 - **`ReconnectPolicy` wird zurückgezogen**, nicht umgebaut. Ihre drei Regeln stammen aus Ausfällen,
   deren Mechanismen es im neuen Modell nicht mehr gibt: (a) Fehlerstreak ≥ 3 → Recreate (2026-07-26,
   festgefahrenes Objekt) — jeder Versuch ist ein Recreate; (b) Open hängt ≥ 10 min → Recreate —
-  ein Versuch ist auf ~25 s beschränkt; (c) `_clientSpent` → Recreate (#114) — `OnReconnected` kann
+  ein Versuch ist beschränkt — seit 2026-09-09 auf 40 s, und zwar durch unsere eigenen Timeouts, nicht durch `TimeOutEstablishConnection` (Korrektur oben); (c) `_clientSpent` → Recreate (#114) — `OnReconnected` kann
   nicht mehr feuern (Abschnitt 3.1). Die Herkunft der Regeln gehört in den DECISIONS-Eintrag, damit
   der nächste Ausfall nicht dieselben Regeln neu erfindet. Ihre Tests
-  (`ReconnectPolicyTests`, 13 Fälle) entfallen mit ihr.
+  (`ReconnectPolicyTests`, 14 Fälle) entfallen mit ihr.
 - **`ReconnectAction.Reconnect` entfällt ersatzlos** — nicht „neue Bedeutung", sondern gestrichen,
   weil der zugrunde liegende Aufruf mit `NoReconnectionPolicy` beweisbar scheitert.
 - **`IsClientSpent`** verschwindet aus `ITwitchChatManager`, `TwitchWatchdogPolicy.Decide` verliert
@@ -411,7 +431,7 @@ Nichts davon ausprogrammiert; Namen sind Vorschläge.
 | `ReconnectPolicy` (entfällt) | — | Tests entfallen |
 | `TwitchChatManager` (Transport) | erhält: Signal-Quelle (koaleszierend, mit Grund), `ReconnectOnceAsync()` = Schritte 1–5, `RejoinDesiredChannelsAsync` öffentlich für die Schleife; verliert: `ForceReconnectAsync`-Entscheidung, `ReconnectClientAsync`, Open-Beobachtung | **keine Fake-Tests** (Regel 11/16: live verifiziert, Abschnitt 6) — Konsequenz für die Sonar-Schwelle in Abschnitt 8, R8 |
 | `TwitchConnectionWatchdog` (erweitert) | `BackgroundService`, wartet auf Signal **oder** Tick; führt die Schleife aus Abschnitt 3.3 | keine Fake-Tests; Verhalten ist Ein-Zeilen-Delegation an die beiden Policies |
-| `ITwitchChatManager` (Vertrag) | `IsClientSpent` weg; `ForceReconnectAsync` wird zu `RequestReconnect(reason)` (nur Signal); die Schleife spricht mit dem Manager über genau drei Mitglieder — `WaitForReconnectRequestAsync(ct)`, `ReconnectOnceAsync()` → Sitzungsergebnis, `RejoinDesiredChannelsAsync()` (Abschnitt 9.3); `ConnectAsync()` = erster Versuch, awaitet ≤ ~25 s, bei Fehlschlag Signal statt Hintergrundschleife | Vertragsänderung → DECISIONS-Eintrag |
+| `ITwitchChatManager` (Vertrag) | `IsClientSpent` weg; `ForceReconnectAsync` wird zu `RequestReconnect(reason)` (nur Signal); die Schleife spricht mit dem Manager über genau drei Mitglieder — `WaitForReconnectRequestAsync(ct)`, `ReconnectOnceAsync()` → Sitzungsergebnis, `RejoinDesiredChannelsAsync()` (Abschnitt 9.3); `ConnectAsync()` = erster Versuch, awaitet ≤ 40 s (30 s eigener `ConnectAttemptTimeout` + 10 s Handshake-Frist; TwitchLibs eigene 15 s decken nur das Öffnen des Sockets — Korrektur oben), bei Fehlschlag Signal statt Hintergrundschleife | Vertragsänderung → DECISIONS-Eintrag |
 
 Verworfene Alternative zur Schleifen-Trägerin: eine eigene Schleife in `TwitchChatManager` (Task ab
 `Initialize()`). Verworfen, weil der Manager kein Hosted Service ist und das Shutdown-Token nicht
