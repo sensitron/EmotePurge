@@ -40,8 +40,10 @@ import { TranslocoTestingModule } from '@jsverse/transloco';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
+import { CHANNEL_RELOAD_DEBOUNCE_MS } from '../../core/live/live-reload';
 import { EVENT_SOURCE_FACTORY } from '../../core/live/event-source.factory';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
+import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { UsageStatsPage } from './usage-stats-page';
 
 /** Same stand-in as core/live/live-reload.spec.ts — jsdom ships no EventSource at all. */
@@ -90,6 +92,19 @@ function setStatus(overrides: Partial<EmoteSetStatus>): EmoteSetStatus {
     botsExcludedSince: null,
     sharedChatSeparatedSince: null,
     ...overrides,
+  };
+}
+
+function emote(id: string, name: string, totalUseCount = 10): EmoteUsageTotal {
+  return {
+    emoteId: id,
+    emoteName: name,
+    sevenTvEmoteId: `7tv-${id}`,
+    imageUrl: '',
+    totalUseCount,
+    lastUsedDate: null,
+    previousWindowUseCount: 0,
+    firstSeenAt: null,
   };
 }
 
@@ -366,5 +381,319 @@ describe('UsageStatsPage — refreshSetStatus channel race (#112 regression)', (
     // totalsChannel was already 'a' — set alongside the totals fired earlier once the failure
     // resolved rangeResolved — so this is also where importScopeCurrent() turns true.
     expect(component['importScopeCurrent']()).toBe(true);
+  });
+});
+
+/**
+ * #94: a silent reload (`preserveSelection: true`) must reconcile the selection against the
+ * emotes it actually loaded, not leave a since-deleted emote's key sitting in `selectedKeys()`
+ * forever — and it must not overcorrect by dropping a row that only fell out of the *filtered*
+ * view, which is a completely different, already-solved case (`retainVisible()`, S2-16).
+ *
+ * Separate `describe`/`beforeEach` from the block above, matching this spec's own established
+ * choice to duplicate mount choreography per scenario rather than share it (see the file doc) —
+ * each test's totals/status payload differs enough that a shared setup would obscure more than it
+ * saves.
+ */
+describe('UsageStatsPage — silent reload reconciles the selection (#94)', () => {
+  let fixture: ComponentFixture<UsageStatsPage>;
+  let component: UsageStatsPage;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    vi.useFakeTimers();
+
+    TestBed.configureTestingModule({
+      imports: [
+        TranslocoTestingModule.forRoot({
+          langs: { de: {} },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: EVENT_SOURCE_FACTORY,
+          useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
+        },
+      ],
+    });
+
+    TestBed.overrideComponent(UsageStatsPage, {
+      set: { template: '<div #sheet></div><div #stickyBar></div>' },
+    });
+
+    fixture = TestBed.createComponent(UsageStatsPage);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+
+    fixture.componentRef.setInput('channelName', 'a');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Drives the page through a full mount on channel 'a' with the given totals. `botsExcludedSince`/
+   * `sharedChatSeparatedSince` are both given a date so `SetStatusFlushProbeGate.shouldRefreshOn`
+   * short-circuits to `false` and the reload each test fires afterwards produces no extra
+   * `/emotes/active-set` request — the scenario under test is the totals reconciliation alone.
+   */
+  function mount(totals: EmoteUsageTotal[]): void {
+    httpMock
+      .expectOne('/api/channels/a/permissions')
+      .flush({ canManage: true, canViewUsageStats: true });
+
+    httpMock.expectOne('/api/channels/a/emotes/active-set').flush(
+      setStatus({
+        activeEmoteSetId: 'set-a',
+        trackedSince: '2026-01-01T00:00:00Z',
+        botsExcludedSince: '2026-01-02T00:00:00Z',
+        sharedChatSeparatedSince: '2026-01-02T00:00:00Z',
+      }),
+    );
+    fixture.detectChanges();
+
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', totals);
+    flushByPath(httpMock, '/api/channels/a/usage-stats/series', {
+      from: '2026-01-01',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+  }
+
+  /** Fires one `usageFlushed` burst (the silent, `preserveSelection`d reload path) and flushes its
+   *  totals response — the same round trip `loadTotals(..., {preserveSelection: true, silent:
+   *  true})` produces from the live subscription in the constructor. */
+  function silentReload(totals: EmoteUsageTotal[]): void {
+    FakeEventSource.instances[0].emit({ type: LIVE_EVENT_TYPES.usageFlushed, channel: 'a' });
+    vi.advanceTimersByTime(CHANNEL_RELOAD_DEBOUNCE_MS);
+    fixture.detectChanges();
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', totals);
+  }
+
+  it('reconciles a full pre-reload selection against what the reload actually returned', () => {
+    const a = emote('a', 'PeepoA');
+    const b = emote('b', 'PeepoB');
+    const c = emote('c', 'PeepoC');
+
+    mount([a, b, c]);
+    component['selection'].onRowClick(a, { shiftKey: false } as MouseEvent);
+    component['selection'].onRowClick(c, { shiftKey: false } as MouseEvent);
+    expect(component['selection'].selectedKeys().sort()).toEqual(['a', 'c']);
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+
+    // The silent reload comes back without 'c' — deleted externally on 7TV between loads.
+    silentReload([a, b]);
+
+    // 'a' survives, 'c' is gone from the authoritative key set, and the transient feedback names
+    // exactly one dropped emote.
+    expect(component['selection'].selectedKeys()).toEqual(['a']);
+    expect(component['selectionPrunedFeedback']()).toEqual({
+      key: 'usageStats.selectionPruned.one',
+      count: 1,
+    });
+
+    // The feedback is transient — it clears itself after SELECTION_PRUNED_FEEDBACK_MS.
+    vi.advanceTimersByTime(4000);
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+  });
+
+  it('a silent reload that loses nothing selected leaves the selection and the feedback alone', () => {
+    const a = emote('a', 'PeepoA');
+    const b = emote('b', 'PeepoB');
+
+    mount([a, b]);
+    component['selection'].onRowClick(a, { shiftKey: false } as MouseEvent);
+
+    silentReload([a, b]);
+
+    expect(component['selection'].selectedKeys()).toEqual(['a']);
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+  });
+
+  it('a merely filtered-out but still-loaded emote survives a silent reload and shows no feedback', () => {
+    // This is the case that decides retainAmong(emotes) over retainVisible()/atlasOrder(): 'c'
+    // starts above the min-usage filter, gets selected, and the reload lowers its count below that
+    // same filter — so it drops out of atlasOrder() (the filtered view) while still being part of
+    // the reloaded, unfiltered set. Reconciling against atlasOrder() would wrongly report it as
+    // "gone" (#94); reconciling against the raw reload payload must not.
+    const a = emote('a', 'PeepoA', 10);
+    const c = emote('c', 'PeepoC', 10);
+
+    mount([a, c]);
+
+    // A min-usage filter of 5 — both emotes currently clear it, so retainVisible() (fired by the
+    // filter change itself, unrelated to the reload below) does not touch the selection made next.
+    component['usageFilter'].setRange(5, null);
+    component['selection'].onRowClick(c, { shiftKey: false } as MouseEvent);
+    expect(component['selection'].selectedKeys()).toEqual(['c']);
+    expect(component['atlasOrder']().map((e: EmoteUsageTotal) => e.emoteId)).toContain('c');
+
+    // The reload drops 'c's count under the filter's floor — atlasOrder() will no longer include
+    // it — but 'c' itself is still present in the reloaded payload.
+    silentReload([a, emote('c', 'PeepoC', 1)]);
+
+    // Confirms the filter really did narrow atlasOrder() past 'c' — otherwise this test would not
+    // be exercising the case it claims to.
+    expect(component['atlasOrder']().map((e: EmoteUsageTotal) => e.emoteId)).not.toContain('c');
+    // ...yet the selection and the feedback are both untouched: 'c' was never actually removed
+    // from the set, only filtered out of the current view.
+    expect(component['selection'].selectedKeys()).toEqual(['c']);
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+  });
+});
+
+/**
+ * Unlike every other describe block above, this one does NOT override the template with bare
+ * `<div>`s — the whole point here is the actual markup in usage-stats-page.html, not the signal
+ * behind it (that reconciliation logic is what the block above already covers). Mounting the real
+ * 825-line template turned out to work cleanly against the same providers the other blocks already
+ * set up (no extra DI needed for the child component graph), so there was no reason to duplicate the
+ * bare-div trick just for these two elements.
+ */
+describe('UsageStatsPage — selection-pruned notice accessibility (#94 follow-up)', () => {
+  let fixture: ComponentFixture<UsageStatsPage>;
+  let component: UsageStatsPage;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    vi.useFakeTimers();
+
+    TestBed.configureTestingModule({
+      imports: [
+        TranslocoTestingModule.forRoot({
+          langs: { de: {} },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: EVENT_SOURCE_FACTORY,
+          useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
+        },
+      ],
+    });
+
+    fixture = TestBed.createComponent(UsageStatsPage);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+
+    fixture.componentRef.setInput('channelName', 'a');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** Mounts the page on the given channel with empty totals — the markup under test here does not
+   *  depend on any row being present. */
+  function mount(channelName: string): void {
+    httpMock
+      .expectOne(`/api/channels/${channelName}/permissions`)
+      .flush({ canManage: true, canViewUsageStats: true });
+    httpMock
+      .expectOne(`/api/channels/${channelName}/emotes/active-set`)
+      .flush(setStatus({ activeEmoteSetId: 'set-a', trackedSince: '2026-01-01T00:00:00Z' }));
+    fixture.detectChanges();
+    flushByPath(httpMock, `/api/channels/${channelName}/usage-stats/totals`, []);
+    flushByPath(httpMock, `/api/channels/${channelName}/usage-stats/series`, {
+      from: '2026-01-01',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+  }
+
+  it('mounts the sr-only role="status" region even without a standing message, and fills it once there is one', () => {
+    mount('a');
+
+    // Permanent: present in the DOM before anything was ever pruned, per the app-shell.ts precedent
+    // (a live region that only comes into existence together with its content announces nothing to
+    // most screen reader/browser pairings, which only announce a *mutation* inside an
+    // already-existing region — see usage-stats-page.html's comment on this element).
+    const region = fixture.nativeElement.querySelector('span[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region.textContent.trim()).toBe('');
+
+    component['showSelectionPrunedFeedback'](1);
+    fixture.detectChanges();
+
+    // Same element, now carrying the message — not a second region that replaced it.
+    const regionAfter = fixture.nativeElement.querySelector('span[role="status"]');
+    expect(regionAfter).toBe(region);
+    expect(regionAfter.textContent.trim().length).toBeGreaterThan(0);
+  });
+
+  it('keeps the visible companion span aria-hidden, with no role of its own, so the message is not announced twice', () => {
+    mount('a');
+    component['showSelectionPrunedFeedback'](1);
+    fixture.detectChanges();
+
+    const region = fixture.nativeElement.querySelector('span[role="status"]');
+    // The visible span is the region's immediate next sibling in the template — see the comment on
+    // this element in usage-stats-page.html and its record in docs/UI-Designsprache.md §4.5.
+    const visible = region.nextElementSibling as HTMLElement;
+    expect(visible).not.toBeNull();
+    expect(visible.getAttribute('aria-hidden')).toBe('true');
+    // Removed deliberately (it used to carry role="status" before this fix) — a role here would be
+    // redundant with the sr-only region and, worse, would risk announcing the message a second time.
+    expect(visible.getAttribute('role')).toBeNull();
+    // Carries the same message, just for sighted users this time.
+    expect(visible.textContent?.trim()).toBe(region.textContent.trim());
+  });
+
+  it("clears a standing notice immediately on a channel switch, and the old channel's timer never fires on the new one", () => {
+    mount('a');
+
+    component['showSelectionPrunedFeedback'](1);
+    expect(component['selectionPrunedFeedback']()).not.toBeNull();
+
+    // One second into channel A's 4-second window, the moderator switches channels.
+    vi.advanceTimersByTime(1000);
+    fixture.componentRef.setInput('channelName', 'b');
+    fixture.detectChanges();
+
+    // Cleared synchronously by load() — not left standing until A's leftover timer would have fired
+    // at the 4-second mark (#94 follow-up P3).
+    expect(component['selectionPrunedFeedback']()).toBeNull();
+
+    // A genuine new notice arrives on channel B, starting its own, independent 4-second window.
+    component['showSelectionPrunedFeedback'](2);
+    expect(component['selectionPrunedFeedback']()).toEqual({
+      key: 'usageStats.selectionPruned.other',
+      count: 2,
+    });
+
+    // Advance to just before channel A's ORIGINAL timeout would have fired (4000ms after it was
+    // started, i.e. 3000ms after the switch at the 1000ms mark above). If A's timeout had survived
+    // the switch uncleared, this is where it would wrongly null out B's still-valid notice a full
+    // second before B's own timer is due.
+    vi.advanceTimersByTime(2999);
+    expect(component['selectionPrunedFeedback']()).not.toBeNull();
+    vi.advanceTimersByTime(2);
+    // Past A's original deadline now — B's notice must still stand, proving A's timeout was actually
+    // cleared rather than merely superseded by a later write that happened to agree with it.
+    expect(component['selectionPrunedFeedback']()).not.toBeNull();
+
+    // B's own timer, started fresh 1000ms into this test, is due 4000ms later — advance the
+    // remaining distance from where the previous two advances left off (2999 + 2 = 3001 so far).
+    vi.advanceTimersByTime(4000 - 3001);
+    expect(component['selectionPrunedFeedback']()).toBeNull();
   });
 });

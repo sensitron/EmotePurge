@@ -158,6 +158,29 @@
       >
         {{ emoteCountKey() | transloco: { shown: atlasOrder().length, total: emotes().length } }}
       </p>
+      <!-- Feedback for a silent reload that pruned the selection (#94) — deliberately NOT in the
+           dock: the dock unmounts once the selection it is bound to is empty, exactly the case
+           where every marked emote turned out gone. `w-full` makes it wrap onto its own line under
+           the count above rather than fighting `ml-auto` for the same row.
+
+           Two elements, not one — same split as app-shell.ts's live-quota announcement, and for the
+           same reason: a live region that only comes into existence together with its content
+           announces nothing to most screen reader/browser pairings, which only announce a mutation
+           inside an already-existing region. So the sr-only region below is permanent and only its
+           text comes and goes; the visible span stays an @if (it must not sit in the row, `w-full`
+           and all, when there is nothing to say) and is aria-hidden so the message is not spoken
+           twice — once from the live region, once from the visible text a screen reader would
+           otherwise also read. -->
+      <span role="status" class="sr-only">
+        @if (selectionPrunedFeedback(); as feedback) {
+          {{ feedback.key | transloco: { count: feedback.count } }}
+        }
+      </span>
+      @if (selectionPrunedFeedback(); as feedback) {
+        <span aria-hidden="true" class="w-full text-xs text-fg-muted">
+          {{ feedback.key | transloco: { count: feedback.count } }}
+        </span>
+      }
     </div>
 
     <!-- The inspector. Every label the old card printed on all 900 tiles — name, last used, age,

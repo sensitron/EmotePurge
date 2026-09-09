@@ -160,6 +160,75 @@ describe('ListSelection', () => {
     expect(selection.selectedKeys()).toEqual(['d']);
   });
 
+  it('retainAmong() prunes against an explicitly given set, not items(), and returns the removed count', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('c'), click(true)); // a, b, c selected
+
+    // items() (the filtered/current view) still holds everything — retainAmong() must not consult
+    // it, only the explicit set it is handed.
+    const removed = selection.retainAmong([byId('c'), byId('d')]);
+
+    expect(removed).toBe(2);
+    expect(selection.selectedKeys()).toEqual(['c']);
+    // items() itself is untouched by the call.
+    expect(items()).toHaveLength(4);
+  });
+
+  it('retainAmong() returns 0 and changes nothing when every selected key is still present', () => {
+    const { selection, byId } = setup('a', 'b', 'c');
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('b'), click());
+
+    const removed = selection.retainAmong([byId('a'), byId('b'), byId('c')]);
+
+    expect(removed).toBe(0);
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b']);
+  });
+
+  it('retainAmong() resets the shift anchor when the anchored row is not in the given set', () => {
+    const { selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click()); // anchor is 'a'
+
+    selection.retainAmong([byId('b'), byId('c'), byId('d')]);
+
+    expect(selection.selectedKeys()).toEqual([]);
+    // Anchor was reset — a shift-click degrades to a plain toggle instead of ranging from 'a'.
+    selection.onRowClick(byId('d'), click(true));
+    expect(selection.selectedKeys()).toEqual(['d']);
+  });
+
+  it('a merely filtered-out (but still loaded) row survives retainAmong() against the unfiltered set', () => {
+    // This is the case that decides retainVisible() vs. retainAmong(): items() is the FILTERED view
+    // (see the class doc), so pruning a silent reload's selection against it would wrongly treat a
+    // row that only fell out of the current filter window as if it had been deleted from the
+    // backing set (#94). retainAmong() against the true, unfiltered set must not drop it.
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('b'), click());
+
+    // A filter narrows items() to just 'c', 'd' — 'a' and 'b' are still loaded, only hidden.
+    items.set(rows('c', 'd'));
+    const unfilteredReload = rows('a', 'b', 'c', 'd');
+
+    const removed = selection.retainAmong(unfilteredReload);
+
+    expect(removed).toBe(0);
+    expect(selection.selectedKeys().sort()).toEqual(['a', 'b']);
+  });
+
+  it('retainVisible() keeps delegating to retainAmong() over items() and returns the removed count', () => {
+    const { items, selection, byId } = setup('a', 'b', 'c', 'd');
+    selection.onRowClick(byId('a'), click());
+    selection.onRowClick(byId('c'), click(true)); // a, b, c selected
+
+    items.set(rows('c', 'd'));
+    const removed = selection.retainVisible();
+
+    expect(removed).toBe(2);
+    expect(selection.selectedKeys()).toEqual(['c']);
+  });
+
   it('adds a whole group without dropping what was already selected', () => {
     const { selection, byId } = setup('a', 'b', 'c', 'd');
 

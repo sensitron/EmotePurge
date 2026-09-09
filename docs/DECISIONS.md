@@ -10,6 +10,83 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
+
+**Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,
+`publish`-Job) · [`../docker-compose.prod.yml`](../docker-compose.prod.yml) (unverändert, aber der
+Grund) · `src/EmotePurge.Worker/Dockerfile` · `src/EmotePurge.Api/Dockerfile`
+
+**Was sich ändert.** Der `publish`-Job hatte eine feste Matrix aus `emotepurge-api` und
+`emotepurge-worker` und baute bei **jedem** Push auf `main`, der nicht rein aus Doku bestand, beide
+Images und schob sie unter `:latest`. Ein neuer Job `changes` entscheidet die Matrix jetzt pro Push
+anhand der geänderten Pfade; `publish` bezieht sie über `fromJSON` und läuft gar nicht, wenn kein
+Image betroffen ist. `docker-compose.prod.yml` bleibt unangetastet.
+
+**Der Mechanismus, der das nötig macht.** Ein Rebuild desselben Baums erzeugt hier **nicht**
+dasselbe Image: Der Workflow konfiguriert keinerlei Buildx-Cache, also laufen `apt-get install` und
+`dotnet publish` bei jedem Lauf frisch, und schon die Zeitstempel und die MVIDs der kompilierten
+Assemblies unterscheiden sich. Jeder Lauf veröffentlicht damit einen neuen Digest unter `:latest`.
+`docker-compose.prod.yml` referenziert `:latest` ohne `pull_policy` — der nächste Portainer-Redeploy
+zieht den neuen Digest und startet den Worker neu, obwohl an keiner Zeile Worker-Code etwas anders
+ist. Das kostet den Zeitanker laufender Beobachtungen (#117) und, solange #122 offen ist, bis zu
+30 s gepufferte Zählung. Der Workflow-Kommentar beschrieb genau diese Kette für Doku-Pushes bereits
+selbst; für Code-Pushes galt sie unausgesprochen weiter.
+
+**Warum der Filter eine Allowlist des Überspringens ist, keine Liste des Bauens.** Worker und Api
+teilen sich `EmotePurge.Core` und `EmotePurge.Infrastructure`, ein Filter nach Projektordner wäre
+also falsch. Beide Dockerfiles kopieren seit S4-17 ausschließlich `src/` (die Api zusätzlich `web/`)
+— `COPY src/ src/`, Zeile 23 bzw. 27. Daraus folgt belegbar: `web/**` und `src/EmotePurge.Api/**`
+können nicht verändern, was `dotnet publish EmotePurge.Worker.csproj` ausgibt, und `tests/**`,
+`docs/**` und Markdown landen in **keinem** der beiden Images. Genau diese Pfade — und nur sie —
+dürfen einen Build überspringen. Alles andere fällt durch in „beide bauen": `EmotePurge.Core`,
+`EmotePurge.Infrastructure`, `.dockerignore`, `.github/**`, `global.json`, eine neue Datei im
+Wurzelverzeichnis. Ein später hinzukommender Pfad wird dadurch überflüssig mitgebaut, aber nie
+stillschweigend übersprungen. Diese Richtung ist bewusst gewählt: Der teure Fehler ist ein
+Produktions-Worker, der veralteten Code fährt — und am selben Image hängt zusätzlich der
+Harness-Einstiegspunkt aus #69.
+
+**`--no-renames` ist kein Detail.** Mit Rename-Erkennung meldet `git diff --name-only` eine Datei,
+die von `EmotePurge.Core` nach `EmotePurge.Worker` wandert, nur unter ihrem **neuen** Pfad. Der
+Filter läse daraus „nur Worker betroffen" und ließe die Api ungebaut — obwohl der gerade eine
+Core-Datei abhandengekommen ist. Der Schalter zwingt beide Seiten in die Liste. Gegenprobe an einem
+künstlichen Rename: mit Erkennung eine Zeile, ohne sie zwei.
+
+**Was undecidbar ist, wird gebaut.** `workflow_dispatch` hat keinen Vorgänger-SHA, ein Push kann den
+Null-SHA tragen (neuer Branch, Force-Push über gelöschte Historie), und der Vorgänger-Commit kann
+fehlen. In allen drei Fällen bleibt es bei beiden Images; der Checkout des `changes`-Jobs holt dafür
+`fetch-depth: 0`.
+
+**Der Filter hängt nur am `publish`-Job.** `test` und `test-web` sind required checks auf `main`.
+GitHub lässt einen required check, der nie gelaufen ist, für immer pending stehen, statt ihn als
+bestanden zu werten — ein mitgefilterter Test-Job machte PRs unmergebar. Das ist derselbe Grund,
+aus dem `pull_request` schon bisher bewusst kein `paths-ignore` trägt (Eintrag vom 2026-09-06).
+
+**Ausdrücklich nicht gewählt: das Worker-Image in `docker-compose.prod.yml` auf ein SHA-Tag
+pinnen.** Das verlagert die Arbeit nur in den Betrieb — jedes echte Worker-Update bräuchte dann eine
+Compose-Änderung von Hand, und wer sie vergisst, fährt unbemerkt einen veralteten Worker. Das ist
+dieselbe Fehlerklasse wie das heutige stille `:latest`, nur mit umgekehrtem Vorzeichen.
+
+**Belegt ist bisher die Entscheidungslogik, nicht die Wirkung.** Der Klassifikationsschritt wurde
+gegen neun echte Commit-Bereiche aus der Historie und elf künstliche Grenzfälle gefahren (nur
+Tests, leerer Commit, `.dockerignore`, `.github/**`, `global.json`, neues Top-Level-Verzeichnis,
+beide Dockerfiles einzeln, gemischter Push, Pfad mit Leerzeichen, Rename über Projektgrenzen) — 20
+von 20 mit dem erwarteten Ergebnis.
+
+**Der Nachweis der Wirkung ist ein unveränderter Digest, kein grüner Workflow — und er braucht
+seinen Vergleichspunkt unmittelbar vor dem gemessenen Push.** Am 2026-09-08 stand
+`emotepurge-worker:latest` auf `sha256:8c0732e6…`. Dieser Wert taugt ausdrücklich **nicht** als
+Anker: Schon der Merge dieser Änderung fasst `.github/**` an, fällt damit in den Fail-safe-Zweig
+und baut beide Images neu, und das gebündelte Deploy vom 2026-09-09 bringt mit #68 einen echten
+Worker-Umbau mit, der den Digest völlig zu Recht verschiebt. Wer nach dem Deploy gegen den alten
+Wert misst, misst #68 und hält den Filter fälschlich für wirkungslos. Die Messung lautet deshalb:
+Digest **direkt vor** dem ersten reinen `web/`-Push lesen, nach dessen Actions-Lauf erneut lesen,
+beide müssen gleich sein — und die Job-Summary des `changes`-Jobs muss den Worker mit `false`
+ausweisen. `gh api` scheitert daran mit 403 (der Token trägt kein `read:packages`); der Digest ist
+stattdessen anonym über den GHCR-Token-Endpunkt und den `Docker-Content-Digest`-Header von
+`HEAD /v2/sensitron/emotepurge-worker/manifests/latest` zu holen.
+
+---
+
 ### 2026-09-08 — Der Worker stellt seine Twitch-Verbindung selbst wieder her: `NoReconnectionPolicy`, ereignisgetriebener Ersatz, gedrosselter Rejoin außerhalb der Lese-Schleife (#68, #114, #122)
 
 **Betrifft:** `src/EmotePurge.Worker/TwitchChatManager.cs` ·
@@ -459,6 +536,103 @@ aus Zug 1 bleibt bis zum Ende des bindenden Laufs in Kraft.
 `SharedOnlyRow_ReadsAsUnused_LikeBotOnly` und behauptet mit demselben Seed das umgekehrte
 Verhalten. Er war der eingebaute Beleg, dass die Brücke stand; jetzt ist er der Beleg, dass sie
 gefallen ist. Ein gelöschter Test hätte beides nicht belegt.
+
+---
+
+### 2026-09-08 — Ein stiller Reload gleicht die Auswahl ab und sagt es (#94)
+
+**Betrifft:** [`../web/src/app/shared/selection/list-selection.ts`](../web/src/app/shared/selection/list-selection.ts)
+(`retainAmong`, `retainVisible`) ·
+[`../web/src/app/features/usage-stats/usage-stats-page.ts`](../web/src/app/features/usage-stats/usage-stats-page.ts)
+(`loadTotals`, `selectionPrunedFeedback`) ·
+[`../web/src/app/features/usage-stats/usage-stats-page.html`](../web/src/app/features/usage-stats/usage-stats-page.html)
+· `web/public/i18n/de.json` + `en.json` (`usageStats.selectionPruned`)
+
+**Was sich ändert.** `loadTotals(..., { preserveSelection: true })` übersprang bisher nur
+`selection.clear()` und glich die gehaltenen Schlüssel gegen nichts ab. Jetzt beschneidet der
+Zweig die Auswahl gegen die frisch geladene Antwort, und fällt dabei etwas weg, erscheint eine
+Rückmeldung, die nach vier Sekunden von selbst verschwindet. Zwei Pfade laufen ohne Nutzeraktion
+dort hinein: der Live-Reload nach `usage.flushed`/`channel.synced` und der Sync-Recheck-Poll.
+
+**Der Schaden war ein anderer als vermutet.** Das Issue nahm an, eine Abstimmung könne über ein
+archiviertes Emote laufen. Sie kann es nicht: `VoteSessionService.CreateAsync` prüft den Stimmzettel
+all-or-nothing und lehnt mit `emote_ids_invalid` ab, sobald eine ID unbekannt, fremd oder archiviert
+ist. Der wirkliche Defekt war eine **Sackgasse**. Der Knopf war freigegeben, weil Sperre, Etikett und
+Wirkung alle aus `selectedKeys()` stammen und untereinander stimmig sind; erst der abgeschickte
+Dialog lief in den 400. Weil `CreateVoteSessionDialogData.emoteIds` beim Öffnen eingefroren wird,
+schickte auch ein zweiter Versuch dieselbe tote Liste — ohne Neuladen kam der Nutzer nicht heraus,
+und nichts sagte ihm, dass eine stille Datenänderung schuld war und nicht er.
+
+**Warum `retainAmong` und nicht `retainVisible`.** `retainVisible()` beschneidet gegen `items()` —
+auf dieser Seite `atlasOrder()`, also die **gefilterte** Sicht. Das ist die richtige Semantik für
+den Filter-Callback und die falsche für einen Datenreload: ein Reload ändert Nutzungszahlen, eine
+markierte Zeile kann dadurch aus dem aktiven `minCount`/`maxCount`-Fenster fallen, und sie wäre dann
+verworfen und als „nicht mehr im Set“ gemeldet worden, obwohl sie unverändert im Set liegt. Die neue
+Methode nimmt die Vergleichsmenge deshalb als Argument; der Reload übergibt die ungefilterte
+Antwort. `retainVisible()` delegiert an sie (`return this.retainAmong(this.items())`), damit es
+genau eine Beschneidungsmechanik gibt, und beide geben die Zahl der entfernten Schlüssel zurück.
+Verhalten und Aufrufzeitpunkt von `retainVisible()` bleiben unverändert — der zweite Aufrufer,
+`vote-session-detail-page.ts`, nimmt sie als `onChange: () => void` entgegen und ignoriert den
+Rückgabewert.
+
+**Warum die Meldung nicht im Dock steht.** Das Dock wäre der thematisch nächste Ort, aber
+`actionDockHasContent` blendet die Markier-Hälfte aus, sobald `markedCount` null ist, und ohne
+laufenden Lösch-, Wiederherstell- oder Import-Lauf unmountet dann die ganze `.app-dock`. Genau im
+schlimmsten Fall — alle markierten Emotes sind weg — hätte die Meldung also keine Fläche, auf der
+sie erscheinen könnte. Sie sitzt deshalb an der Emote-Zählzeile, die immer steht. Die
+Dock-Gating-Regel bleibt unangetastet.
+
+**Die stumme Variante war die Alternative und ist verworfen.** Ein reiner Abgleich ohne Hinweis
+hätte die Sackgasse ebenso beseitigt. Er hätte aber eine Auswahl lautlos schrumpfen lassen: aus zwölf
+markierten Emotes werden elf, während der Nutzer wegsieht, und niemand sagt ihm warum. Das ist
+dieselbe Sorte stiller Lüge, gegen die [#80](https://github.com/sensitron/EmotePurge/issues/80)
+angetreten ist, nur mit umgekehrtem Vorzeichen.
+
+**Muster, nicht Neuerfindung.** Es gibt keinen Toast-Service (festgehalten in
+`channel-workspace-layout.ts`). Die transiente Meldung folgt demselben Aufbau wie
+`showResyncFeedback` dort und sein Zwilling in `admin-channels-page.ts`: eine Konstante von 4000 ms,
+ein Signal, ein `setTimeout`-Handle, das beim Neusetzen zuerst gelöscht wird, und ein
+`role="status"` — keine `alert`-Rolle, denn es ist kein Fehler. Abweichend hält das Signal hier
+`{ key, count }` statt nur den Schlüssel: die Zahl muss interpoliert werden, und zwei getrennte
+Signale könnten bei einem zweiten Abgleich zwischen ihren beiden Schreibvorgängen auseinanderlaufen.
+
+**Der #80-Test prüft jetzt etwas anderes, und der #80-Fix ist ungetestet.** Der E2E-Fall aus
+`a63f78c` behauptete, nach einem Reload, der jede markierte Zeile archiviert, stehe der
+Dock-Shortcut gesperrt auf „(0)“. Dieser Ausgang ist nicht mehr erreichbar: die Schlüssel werden
+jetzt beschnitten, `markedCount` fällt auf null, und das Dock unmountet mitsamt dem Knopf. Der Test
+behauptet deshalb das neue Verhalten. Damit ist der eigentliche #80-Fix —
+`importShortcutSelectionCount` auf `selectedItems()` statt `selectedKeys()` — von keinem Test mehr
+abgedeckt, denn der Zustand, gegen den er verteidigt, entsteht nach diesem Eintrag gar nicht mehr.
+Er bleibt trotzdem stehen: er kostet nichts und deckt weiterhin das Rennfenster zwischen einem
+Reload und einem Klick ab.
+
+**Nachtrag aus der Codex-Zweitmeinung: die Live-Region steht jetzt dauerhaft.** Der Review fand
+zwei Fehler in der ersten Fassung, beide bestätigt. Erstens hing die Meldung samt ihrer
+`role="status"`-Region an einem `@if` — eine Live-Region, die erst *mit* ihrem Inhalt entsteht,
+kündigt bei den meisten Screenreader-/Browser-Paarungen nichts an, weil sie nur Mutationen an einer
+bereits bestehenden Region ansagen. `app-shell.ts` hält genau das seit Längerem fest und löst es
+richtig; das transiente Muster in `channel-workspace-layout.ts` und `admin-channels-page.ts` tut es
+nicht. Die Meldung ist deshalb jetzt zwei Elemente: eine permanent gemountete `sr-only`-Region, in
+der nur der Text wechselt, und daneben der sichtbare Text mit `aria-hidden`, damit nichts doppelt
+vorgelesen wird. §4.5 der Designsprache schreibt das fest und nennt die beiden Bestandsstellen
+ausdrücklich als noch nicht konform. Zweitens wurde der Timer nur in `destroyRef.onDestroy`
+abgeräumt — `channelName` ist ein Input, die Komponente wird beim Kanalwechsel also wiederverwendet
+(dieselbe Tatsache, aus der der #112-Regressionstest lebt), und eine Meldung aus den letzten vier
+Sekunden stand danach auf dem neuen Kanal und behauptete dort etwas Falsches. `load()` räumt sie
+jetzt ab; die beiden `preserveSelection`-Pfade gehen nicht durch `load()` und verlieren ihren
+Hinweis dadurch nicht.
+
+**Nebenwirkung der permanenten Region:** die Usage-Stats-Seite trägt seither ein zweites
+`role="status"` auch im Ruhezustand. Drei Abfragen in `usage-atlas.e2e.spec.ts` waren dadurch nicht
+mehr eindeutig und filtern jetzt auf die Zählzeile. Wer dort eine Rolle abfragt, muss das
+mitdenken.
+
+**Was ausdrücklich offen bleibt.** Erstens die enge Rennbedingung, dass ein Reload eintrifft,
+während der Erstellungsdialog bereits offen ist — dessen `emoteIds` sind dann schon eingefroren, und
+der 400 kommt trotzdem. Zweitens `vote-session-detail-page.ts`, wo dieselbe fehlende Abstimmung
+zwischen stillem Reload und Auswahl existiert; sie ist dort heute folgenlos, weil die Seite
+`selectedKeys()` nirgends liest, kann aber ein entarchiviertes Emote unbemerkt wieder als markiert
+zeigen. Beides ist als eigenes Ticket zu führen, nicht hier mitgenommen.
 
 ---
 
