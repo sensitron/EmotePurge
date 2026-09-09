@@ -4,6 +4,7 @@ import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
 import { CSV_MIME } from './csv';
 import { JSON_MIME } from './export-envelope';
 import {
+  ExportPurposeId,
   UsageExportPurposeScope,
   buildUsageExportPurposeDownload,
   usageExportPurposeOptions,
@@ -137,5 +138,16 @@ describe('buildUsageExportPurposeDownload — emote-list', () => {
   it('returns null — the unreachable case — when no set id was captured', () => {
     const download = buildUsageExportPurposeDownload('emote-list', scope({ emoteSetId: null }));
     expect(download).toBeNull();
+  });
+});
+
+describe('buildUsageExportPurposeDownload — exhaustiveness', () => {
+  it('throws on a purpose id outside the known union, rather than silently returning nothing', () => {
+    // ExportPurposeId is a closed union — reaching the `default` branch is impossible through the
+    // public type, so the only way in is a deliberately bogus cast, the same way a malformed
+    // dialog choice from outside TypeScript's own guarantees would arrive.
+    expect(() =>
+      buildUsageExportPurposeDownload('bogus' as unknown as ExportPurposeId, scope()),
+    ).toThrow('Unhandled export purpose: bogus');
   });
 });
