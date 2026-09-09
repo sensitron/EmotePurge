@@ -10,6 +10,64 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-09 — `SONAR_TOKEN` liegt jetzt zweimal, weil Dependabot einen eigenen Secret-Kontext hat
+
+**Betrifft:** GitHub-Repository-Einstellungen (Settings → Secrets and variables → **Dependabot**) ·
+[`../.github/workflows/sonarcloud.yml`](../.github/workflows/sonarcloud.yml) (unverändert) ·
+`.github/dependabot.yml` (unberührt)
+
+**Der Mechanismus.** GitHub behandelt Pull Requests von Dependabot beim `pull_request`-Event wie
+Fork-PRs: der Job läuft im **Dependabot-Secret-Kontext** und sieht die regulären Actions-Secrets
+nicht. `${{ secrets.SONAR_TOKEN }}` löst dort zur leeren Zeichenkette auf. Sichtbar ist das an zwei
+Stellen im Lauf-Log — `Secret source: Dependabot` im Schritt *Set up job* und ein leeres
+`SONAR_TOKEN:` im Env-Block. Der Fehler schlägt aber erst viel später zu: `Sonar Scanner begin`
+schreibt nur lokale Konfiguration, `Build` und `Test mit Coverage` laufen vollständig durch, und
+erst `Sonar Scanner end` authentifiziert sich tatsächlich gegen SonarCloud und bricht ab:
+
+```
+ERROR: Not authorized or project not found. Please check the 'SONAR_TOKEN' environment variable,
+the 'sonar.projectKey' and 'sonar.organization' properties, or contact the project administrator
+to verify the token's permissions.
+Post-processing failed. Exit code: 1
+```
+
+**Warum das eine Fehldiagnose provoziert.** `analyze` ist seit dem 2026-09-06 required check und
+wartet per `sonar.qualitygate.wait=true` auf das Gate. Ein roter `analyze` an einem Dependabot-PR
+liest sich deshalb wie eine gerissene Coverage-Schwelle — die naheliegende Vermutung bei einem
+Bump, der ja tatsächlich kaum testbaren neuen Code mitbringt. Sie ist falsch, und zwar nicht
+graduell: es **existiert keine Analyse**. Der Scanner bricht ab, bevor SonarCloud einen Report
+verarbeitet, also gibt es weder eine Gate-Bedingung noch eine Coverage-Zahl im Log. Wer nach
+Prozentwerten sucht, sucht an einer Stelle, an der prinzipiell nichts stehen kann. Das erklärt
+auch, warum das Problem erst seit dem 2026-09-06 sichtbar ist: davor war `analyze` kein required
+check und der rote Job fiel nicht auf.
+
+**Die Entscheidung.** Derselbe Token liegt jetzt zusätzlich als **Dependabot**-Secret im
+Repository. Am Workflow ändert sich nichts — `secrets.SONAR_TOKEN` löst in beiden Kontexten auf,
+es braucht keinen zweiten Namen, kein `if`, keinen Fallback.
+
+**Die Gegenprobe, und warum sie nötig war.** Ein grüner Lauf allein hätte nichts bewiesen: er wäre
+auch dann grün, wenn der Job den Sonar-Schritt aus irgendeinem Grund übersprungen hätte. Der Beleg
+ist die Kombination beider Zeilen im *selben* Lauf — `Secret source: Dependabot` steht weiterhin
+da, der Kontext hat sich also nicht geändert, und trotzdem meldet der `end`-Schritt jetzt
+`QUALITY GATE STATUS: PASSED`. Nachgefahren an sechs zuvor roten PRs (#99, #100, #103, #135, #136,
+#138), alle grün.
+
+**Verworfene Alternativen.** `pull_request_target` hätte den Token ebenfalls verfügbar gemacht,
+führt aber PR-Inhalt mit vollen Repository-Secrets aus — für ein öffentliches Repo mit offenen
+Forks die schlechteste der drei Optionen. `analyze` für Dependabot per
+`if: github.actor != 'dependabot[bot]'` zu überspringen wäre sicher, macht aber einen required
+check ausgerechnet für die PR-Sorte stumm, die fremden Code ins Projekt zieht; ein Bump, der
+Verhalten ändert, soll die Analyse gerade durchlaufen. Der zweite Secret-Eintrag ist der einzige
+Weg, der das Gate für Dependabot wirksam lässt, und der Preis ist eine Kopie desselben Tokens in
+einem Kontext, in dem der PR-Inhalt von außen kommt — vertretbar für einen reinen Analyse-Token
+mit Publish-Recht auf genau ein Projekt, aber eine bewusste Abwägung, kein Automatismus.
+
+**Betriebshinweis.** Der Token existiert damit an zwei Orten und läuft an zwei Orten ab. Kommt das
+Fehlerbild wieder, ist zuerst das Dependabot-Secret zu prüfen (`gh run view <id> --log-failed |
+grep -i "secret source\|SONAR_TOKEN"`), nicht die Coverage.
+
+---
+
 ### 2026-09-08 — Commit, Push und PR laufen ohne Rückfrage, der Merge nicht (Regel 1)
 
 **Betrifft:** [`../CLAUDE.md`](../CLAUDE.md) (Regel 1)
