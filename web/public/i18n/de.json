@@ -859,6 +859,7 @@
     "scopeLabel": "Exportumfang",
     "scopeVisible": "Gefilterte Liste ({{count}})",
     "scopeSelection": "Auswahl ({{count}})",
+    "scopeNoSelectionHint": "Ohne Auswahl im Raster gilt die ganze sichtbare Liste.",
     "formatCsv": "CSV (Tabellenkalkulation)",
     "formatJson": "JSON (Datenauszug)",
     "purposeLabel": "Wofür brauchst du die Datei?",

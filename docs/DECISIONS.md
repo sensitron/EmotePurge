@@ -10,6 +10,61 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-09 — Ohne Auswahl steht ein Hinweis statt der Bereichswahl, nicht eine tote Option (#144)
+
+**Betrifft:** `web/src/app/shared/export/export-dialog.ts` ·
+`web/src/app/shared/export/export-dialog.spec.ts` ·
+`web/src/app/shared/seven-tv/import-target-dialog.ts` ·
+`web/src/app/shared/seven-tv/import-target-dialog.spec.ts` · `web/public/i18n/de.json` ·
+`web/public/i18n/en.json` · `docs/UI-Designsprache.md` (§7.2, §7.4)
+
+**Die Bereichswahl blieb unsichtbar für den, der sie nie brauchte.** Export- und Ziel-Dialog
+rendern ihre Bereichs-Radiogruppe seit 2026-08-03 nur, wenn bereits eine Grid-Auswahl existiert
+(„ein Export über null Zeilen ist nie eine gültige Antwort"). Wer nie auswählt, erfährt dadurch nie,
+dass es die Wahl gibt — der Export-Dialog nannte dann nur eine Zeilenzahl, der Ziel-Dialog gar
+keine Menge. Beim Übertragen wiegt das schwerer, weil §7.2 den Wedge des Features als „auswählen,
+dann kopieren" festhält und genau dieser Weg unentdeckt blieb.
+
+**Die Lücke bekommt eine gedämpfte Zeile an genau der Stelle, an der sonst die Radiogruppe stünde**
+(`export.scopeNoSelectionHint`) — nicht daneben, nicht im Seitenkopf, sondern in derselben Zeile 1
+der Reihenfolge aus §7.2/§7.4, als `@else` zum bestehenden `@if (selectionCount > 0)`. Die Zeile
+erklärt die Abwesenheit dort, wo das Control wäre, statt sie kommentarlos zu lassen.
+
+**Tatsachenaussage statt Aufforderung, weil der Dialog die Aufforderung nicht einlösen kann.** Ein
+Hinweis „Wähle erst Emotes aus" stünde in einem Modal, in dem der Nutzer das nicht tun kann — er
+müsste abbrechen, auswählen, neu öffnen. Der Dialog schimpfte, nachdem es zu spät ist. Die gewählte
+Form „Ohne Auswahl im Raster gilt die ganze sichtbare Liste." lehrt die Fähigkeit stattdessen
+nebenbei: „ohne Auswahl" impliziert, dass es eine geben kann, ohne zu einem Umweg aufzufordern.
+
+**Verworfen: die Bereichswahl immer zeigen, mit einer dauerhaft deaktivierten „Auswahl (0)".** Ohne
+Auswahl hätte die Gruppe nur eine benutzbare Antwort — eine dauerhaft tote Option, genau das
+Muster, das #141 beim Datei-Radio schon verworfen hat. Ebenso verworfen: der Hinweis dauerhaft im
+Seitenkopf neben den Aktionsknöpfen — ein neues Dauer-Control für einen Zustand, der meist nicht
+vorliegt, gegen die Zurückhaltungsregel.
+
+**Ein Schlüssel für beide Dialoge.** `import-target-dialog.ts` leiht sich `export.scopeLabel`,
+`export.scopeVisible` und `export.scopeSelection` schon heute vom Export-Dialog (#141);
+`export.scopeNoSelectionHint` folgt demselben Muster, statt einen zweiten, wortgleichen Schlüssel
+im `import`-Namensraum anzulegen. Im Ziel-Dialog gilt zusätzlich: erzwingt ein Aufrufer den Scope
+(`forcedScope`, die Dock-Kurzform aus §8.7), fehlt an dieser Stelle beides — Radiogruppe wie
+Hinweis —, weil ein erzwungener Scope keine offene Wahl ist, die eine Erklärung bräuchte.
+
+**Nachtrag (Codex-Review auf PR #145): `selectionCount` war zweiwertig überladen, nicht
+dreiwertig.** `ExportDialogData.selectionCount` benutzte `0` für zwei verschiedene Sachverhalte —
+eine echte, aber leere Grid-Auswahl (Nutzungsstatistik) und die Abwesenheit jedes
+Auswahl-Konzepts (Voting-Export: das Ballot selbst ist die Teilmenge; Löschprotokoll: der Lauf ist
+immer vollständig). Solange beide Fälle dasselbe Verhalten (Radiogruppe verstecken) auslösten, war
+die Überladung folgenlos; der neue Hinweis dieses Eintrags gab ihnen erstmals unterschiedliches
+Verhalten und machte die Überladung zu einem Bug — die beiden zweckgebundenen Aufrufer bekamen
+einen Hinweis, der eine nicht existierende Grid-Auswahl beschreibt, beim Löschprotokoll zusätzlich
+sachlich falsch (der Export enthält den abgeschlossenen Lauf, nicht die sichtbare Liste). Behoben,
+indem der Typ die Unterscheidung selbst trägt: `selectionCount: number | null`, `null` heißt „kein
+Auswahl-Konzept" und rendert weder Radiogruppe noch Hinweis, `0` bleibt „Konzept vorhanden, gerade
+leer" mit Hinweis. Die beiden zweckgebundenen Aufrufer übergeben seither `null`, ihre bestehenden
+Kommentare (bereits präzise) unverändert.
+
+---
+
 ### 2026-09-09 — Der Ziel-Dialog verliert sein Datei-Ziel: „Übertragen" und „Exportieren" trennen sich nach Transportweg (#141)
 
 **Betrifft:** `web/src/app/shared/seven-tv/import-target-dialog.ts` ·

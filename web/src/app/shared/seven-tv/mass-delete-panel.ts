@@ -306,7 +306,7 @@ export class MassDeletePanel {
       rowCount: protocol.rows.length,
       filtered: false,
       // The protocol is always the whole run — a scope choice would make no sense here.
-      selectionCount: 0,
+      selectionCount: null,
       noticeKeys: [],
       optionsLegendKey: 'export.formatLabel',
       options: FORMAT_EXPORT_OPTIONS,

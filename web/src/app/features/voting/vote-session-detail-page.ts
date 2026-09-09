@@ -579,7 +579,7 @@ export class VoteSessionDetailPage {
       rowCount: input.rows.length,
       filtered: input.rows.length !== this.orderedEmotes().length,
       // This page has no grid selection to export — the ballot itself already is the subset.
-      selectionCount: 0,
+      selectionCount: null,
       noticeKeys,
       optionsLegendKey: 'export.formatLabel',
       options: FORMAT_EXPORT_OPTIONS,

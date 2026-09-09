@@ -17,6 +17,7 @@ const DE_TRANSLATIONS = {
     scopeLabel: 'Exportumfang',
     scopeVisible: 'Gefilterte Liste ({{count}})',
     scopeSelection: 'Auswahl ({{count}})',
+    scopeNoSelectionHint: 'Ohne Auswahl im Raster gilt die ganze sichtbare Liste.',
     rowCount: { one: '{{count}} Zeile', other: '{{count}} Zeilen' },
     filteredHint: 'Exportiert wird die aktuell gefilterte Liste.',
     submit: 'Exportieren',
@@ -220,6 +221,32 @@ describe('ExportDialog', () => {
       const dialog = render(defaultData({ selectionCount: 3 }));
 
       expect(dialog.scopeInputs()).toHaveLength(2);
+    });
+
+    // #144: the scope radiogroup only exists once something is selected, so a viewer who never
+    // selects never learns it's there. This hint fills exactly the slot the radiogroup would
+    // otherwise occupy, so it must not coexist with it.
+    it('shows the no-selection hint in place of the radiogroup when selectionCount is 0', () => {
+      const dialog = render(defaultData({ selectionCount: 0 }));
+
+      expect(dialog.text()).toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
+      expect(dialog.scopeInputs()).toHaveLength(0);
+    });
+
+    it('does not show the no-selection hint once a selection exists', () => {
+      const dialog = render(defaultData({ selectionCount: 3 }));
+
+      expect(dialog.text()).not.toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
+    });
+
+    // #145: null is a caller that has no grid-selection concept at all (voting export, purge
+    // protocol) — distinct from 0, a real but currently-empty selection. Neither the radiogroup
+    // nor the hint belongs here, because there is nothing to explain the absence of.
+    it('shows neither the radiogroup nor the no-selection hint when selectionCount is null', () => {
+      const dialog = render(defaultData({ selectionCount: null }));
+
+      expect(dialog.scopeInputs()).toHaveLength(0);
+      expect(dialog.text()).not.toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
     });
 
     it('follows the displayed row count to the chosen scope', () => {
