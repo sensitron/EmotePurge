@@ -431,7 +431,17 @@ public enum SevenTvPreviewLookupStatus
 {
     Ok,
     RateLimited,
-    Unavailable
+    Unavailable,
+
+    /// <summary>
+    /// Our own provider-wide request budget (spec E5b) refused a permit for one of the pages, so that
+    /// page was never requested. Kept apart from <see cref="Unavailable"/> because it says nothing
+    /// about 7TV: it is this process throttling itself, and feeding it to the circuit breaker as an
+    /// upstream failure would let self-inflicted congestion open a breaker that exists to react to
+    /// 7TV's health. Reported rather than silently returning a short list — a partial set answered as
+    /// if it were whole is exactly what F3 forbids.
+    /// </summary>
+    BudgetExhausted
 }
 
 /// <summary>

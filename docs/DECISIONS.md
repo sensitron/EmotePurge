@@ -440,6 +440,71 @@ Quelle ausgerechnet auf den noch nicht synchronisierten Kanälen versteckt.
 
 ---
 
+### 2026-09-10 — Das Providerbudget zählt Requests, nicht Auflösungen, und nur die aktuelle Generation schließt den Breaker (#147)
+
+**Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetProviderBudget.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignSevenTvBreakerPolicy.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetRequestCoalescer.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/HardenedForeignEmoteSetService.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiClient.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiDtos.cs` ·
+`src/EmotePurge.Infrastructure/Services/ForeignEmoteSetService.cs` ·
+`src/EmotePurge.Api/Endpoints/AdminEndpoints.cs`
+
+Sechs Befunde aus der Codex-Sol-Zweitmeinung zum Fremdkanal-Import, alle nachgeprüft und behoben.
+Jeder Fix trägt einen Test, der ohne ihn rot ist; bei den beiden Nebenläufigkeitsfällen wurde das
+durch temporäres Zurückbauen verifiziert, nicht behauptet.
+
+**Nebenläufigkeit und Rate sind zwei Größen und brauchen zwei Nahtstellen.** Die Härtung buchte
+einmal Budget je *Auflösung*. Eine Auflösung löst aber bis zu zwölf Upstream-Requests aus — ein
+Helix, ein `userByConnection`, bis zu zehn Seiten. Die Schranke „60 Upstream-Requests/Minute" ließ
+damit faktisch bis zu 720 zu. Die Nebenläufigkeitsgrenze bleibt eine Eigenschaft der Auflösung und
+sitzt weiter im Dekorator; die Rate ist eine Eigenschaft des einzelnen Requests und wird **dort
+abgebucht, wo er rausgeht**, vor dem Absenden — eine Ablehnung heißt dann wirklich „nicht gesendet".
+Neues Interface `IForeignUpstreamRequestBudget`, bewusst in `Infrastructure` statt in `Core`: es ist
+eine interne Naht der Härtung, kein Fachvertrag. Helix und `ResolveSevenTvIdentityAsync` werden
+**außerhalb** des geteilten `ChannelIdentityService` abgebucht — dort zu drosseln träfe Join-Pfad,
+Worker-Reconcile und den periodischen Sync mit, die mit diesem Feature nichts zu tun haben.
+
+**Das Fenster ist rollend.** Ein Zähler-Reset an der Fenstergrenze lässt 60 Permits davor und 60
+danach zu, also rund 120 in einer rollenden Minute. Die Spec sagt „60/Minute" ohne Lesart; die
+rollende ist die, die den Zweck der Schranke trägt. **Kein Vertragsbruch** — die Zweitmeinung nannte
+es „documented rolling window", das überzeichnet —, aber eine Festlegung.
+
+**Nur die aktuelle Generation darf den Breaker schließen.** Liefen zwei Auflösungen parallel, konnte
+die eine ein 429 bekommen und öffnen, während die andere — vor dem Fehler zugelassen — danach
+erfolgreich endete und den Breaker bedingungslos wieder schloss. Das verwarf das `Retry-After` und
+nahm den Verkehr sofort wieder auf, gegen genau die Sperre, die E4 respektieren soll. Jede Zulassung
+trägt jetzt eine Generation, jede Rückmeldung gibt sie zurück, und eine Meldung aus einer älteren
+Generation zählt weder fürs Schließen noch fürs Verlängern.
+
+**Geteilte Arbeit gehört keinem Aufrufer.** Der Koaleszierer legte das Token des *ersten* Aufrufers
+in die geteilte Task: brach dieser ab, starb der Abruf für alle Mitwartenden. Die geteilte Ausführung
+läuft jetzt unter eigenem Token, das Aufrufer-Token wirkt nur auf das eigene Warten — abgebrochene
+Arbeit läuft zu Ende und füllt den Cache.
+
+**Zwei Statuswerte, die nicht auf die Leitung gehen** (`ProviderBudgetExhausted`,
+`BudgetExhausted`): die eigene Drossel muss intern von einem 7TV-Fehler unterscheidbar sein, sonst
+öffnet selbstverursachte Stauung den Breaker. Nach außen bleibt es derselbe 503 — **keine** neuen
+Fehlercodes, keine Frontend-Änderung.
+
+**7TVs `errors[].extensions.headers` bleibt unbelegt und wird nur opportunistisch gelesen.** Die
+Zweitmeinung behauptet, getarnte 429er lieferten dort ein `x-ratelimit-…-reset`. Zwei Websuchen und
+7TVs veröffentlichte Quellen geben dazu nichts her, und ein 429 zu provozieren kostet rund eine
+Stunde IP-Sperre. Statt den Streit zu entscheiden, wird er gegenstandslos: das Feld wird gelesen
+**falls vorhanden** und schlägt dann `Retry-After`, sonst bleibt alles wie zuvor. Interpretiert wird
+nur „Sekunden verbleibend"; Werte ≤ 0 oder über sechs Stunden werden verworfen statt umgedeutet —
+ein als Unix-Zeitstempel missverstandener Wert hielte den Breaker sonst jahrzehntelang zu.
+
+**Der Admin-Snapshot führt die neue Policy.** `ForeignEmoteLookup` fehlte in
+`AdminEndpoints.RateLimitPolicyDescriptors`, und der Endpunkt baut seine Antwort ausschließlich aus
+dieser Liste — die Policy war in `/api/admin/rate-limits` unsichtbar. Der zugehörige Test vergleicht
+die Liste per Reflection gegen **alle** Konstanten in `RateLimitPolicyNames`, statt Zeilen zu zählen;
+die nächste Policy ohne Deskriptor fällt damit hier auf. Das providerweite Budget steht bewusst
+**nicht** in der Liste: es ist keine ASP.NET-Policy und hat keine Partition.
+
+---
+
 ### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
 
 **Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,

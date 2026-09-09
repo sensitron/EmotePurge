@@ -100,6 +100,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ForeignEmoteSetRequestCoalescer>();
         services.AddSingleton<ForeignSevenTvBreakerPolicy>();
         services.AddSingleton<ForeignEmoteSetProviderBudget>();
+
+        // Same instance under its request-charging face: the concurrency gate is taken once per
+        // lookup by the decorator (which needs the concrete type), while every step that actually
+        // issues an upstream request charges the rolling rate window through this interface. Two
+        // registrations of one object, never two budgets.
+        services.AddSingleton<IForeignUpstreamRequestBudget>(sp => sp.GetRequiredService<ForeignEmoteSetProviderBudget>());
         services.AddScoped<IForeignEmoteSetService>(sp => new HardenedForeignEmoteSetService(
             sp.GetRequiredKeyedService<IForeignEmoteSetService>(RawForeignEmoteSetServiceKey),
             sp.GetRequiredService<IForeignEmoteSetCache>(),

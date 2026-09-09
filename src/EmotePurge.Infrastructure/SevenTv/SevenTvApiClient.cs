@@ -10,7 +10,10 @@ using Microsoft.Extensions.Logging;
 namespace EmotePurge.Infrastructure.SevenTv;
 
 public class SevenTvApiClient(
-    HttpClient httpClient, IRateLimitTelemetry telemetry, ILogger<SevenTvApiClient> logger) : ISevenTvApiClient
+    HttpClient httpClient,
+    IRateLimitTelemetry telemetry,
+    IForeignUpstreamRequestBudget foreignRequestBudget,
+    ILogger<SevenTvApiClient> logger) : ISevenTvApiClient
 {
     private const string GqlUsersQuery =
         "query($q: String!) { users(query: $q) { id username connections { platform username id } } }";
@@ -38,6 +41,12 @@ public class SevenTvApiClient(
     // requests; the page cap is a runaway guard, not an expected limit.
     private const int SetEntriesPerPage = 500;
     private const int MaxSetEntryPages = 10;
+
+    // Ceiling for a reset hint read out of a GraphQL error payload (ReadResetHintSeconds). Six hours
+    // is comfortably above the ~1 h search-bucket lockout measured live and far below anything that
+    // could be a Unix timestamp, so an unexpected unit is dropped instead of silently keeping the
+    // circuit breaker shut for years.
+    private const int MaxResetHintSeconds = 6 * 60 * 60;
 
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
@@ -323,6 +332,18 @@ public class SevenTvApiClient(
 
             for (var page = 1; page <= MaxSetEntryPages; page++)
             {
+                // One permit per page, taken here rather than once around the whole lookup (E5b): a
+                // single preview walks up to ten pages, and a budget charged per *resolution* would
+                // license ten times the documented rate. The permit is taken before the request is
+                // built, so a refusal really does mean "no request was made".
+                if (!await foreignRequestBudget.TryChargeRequestAsync(cancellationToken))
+                {
+                    logger.LogWarning(
+                        "Providerweites 7TV-Budget erschöpft — Vorschau-Abruf für Set {SetId} bei Seite {Page} abgebrochen.",
+                        emoteSetId, page);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.BudgetExhausted);
+                }
+
                 var pageResult = await FetchPreviewPageAsync(emoteSetId, page, cancellationToken);
 
                 // The single most expensive mistake in the whole spec (section 5/AK7): 7TV answers an
@@ -431,8 +452,13 @@ public class SevenTvApiClient(
 
         if (IsRateLimited(dto?.Errors))
         {
-            RecordForeignPreviewObservation(response, statusOverride: 429, retryAfterSeconds);
-            return new PreviewPageResult(PreviewPageStatus.RateLimited, null, ToRetryAfter(retryAfterSeconds));
+            // Reset hint first, Retry-After second, the breaker's own 60 s default last (E4). The hint
+            // is read opportunistically — see SevenTvGqlErrorExtensionsDto.Headers for why its
+            // existence is neither assumed nor denied — so on the payload shape we have actually seen,
+            // this behaves exactly as it did before: retryAfterSeconds, or nothing.
+            var effectiveRetryAfterSeconds = ReadResetHintSeconds(dto!.Errors) ?? retryAfterSeconds;
+            RecordForeignPreviewObservation(response, statusOverride: 429, effectiveRetryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.RateLimited, null, ToRetryAfter(effectiveRetryAfterSeconds));
         }
 
         RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
@@ -624,6 +650,67 @@ public class SevenTvApiClient(
     // (SevenTvApiClientResolveIdentityTests' GraphQlErrorPayload: `extensions: { code, status }`).
     private static bool IsRateLimited(List<SevenTvGqlErrorDto>? errors) =>
         errors?.Any(error => error.Extensions?.Status == 429) ?? false;
+
+    /// <summary>
+    /// The reset hint a GraphQL error payload may carry in <c>extensions.headers</c>, in seconds —
+    /// <c>null</c> whenever it is absent, unreadable, or not plausibly a duration.
+    /// </summary>
+    /// <remarks>
+    /// Read defensively on purpose. We have no confirmation that 7TV sends this at all (see
+    /// <c>SevenTvGqlErrorExtensionsDto.Headers</c>); the one thing we do know is the shape of the
+    /// value if it is the same one the live measurement saw in a header —
+    /// <c>x-ratelimit-search-reset: 3583</c>, seconds remaining. So: seconds remaining is the only
+    /// reading accepted, both as a JSON number and as a quoted string, and anything outside a
+    /// plausible duration is discarded rather than reinterpreted. A Unix timestamp would land far
+    /// above the ceiling and be dropped — deliberately, because guessing that it *is* a timestamp
+    /// would be inventing a semantics we cannot check, and getting it wrong means holding the breaker
+    /// shut for decades.
+    /// </remarks>
+    private static int? ReadResetHintSeconds(List<SevenTvGqlErrorDto>? errors)
+    {
+        if (errors is null)
+        {
+            return null;
+        }
+
+        foreach (var headers in errors.Select(error => error.Extensions?.Headers).OfType<Dictionary<string, JsonElement>>())
+        {
+            foreach (var (name, value) in headers)
+            {
+                if (!IsResetHintHeaderName(name) || !TryReadSeconds(value, out var seconds))
+                {
+                    continue;
+                }
+
+                if (seconds > 0 && seconds <= MaxResetHintSeconds)
+                {
+                    return seconds;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // "x-ratelimit-reset" and the per-bucket variants like "x-ratelimit-search-reset" — the form the
+    // live measurement of 7TV's search bucket produced.
+    private static bool IsResetHintHeaderName(string name) =>
+        name.StartsWith("x-ratelimit-", StringComparison.OrdinalIgnoreCase)
+        && name.EndsWith("-reset", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryReadSeconds(JsonElement value, out int seconds)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Number:
+                return value.TryGetInt32(out seconds);
+            case JsonValueKind.String:
+                return int.TryParse(value.GetString(), out seconds);
+            default:
+                seconds = 0;
+                return false;
+        }
+    }
 
     private static SevenTvEmoteSetPreviewItem MapPreviewItem(SevenTvGqlEmoteSetPreviewItemDto dto)
     {

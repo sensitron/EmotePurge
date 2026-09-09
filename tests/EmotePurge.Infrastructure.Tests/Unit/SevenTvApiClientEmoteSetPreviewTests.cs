@@ -277,15 +277,135 @@ public class SevenTvApiClientEmoteSetPreviewTests
         return root.ToJsonString();
     }
 
-    private static SevenTvApiClient CreateClient(HttpMessageHandler handler)
+
+    /// <summary>
+    /// E5b, the unit the provider-wide rate limit is actually counted in: one permit per page, not
+    /// one per lookup. A ten-page walk is ten upstream requests, and a budget charged once around the
+    /// whole thing would have let all ten travel on a single permit — twelve times the documented
+    /// rate once the two resolution calls are counted too.
+    /// </summary>
+    [Fact]
+    public async Task EveryPage_ChargesExactlyOneRequestPermit()
+    {
+        var handler = new PagedStubHandler(page => Page(totalCount: 10, pageCount: 10, ($"e{page}", $"Alias{page}", $"Default{page}", null, null, true)));
+        var budget = new RecordingForeignUpstreamRequestBudget();
+        var client = CreateClient(handler, budget);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        Assert.Equal(SevenTvPreviewLookupStatus.Ok, result.Status);
+        Assert.Equal(10, handler.RequestedPages.Count);
+        Assert.Equal(10, budget.Charges);
+    }
+
+    /// <summary>
+    /// A refused permit really does mean "no request was made": the permit is taken before the page
+    /// is requested, and the outcome is its own status rather than a quietly short list — a partial
+    /// set answered as if it were whole is the exact failure F3 exists to prevent.
+    /// </summary>
+    [Fact]
+    public async Task ARefusedPermit_StopsThePagination_WithoutIssuingTheRequest()
+    {
+        var handler = new PagedStubHandler(page => Page(totalCount: 2500, pageCount: 5, ($"e{page}", $"Alias{page}", $"Default{page}", null, null, true)));
+        var budget = new RecordingForeignUpstreamRequestBudget(grantCount: 2);
+        var client = CreateClient(handler, budget);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        Assert.Equal(SevenTvPreviewLookupStatus.BudgetExhausted, result.Status);
+        Assert.Null(result.Preview);
+        Assert.Equal([1, 2], handler.RequestedPages);
+    }
+
+    /// <summary>
+    /// A reset hint in the error payload is used when it is there. Whether 7TV actually sends one is
+    /// unconfirmed (see <c>SevenTvGqlErrorExtensionsDto.Headers</c>) — which is the point of reading
+    /// it opportunistically instead of arguing about it: if it shows up, the breaker honors it; if it
+    /// never does, nothing below changes.
+    /// </summary>
+    [Fact]
+    public async Task AResetHintInTheErrorExtensions_BecomesTheRetryAfter()
+    {
+        var handler = new PagedStubHandler(_ => RateLimitedPayload(resetHintSeconds: 3583));
+        var client = CreateClient(handler);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        Assert.Equal(SevenTvPreviewLookupStatus.RateLimited, result.Status);
+        Assert.Equal(TimeSpan.FromSeconds(3583), result.RetryAfter);
+    }
+
+    /// <summary>The documented order: reset hint first, <c>Retry-After</c> second, the breaker's own
+    /// 60 s default last (E4).</summary>
+    [Fact]
+    public async Task AResetHint_BeatsTheRetryAfterHeader()
+    {
+        var handler = new PagedStubHandler(_ => RateLimitedPayload(resetHintSeconds: 3583), retryAfterHeaderSeconds: 30);
+        var client = CreateClient(handler);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        Assert.Equal(TimeSpan.FromSeconds(3583), result.RetryAfter);
+    }
+
+    [Fact]
+    public async Task WithoutAResetHint_TheRetryAfterHeaderIsUsed()
+    {
+        var handler = new PagedStubHandler(_ => RateLimitedPayload(resetHintSeconds: null), retryAfterHeaderSeconds: 30);
+        var client = CreateClient(handler);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        Assert.Equal(TimeSpan.FromSeconds(30), result.RetryAfter);
+    }
+
+    /// <summary>
+    /// A value that cannot plausibly be "seconds remaining" — a Unix timestamp, say — is dropped
+    /// rather than reinterpreted. Guessing at a unit we have never verified would, when wrong, hold
+    /// the circuit breaker shut for decades; falling back to the 60 s default costs one extra probe.
+    /// </summary>
+    [Fact]
+    public async Task AnImplausibleResetHint_IsIgnored_LeavingTheDefaultOpenDurationToApply()
+    {
+        var handler = new PagedStubHandler(_ => RateLimitedPayload(resetHintSeconds: 1893456000));
+        var client = CreateClient(handler);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        Assert.Equal(SevenTvPreviewLookupStatus.RateLimited, result.Status);
+        Assert.Null(result.RetryAfter);
+    }
+
+    // The semantic-429 payload, optionally carrying the unverified extensions.headers reset hint.
+    private static string RateLimitedPayload(int? resetHintSeconds)
+    {
+        var extensions = new JsonObject { ["code"] = "RATE_LIMITED", ["status"] = 429 };
+        if (resetHintSeconds is { } seconds)
+        {
+            extensions["headers"] = new JsonObject { ["x-ratelimit-search-reset"] = seconds };
+        }
+
+        return new JsonObject
+        {
+            ["data"] = null,
+            ["errors"] = new JsonArray { new JsonObject { ["message"] = "too many requests", ["extensions"] = extensions } },
+        }.ToJsonString();
+    }
+
+    private static SevenTvApiClient CreateClient(
+        HttpMessageHandler handler, IForeignUpstreamRequestBudget? requestBudget = null)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://7tv.io/v3/") };
-        return new SevenTvApiClient(httpClient, new RecordingRateLimitTelemetry(), new RecordingLogger<SevenTvApiClient>());
+        return new SevenTvApiClient(
+            httpClient,
+            new RecordingRateLimitTelemetry(),
+            requestBudget ?? new RecordingForeignUpstreamRequestBudget(),
+            new RecordingLogger<SevenTvApiClient>());
     }
 
     /// <summary>Answers every POST with the response the given function derives from the request's
     /// GraphQL <c>page</c> variable, and records the pages actually requested.</summary>
-    private sealed class PagedStubHandler(Func<int, string> responseForPage) : HttpMessageHandler
+    private sealed class PagedStubHandler(Func<int, string> responseForPage, int? retryAfterHeaderSeconds = null) : HttpMessageHandler
     {
         public List<int> RequestedPages { get; } = [];
 
@@ -299,10 +419,16 @@ public class SevenTvApiClientEmoteSetPreviewTests
             RequestedPages.Add(page);
             SentQueries.Add(doc.RootElement.GetProperty("query").GetString() ?? string.Empty);
 
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(responseForPage(page), Encoding.UTF8, "application/json"),
             };
+            if (retryAfterHeaderSeconds is { } seconds)
+            {
+                response.Headers.Add("Retry-After", seconds.ToString());
+            }
+
+            return response;
         }
     }
 }

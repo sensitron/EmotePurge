@@ -463,6 +463,13 @@ public static class AdminEndpoints
         // The one anonymous policy: PartitionPerUser falls back to the remote IP when there is no
         // authenticated Twitch user, which for this route is every caller (RateLimitRejection.cs).
         RateLimitPolicyDescriptor.FixedWindow(RateLimitPolicyNames.PublicHealth, options.PublicHealth, "remote-ip"),
+        // The foreign-channel preview's per-user half (spec E5a). Its provider-wide half (E5b) is
+        // deliberately absent from this list: that budget is not an ASP.NET policy at all, has no
+        // partition, and lives in the Infrastructure decorator — listing it here would claim a shape
+        // it does not have. What this list must not do is omit a policy that *is* registered, which
+        // is what happened until now: a route was guarded by a limiter that the admin snapshot, built
+        // solely from this list, showed no trace of (AK 15).
+        RateLimitPolicyDescriptor.FixedWindow(RateLimitPolicyNames.ForeignEmoteLookup, options.ForeignEmoteLookup, "twitch-user"),
     ];
 
     /// <summary>

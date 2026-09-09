@@ -54,7 +54,12 @@ public static class SevenTvEndpoints
                     Results.NotFound(new { errorCode = ApiErrorCodes.ForeignChannelNoSevenTvAccount }),
                 ForeignEmoteSetLookupStatus.NoActiveEmoteSet =>
                     Results.NotFound(new { errorCode = ApiErrorCodes.ForeignChannelNoActiveEmoteSet }),
-                ForeignEmoteSetLookupStatus.SevenTvUnavailable or ForeignEmoteSetLookupStatus.SevenTvRateLimited => Results.Json(
+                ForeignEmoteSetLookupStatus.SevenTvUnavailable
+                    or ForeignEmoteSetLookupStatus.SevenTvRateLimited
+                    // Our own provider-wide budget refusing a permit is invisible to the caller by
+                    // design: "try again shortly" is the same advice, and a code of its own would
+                    // leak an internal throttle into the public vocabulary (Regel 7) for no gain.
+                    or ForeignEmoteSetLookupStatus.ProviderBudgetExhausted => Results.Json(
                     new { errorCode = ApiErrorCodes.ForeignChannelSevenTvUnavailable },
                     statusCode: StatusCodes.Status503ServiceUnavailable),
                 _ => throw new ArgumentOutOfRangeException(

@@ -13,9 +13,11 @@ namespace EmotePurge.Infrastructure.Tests.Integration;
 /// The hardening decorator (spec 2026-09-09, section 6/T2) against real Redis: the 60 s cache (E3),
 /// <c>refresh=true</c> bypassing it, request coalescing, and the provider-wide budget (E5b) actually
 /// being shared across different source channels rather than partitioned like the per-user ASP.NET
-/// policy. The breaker (E4) has its own pure, container-free suite
-/// (<c>ForeignSevenTvBreakerPolicyTests</c>) — here it only needs to stay out of the way, so every
-/// test uses a fresh, always-allowing breaker.
+/// policy. The breaker's own rules (E4) live in a pure, container-free suite
+/// (<c>ForeignSevenTvBreakerPolicyTests</c>); what belongs here instead is how the decorator feeds it
+/// under real concurrency — a straggler success arriving after a parallel 429, and a budget refusal
+/// that must never be mistaken for a 7TV failure. Most tests only need it out of the way, and get a
+/// fresh, always-allowing one.
 /// </summary>
 [Collection("Redis")]
 public class HardenedForeignEmoteSetServiceTests(RedisFixture fixture)
@@ -182,6 +184,120 @@ public class HardenedForeignEmoteSetServiceTests(RedisFixture fixture)
 
         neverReleased.SetResult();
         await taskB;
+    }
+
+
+    /// <summary>
+    /// E4, with the two lookups genuinely overlapping rather than merely described as overlapping:
+    /// one channel's lookup is admitted while the breaker is still closed and then blocks; a second
+    /// channel's lookup meets a 429 and opens the breaker for the hour 7TV asked for; only then does
+    /// the first finish, successfully. That success predates the incident and must not reopen the
+    /// gates — a third lookup afterwards still has to be turned away, or the feature would resume
+    /// hammering a provider that has just locked us out.
+    /// </summary>
+    [Fact]
+    public async Task ASuccessThatStartedBeforeAConcurrent429_DoesNotReopenTheBreaker()
+    {
+        var slowChannel = NewChannel();
+        var rateLimitedChannel = NewChannel();
+        var laterChannel = NewChannel();
+        var releaseSlow = new TaskCompletionSource();
+        var inner = Substitute.For<IForeignEmoteSetService>();
+        inner.GetForeignEmoteSetAsync(slowChannel, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                await releaseSlow.Task;
+                return ForeignEmoteSetLookupResult.Ok(NewEmoteSet(ci.ArgAt<string>(0), totalCount: 1));
+            });
+        inner.GetForeignEmoteSetAsync(rateLimitedChannel, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ForeignEmoteSetLookupResult.Failed(
+                ForeignEmoteSetLookupStatus.SevenTvRateLimited, TimeSpan.FromHours(1)));
+        inner.GetForeignEmoteSetAsync(laterChannel, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(ForeignEmoteSetLookupResult.Ok(NewEmoteSet(ci.ArgAt<string>(0), totalCount: 1))));
+        var service = CreateService(inner);
+
+        var slowTask = service.GetForeignEmoteSetAsync(slowChannel);
+        await Task.Delay(200); // the slow lookup is genuinely admitted and in flight by now
+
+        var rateLimited = await service.GetForeignEmoteSetAsync(rateLimitedChannel);
+        Assert.Equal(ForeignEmoteSetLookupStatus.SevenTvRateLimited, rateLimited.Status);
+
+        releaseSlow.SetResult();
+        var slow = await slowTask;
+        Assert.Equal(ForeignEmoteSetLookupStatus.Ok, slow.Status);
+
+        var later = await service.GetForeignEmoteSetAsync(laterChannel);
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.SevenTvRateLimited, later.Status);
+        await inner.DidNotReceive().GetForeignEmoteSetAsync(laterChannel, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Coalescing must not hand the shared work over to whoever happened to arrive first. Two callers
+    /// wait on one lookup; the first abandons its request — a browser navigating away is entirely
+    /// routine — and the second still gets its answer from the same execution. The interleaving is
+    /// real: the inner chain blocks on the token it was handed, so if that token were the first
+    /// caller's, cancelling it would end the lookup for everyone.
+    /// </summary>
+    [Fact]
+    public async Task OneCallerCancelling_DoesNotCancelTheSharedLookupForTheOthers()
+    {
+        var channel = NewChannel();
+        var gate = new TaskCompletionSource();
+        var callCount = 0;
+        var inner = Substitute.For<IForeignEmoteSetService>();
+        inner.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                Interlocked.Increment(ref callCount);
+                await gate.Task.WaitAsync(ci.ArgAt<CancellationToken>(2));
+                return ForeignEmoteSetLookupResult.Ok(NewEmoteSet(ci.ArgAt<string>(0), totalCount: 1));
+            });
+        var service = CreateService(inner);
+
+        using var firstCallerAborts = new CancellationTokenSource();
+        var first = service.GetForeignEmoteSetAsync(channel, cancellationToken: firstCallerAborts.Token);
+        var second = service.GetForeignEmoteSetAsync(channel);
+        await Task.Delay(200); // both callers are genuinely coalesced onto one execution
+
+        await firstCallerAborts.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+
+        gate.SetResult();
+        var result = await second;
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.Ok, result.Status);
+        Assert.Equal(1, Volatile.Read(ref callCount));
+    }
+
+    /// <summary>
+    /// Our own budget refusing a permit says nothing about 7TV, so it must not accumulate toward the
+    /// breaker's five-failure threshold: five of them in a row leave the breaker closed, and the next
+    /// lookup still reaches the inner chain. Counting them would let a burst of local congestion cut
+    /// the feature off from a provider that never failed at all.
+    /// </summary>
+    [Fact]
+    public async Task ProviderBudgetExhaustion_DoesNotCountTowardTheBreakersFailureStreak()
+    {
+        var channel = NewChannel();
+        var calls = 0;
+        var inner = Substitute.For<IForeignEmoteSetService>();
+        inner.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ci => Task.FromResult(Interlocked.Increment(ref calls) <= ForeignSevenTvBreakerPolicy.FailureThreshold
+                ? ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted)
+                : ForeignEmoteSetLookupResult.Ok(NewEmoteSet(ci.ArgAt<string>(0), totalCount: 1))));
+        var service = CreateService(inner);
+
+        for (var i = 0; i < ForeignSevenTvBreakerPolicy.FailureThreshold; i++)
+        {
+            var refused = await service.GetForeignEmoteSetAsync(channel);
+            Assert.Equal(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted, refused.Status);
+        }
+
+        var afterwards = await service.GetForeignEmoteSetAsync(channel);
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.Ok, afterwards.Status);
+        Assert.Equal(ForeignSevenTvBreakerPolicy.FailureThreshold + 1, Volatile.Read(ref calls));
     }
 
     private HardenedForeignEmoteSetService CreateService(IForeignEmoteSetService inner) => new(

@@ -17,8 +17,15 @@ namespace EmotePurge.Infrastructure.SevenTv;
 /// cache) enters the coalescer, so concurrent identical lookups share one execution of the breaker
 /// and budget gate below rather than each consulting them separately. Only inside that shared
 /// execution does the breaker decide whether to allow an attempt at all, and only if it does does the
-/// budget gate wait for a concurrency slot and rate-window headroom before the raw chain is actually
-/// invoked.
+/// budget gate wait for one of the two concurrency slots before the raw chain is actually invoked.
+/// </para>
+/// <para>
+/// <b>The other half of the budget is not taken here.</b> This decorator admits whole lookups
+/// (<see cref="ForeignEmoteSetProviderBudget.TryAcquireConcurrencySlotAsync"/>); the rolling
+/// 60-requests-a-minute limit is charged one permit at a time by the steps that actually issue an
+/// upstream request, because a single lookup issues up to twelve of them. Taking both here would make
+/// one permit stand for a whole resolution — the shape Codex found, and the reason this feature could
+/// have made up to 720 upstream requests a minute against a limit of 60.
 /// </para>
 /// <para>
 /// <b>Every reachable path through <see cref="ExecuteGuardedAsync"/> resolves the breaker's probe
@@ -79,7 +86,14 @@ public sealed class HardenedForeignEmoteSetService(
         // Coalesced regardless of refresh: a plain cache-miss lookup and a forced refresh for the
         // same channel run the identical chain, so sharing whichever of the two happened to start
         // first is correct either way — not just permitted.
-        return await coalescer.CoalesceAsync(normalized, () => ExecuteGuardedAsync(normalized, cancellationToken));
+        //
+        // The shared execution deliberately runs under CancellationToken.None instead of this
+        // caller's token: whoever happens to arrive first is not the owner of the work every later
+        // caller is waiting on, and one client aborting its request must not cancel the lookup for
+        // the rest. This caller's own token is handed to the coalescer, which applies it to this
+        // caller's wait alone. The abandoned work still completes and still fills the cache.
+        return await coalescer.CoalesceAsync(
+            normalized, () => ExecuteGuardedAsync(normalized, CancellationToken.None), cancellationToken);
     }
 
     private async Task<ForeignEmoteSetLookupResult> ExecuteGuardedAsync(string normalizedChannelName, CancellationToken cancellationToken)
@@ -103,7 +117,7 @@ public sealed class HardenedForeignEmoteSetService(
         IDisposable? permit = null;
         try
         {
-            permit = await budget.TryAcquireAsync(BudgetWaitTimeout, cancellationToken);
+            permit = await budget.TryAcquireConcurrencySlotAsync(BudgetWaitTimeout, cancellationToken);
             if (permit is null)
             {
                 logger.LogWarning(
@@ -111,13 +125,13 @@ public sealed class HardenedForeignEmoteSetService(
                     normalizedChannelName, BudgetWaitTimeout.TotalSeconds);
                 // Never reached the inner chain — nothing to tell the breaker about 7TV's health, but
                 // the probe slot (if this was one) still needs releasing.
-                breaker.ReleaseProbeWithoutOutcome();
+                breaker.ReleaseProbeWithoutOutcome(decision.Generation);
                 breakerResolved = true;
                 return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.SevenTvUnavailable);
             }
 
             var result = await inner.GetForeignEmoteSetAsync(normalizedChannelName, refresh: false, cancellationToken);
-            LogBreakerTransition(normalizedChannelName, result.Status, ApplyBreakerFeedback(result));
+            LogBreakerTransition(normalizedChannelName, result.Status, ApplyBreakerFeedback(result, decision.Generation));
             breakerResolved = true;
 
             if (result.Status == ForeignEmoteSetLookupStatus.Ok)
@@ -134,7 +148,7 @@ public sealed class HardenedForeignEmoteSetService(
                 // Backstop for a genuinely unexpected exception (including cancellation) that skipped
                 // every other resolution path above — treated as a plain failure, never a rate limit:
                 // whatever happened here is not something 7TV told us.
-                breaker.RecordFailure(ForeignSevenTvBreakerOutcome.OtherFailure, null);
+                breaker.RecordFailure(ForeignSevenTvBreakerOutcome.OtherFailure, null, decision.Generation);
             }
 
             permit?.Dispose();
@@ -148,25 +162,29 @@ public sealed class HardenedForeignEmoteSetService(
     /// produce, so all three count as evidence 7TV is healthy — "account not found" and "no active
     /// set" are legitimate answers, not failures. <see cref="ForeignEmoteSetLookupStatus.ChannelNotOnTwitch"/>
     /// and <see cref="ForeignEmoteSetLookupStatus.TwitchUnavailable"/> never reach 7TV at all — the
-    /// breaker exists to protect 7TV specifically, so these say nothing about it either way.
+    /// breaker exists to protect 7TV specifically, so these say nothing about it either way, and
+    /// neither does <see cref="ForeignEmoteSetLookupStatus.ProviderBudgetExhausted"/>, which is our
+    /// own throttle refusing a permit rather than anything 7TV said.
     /// </summary>
-    private ForeignSevenTvBreakerTransition ApplyBreakerFeedback(ForeignEmoteSetLookupResult result) => result.Status switch
+    private ForeignSevenTvBreakerTransition ApplyBreakerFeedback(ForeignEmoteSetLookupResult result, long generation) => result.Status switch
     {
         ForeignEmoteSetLookupStatus.Ok
             or ForeignEmoteSetLookupStatus.NoSevenTvAccount
-            or ForeignEmoteSetLookupStatus.NoActiveEmoteSet => breaker.RecordSuccess(),
+            or ForeignEmoteSetLookupStatus.NoActiveEmoteSet => breaker.RecordSuccess(generation),
         ForeignEmoteSetLookupStatus.SevenTvRateLimited =>
-            breaker.RecordFailure(ForeignSevenTvBreakerOutcome.RateLimited, result.RetryAfter),
+            breaker.RecordFailure(ForeignSevenTvBreakerOutcome.RateLimited, result.RetryAfter, generation),
         ForeignEmoteSetLookupStatus.SevenTvUnavailable =>
-            breaker.RecordFailure(ForeignSevenTvBreakerOutcome.OtherFailure, null),
-        ForeignEmoteSetLookupStatus.ChannelNotOnTwitch or ForeignEmoteSetLookupStatus.TwitchUnavailable =>
-            ReleaseProbeAsNoEvidence(),
+            breaker.RecordFailure(ForeignSevenTvBreakerOutcome.OtherFailure, null, generation),
+        ForeignEmoteSetLookupStatus.ChannelNotOnTwitch
+            or ForeignEmoteSetLookupStatus.TwitchUnavailable
+            or ForeignEmoteSetLookupStatus.ProviderBudgetExhausted =>
+            ReleaseProbeAsNoEvidence(generation),
         _ => throw new ArgumentOutOfRangeException(nameof(result), result.Status, "Unbekannter ForeignEmoteSetLookupStatus.")
     };
 
-    private ForeignSevenTvBreakerTransition ReleaseProbeAsNoEvidence()
+    private ForeignSevenTvBreakerTransition ReleaseProbeAsNoEvidence(long generation)
     {
-        breaker.ReleaseProbeWithoutOutcome();
+        breaker.ReleaseProbeWithoutOutcome(generation);
         return ForeignSevenTvBreakerTransition.None;
     }
 

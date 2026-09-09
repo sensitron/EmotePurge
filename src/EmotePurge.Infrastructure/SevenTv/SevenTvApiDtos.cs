@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace EmotePurge.Infrastructure.SevenTv;
 
 // GQL: POST gql, query { users(query: $q) { id username connections { platform username id } } }
@@ -240,6 +242,26 @@ internal sealed class SevenTvGqlErrorDto
 internal sealed class SevenTvGqlErrorExtensionsDto
 {
     public int? Status { get; set; }
+
+    /// <summary>
+    /// Header-shaped extras some GraphQL error payloads carry alongside the status. Read
+    /// opportunistically for an <c>x-ratelimit-…-reset</c> hint
+    /// (<c>SevenTvApiClient.ReadResetHintSeconds</c>) and ignored entirely when absent, which is the
+    /// only shape we have ever actually captured.
+    /// </summary>
+    /// <remarks>
+    /// <b>Unverified by design.</b> A Codex review claimed 7TV reports the reset time of its
+    /// semantic HTTP-200/429 answers here. We could neither confirm nor refute it: the only payload
+    /// of this shape on file is a 404 with no <c>headers</c> member, 7TV publishes no schema for its
+    /// error extensions, and two web searches (2026-09-09) turned up nothing about their shape —
+    /// while provoking a real 429 to find out costs roughly an hour of IP lockout, which is the exact
+    /// thing this feature's hardening exists to avoid. So the argument is made moot rather than
+    /// settled: the field is read if it happens to be there, and everything downstream falls back to
+    /// <c>Retry-After</c> and then to the breaker's 60 s default exactly as before. A
+    /// <see cref="JsonElement"/> value rather than a string because an unverified payload's numbers
+    /// may be JSON numbers or quoted strings, and neither should throw.
+    /// </remarks>
+    public Dictionary<string, JsonElement>? Headers { get; set; }
 }
 
 internal sealed class SevenTvGqlEmoteSetPreviewDataDto

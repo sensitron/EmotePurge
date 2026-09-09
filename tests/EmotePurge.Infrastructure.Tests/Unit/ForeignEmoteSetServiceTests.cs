@@ -2,6 +2,8 @@ using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
 using EmotePurge.Infrastructure.Services;
+using EmotePurge.Infrastructure.SevenTv;
+using EmotePurge.Infrastructure.Tests.Fakes;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -181,6 +183,114 @@ public class ForeignEmoteSetServiceTests
         await sevenTv.DidNotReceive().ResolveTwitchUserIdAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+
+    /// <summary>
+    /// E5b, at this layer: the two upstream calls this class makes itself each cost their own permit.
+    /// The pages of the set read cost theirs inside the client, where their number is known
+    /// (<c>SevenTvApiClientEmoteSetPreviewTests.EveryPage_ChargesExactlyOneRequestPermit</c>) — which
+    /// is why the substituted client here charges nothing and the count is two, not twelve.
+    /// </summary>
+    [Fact]
+    public async Task EachUpstreamCallOfTheChain_ChargesItsOwnRequestPermit()
+    {
+        var sevenTv = SevenTvClientReturning(SevenTvIdentityResult.Ok(new SevenTvIdentity(SevenTvUserId, EmoteSetId)));
+        sevenTv.GetEmoteSetPreviewAsync(EmoteSetId, Arg.Any<CancellationToken>())
+            .Returns(SevenTvEmoteSetPreviewResult.Ok(new SevenTvEmoteSetPreview(0, false, [])));
+        var budget = new RecordingForeignUpstreamRequestBudget();
+        var service = CreateService(FoundIdentityService(), sevenTv, budget);
+
+        var result = await service.GetForeignEmoteSetAsync(Channel);
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.Ok, result.Status);
+        Assert.Equal(2, budget.Charges);
+    }
+
+    /// <summary>A refused permit stops the chain before Helix is asked at all — the permit is taken
+    /// first precisely so that a refusal means no request happened.</summary>
+    [Fact]
+    public async Task NoPermitAtAll_StopsBeforeHelix()
+    {
+        var identityService = Substitute.For<IChannelIdentityService>();
+        var sevenTv = Substitute.For<ISevenTvApiClient>();
+        var service = CreateService(identityService, sevenTv, new RecordingForeignUpstreamRequestBudget(grantCount: 0));
+
+        var result = await service.GetForeignEmoteSetAsync(Channel);
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted, result.Status);
+        await identityService.DidNotReceive().LookupByLoginAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await sevenTv.DidNotReceive().ResolveSevenTvIdentityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>The same one step later: Helix was affordable, the 7TV identity call was not.</summary>
+    [Fact]
+    public async Task APermitForHelixButNotForTheIdentityCall_StopsThere()
+    {
+        var sevenTv = Substitute.For<ISevenTvApiClient>();
+        var service = CreateService(FoundIdentityService(), sevenTv, new RecordingForeignUpstreamRequestBudget(grantCount: 1));
+
+        var result = await service.GetForeignEmoteSetAsync(Channel);
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted, result.Status);
+        await sevenTv.DidNotReceive().ResolveSevenTvIdentityAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A budget exhaustion reported by the set read keeps its identity all the way up: it is our own
+    /// throttle, never a 7TV failure, and the decorator above must be able to tell them apart so
+    /// self-inflicted congestion cannot trip the circuit breaker.
+    /// </summary>
+    [Fact]
+    public async Task BudgetExhaustedDuringTheSetRead_MapsToProviderBudgetExhausted_NotSevenTvUnavailable()
+    {
+        var sevenTv = SevenTvClientReturning(SevenTvIdentityResult.Ok(new SevenTvIdentity(SevenTvUserId, EmoteSetId)));
+        sevenTv.GetEmoteSetPreviewAsync(EmoteSetId, Arg.Any<CancellationToken>())
+            .Returns(SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.BudgetExhausted));
+        var service = CreateService(FoundIdentityService(), sevenTv);
+
+        var result = await service.GetForeignEmoteSetAsync(Channel);
+
+        Assert.Equal(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted, result.Status);
+        Assert.NotEqual(ForeignEmoteSetLookupStatus.SevenTvUnavailable, result.Status);
+    }
+
+    /// <summary>
+    /// The number the whole finding was about, against the real budget: a resolution costs one permit
+    /// per upstream request — here the two calls above plus the ten pages the client charges — so a
+    /// minute's worth of 60 permits admits five resolutions. Charged once per resolution instead, the
+    /// same minute would have admitted sixty, i.e. up to 720 upstream requests against a limit of 60.
+    /// The stand-in client charges its ten pages exactly as the real one does
+    /// (<c>SevenTvApiClientEmoteSetPreviewTests</c> pins that end).
+    /// </summary>
+    [Fact]
+    public async Task AResolutionCostsOnePermitPerRequest_SoAMinuteAdmitsFiveOfThem_NotSixty()
+    {
+        using var budget = new ForeignEmoteSetProviderBudget(TimeProvider.System);
+        var sevenTv = SevenTvClientReturning(SevenTvIdentityResult.Ok(new SevenTvIdentity(SevenTvUserId, EmoteSetId)));
+        sevenTv.GetEmoteSetPreviewAsync(EmoteSetId, Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                for (var page = 0; page < 10; page++)
+                {
+                    if (!await budget.TryChargeRequestAsync(TimeSpan.Zero, CancellationToken.None))
+                    {
+                        return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.BudgetExhausted);
+                    }
+                }
+
+                return SevenTvEmoteSetPreviewResult.Ok(new SevenTvEmoteSetPreview(0, false, []));
+            });
+        var service = CreateService(FoundIdentityService(), sevenTv, new WaitlessBudget(budget));
+
+        var statuses = new List<ForeignEmoteSetLookupStatus>();
+        for (var i = 0; i < 6; i++)
+        {
+            statuses.Add((await service.GetForeignEmoteSetAsync(Channel)).Status);
+        }
+
+        Assert.Equal(5, statuses.Count(s => s == ForeignEmoteSetLookupStatus.Ok));
+        Assert.Equal(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted, statuses[5]);
+    }
+
     private static IChannelIdentityService FoundIdentityService()
     {
         var identityService = Substitute.For<IChannelIdentityService>();
@@ -196,6 +306,22 @@ public class ForeignEmoteSetServiceTests
         return sevenTv;
     }
 
-    private static ForeignEmoteSetService CreateService(IChannelIdentityService identityService, ISevenTvApiClient sevenTvApiClient) =>
-        new(identityService, sevenTvApiClient, NullLogger<ForeignEmoteSetService>.Instance);
+    private static ForeignEmoteSetService CreateService(
+        IChannelIdentityService identityService,
+        ISevenTvApiClient sevenTvApiClient,
+        IForeignUpstreamRequestBudget? requestBudget = null) =>
+        new(
+            identityService,
+            sevenTvApiClient,
+            requestBudget ?? new RecordingForeignUpstreamRequestBudget(),
+            NullLogger<ForeignEmoteSetService>.Instance);
+
+    // The real budget, asked not to wait: TryChargeRequestAsync's own default would block this test
+    // on wall-clock time for the rest of the minute once the budget is spent, and the point here is
+    // how many permits a resolution costs, not how long a caller is willing to wait for one.
+    private sealed class WaitlessBudget(ForeignEmoteSetProviderBudget inner) : IForeignUpstreamRequestBudget
+    {
+        public Task<bool> TryChargeRequestAsync(CancellationToken cancellationToken = default) =>
+            inner.TryChargeRequestAsync(TimeSpan.Zero, cancellationToken);
+    }
 }

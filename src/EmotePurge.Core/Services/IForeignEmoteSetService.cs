@@ -50,7 +50,16 @@ public enum ForeignEmoteSetLookupStatus
     /// endpoint maps both statuses to the same 503 error code: the spec's state table has a single
     /// row for "7TV nicht erreichbar / 429", so this distinction is invisible on the wire.
     /// </summary>
-    SevenTvRateLimited
+    SevenTvRateLimited,
+
+    /// <summary>
+    /// The provider-wide request budget (spec E5b) refused a permit, so an upstream request this
+    /// lookup needed was never made. Like <see cref="SevenTvRateLimited"/> this never reaches the wire
+    /// as its own code — the endpoint answers the same 503 as "7TV nicht erreichbar", which is what
+    /// the caller can act on — but it must stay apart internally: this is our own throttle, not
+    /// anything 7TV said, so it must not count toward the circuit breaker's failure streak.
+    /// </summary>
+    ProviderBudgetExhausted
 }
 
 /// <summary>

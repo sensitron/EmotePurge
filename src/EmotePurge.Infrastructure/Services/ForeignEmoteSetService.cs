@@ -2,6 +2,7 @@ using EmotePurge.Core.Entities;
 using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
 using EmotePurge.Core.Twitch;
+using EmotePurge.Infrastructure.SevenTv;
 using Microsoft.Extensions.Logging;
 
 namespace EmotePurge.Infrastructure.Services;
@@ -15,6 +16,7 @@ namespace EmotePurge.Infrastructure.Services;
 public class ForeignEmoteSetService(
     IChannelIdentityService channelIdentityService,
     ISevenTvApiClient sevenTvApiClient,
+    IForeignUpstreamRequestBudget requestBudget,
     ILogger<ForeignEmoteSetService> logger) : IForeignEmoteSetService
 {
     // refresh (T2, spec E3) is meaningless here: this implementation never caches anything, so there
@@ -23,6 +25,21 @@ public class ForeignEmoteSetService(
         string channelName, bool refresh = false, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
+
+        // One permit per upstream request (E5b). The two charges in this method cover the two calls it
+        // makes itself; the paginated set read charges its own pages inside the client, since only
+        // there is the number of requests known. Charging once per *resolution* — the shape this had
+        // until Codex pointed it out — would have let one permit stand for up to twelve requests.
+        //
+        // Charged around the identity service's call rather than inside it: LookupByLoginAsync is
+        // shared with the join path and the worker's reconcile, and neither of those belongs to this
+        // feature's budget.
+        if (!await requestBudget.TryChargeRequestAsync(cancellationToken))
+        {
+            logger.LogWarning(
+                "Fremdkanal-Vorschau für {ChannelName}: providerweites Request-Budget erschöpft, Helix wurde nicht gefragt.", normalized);
+            return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted);
+        }
 
         // Step 1 (F1): the fully-solved Twitch half of the chain — Normalize, app-token handling and
         // the Helix call, in one place, never re-implemented here.
@@ -45,8 +62,16 @@ public class ForeignEmoteSetService(
 
         var twitchUserId = twitchLookup.User!.Id;
 
+        if (!await requestBudget.TryChargeRequestAsync(cancellationToken))
+        {
+            logger.LogWarning(
+                "Fremdkanal-Vorschau für {ChannelName}: providerweites Request-Budget erschöpft, 7TV-Identität wurde nicht aufgelöst.", normalized);
+            return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted);
+        }
+
         // Step 2 (F1): userByConnection — never ResolveTwitchUserIdAsync/GqlUsersQuery, 7TV's search
-        // endpoint, which this service must never call (AK 11).
+        // endpoint, which this service must never call (AK 11). Charged here rather than inside the
+        // client for the same reason as the Helix call above: SevenTvSyncService uses this method too.
         var identityResult = await sevenTvApiClient.ResolveSevenTvIdentityAsync(twitchUserId, cancellationToken);
         if (identityResult.Status == SevenTvLookupStatus.NoSevenTvAccount)
         {
@@ -86,6 +111,12 @@ public class ForeignEmoteSetService(
                 logger.LogInformation(
                     "Fremdkanal-Vorschau für {ChannelName}: 7TV-Set-Abruf fehlgeschlagen.", normalized);
                 return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.SevenTvUnavailable);
+            case SevenTvPreviewLookupStatus.BudgetExhausted:
+                // Our own throttle, not 7TV's — kept apart all the way up so the circuit breaker never
+                // counts it as evidence about the provider.
+                logger.LogWarning(
+                    "Fremdkanal-Vorschau für {ChannelName}: providerweites Request-Budget während der Seitenabfrage erschöpft.", normalized);
+                return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.ProviderBudgetExhausted);
             case SevenTvPreviewLookupStatus.Ok:
                 break;
             default:

@@ -11,17 +11,34 @@ namespace EmotePurge.Infrastructure.SevenTv;
 /// safely share that refresh's outcome, and vice versa; both end up running the exact same chain.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Process-wide singleton by design, like <c>ChannelSyncGate</c> — no external dependency, no
 /// alternative implementation to swap in, so no interface either. The dictionary is bounded by the
 /// number of channels with a lookup genuinely in flight at once, which given the provider-wide
 /// concurrency budget (<see cref="ForeignEmoteSetProviderBudget.MaxConcurrent"/>) is tiny.
+/// </para>
+/// <para>
+/// <b>The shared work is nobody's request.</b> Cancellation is split in two: the shared execution
+/// runs under whatever token <paramref name="upstream"/> closed over (the decorator gives it one that
+/// belongs to no caller), while each caller waits on the shared task under <i>its own</i> token. The
+/// first caller through the door used to donate its request-cancellation token to the shared task, so
+/// that one client navigating away — the browser aborting a request is entirely routine — cancelled
+/// the lookup out from under every other caller waiting on it. A caller may abandon its own wait; it
+/// may not abandon everyone else's work.
+/// </para>
 /// </remarks>
 public sealed class ForeignEmoteSetRequestCoalescer
 {
     private readonly ConcurrentDictionary<string, Lazy<Task<ForeignEmoteSetLookupResult>>> _inFlight = new(StringComparer.Ordinal);
 
+    /// <param name="callerCancellationToken">
+    /// Cancels only this caller's wait. The shared execution keeps running for whoever else is
+    /// waiting on it (and still populates the cache, so the abandoned work is not wasted).
+    /// </param>
     public Task<ForeignEmoteSetLookupResult> CoalesceAsync(
-        string normalizedChannelName, Func<Task<ForeignEmoteSetLookupResult>> upstream)
+        string normalizedChannelName,
+        Func<Task<ForeignEmoteSetLookupResult>> upstream,
+        CancellationToken callerCancellationToken = default)
     {
         // Lazy<T>'s default thread-safety mode means the factory below can run at most once even if
         // GetOrAdd races and constructs more than one Lazy instance for the same key — only the one
@@ -31,7 +48,9 @@ public sealed class ForeignEmoteSetRequestCoalescer
             normalizedChannelName,
             key => new Lazy<Task<ForeignEmoteSetLookupResult>>(() => RunAsync(key, upstream)));
 
-        return entry.Value;
+        // WaitAsync rather than a plain await: it detaches this caller from the shared task instead of
+        // cancelling it.
+        return entry.Value.WaitAsync(callerCancellationToken);
     }
 
     private async Task<ForeignEmoteSetLookupResult> RunAsync(
