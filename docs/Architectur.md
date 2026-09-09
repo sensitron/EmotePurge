@@ -84,6 +84,7 @@ Publizierende Stellen je Event-Typ (Stand 2026-08-01):
 - Verbindet sich via `TwitchLib.Client` mit allen aktiven Twitch-Kanälen.
 - Nachrichten werden am Leerzeichen gespalten (`string.Split(' ')`) und gegen ein `HashSet<string>` abgeglichen.
 - **Spam-Schutz:** Jedes vorkommende Emote wird **maximal 1-mal pro Chat-Nachricht** gezählt (verhindert Verzerrung durch Spam-Copypastas).
+- **Verbindungsaufbau und Wiederaufbau.** Drei Rollen sind sauber getrennt: der Transport (`TwitchChatManager`) hält genau einen `TwitchClient`, führt Joins gedrosselt aus und trifft selbst keine Timing-Entscheidung. TwitchLib-Ereignisse und ein periodischer Tick liefern nur ein Signal, wenn die Verbindung weg oder verdächtig ist — mehrere Signale kurz hintereinander koaleszieren zu einem einzigen Wiederaufbau. Eine eigene Wiederaufbau-Schleife (`TwitchConnectionWatchdog`) wartet auf dieses Signal oder den Tick, ersetzt bei Bedarf den Client statt ihn zu reparieren und rejoint danach gedrosselt außerhalb der Lese-Schleife; TwitchLib rekonnektiert selbst nicht mehr. Ein Watchdog-Netz erkennt daneben eine still gewordene Verbindung, wenn länger kein IRC-Frame mehr ankam, auch wenn TwitchLib nichts meldet — Zahlen dazu (Backoff-Kurve, Schwellen) stehen in `docs/DECISIONS.md`, nicht hier.
 
 #### A.2 In-Memory Aggregator & Batch Flush
 

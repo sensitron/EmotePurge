@@ -109,4 +109,74 @@ public class WorkerStatsTests
         Assert.Equal(3, stats.TakeSplicedIrcLinesSinceLastFlush());
         Assert.Equal(0, stats.TakeSplicedIrcLinesSinceLastFlush());
     }
+
+    [Fact]
+    public void TwitchRebuildCount_StartsAtZero()
+    {
+        var stats = new WorkerStats();
+
+        Assert.Equal(0, stats.TwitchRebuildCount);
+    }
+
+    [Fact]
+    public void TwitchRebuildAttemptFailureCount_StartsAtZero()
+    {
+        var stats = new WorkerStats();
+
+        Assert.Equal(0, stats.TwitchRebuildAttemptFailureCount);
+    }
+
+    [Fact]
+    public void RecordTwitchRebuild_IncrementsByOneAndNeverResetsOnRead()
+    {
+        // Unlike the flush counters above, this is a since-process-start total (Plan #68, Task 2,
+        // concept 7.4) — reading it must not zero it the way Take...SinceLastFlush does.
+        var stats = new WorkerStats();
+
+        stats.RecordTwitchRebuild();
+        Assert.Equal(1, stats.TwitchRebuildCount);
+        Assert.Equal(1, stats.TwitchRebuildCount);
+
+        stats.RecordTwitchRebuild();
+        Assert.Equal(2, stats.TwitchRebuildCount);
+    }
+
+    [Fact]
+    public void RecordTwitchRebuildAttemptFailure_IncrementsByOneAndNeverResetsOnRead()
+    {
+        var stats = new WorkerStats();
+
+        stats.RecordTwitchRebuildAttemptFailure();
+        Assert.Equal(1, stats.TwitchRebuildAttemptFailureCount);
+        Assert.Equal(1, stats.TwitchRebuildAttemptFailureCount);
+
+        stats.RecordTwitchRebuildAttemptFailure();
+        Assert.Equal(2, stats.TwitchRebuildAttemptFailureCount);
+    }
+
+    [Fact]
+    public void RecordFlushSuccess_LeavesTheTwitchRebuildCountersUntouched()
+    {
+        var stats = new WorkerStats();
+        stats.RecordTwitchRebuild();
+        stats.RecordTwitchRebuildAttemptFailure();
+
+        stats.RecordFlushSuccess(5, Now);
+
+        Assert.Equal(1, stats.TwitchRebuildCount);
+        Assert.Equal(1, stats.TwitchRebuildAttemptFailureCount);
+    }
+
+    [Fact]
+    public void RecordFlushFailure_LeavesTheTwitchRebuildCountersUntouched()
+    {
+        var stats = new WorkerStats();
+        stats.RecordTwitchRebuild();
+        stats.RecordTwitchRebuildAttemptFailure();
+
+        stats.RecordFlushFailure();
+
+        Assert.Equal(1, stats.TwitchRebuildCount);
+        Assert.Equal(1, stats.TwitchRebuildAttemptFailureCount);
+    }
 }

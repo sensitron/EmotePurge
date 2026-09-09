@@ -4,9 +4,9 @@ using Microsoft.Extensions.Configuration;
 namespace EmotePurge.Worker;
 
 /// <summary>
-/// Pure, TwitchLib-free detector (same shape as <see cref="ReconnectPolicy"/> and
-/// <see cref="TwitchWatchdogPolicy"/>): the mapping from <c>ChatMessage</c> to chatter id/badges
-/// happens exclusively in <c>TwitchChatManager</c>, never here.
+/// Pure, TwitchLib-free detector (same shape as <see cref="TwitchWatchdogPolicy"/> and
+/// <see cref="TwitchReconnectBackoffPolicy"/>): the mapping from <c>ChatMessage</c> to chatter
+/// id/badges happens exclusively in <c>TwitchChatManager</c>, never here.
 /// <para>
 /// Check order: <see cref="BotBadgeSetId"/> badge, then the account id against the union of the
 /// statically known bot accounts and <c>Twitch:AdditionalBotAccountIds</c> from configuration. All

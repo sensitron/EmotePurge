@@ -113,6 +113,16 @@ jobs:
       # überlebt. Der Preis: Bricht ein Scanner-Update die undokumentierte Property, tauchen die drei
       # S4036-Befunde wieder auf und reißen das Gate — dann ist der Rückfallweg
       # Project Settings → Analysis Scope → Ignore Issues on Multiple Criteria.
+      # sonar.coverage.exclusions nimmt seit dem 2026-09-09 zwei Worker-Dateien auf. Das ist keine
+      # Bequemlichkeit, sondern die Kehrseite von Regel 11: TwitchChatManager und TwitchConnectionWatchdog
+      # sind die TwitchLib-Transporte, und ihre Verifikation ist ausdrücklich live gegen echtes Twitch-IRC
+      # angelegt, nicht gegen Fakes (Regel 16). Ein Unit-Test dafür müsste TwitchLib nachbauen und prüfte
+      # dann die Nachbildung statt den Transport — genau die Alibi-Tests, gegen die das Gate nicht scharf
+      # gestellt wurde. Die pure Entscheidungslogik ist aus beiden herausgezogen und wird sehr wohl
+      # gemessen: TwitchWatchdogPolicy, TwitchReconnectBackoffPolicy, TwitchReconnectSignalSlot.
+      # Der Preis: In diesen beiden Dateien meldet das Gate künftig nie wieder fehlende Coverage — auch
+      # dann nicht, wenn dort später testbare Logik einzieht. Wer solche Logik hinzufügt, zieht sie in
+      # eine eigene Klasse, statt sich auf diese Zeile zu verlassen.
       - name: Sonar Scanner begin
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -124,7 +134,7 @@ jobs:
           /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml"
           /d:sonar.javascript.lcov.reportPaths="web/coverage/web/lcov.info"
           /d:sonar.exclusions="**/Migrations/**,src/EmotePurge.Api/wwwroot/**,web/dist/**,**/node_modules/**"
-          /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**"
+          /d:sonar.coverage.exclusions="web/e2e/**,**/Migrations/**,scripts/**,src/EmotePurge.Worker/TwitchChatManager.cs,src/EmotePurge.Worker/TwitchConnectionWatchdog.cs"
           /d:sonar.qualitygate.wait=true
           /d:sonar.issue.ignore.multicriteria=e1
           /d:sonar.issue.ignore.multicriteria.e1.ruleKey="javascript:S4036"
