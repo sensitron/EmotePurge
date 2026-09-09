@@ -49,6 +49,20 @@ im `import`-Namensraum anzulegen. Im Ziel-Dialog gilt zusätzlich: erzwingt ein 
 (`forcedScope`, die Dock-Kurzform aus §8.7), fehlt an dieser Stelle beides — Radiogruppe wie
 Hinweis —, weil ein erzwungener Scope keine offene Wahl ist, die eine Erklärung bräuchte.
 
+**Nachtrag (Codex-Review auf PR #145): `selectionCount` war zweiwertig überladen, nicht
+dreiwertig.** `ExportDialogData.selectionCount` benutzte `0` für zwei verschiedene Sachverhalte —
+eine echte, aber leere Grid-Auswahl (Nutzungsstatistik) und die Abwesenheit jedes
+Auswahl-Konzepts (Voting-Export: das Ballot selbst ist die Teilmenge; Löschprotokoll: der Lauf ist
+immer vollständig). Solange beide Fälle dasselbe Verhalten (Radiogruppe verstecken) auslösten, war
+die Überladung folgenlos; der neue Hinweis dieses Eintrags gab ihnen erstmals unterschiedliches
+Verhalten und machte die Überladung zu einem Bug — die beiden zweckgebundenen Aufrufer bekamen
+einen Hinweis, der eine nicht existierende Grid-Auswahl beschreibt, beim Löschprotokoll zusätzlich
+sachlich falsch (der Export enthält den abgeschlossenen Lauf, nicht die sichtbare Liste). Behoben,
+indem der Typ die Unterscheidung selbst trägt: `selectionCount: number | null`, `null` heißt „kein
+Auswahl-Konzept" und rendert weder Radiogruppe noch Hinweis, `0` bleibt „Konzept vorhanden, gerade
+leer" mit Hinweis. Die beiden zweckgebundenen Aufrufer übergeben seither `null`, ihre bestehenden
+Kommentare (bereits präzise) unverändert.
+
 ---
 
 ### 2026-09-09 — Der Ziel-Dialog verliert sein Datei-Ziel: „Übertragen" und „Exportieren" trennen sich nach Transportweg (#141)

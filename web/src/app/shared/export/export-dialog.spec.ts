@@ -239,6 +239,16 @@ describe('ExportDialog', () => {
       expect(dialog.text()).not.toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
     });
 
+    // #145: null is a caller that has no grid-selection concept at all (voting export, purge
+    // protocol) — distinct from 0, a real but currently-empty selection. Neither the radiogroup
+    // nor the hint belongs here, because there is nothing to explain the absence of.
+    it('shows neither the radiogroup nor the no-selection hint when selectionCount is null', () => {
+      const dialog = render(defaultData({ selectionCount: null }));
+
+      expect(dialog.scopeInputs()).toHaveLength(0);
+      expect(dialog.text()).not.toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
+    });
+
     it('follows the displayed row count to the chosen scope', () => {
       const dialog = render(defaultData({ rowCount: 10, selectionCount: 3 }));
 

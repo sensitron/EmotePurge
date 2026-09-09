@@ -431,9 +431,13 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   jede `id` als undurchsichtig und schaltet nirgends selbst darauf.
 - **Zeilenreihenfolge im Body:**
   1. Bereichs-Radiogruppe `visible`/`selection` (`export.scopeLabel`) — nur, wenn eine Grid-Auswahl
-     existiert (`selectionCount > 0`); ohne Auswahl steht an derselben Stelle stattdessen der
-     gedämpfte Hinweis `export.scopeNoSelectionHint` (#144), der die Abwesenheit erklärt statt sie
-     kommentarlos zu lassen.
+     existiert (`selectionCount > 0`); ist die Auswahl leer, aber das Konzept vorhanden
+     (`selectionCount === 0`), steht an derselben Stelle stattdessen der gedämpfte Hinweis
+     `export.scopeNoSelectionHint` (#144), der die Abwesenheit erklärt statt sie kommentarlos zu
+     lassen. Hat der Aufrufer gar kein Grid-Auswahl-Konzept (`selectionCount === null` — Voting-
+     Detailseite, Löschprotokoll: die Menge, die exportiert wird, steht dort gar nicht zur Wahl),
+     entfällt an dieser Stelle **beides**, Radiogruppe wie Hinweis — Codex-Review auf PR #145,
+     s. DECISIONS.
   2. Optionsgruppe — Legende ist `optionsLegendKey`, je Option `labelKey` auf der ersten Zeile,
      darunter `hintKey`, falls gesetzt.
   3. Zeilenzahl (`export.rowCount`, folgt dem gewählten Bereich) plus `filteredHint`, wenn die

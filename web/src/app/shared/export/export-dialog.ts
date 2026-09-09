@@ -29,10 +29,15 @@ export interface ExportDialogData<TId extends string = string> {
   /** True when the visible list is a filtered subset; renders the "filtered" hint line. */
   filtered: boolean;
   /**
-   * Size of the page's grid selection; 0 means no selection exists and the scope choice is not
-   * offered at all — a zero-row export is never a valid answer.
+   * Size of the page's grid selection — three states, each with exactly one dialog behaviour:
+   *  - `null` — this caller has no grid-selection concept at all (the voting ballot already is
+   *    the subset; the purge protocol is always the whole run). Neither the scope radiogroup nor
+   *    the "no selection" hint renders.
+   *  - `0` — a real, currently-empty selection. No radiogroup (a zero-row export is never a valid
+   *    answer), but the hint explaining that the visible list will be used instead.
+   *  - `> 0` — radiogroup shown, no hint.
    */
-  selectionCount: number;
+  selectionCount: number | null;
   /**
    * Pre-resolved Transloco keys explaining *why* columns will be missing (secret ballot,
    * manager-only usage). This dialog is the one place that explanation can live — the file itself
@@ -75,35 +80,37 @@ export const FORMAT_EXPORT_OPTIONS: readonly ExportDialogOption[] = [
   imports: [Button, DialogShell, NoticeBanner, TranslocoPipe],
   template: `
     <app-dialog-shell [dialogTitle]="'export.title' | transloco">
-      @if (data.selectionCount > 0) {
-        <div
-          class="flex flex-wrap gap-4 text-sm text-fg-secondary"
-          role="radiogroup"
-          [attr.aria-label]="'export.scopeLabel' | transloco"
-        >
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="export-scope"
-              [checked]="scope() === 'visible'"
-              (change)="scope.set('visible')"
-            />
-            {{ 'export.scopeVisible' | transloco: { count: data.rowCount } }}
-          </label>
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="export-scope"
-              [checked]="scope() === 'selection'"
-              (change)="scope.set('selection')"
-            />
-            {{ 'export.scopeSelection' | transloco: { count: data.selectionCount } }}
-          </label>
-        </div>
-      } @else {
-        <p class="text-xs text-fg-muted">{{ 'export.scopeNoSelectionHint' | transloco }}</p>
+      @if (data.selectionCount !== null) {
+        @if (data.selectionCount > 0) {
+          <div
+            class="flex flex-wrap gap-4 text-sm text-fg-secondary"
+            role="radiogroup"
+            [attr.aria-label]="'export.scopeLabel' | transloco"
+          >
+            <label class="flex items-center gap-2 py-1">
+              <input
+                type="radio"
+                class="h-4 w-4 accent-accent-solid"
+                name="export-scope"
+                [checked]="scope() === 'visible'"
+                (change)="scope.set('visible')"
+              />
+              {{ 'export.scopeVisible' | transloco: { count: data.rowCount } }}
+            </label>
+            <label class="flex items-center gap-2 py-1">
+              <input
+                type="radio"
+                class="h-4 w-4 accent-accent-solid"
+                name="export-scope"
+                [checked]="scope() === 'selection'"
+                (change)="scope.set('selection')"
+              />
+              {{ 'export.scopeSelection' | transloco: { count: data.selectionCount } }}
+            </label>
+          </div>
+        } @else {
+          <p class="text-xs text-fg-muted">{{ 'export.scopeNoSelectionHint' | transloco }}</p>
+        }
       }
 
       <div
@@ -170,9 +177,19 @@ export class ExportDialog {
   // "format" is.
   protected readonly optionId = signal<string>(this.data.options[0].id);
 
-  protected readonly exportRowCount = computed(() =>
-    this.scope() === 'selection' ? this.data.selectionCount : this.data.rowCount,
-  );
+  protected readonly exportRowCount = computed(() => {
+    if (this.scope() !== 'selection') {
+      return this.data.rowCount;
+    }
+    const selectionCount = this.data.selectionCount;
+    if (selectionCount === null) {
+      // Unreachable: scope can only become 'selection' via a click inside the radiogroup, and
+      // that group only ever renders (see the template) when data.selectionCount is a number
+      // greater than 0 — never null. Narrowed honestly rather than cast or defaulted with `??`.
+      return this.data.rowCount;
+    }
+    return selectionCount;
+  });
 
   protected readonly rowCountKey = computed(() =>
     pluralKey(this.exportRowCount(), 'export.rowCount'),
