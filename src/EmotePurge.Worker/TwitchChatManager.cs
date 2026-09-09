@@ -39,6 +39,24 @@ public class TwitchChatManager(
     // gate below, and the rejoin after a rebuild is just another caller of it.
     private static readonly TimeSpan MinIntervalBetweenJoins = TimeSpan.FromMilliseconds(600);
 
+    // How long one JoinChannelAsync may take before the round gives up on it. The call is not the
+    // JOIN's confirmation, only its send, and on a healthy connection it returns in single-digit
+    // milliseconds — but it can block indefinitely, for the same reason ConnectAttemptTimeout
+    // exists: QueueingJoinCheckAsync ends in ClientBase.SendAsync, which awaits the send semaphore
+    // and then ClientWebSocket.SendAsync on base.Token, and nothing cancels that token while this
+    // loop is the thing that would have to cancel it. Ten seconds is three orders of magnitude
+    // above the normal case and still well inside one watchdog tick.
+    private static readonly TimeSpan JoinSendTimeout = TimeSpan.FromSeconds(10);
+
+    // The whole-attempt bound on ConnectAsync. TwitchLib's own TimeOutEstablishConnection (15s)
+    // covers only ClientWebSocket.ConnectAsync inside WebSocketClient.ConnectClientAsync; the IRC
+    // handshake that follows is sent from ClientBase.OpenPrivateAsync's RaiseConnected, through
+    // three to six ClientBase.SendAsync calls that await a semaphore and then ClientWebSocket.
+    // SendAsync on base.Token — and base.Token is cancelled only by ClosePrivateAsync, which is
+    // exactly what this loop cannot reach while it is blocked here. 30s is that 15s socket bound
+    // plus room for the handshake sends, and far above the ~0.9s a healthy attempt measured.
+    private static readonly TimeSpan ConnectAttemptTimeout = TimeSpan.FromSeconds(30);
+
     // How long an opened socket may stay silent before we call the attempt failed. TwitchLib sends
     // the IRC handshake as soon as the WebSocket is up and Twitch answers "004" within a
     // round-trip, so ten seconds is two orders of magnitude of headroom, not a guess.
@@ -365,11 +383,12 @@ public class TwitchChatManager(
         try
         {
             // Exactly one attempt: NoReconnectionPolicy is ReconnectionPolicy(0, maxAttempts: 1),
-            // so TwitchLib does not loop here, and its own TimeOutEstablishConnection (15s) bounds
-            // how long this can take. No timeout of our own on purpose — that 15s bound is what the
-            // "an attempt ends within ~25s" guarantee is measured against, and a second timeout
-            // here would hide it rather than test it.
-            opened = await client.ConnectAsync().WaitAsync(ct);
+            // so TwitchLib does not loop here. Its own TimeOutEstablishConnection (15s) bounds only
+            // the socket open, not the IRC handshake sends that follow inside the same call, so the
+            // attempt as a whole is bounded here (see ConnectAttemptTimeout) — without this the
+            // single task that both ticks the watchdog and consumes loss signals could park here
+            // forever and take the whole self-healing loop with it.
+            opened = await client.ConnectAsync().WaitAsync(ConnectAttemptTimeout, ct);
         }
         catch (OperationCanceledException)
         {
@@ -377,6 +396,18 @@ public class TwitchChatManager(
             // wait for it. The half-open client is disposed of in the background.
             DisconnectInBackground(client, generation);
             throw;
+        }
+        catch (TimeoutException)
+        {
+            logger.LogWarning(
+                "TwitchClient-Verbindungsaufbau (Client #{Generation}) nach {Seconds}s ohne Ergebnis abgebrochen.",
+                generation,
+                ConnectAttemptTimeout.TotalSeconds);
+
+            // Same disposal path as the cancelled case above: the call may still be sitting in an
+            // uncancellable WebSocket send, and only DisconnectAsync cancels the token it waits on.
+            DisconnectInBackground(client, generation);
+            return new TwitchConnectOutcome(false, TwitchSessionEndReason.ConnectTimeout, DateTime.UtcNow - startedAt, generation);
         }
         catch (Exception ex)
         {
@@ -457,18 +488,34 @@ public class TwitchChatManager(
             logger.LogInformation(
                 "JOIN für {Channel} angestoßen (Quelle {Source}, Client #{Generation}).",
                 channelName, source, Volatile.Read(ref _clientGeneration));
-            // WaitAsync(ct) bounds *our* wait, not the send. TwitchLib's JoinChannelAsync can
-            // block on its send semaphore and on the WebSocket send, and neither is cancellable —
-            // cancelled here therefore means abandoned, exactly as the connect in
-            // OpenAndAwaitHandshakeAsync is abandoned rather than aborted; the send may still
-            // complete on its own afterwards. Nobody should read this as a real abort. Without the
-            // token a shutdown could park the watchdog in here and break the "StopAsync returns
-            // within about a second" promise — the seconds the final usage flush needs (#122).
-            await _client.JoinChannelAsync(channelName).WaitAsync(ct);
+            // WaitAsync bounds *our* wait, not the send. TwitchLib's JoinChannelAsync can block on
+            // its send semaphore and on the WebSocket send, and neither is cancellable — leaving
+            // here therefore means abandoned, exactly as the connect in OpenAndAwaitHandshakeAsync
+            // is abandoned rather than aborted; the send may still complete on its own afterwards.
+            // Nobody should read either exit as a real abort. Without the token a shutdown could
+            // park the watchdog in here and break the "StopAsync returns within about a second"
+            // promise — the seconds the final usage flush needs (#122); without the timeout a
+            // single stuck send would hold _joinGate for good and with it every Redis JOIN and the
+            // periodic 7TV resync, on top of the rebuild loop itself.
+            await _client.JoinChannelAsync(channelName).WaitAsync(JoinSendTimeout, ct);
         }
         catch (OperationCanceledException)
         {
             // Shutdown during the throttle pause; the remaining channels are irrelevant now.
+        }
+        catch (TimeoutException)
+        {
+            logger.LogWarning(
+                "JOIN für {Channel} nach {Seconds}s ohne Rückkehr abgebrochen — der Client wird verworfen.",
+                channelName,
+                JoinSendTimeout.TotalSeconds);
+
+            // The send is still parked on base.Token, and only the client's own DisconnectAsync
+            // cancels that token. Requesting the rebuild is therefore not just about retrying the
+            // join: discarding this client is what actually releases the stuck call.
+            RequestReconnect(
+                TwitchSessionEndReason.JoinSendTimeout,
+                $"JOIN für {channelName} blockierte länger als {JoinSendTimeout.TotalSeconds}s.");
         }
         catch (Exception ex)
         {

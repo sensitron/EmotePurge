@@ -30,6 +30,22 @@ public enum TwitchSessionEndReason
     /// <summary>The socket opened but no handshake ("004") arrived within 10 s.</summary>
     HandshakeTimeout,
 
+    /// <summary>
+    /// A rebuild attempt's <c>ConnectAsync</c> did not return within 30 s. TwitchLib's own
+    /// <c>TimeOutEstablishConnection</c> covers only the socket open, not the IRC handshake sends
+    /// that follow inside the same call, and those wait on a token nothing cancels while the
+    /// rebuild loop is blocked in them.
+    /// </summary>
+    ConnectTimeout,
+
+    /// <summary>
+    /// A <c>JoinChannelAsync</c> did not return within 10 s — the same uncancellable send, reached
+    /// through TwitchLib's join queue. Unlike the others this one is raised on a client that has
+    /// a live session, so it is paced as that session's end rather than as a failed attempt;
+    /// discarding the client is what releases the stuck send.
+    /// </summary>
+    JoinSendTimeout,
+
     /// <summary>Tripwire: TwitchLib reconnected in place although <c>NoReconnectionPolicy</c> makes that impossible.</summary>
     UnexpectedInPlaceReconnect,
 

@@ -186,6 +186,46 @@ public class TwitchReconnectBackoffPolicyTests
     }
 
     [Fact]
+    public void NextDelay_ConnectTimeout_CountsAsFailureAndEscalatesStreak()
+    {
+        var policy = NeutralJitterPolicy();
+
+        var first = policy.NextDelay(Failed(TwitchSessionEndReason.ConnectTimeout));
+        var second = policy.NextDelay(Failed(TwitchSessionEndReason.ConnectTimeout));
+
+        Assert.Equal(TimeSpan.FromSeconds(2), first);
+        Assert.Equal(TimeSpan.FromSeconds(4), second);
+    }
+
+    [Fact]
+    public void NextDelay_JoinSendTimeoutWithoutSession_CountsAsFailure()
+    {
+        var policy = NeutralJitterPolicy();
+
+        var delay = policy.NextDelay(Failed(TwitchSessionEndReason.JoinSendTimeout));
+
+        Assert.Equal(TimeSpan.FromSeconds(2), delay);
+    }
+
+    [Fact]
+    public void NextDelay_JoinSendTimeoutOnALiveSession_IsPacedAsSessionNotAttempt()
+    {
+        // The reason never decides; SessionDuration does. A stuck JOIN is signalled through
+        // RequestReconnect, which stamps the running session's duration, so this reason usually
+        // arrives *with* one — and then it ends a session and resets the failure streak, exactly
+        // like FrameStale.
+        var policy = NeutralJitterPolicy();
+        policy.NextDelay(Failed());
+        policy.NextDelay(Failed());
+
+        var afterStuckJoin = policy.NextDelay(
+            Session(TimeSpan.FromMinutes(5), TwitchSessionEndReason.JoinSendTimeout));
+
+        Assert.Equal(TimeSpan.Zero, afterStuckJoin);
+        Assert.Equal(TimeSpan.FromSeconds(2), policy.NextDelay(Failed()));
+    }
+
+    [Fact]
     public void NextDelay_HandshakeTimeout_CountsAsFailure()
     {
         var policy = NeutralJitterPolicy();
