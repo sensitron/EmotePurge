@@ -28,13 +28,17 @@ public enum SevenTvSessionEndReason
 public readonly record struct SevenTvSessionResult(bool SessionEstablished, SevenTvSessionEndReason Reason, int? CloseCode = null);
 
 /// <summary>
-/// Reconnect pacing for the 7TV EventAPI. Deliberately not <see cref="EmotePurge.Worker.ReconnectPolicy"/>:
-/// that class decides reconnect-vs-recreate-vs-wait for a long-lived TwitchLib client object, with
-/// thresholds calibrated on Twitch production outages. A ClientWebSocket is single-use — every
-/// session builds a fresh one — so the only question here is how long to wait, and the answer must
-/// treat the server's documented ~1h TTL disconnect as routine: an established session never
-/// escalates the backoff. No attempt limit (the S2-1 lesson: a silently exhausted retry budget took
-/// the Twitch connection down for good). Clock-free and with injectable jitter for deterministic tests.
+/// Reconnect pacing for the 7TV EventAPI. Same shape as
+/// <see cref="EmotePurge.Worker.TwitchReconnectBackoffPolicy"/> — a session result in, the next delay
+/// out — but deliberately not the same numbers or the same reset rule, and therefore not one shared
+/// class. Two differences carry that: the cap is 60 s here against 30 s there, because a 7TV outage
+/// costs no counting at all (the periodic REST resync covers it) while every second without Twitch
+/// is a counting gap; and this policy has no flap dampening, because the server's documented ~1h TTL
+/// disconnect makes short sessions the routine case rather than a symptom — an established session
+/// never escalates the backoff. A ClientWebSocket is single-use, every session builds a fresh one, so
+/// the only question here is how long to wait. No attempt limit either (the S2-1 lesson: a silently
+/// exhausted retry budget took the Twitch connection down for good). Clock-free and with injectable
+/// jitter for deterministic tests.
 /// </summary>
 public sealed class SevenTvBackoffPolicy(Func<double>? jitter = null)
 {

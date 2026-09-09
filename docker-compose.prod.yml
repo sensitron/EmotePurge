@@ -86,6 +86,14 @@ services:
     image: ghcr.io/sensitron/emotepurge-worker:latest
     container_name: emotepurge-worker
     restart: unless-stopped
+    # #122: Docker-Default für den Stopp sind 10 s bis zum SIGKILL. Der .NET-`ShutdownTimeout` des
+    # Hosts bleibt bewusst beim Default von 30 s (ein zweites Budget im Code kauft nichts, solange
+    # Docker das größere hält) — aber Hosted Services stoppen sequenziell in umgekehrter
+    # Registrierungsreihenfolge (WorkerServiceRegistration.cs), und vor dem als zweiten
+    # registrierten UsageFlushWorker stoppen sieben andere Dienste. 60 s decken die 30 s mit
+    # Reserve ab, damit der Abschluss-Flush planbar drankommt statt vom SIGKILL abgeschnitten zu
+    # werden (Konzept 4.6, G3).
+    stop_grace_period: 60s
     deploy:
       resources:
         limits:

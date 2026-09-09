@@ -667,6 +667,10 @@
     "noMatches": "Keine Emotes passen zu den aktuellen Filtern.",
     "resetFilters": "Filter zurücksetzen",
     "createVoteSession": "Zur Abstimmung stellen ({{count}})",
+    "selectionPruned": {
+      "one": "Ein ausgewähltes Emote ist nicht mehr im Set und wurde aus der Auswahl entfernt.",
+      "other": "{{count}} ausgewählte Emotes sind nicht mehr im Set und wurden aus der Auswahl entfernt."
+    },
     "slots": {
       "occupied": "{{ occupied }} von {{ capacity }} Slots belegt",
       "afterDelete": "nach dem Löschen: {{ projected }}",

@@ -55,7 +55,8 @@ public class WorkerBootSequenceTests
             Substitute.For<IEmoteMatchCache>(),
             gate,
             Substitute.For<ISevenTvEventClient>(),
-            CreateScopeFactory(channelService));
+            CreateScopeFactory(channelService),
+            new ConfigurationBuilder().Build());
 
         await worker.StartAsync(CancellationToken.None);
         try
@@ -72,6 +73,53 @@ public class WorkerBootSequenceTests
         Assert.Equal(1, joinsBeforeSubscribe);
         await subscriber.Received(1).SubscribeAsync(
             BotCommands.Channel, Arg.Any<Func<string, string, Task>>(), Arg.Any<CancellationToken>());
+    }
+
+    // Task 6 (Entscheidung 7.5): the cheap, allowed case for the debug trigger's gate — the
+    // trigger itself is transport (Regel 11/16) and gets no test beyond this. This one only
+    // proves the dispatcher honours Worker:Debug:AllowTwitchReconnectTrigger before ever reaching
+    // TwitchChatManager.SimulateServerReconnectAsync; the injected path is verified live (Task 9,
+    // S2), not here.
+    [Fact]
+    public async Task Worker_IgnoresTheDebugReconnectCommandWithoutTheConfigGate()
+    {
+        var gate = new BootRecoveryGate();
+        var channelService = Substitute.For<IChannelService>();
+        channelService.ListActiveChannelNamesAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<string>());
+
+        var chatManager = Substitute.For<ITwitchChatManager>();
+        Func<string, string, Task>? capturedHandler = null;
+        var subscriber = Substitute.For<IRedisSubscriber>();
+        subscriber.When(x => x.SubscribeAsync(Arg.Any<string>(), Arg.Any<Func<string, string, Task>>(), Arg.Any<CancellationToken>()))
+            .Do(callInfo => capturedHandler = callInfo.Arg<Func<string, string, Task>>());
+
+        // No Worker:Debug:AllowTwitchReconnectTrigger key at all — the same as the default in
+        // production, where it is never set in docker-compose.yml or .env.example.
+        var worker = new WorkerService(
+            NullLogger<WorkerService>.Instance,
+            chatManager,
+            subscriber,
+            Substitute.For<IRedisPublisher>(),
+            Substitute.For<IEmoteMatchCache>(),
+            gate,
+            Substitute.For<ISevenTvEventClient>(),
+            CreateScopeFactory(channelService),
+            new ConfigurationBuilder().Build());
+
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            await gate.CommandChannelSubscribed.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(capturedHandler);
+            await capturedHandler!(BotCommands.Channel, "DEBUG:TWITCH-RECONNECT");
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+
+        await chatManager.DidNotReceive().SimulateServerReconnectAsync();
     }
 
     [Fact]

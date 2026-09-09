@@ -10,6 +10,54 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-09 — Die beiden TwitchLib-Transporte sind von der Coverage-Messung ausgenommen (#68)
+
+**Betrifft:** [`../.github/workflows/sonarcloud.yml`](../.github/workflows/sonarcloud.yml)
+(`sonar.coverage.exclusions`) · `src/EmotePurge.Worker/TwitchChatManager.cs` ·
+`src/EmotePurge.Worker/TwitchConnectionWatchdog.cs`
+
+**Was sich ändert.** `sonar.coverage.exclusions` trug bisher `web/e2e/**`, `**/Migrations/**` und
+`scripts/**`. Dazu kommen jetzt zwei einzelne Dateien: `TwitchChatManager.cs` und
+`TwitchConnectionWatchdog.cs`. Sie zählen damit weder im Zähler noch im Nenner der Coverage —
+Befunde anderer Regeln (Code Smells, Sicherheitshinweise) melden sie unverändert, `sonar.exclusions`
+bleibt unangetastet.
+
+**Der Anlass, mit Zahlen.** Der PR zu #68 riss das Quality Gate mit **17,9 % Coverage auf neuem
+Code** gegen die Schwelle von 80 %. Die Aufschlüsselung je Datei (SonarCloud-API,
+`new_uncovered_lines`) zeigt keine breite Lücke, sondern zwei Klumpen: von 361 ungedeckten neuen
+Zeilen liegen **289 in `TwitchChatManager.cs` und 64 in `TwitchConnectionWatchdog.cs`**, beide bei
+exakt 0 %. Das sind **353 von 361, also 97,8 %.** Die übrigen acht verteilen sich auf
+`ITwitchChatManager.cs` (5), `Worker.cs` (2) und `TwitchReconnectSignalSlot.cs` (1). Ohne die beiden
+Dateien bleiben 80 zu deckende neue Zeilen mit 8 ungedeckten übrig — 90 %.
+
+**Warum Ausnahme und nicht Tests.** Regel 11 legt seit dem 2026-08-02 fest, dass die
+Transport-Klassen des Workers **bewusst live statt gegen Fakes** verifiziert werden (Regel 16), und
+benennt `TwitchChatManager` dort namentlich. Ein Unit-Test für diese Klasse müsste TwitchLibs
+Verbindungs-, Handshake- und Ereignisverhalten nachbauen; geprüft würde dann die Nachbildung, nicht
+der Transport. Genau solche Tests hätte das Gate hier erzwungen — und das Gate wurde am 2026-09-06
+nicht scharf gestellt, um sie zu erzeugen. Die Verifikation, die stattdessen stattfindet, ist
+dokumentiert und beziffert: der Eintrag vom 2026-09-08 zu #68 führt sieben gültige Messläufe gegen
+echtes Twitch-IRC samt SLO-Werten, Backoff-Kurve, Shutdown-Zeiten und dem 16-Minuten-Fall.
+
+**Warum die Ausnahme trotzdem etwas kostet.** Sie ist dauerhaft und gilt für die ganze Datei, nicht
+nur für das Diff dieses PRs. Zieht später testbare Entscheidungslogik in eine der beiden Klassen
+ein, meldet das Gate ihr Fehlen **nicht** — die Ausnahme schweigt genau dort, wo sie falsch liegt.
+Der Umgang damit ist derselbe wie bisher: Was sich testen lässt, wird herausgezogen, statt in der
+Transportklasse zu wachsen. Der Bestand belegt, dass das trägt — `TwitchWatchdogPolicy`,
+`TwitchReconnectBackoffPolicy` und `TwitchReconnectSignalSlot` sind aus genau diesen beiden Dateien
+herausgelöst und liegen im container-freien `tests/EmotePurge.Worker.Tests`. Die beiden, die dieser
+PR neu anlegt, misst Sonar voll mit: `TwitchReconnectSignalSlot` 94,6 %, `TwitchReconnectBackoffPolicy`
+94,9 % auf neuem Code. `TwitchWatchdogPolicy` steht schon seit dem 2026-08-03 und trägt hier keine
+neue Zeile.
+
+**Ausdrücklich nicht gewählt.** *Das Gate für diesen PR administrativ übergehen* — das Ruleset
+`main required checks` erlaubt es (`bypass_mode: always` für die Admin-Rolle), aber es hinterlässt
+keine Spur in der Konfiguration, nur einen roten Haken in einem PR, den in einem Jahr niemand mehr
+aufschlägt. *Die Schwelle senken* — sie gilt repoweit und träfe alles andere mit. *`SevenTvEventClient`
+gleich mit ausnehmen* — Regel 11 nennt ihn im selben Atemzug als Transport, er ist hier aber nicht
+betroffen, und eine Ausnahme auf Vorrat ist das Gegenteil einer gezielten.
+---
+
 ### 2026-09-09 — `SONAR_TOKEN` liegt jetzt zweimal, weil Dependabot einen eigenen Secret-Kontext hat
 
 **Betrifft:** GitHub-Repository-Einstellungen (Settings → Secrets and variables → **Dependabot**) ·
@@ -105,6 +153,187 @@ Begründung im PR sehen will, muss sie per `gh pr comment` nachreichen, nach dem
 **Wann die Regel wieder weg muss.** Mit dem Angular-Major, der vitest 5 als Peer trägt. Der
 Upgrade bringt beide Pakete ohnehin mit; bleibt die Regel dann stehen, hängt das Frontend still
 auf einer alten Testrunner-Linie fest.
+
+---
+
+### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
+
+**Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,
+`publish`-Job) · [`../docker-compose.prod.yml`](../docker-compose.prod.yml) (unverändert, aber der
+Grund) · `src/EmotePurge.Worker/Dockerfile` · `src/EmotePurge.Api/Dockerfile`
+
+**Was sich ändert.** Der `publish`-Job hatte eine feste Matrix aus `emotepurge-api` und
+`emotepurge-worker` und baute bei **jedem** Push auf `main`, der nicht rein aus Doku bestand, beide
+Images und schob sie unter `:latest`. Ein neuer Job `changes` entscheidet die Matrix jetzt pro Push
+anhand der geänderten Pfade; `publish` bezieht sie über `fromJSON` und läuft gar nicht, wenn kein
+Image betroffen ist. `docker-compose.prod.yml` bleibt unangetastet.
+
+**Der Mechanismus, der das nötig macht.** Ein Rebuild desselben Baums erzeugt hier **nicht**
+dasselbe Image: Der Workflow konfiguriert keinerlei Buildx-Cache, also laufen `apt-get install` und
+`dotnet publish` bei jedem Lauf frisch, und schon die Zeitstempel und die MVIDs der kompilierten
+Assemblies unterscheiden sich. Jeder Lauf veröffentlicht damit einen neuen Digest unter `:latest`.
+`docker-compose.prod.yml` referenziert `:latest` ohne `pull_policy` — der nächste Portainer-Redeploy
+zieht den neuen Digest und startet den Worker neu, obwohl an keiner Zeile Worker-Code etwas anders
+ist. Das kostet den Zeitanker laufender Beobachtungen (#117) und, solange #122 offen ist, bis zu
+30 s gepufferte Zählung. Der Workflow-Kommentar beschrieb genau diese Kette für Doku-Pushes bereits
+selbst; für Code-Pushes galt sie unausgesprochen weiter.
+
+**Warum der Filter eine Allowlist des Überspringens ist, keine Liste des Bauens.** Worker und Api
+teilen sich `EmotePurge.Core` und `EmotePurge.Infrastructure`, ein Filter nach Projektordner wäre
+also falsch. Beide Dockerfiles kopieren seit S4-17 ausschließlich `src/` (die Api zusätzlich `web/`)
+— `COPY src/ src/`, Zeile 23 bzw. 27. Daraus folgt belegbar: `web/**` und `src/EmotePurge.Api/**`
+können nicht verändern, was `dotnet publish EmotePurge.Worker.csproj` ausgibt, und `tests/**`,
+`docs/**` und Markdown landen in **keinem** der beiden Images. Genau diese Pfade — und nur sie —
+dürfen einen Build überspringen. Alles andere fällt durch in „beide bauen": `EmotePurge.Core`,
+`EmotePurge.Infrastructure`, `.dockerignore`, `.github/**`, `global.json`, eine neue Datei im
+Wurzelverzeichnis. Ein später hinzukommender Pfad wird dadurch überflüssig mitgebaut, aber nie
+stillschweigend übersprungen. Diese Richtung ist bewusst gewählt: Der teure Fehler ist ein
+Produktions-Worker, der veralteten Code fährt — und am selben Image hängt zusätzlich der
+Harness-Einstiegspunkt aus #69.
+
+**`--no-renames` ist kein Detail.** Mit Rename-Erkennung meldet `git diff --name-only` eine Datei,
+die von `EmotePurge.Core` nach `EmotePurge.Worker` wandert, nur unter ihrem **neuen** Pfad. Der
+Filter läse daraus „nur Worker betroffen" und ließe die Api ungebaut — obwohl der gerade eine
+Core-Datei abhandengekommen ist. Der Schalter zwingt beide Seiten in die Liste. Gegenprobe an einem
+künstlichen Rename: mit Erkennung eine Zeile, ohne sie zwei.
+
+**Was undecidbar ist, wird gebaut.** `workflow_dispatch` hat keinen Vorgänger-SHA, ein Push kann den
+Null-SHA tragen (neuer Branch, Force-Push über gelöschte Historie), und der Vorgänger-Commit kann
+fehlen. In allen drei Fällen bleibt es bei beiden Images; der Checkout des `changes`-Jobs holt dafür
+`fetch-depth: 0`.
+
+**Der Filter hängt nur am `publish`-Job.** `test` und `test-web` sind required checks auf `main`.
+GitHub lässt einen required check, der nie gelaufen ist, für immer pending stehen, statt ihn als
+bestanden zu werten — ein mitgefilterter Test-Job machte PRs unmergebar. Das ist derselbe Grund,
+aus dem `pull_request` schon bisher bewusst kein `paths-ignore` trägt (Eintrag vom 2026-09-06).
+
+**Ausdrücklich nicht gewählt: das Worker-Image in `docker-compose.prod.yml` auf ein SHA-Tag
+pinnen.** Das verlagert die Arbeit nur in den Betrieb — jedes echte Worker-Update bräuchte dann eine
+Compose-Änderung von Hand, und wer sie vergisst, fährt unbemerkt einen veralteten Worker. Das ist
+dieselbe Fehlerklasse wie das heutige stille `:latest`, nur mit umgekehrtem Vorzeichen.
+
+**Belegt ist bisher die Entscheidungslogik, nicht die Wirkung.** Der Klassifikationsschritt wurde
+gegen neun echte Commit-Bereiche aus der Historie und elf künstliche Grenzfälle gefahren (nur
+Tests, leerer Commit, `.dockerignore`, `.github/**`, `global.json`, neues Top-Level-Verzeichnis,
+beide Dockerfiles einzeln, gemischter Push, Pfad mit Leerzeichen, Rename über Projektgrenzen) — 20
+von 20 mit dem erwarteten Ergebnis.
+
+**Der Nachweis der Wirkung ist ein unveränderter Digest, kein grüner Workflow — und er braucht
+seinen Vergleichspunkt unmittelbar vor dem gemessenen Push.** Am 2026-09-08 stand
+`emotepurge-worker:latest` auf `sha256:8c0732e6…`. Dieser Wert taugt ausdrücklich **nicht** als
+Anker: Schon der Merge dieser Änderung fasst `.github/**` an, fällt damit in den Fail-safe-Zweig
+und baut beide Images neu, und das gebündelte Deploy vom 2026-09-09 bringt mit #68 einen echten
+Worker-Umbau mit, der den Digest völlig zu Recht verschiebt. Wer nach dem Deploy gegen den alten
+Wert misst, misst #68 und hält den Filter fälschlich für wirkungslos. Die Messung lautet deshalb:
+Digest **direkt vor** dem ersten reinen `web/`-Push lesen, nach dessen Actions-Lauf erneut lesen,
+beide müssen gleich sein — und die Job-Summary des `changes`-Jobs muss den Worker mit `false`
+ausweisen. `gh api` scheitert daran mit 403 (der Token trägt kein `read:packages`); der Digest ist
+stattdessen anonym über den GHCR-Token-Endpunkt und den `Docker-Content-Digest`-Header von
+`HEAD /v2/sensitron/emotepurge-worker/manifests/latest` zu holen.
+
+---
+
+### 2026-09-08 — Der Worker stellt seine Twitch-Verbindung selbst wieder her: `NoReconnectionPolicy`, ereignisgetriebener Ersatz, gedrosselter Rejoin außerhalb der Lese-Schleife (#68, #114, #122)
+
+**Betrifft:** `src/EmotePurge.Worker/TwitchChatManager.cs` ·
+`src/EmotePurge.Worker/ITwitchChatManager.cs` ·
+`src/EmotePurge.Worker/TwitchConnectionWatchdog.cs` ·
+`src/EmotePurge.Worker/TwitchWatchdogPolicy.cs` ·
+`src/EmotePurge.Worker/TwitchReconnectBackoffPolicy.cs` (neu) ·
+`src/EmotePurge.Worker/TwitchReconnectSignalSlot.cs` (neu) ·
+`src/EmotePurge.Worker/ReconnectPolicy.cs` (**gelöscht**) ·
+`src/EmotePurge.Worker/WorkerStats.cs` ·
+`src/EmotePurge.Worker/Worker.cs` ·
+`src/EmotePurge.Worker/BotChatterDetector.cs` ·
+`src/EmotePurge.Worker/SevenTv/SevenTvBackoffPolicy.cs` ·
+`src/EmotePurge.Worker/appsettings.json` · `src/EmotePurge.Worker/appsettings.Development.json` ·
+`src/EmotePurge.Worker/EmotePurge.Worker.csproj` ·
+`tests/EmotePurge.Worker.Tests/TwitchReconnectBackoffPolicyTests.cs` (neu) ·
+`tests/EmotePurge.Worker.Tests/TwitchReconnectSignalSlotTests.cs` (neu) ·
+`tests/EmotePurge.Worker.Tests/TwitchWatchdogPolicyTests.cs` ·
+`tests/EmotePurge.Worker.Tests/WorkerStatsTests.cs` ·
+`tests/EmotePurge.Worker.Tests/BotChatterDetectorTests.cs` ·
+`tests/EmotePurge.Worker.Tests/ReconnectPolicyTests.cs` (**gelöscht**) ·
+`docker-compose.yml` · `docker-compose.prod.yml` (`stop_grace_period`, #122) ·
+`CLAUDE.md` (Architektur-Absatz zum Worker, Regel-Liste der getesteten Policies) ·
+`docs/Architectur.md` (A.1) · `src/EmotePurge.Api/Health/WorkerCapacity.cs` ·
+`docs/Konzept-Worker-Reconnect-2026-09-08.md` · `docs/plans/Plan-68-Worker-Reconnect.md`
+
+**Der Anlass, in zwei Sätzen.** TwitchLibs Eigenreconnect rejoint jeden gehaltenen Kanal selbst und ungedrosselt (gemessen 28 JOINs in 5,0 s gegen Twitchs Grenze von 20 pro 10 s, #68) und läuft dabei **inline aus der eigenen Lese-Schleife** heraus, was am selben Objekt eine zweite Schleife am selben Socket hinterlässt und IRC-Zeilen spleißen kann (#114) — Schwall und Spleiß sind nicht zwei Probleme, sondern zwei Folgen desselben Ereignisses. Seit dem #114-Fix kostet jedes dieser Ereignisse **zwei** Zähllücken statt einer, weil auf den In-Place-Reconnect noch der Ersatz im nächsten Watchdog-Tick folgt; dieser Eintrag macht den Ersatz zum einzigen Weg und schaltet den Pfad ab, der beide Folgen erzeugt.
+
+**Das Modell (E1–E5).** Der `WebSocketClient` wird mit `ClientOptions(new NoReconnectionPolicy())` gebaut; TwitchLib stellt damit nichts mehr selbst her.
+
+- **E1 — Handler signalisieren nur.** Kein TwitchLib-Handler baut auf, wartet oder rejoint. `OnDisconnected`, `OnConnectionError` und der Stolperdraht `OnReconnected` setzen Zustand, loggen und legen höchstens ein Signal ab. Grund: `OnDisconnected` läuft im `RECONNECT`-Fall in der Lese-Schleife des sterbenden Clients, `OnConnected` in der des neuen — Arbeit in Handlern ist genau die Kopplung, aus der #114 entstanden ist.
+- **E2 — der Rejoin verlässt die Lese-Schleife.** Er ist Schritt 6 der Sequenz und läuft auf dem Task der Schleife, nicht aus `OnConnected`.
+- **E3 — Ersatz statt `OpenAsync()` am selben Objekt.** Ein wiederverwendetes Objekt schleppt TwitchLibs halb geleerte Join-Queue und ein möglicherweise hängendes `_currentlyJoiningChannels` mit; ein frisches hat eine leere Queue und genau eine Lese-Schleife. Preis: eine Allokation je Ereignis.
+- **E4 — der alte Client wird im Hintergrund aufgeräumt, nicht abgewartet.** `DisconnectAsync` enthält allein ≥ 1,9 s eingebaute Wartezeiten (400 ms `ConnectionWatchDog.StopAsync` + 1.500 ms `DisconnectWait`), und sein Socket ist ohnehin schon tot — jede dieser Sekunden wäre reine Zähllücke. Exceptions des Hintergrund-Tasks werden gefangen und als Warning geloggt.
+- **E5 — die Wiederaufbau-*Entscheidung* liegt transportfrei, nur die *Aktion* ist TwitchLib-spezifisch.** Die Schleife spricht mit dem Manager ausschließlich über `WaitForReconnectRequestAsync`, `ReconnectOnceAsync`, `RejoinDesiredChannelsAsync` und `RequestReconnect`; sie abonniert kein einziges TwitchLib-Ereignis.
+
+Trägerin der Schleife bleibt `TwitchConnectionWatchdog` (Name unverändert). Sie ist **sequentiell**: ein Warten mit Zeitschranke, kein zweiter Timer.
+
+```
+warten(Signal, ≤ 60 s)
+  ├─ Zeitschranke → Tick: TwitchWatchdogPolicy.Decide → ggf. Helix-Kontext + RequestReconnect(FrameStale | DisconnectedBackstop)
+  └─ Signal (das Nehmen verurteilt dessen Client-Generation)
+       → delay = NextDelay(Signal)
+       → [Delay(ct) → ReconnectOnceAsync(ct) → bei Fehlschlag delay = NextDelay(Fehlversuch), wiederholen]
+       → RejoinDesiredChannelsAsync(ct) → zurück zu warten
+```
+
+**Die Zahlen und warum sie so sind.** Erster Versuch **0 s** (das Signal ist verlässlich, und im `RECONNECT`-Fall hat Twitch selbst um den Neuaufbau gebeten — jede Wartezeit hier ist reine Zähllücke). Fehlversuch-Backoff **2 s verdoppelnd**, Exponent gedeckelt bei 5, Deckel **30 s einschließlich Jitter** (± 20 % auf den Rohwert, danach gekappt — 30 s ist ein echter Deckel, nicht 36 s). Der Deckel ist bewusst nicht 7TVs 60 s: er ist die maximale **zusätzliche** Zähllücke, nachdem ein Twitch-Ausfall bereits vorbei ist, und ein 7TV-Ausfall kostet keine Zählung, weil der REST-Resync ihn deckt. **Keine Versuchsobergrenze** (S2-1-Lehre: ein still erschöpftes Budget kostete am 2026-07-26 über 45 Minuten Verbindung). **Flap-Dämpfung** getrennt vom Backoff: ab der dritten aufeinanderfolgenden Sitzung < 60 s ein fester Boden von **5 s**, aufgehoben, sobald eine Sitzung ≥ 60 s hält — kein Exponent, keine Kalibrierung auf Twitch, sondern eine Schranke gegen die eigene Schleife (ohne sie ≈ 1.800 Aufbauten und Logzeilen pro Stunde, mit ihr ≤ 720). Der Stolperdraht hebt auf mindestens 10 s.
+
+**Die G1-Korrektur, ausdrücklich.** Die erste Konzeptfassung ließ jede Sitzung unter 60 s wie einen Fehlversuch zählen. Die adversariale Gegenrede hat vorgerechnet, dass anhaltendes Flapping damit 34–47 s Lücke je Ereignis gekostet hätte statt heute ~14 s, und ihre Begründung — Twitch werte schnelle Wiederverbindungen als Missbrauch (Zuschreibung vom 2026-07-27) — war durch die spätere Erklärung derselben Ausfälle über die Zehn-Versuche-Falle der damaligen Default-Policy (Fix vom 2026-07-30) längst überholt. **Der Fehlversuch-Streak zählt nur Fehlversuche und wird vom Handshake zurückgesetzt; eine Sitzung ist eine Sitzung, egal wie kurz sie war.** Ein Fehlversuch zwischen kurzen Sitzungen zählt weder als Sitzung noch setzt er etwas zurück; solange die Dämpfung aktiv ist, ist ihr Boden eine untere Schranke auch für Fehlversuch-Verzögerungen.
+
+**Wo die drei Regeln der gelöschten `ReconnectPolicy` herkamen — damit der nächste Ausfall sie nicht neu erfindet.** (a) *Fehlerstreak ≥ 3 → Recreate* stammt vom 2026-07-26: nach einem „Fatal network error" blieb der Socket eines Client-Objekts dauerhaft kaputt, und `ReconnectAsync()` am selben Objekt kam nie zurück. Gegenstandslos, weil jetzt **jeder** Versuch ein Recreate ist. (b) *Open hängt ≥ 10 min → Recreate* war das Werkzeug, um einem Open-Loop zuzusehen, den wir nicht steuerten (die alte Policy versuchte es unbegrenzt im Hintergrund weiter). Gegenstandslos, weil ein Versuch jetzt beschränkt ist — aber nicht aus dem Grund, mit dem diese Regel ursprünglich gestrichen wurde. **Korrektur vom 2026-09-09:** die Begründung „15 s TwitchLib-`TimeOutEstablishConnection` plus 10 s Handshake-Frist, also ~25 s" trug nicht. `TimeOutEstablishConnection` steht in `WebSocketClient.ConnectClientAsync` nur um `ClientWebSocket.ConnectAsync` und deckt allein das Öffnen des Sockets; der IRC-Handshake danach (`ClientBase.OpenPrivateAsync` → `RaiseConnected` → `SendHandshake()` → drei bis sechs `ClientBase.SendAsync`) wartet auf ein Semaphor und dann auf `ClientWebSocket.SendAsync(…, base.Token)` — ohne jedes Timeout, und `base.Token` cancelt nur `ClosePrivateAsync()`, also nur `CloseAsync`/`DisconnectAsync`, die unsere blockierte Schleife gerade nicht aufrufen kann. `ConnectAsync()` war damit **unbeschränkt**, ebenso `JoinChannelAsync` → `QueueingJoinCheckAsync()` über denselben Send. Die Schranke entsteht erst durch die eigenen Timeouts in `TwitchChatManager` (2026-09-09): `ConnectAttemptTimeout` = 30 s um den Connect — 30 s + 10 s Handshake-Frist = **40 s je Versuch** — und `JoinSendTimeout` = 10 s um den JOIN-Send, beide mit eigenem Abbruchgrund (`TwitchSessionEndReason.ConnectTimeout`, `…JoinSendTimeout`) und beide mit dem Verwerfen des Clients als Folge, weil erst dessen `DisconnectAsync` den hängenden Send auflöst. Die Regel bleibt gestrichen: unbegrenztes Zusehen bei einem fremden Open-Loop ersetzt kein Timeout an der Stelle, an der wir eines setzen können. (c) *`_clientSpent` → Recreate* stammt aus #114. Gegenstandslos, weil `OnReconnected` nicht mehr feuern kann (s. u.); die Marke bleibt nur als Error-Stolperdraht erhalten, nicht als Zustand. Mit den Regeln entfallen `OpenWaitTimeout`, `ObserveInBackground`, `LogOpenStillRunning`, der `Wait`-Zweig mit `StuckOpenThreshold`, `ReconnectClientAsync` und `RecreateClientAsync` (Letzteres geht in `ReconnectOnceAsync` auf) sowie die 14 Tests der Klasse.
+
+**Warum `ReconnectAsync` mit `NoReconnectionPolicy` strukturell scheitert.** Am Binärstand von `TwitchLib.Communication 2.0.1` belegt: `NoReconnectionPolicy` ist `ReconnectionPolicy(reconnectInterval: 0, maxAttempts: 1)`, und `OpenPrivateAsync(isReconnect: true)` ruft `Reset(true)`, das **`_attemptsMade` nicht zurücksetzt** (nur `Reset(false)` tut das). Nach dem einen erfolgreichen Erstverbindungsversuch steht `_attemptsMade == 1 == _maxAttempts`; die Schleife `while (!IsConnected && !AreAttemptsComplete())` läuft null Mal, es folgt `RaiseFatal()` → `OnFatality` → unser `OnConnectionError`, Rückgabe `false`. `ReconnectAction.Reconnect` war damit nicht überflüssig, sondern **kaputt**, und ist ersatzlos gestrichen. Dieselbe Eigenschaft ist der Grund, warum das Modell den Client je Versuch **ersetzt**: ein neues Objekt hat ein frisches Budget, die Zehn-Versuche-Falle vom 2026-07-26 ist damit nicht behoben, sondern konstruktiv ausgeschlossen.
+
+**Der Rejoin lief bisher in der Lese-Schleife — und was die „nicht bestätigt"-Warnung deshalb wirklich bedeutete.** `Handle004` awaitet `OnConnected.TryInvoke(...)`, `HandleIrcMessageAsync` awaitet den Handler-Task, und der awaitete unser `RejoinDesiredChannelsAsync` mit 600 ms × N. Solange das lief, verarbeitete TwitchLib **kein** `366`: unser zweiter `JoinChannelAsync` traf auf `_currentlyJoiningChannels == true` und wurde nur eingereiht statt gesendet (unsere Drossel drosselte also das Einreihen, nicht das Senden), und ab ~9 Kanälen — also über 5 s Blockade — meldete TwitchLibs `_joinTimer` den ersten Join als fehlgeschlagen, obwohl seine Bestätigung längst im Socket-Puffer lag. Die Warnung „Twitch hat den Join für … nicht bestätigt" bedeutete in dieser Konstellation nicht, was sie sagt. Seit dem Umbau bedeutet sie es wieder; der Kommentar am Handler sagt das.
+
+Weil `TryJoinAsync` zurückkehrt, sobald TwitchLib gesendet **oder eingereiht** hat, nie nach der Bestätigung, wartet die Runde nach dem letzten Aufruf bis zu 5 s auf die Bestätigungen und schließt mit „N gewünscht, M bestätigt, K offen" — **Warning, sobald K > 0 oder die Runde abgebrochen wurde**. Eine Zeile „Rejoin abgeschlossen: N" hätte sonst ein stummes Set beglaubigt (Gegenrede G2).
+
+**Die Wunschzustandsprüfung nach dem Gate (G5).** `TryJoinAsync` prüft **nach** dem Erwerb des `_joinGate`, unmittelbar vor dem Senden, ob der Kanal noch in `_desiredChannels` steht. Ohne das führte ein `LEAVE`, das nach dem Snapshot der Runde, aber vor dem JOIN dieses Kanals eintrifft, zu einem ungewollten Join — und der bliebe, bis irgendein späterer Wiederaufbau ihn beseitigt, was Tage dauern kann: er belegt einen Chatroom-Platz, und niemand verlässt ihn je, weil die Absicht, aus der ein PART käme, bereits gelöscht ist. Der Snapshot bleibt (die Runde braucht eine stabile Liste), aber **jeder einzelne JOIN wird gegen den aktuellen Wunschzustand entschieden**.
+
+**Die Shutdown-Zusage, und warum #122 in denselben Deploy gehört (G3).** Jedes Warten im Wiederaufbau-Pfad nimmt das Stopping-Token: der Signal-Slot, die Backoff-Verzögerung, `ConnectAsync`, das Handshake-Warten, das `_joinGate`, die 600-ms-Pause und das Bestätigungswarten. `TwitchConnectionWatchdog.StopAsync` kehrt damit ≤ 1 s nach dem Token zurück, in jedem Zustand; ein laufender Connect wird **verlassen**, nicht abgewartet (TwitchLibs Connect ist nicht abbrechbar), und der halbfertige Client im Hintergrund verworfen. Getrennt wird beim Shutdown ausdrücklich **nichts**: `DisconnectAsync` stünde mit seinen ≥ 1,9 s gegen genau diese Zusage, der Socket stirbt mit dem Prozess, und Twitch räumt eine anonyme `justinfan`-Verbindung ohne PART selbst ab. Das ist keine Kosmetik: Hosted Services stoppen sequenziell in umgekehrter Registrierungsreihenfolge, der Watchdog ist als fünfter registriert und stoppt damit **vor** dem zweitregistrierten `UsageFlushWorker` — jede Sekunde hier fehlt dem Abschluss-Flush, und Docker killt nach `stop_grace_period` (Default 10 s). Deshalb kommt `stop_grace_period: 60s` (#122) in denselben Deploy: ohne die Zusage verbraucht ein hängender Connect das Grace-Budget vor dem Flush, ohne das Budget nützt die Zusage nichts, wenn die übrigen acht Dienste die 10 s aufbrauchen.
+
+**#122 umgesetzt (Task 5).** `stop_grace_period: 60s` steht jetzt am `worker` in beiden
+Compose-Dateien — nicht an `api` (dessen Shutdown der Host regulär abfängt) und nicht an
+`harness` (der Einstiegspunkt fängt SIGTERM selbst ab, `Program.cs`). Die 60 s sind kein zweites,
+konkurrierendes Budget: `ShutdownTimeout` bleibt bewusst beim .NET-Default von 30 s, weil ein
+zweites Budget im Code nichts kauft, solange Docker ohnehin das größere hält — die 60 s sind
+allein Reserve über diesen Wert, mit dem Docker-Default von 10 s als Ausgangspunkt der Rechnung.
+Keines der beiden — Shutdown-Zusage, Grace-Budget — reicht ohne das andere (G3): ohne die Zusage
+hätte das Budget nichts genützt, weil ein Connect (bis 40 s, s. Korrektur unter (b)) und ein Rejoin (≥ 11,4 s bei
+20 Kanälen) ohne Token es vor dem Abschluss-Flush aufgebraucht hätten; ohne das Budget nützt die
+Zusage nichts, solange Docker weiterhin nach 10 s killt, bevor der als zweiter registrierte
+`UsageFlushWorker` an die Reihe kommt. Für das Messfenster aus #118 ist die Einstellung
+taktneutral (keine Zählregel, kein Code, kein `AlgorithmVersion`-Bump) — sie ist trotzdem ein
+Stack-Update, ein weiterer Worker-Neustart, und läuft deshalb nicht als eigener Deploy, sondern
+gebündelt mit dem Umbau selbst (Abschnitt 0 des Plans).
+
+**Die beiden Abnahmekriterien.** **SLO-1** (diagnostisch): Verlust → `004` des neuen Clients, Median ≤ 3 s, p95 ≤ 5 s, harte Schranke je Versuch — 25 s laut Erstfassung, tatsächlich 40 s, weil die 25 s aus der unter (b) korrigierten Begründung stammten und die Schranke erst seit dem 2026-09-09 überhaupt existiert. **SLO-2** (Abbruchkriterium): Verlust → letzte Join-Bestätigung aller zum Zeitpunkt des Verlusts gewünschten Kanäle ≤ **6 s + 0,6 s × (N − 1)** und **K = 0** offene am Ende der Runde. SLO-2 trägt das Kriterium, weil es die Wiederaufnahme der **Zählung** misst und nicht das Senden. Beide Zahlen stehen in je einer Logzeile („Twitch-Verbindung steht nach … s", „Rejoin abgeschlossen …"), damit sie auf Prod ohne Sonderwerkzeug auswertbar sind. **Eine Verfehlung ist ein Befund, kein Anlass, die Zahl zu korrigieren** — wer eine Zielgröße ändert, tut das vor dem nächsten Lauf mit Begründung, wie T11/T12 an #69, nicht danach (Gegenrede G2, Risiko R10).
+
+**Drei Log-Entscheidungen.** (1) Die `OnConnectionError`-Zeile („Fatal network error.") ist jetzt **Information** statt Warning: mit `NoReconnectionPolicy` ist sie die erwartete Folgezeile eines Verlusts, kein Fehler — und sie erreicht uns höchstens einmal je Verlust, meist gar nicht, weil sie ≈ 2 s nach `OnDisconnected` kommt und der alte Client bei 0 s Verzögerung längst abgekoppelt ist. (2) „Join für … aufgeschoben" ist **Information** statt Warning: im neuen Modell ist das ein erwarteter Zustand für wenige Sekunden, und der Kanal bleibt gewünscht. (3) `TwitchLib.Client.TwitchClient` steht in **beiden** `appsettings`-Dateien auf **Information** statt `Error`. Damit erscheinen „Joining channel", „Leaving channel", „Connecting Twitch Chat Client…" und „Reconnecting to Twitch" — das Volumen ist eine Zeile je JOIN/PART/Verbindungsaufbau und damit vernachlässigbar, der Gewinn ist zweifach: „Joining channel" ist der **positive** Beleg dafür, dass genau N JOINs im 600-ms-Raster gesendet wurden (die Abwesenheit der Zeilen hätte nichts bewiesen — Gegenrede G4), und „Reconnecting to Twitch" ist der einzige Prod-Zeuge dafür, dass Twitch ein `RECONNECT` geschickt hat. `appsettings.Development.json` ist mitgezogen, weil sie denselben Schlüssel setzt und bei lokalem `dotnet run` gewinnt — sonst fiele die Kontrollfrage vor jedem Messlauf still durch.
+
+**Der Debug-Auslöser im Detail (Task 6).** Kommando `DEBUG:TWITCH-RECONNECT` auf `channel:bot:commands`, worker-lokal — `BotCommands` in Core bleibt der Api↔Worker-Vertrag und wird dafür nicht erweitert, die Api sendet dieses Kommando nie. Freigabe ausschließlich über `Worker:Debug:AllowTwitchReconnectTrigger` (Default `false`, weder in `docker-compose.yml` noch in `.env.example`), gelesen im Konstruktor wie `Twitch:LivePollIntervalSeconds` in `TwitchLivePollWorker`. Ohne Freigabe loggt der Dispatcher „Debug-Auslöser ignoriert …" und tut sonst nichts — diese Zeile ist der **positive** Beleg, dass das Gate hält, nicht bloß die Abwesenheit eines Effekts (G4). Mit Freigabe reicht `TwitchChatManager.SimulateServerReconnectAsync` `:tmi.twitch.tv RECONNECT` über TwitchLibs eigenes `OnReadLineTestAsync` in den aktuellen Client — derselbe Fall, den die echte Lese-Schleife bei Twitchs eigenem `RECONNECT` durchläuft, nur auf dem Thread des Aufrufers statt in ihr. Das beweist die **Policy-Reaktion** (Plan-Task 9, S2: `OnDisconnected`, kein „TwitchClient reconnected", danach der reguläre Wiederaufbau), **nicht den Thread-Kontext** — dass die TwitchLib-Handler in der sterbenden Lese-Schleife nichts tun (E1), wird per Code-Lesen abgenommen, nicht durch diesen Haken. Der Aufruf blockiert den Kommando-Handler ≈ 2 s (TwitchLibs eigenes `ClosePrivate` plus seine interne Wartezeit in `ReconnectAsync`) — für einen Debug-Pfad hinnehmbar und im Code benannt statt versteckt.
+
+**Drei gesetzte Entscheidungen, je ein Satz.** Der Watchdog wird **nicht umbenannt** (er wacht nicht mehr nur, er baut auf — aber ein Rename kostet Diff in Registrierung, Tests und Logfiltern ohne Erkenntnisgewinn). `WorkerHealthSnapshot` bekommt **kein** Feld für Wiederaufbauten: das ist ein Api-seitig verdrahteter Vertrag, und ihn zu ändern wäre eine zweite Vertragsänderung neben dieser — dieselbe Entscheidung wie im #114-Plan; die beiden kumulativen Zähler in `WorkerStats` sind **log-only** und erscheinen ausschließlich in der Abschlusszeile der Runde. Ein **env-gated Debug-Auslöser** für den `RECONNECT`-Pfad (`OnReadLineTestAsync`) kommt, weil Fall B lokal sonst überhaupt nicht auslösbar ist; er ist per Default aus und steht nie in einer Compose-Datei.
+
+**Umsetzungsentscheidungen, die über den Wortlaut des Konzepts hinausgehen** (aus der Gegenrede zum Plan):
+
+- **Der Signal-Slot trägt eine Client-Generation.** Kapazität 1, latchend: ein weiteres Signal ersetzt nur Grund und Detail. Das **Nehmen** leert den Slot **und verurteilt die Generation** des gelieferten Signals unter demselben Lock; jedes spätere Signal einer verurteilten Generation wird **verworfen**. **Verurteilt wird an zwei Stellen, nicht an einer:** auch das **Ausmustern** eines Clients verurteilt dessen Generation (`CondemnGeneration`), und zwar bei **jedem** Versuch, gescheitertem wie gelungenem — ein Fehlversuch bleibt während des ganzen Backoffs aktueller, verdrahteter Client, sein verspätetes `004` startet die Sitzung, und der Verlust, den er danach meldet, läge sonst als gültiges Signal im Slot, bis die Schleife ihn nach dem **gelungenen** Wiederaufbau findet und die frische Verbindung abreißt — derselbe Ablauf wie oben, nur durch die Hintertür des Fehlversuchs statt des ersetzten Clients (Astra-Review vom 2026-09-08). Ein bereits abgelegtes Signal der ausgemusterten Generation wird dabei **entfernt**, sonst tritt genau dieser Schritt trotzdem ein; das kostet nichts, weil es einen Wiederaufbau anfordert, der gerade läuft. Ohne diese Regel füllte der `OnConnectionError` des ersetzten, aber während eines 5-s- (Flap) oder 10-s-Bodens (Stolperdraht) noch verdrahteten Clients den gerade geleerten Slot — und die Schleife hätte nach einem **gelungenen** Rejoin die frische Verbindung wieder abgerissen. Die Regel macht das Verhalten zeitunabhängig; die Handshake-Regel bleibt daneben nötig, weil ein Versuchs-Client ohne `004` eine *höhere* Generation trägt als die verurteilte und sein `OnDisconnected` sonst als echter Verlust gälte. Der Slot ist eine eigene reine, getestete Klasse — der Transport bekommt nach Regel 11/16 bewusst keine Fake-Tests, und diese Regel braucht einen deterministischen Zustandstest.
+- **Jeder JOIN bekommt eine Ursprungszeile** mit Quelle (`Command` / `ConvergenceNet` / `Rejoin`) und Generation, unmittelbar vor dem Senden. Grund: `EnsureJoinedAsync` läuft im Minutentakt über denselben Pfad, erzeugt dieselbe TwitchLib-Zeile und dieselbe Bestätigung wie die Rejoin-Runde — ein Tick im Messfenster hätte einen defekten Rejoin-Pfad grün beglaubigt (dasselbe Muster wie beim Audit-Harness am 2026-09-07). Am Binärstand belegt: TwitchLibs `JoinChannelAsync` dedupliziert nur gegen `JoinedChannels`, in das ein Kanal unmittelbar nach dem Senden fällt — ein Doppelaufruf sendet nicht erneut, hinterlässt aber auch keine Spur. Die Ursprungszeile ist die einzige Stelle, an der sich die Herkunft einer Bestätigung positiv belegen lässt.
+- **Kein `reconnectInFlight`-Eingang für `TwitchWatchdogPolicy`.** Das Konzept sah ihn vor; er wäre an seiner einzigen Aufrufstelle für immer `false`, weil die Schleife der einzige Aufrufer ist und nur tickt, während sie wartet. Ein Parameter ohne lebenden Zweig plus zwei Tests dafür sind Alibi-Abdeckung im Sinne von Regel 11/12. Wandert der Tick je auf einen eigenen Timer, kommt der Eingang mit diesem Umbau zurück; eine Zeile im Klassenkommentar hält das fest. Der `clientSpent`-Zweig entfällt ersatzlos.
+- **Ein `LEAVE` während der Rejoin-Runde senkt die Sollzahl, statt eine Lücke zu melden.** Die Abschlusszeile zählt gegen den Wunschzustand **am Ende** der Runde, nicht gegen den Snapshot an ihrem Anfang: ein mitten in der Runde verlassener Kanal fällt aus „gewünscht" **und** „bestätigt" heraus, die Zeile liest „N−1 gewünscht, N−1 bestätigt, 0 offen". Gegen den Snapshot gerechnet wäre daraus dauerhaft „1 offen" geworden — eine Warning und ein gerissenes SLO-2 für einen Kanal, den niemand mehr wollte. K bleibt damit, was es sein soll: die Zahl der Kanäle, die wir wollen und Twitch nicht bestätigt hat.
+- **Kein Trennen beim Shutdown, 2 s nach einem gescheiterten Boot-Connect** (der gescheiterte Versuch *ist* der erste, die Schleife startet mit Streak 1) und **beide `appsettings`-Dateien** — alles oben begründet.
+
+**Zwei benannte Grenzen aus dem Astra-Review vom 2026-09-08 — bewusst offen.** Dasselbe Review, das die Verurteilung beim Ausmustern und den eigenen Riegel für die Handler-Identität (`_clientStateGate`: Identitätsprüfung und Zustandsänderung in **einem** kritischen Abschnitt, derselbe Riegel wie der Client-Austausch — nicht `_reconnectLock`, der beim Warten auf das `004` gehalten wird und einen Handler damit in den Deadlock führte) ausgelöst hat, hat zwei weitere Befunde gemeldet, die **nicht** behoben sind. Sie stehen hier, weil eine unbenannte Grenze später als Fehler wiederentdeckt wird. (1) **Die Zeitstempel-Ausnahme.** `OnSendReceiveData` und `OnMessageReceived` prüfen ihre Client-Identität bewusst **nicht**, damit echte Nutzungsdaten nicht verworfen werden (die Regel im Klassenkommentar sagt das). Der Einwand ist berechtigt: ein Frame des alten, schon abgekoppelten Clients frischt `_lastFrameReceivedUtcTicks` auf und **verzögert damit die Stale-Erkennung eines stillen Nachfolgers**; ebenso kann eine späte Nachricht den von `LeaveChannelAsync` entfernten Kanal-Zeitstempel wiederherstellen. Das Fenster ist auf die Lebensdauer eines bereits abgekoppelten Clients begrenzt (Sekunden bis zum Ende seines `DisconnectAsync` im Hintergrund). Woran man erkennt, dass es doch beißt: eine Stale-Erkennung, die nach einem Wiederaufbau erst nach deutlich mehr als 15 Minuten greift, oder eine Roster-Zeile mit einem Zeitstempel für einen Kanal, der laut Log verlassen wurde. (2) **Abbruch während des Handshakes.** Bricht das Stopping-Token, während auf das `004` gewartet wird, wird der halbfertige Client weder abgekoppelt noch aufgeräumt: Socket und Lese-Schleife laufen bis zum Prozessende weiter, und ein spätes `004` könnte noch Zustand anfassen. Das trifft ausschließlich den Shutdown-Pfad, wo der Prozess ohnehin endet und beim Trennen bewusst **nichts** getan wird (s. „Die Shutdown-Zusage" oben). Woran man erkennt, dass es doch beißt: eine „TwitchClient verbunden"-Zeile **nach** dem Stopp-Signal des Hosts, oder ein Container, den Docker nach `stop_grace_period` killen muss statt ihn sauber enden zu sehen.
+
+**Messung vom 2026-09-09.** Lokal live verifiziert (Regel 16) gegen den Endstand des Branches, gegen echtes Twitch-IRC, mit 21 bzw. 22 gejointen Kanälen und Socket-Abbruch per `ss -K` aus einem Wegwerf-Container im Netz-Namespace des Workers. **SLO-1** (Verlust → `004`) über sieben gültige Läufe: 1,429 / 1,342 / 1,463 / 1,333 / 1,339 / 1,499 / 1,482 s — Median 1,429 s gegen ein Abbruchkriterium von 3 s Median und 5 s p95. **SLO-2** (Verlust → letzte Join-Bestätigung): 13,733 / 13,644 / 13,782 / 13,637 / 13,642 s bei N = 21 (Grenze 18,0 s) und 14,406 / 14,389 s bei N = 22 (Grenze 18,6 s), **K = 0 in allen sieben**, N von N bestätigt; das JOIN-Raster hielt durchgehend 595–605 ms, die reine Verbindungsdauer lag in einem 58-ms-Band (0,906–0,964 s). Null ungültige Läufe nach der PG3-Regel — in jedem Messfenster stand ausschließlich die Ursprungsquelle `Rejoin`. **Backoff-Kurve** ohne Blockade 1,7 / 3,8 / 9,2 / 17,4 / 30 / 30 s gegen die Sollwerte 2 / 4 / 8 / 16 / 30 / 30 s (± 20 % Jitter, Deckel echt); mit `-j DROP` läuft jeder Versuch in TwitchLibs 15-s-Timeout, gemessene Versuchsdauer 14,98–15,04 s gegen die Schranke von 26 s, größter Abstand zweier Versuche 45,0 s = 30 s Deckel + 15 s Dauer. **Shutdown** in allen drei Zuständen (Backoff, Connect, Rejoin): Wanduhr 0,276 / 0,279 / 0,294 s, davon Shutdown-Marker bis Prozessende 33 / 38 / 34 ms, Exit-Code 0, keine „Wiederaufbau"- und keine „try to connect"-Zeile nach dem Marker, kein fehlgeschlagener Flush; die 60-s-`stop_grace_period` aus #122 wird nie angefasst. **Stille Verbindung** (Netz weggezogen, 16 min gehalten): TwitchLib meldete in den 15 Minuten **null** Ereignisse, der Watchdog schlug bei +15 min 14 s an („Kein IRC-Frame seit 916s empfangen, Schwelle 900s"), danach regulärer Wiederaufbau und Rejoin 20/20/0. **Struktur** (Communication-Trace): je Client genau eine `ListenTaskActionAsync`, ein `CreateClient`, ein „try to connect" — die direkte Gegenprobe zu der zweiten Lese-Schleife am selben Socket aus #114. Sentinel und Indeterminate über einen durchgehenden Mitschnitt inklusive eines Kanals mit ~52.000 Zuschauern: **0**, bei weiterlaufendem Flush (Zähler wuchs über jeden Abriss hinweg). **Offen geblieben:** in einer früheren Serie riss einer von elf Läufen SLO-2 (18,965 s), weil der Verbindungsaufbau einmalig 6,094 s statt ~0,93 s brauchte; über 47 provozierte Abrisse ist das ein Vorkommnis, nie reproduziert, 7TV und DNS als Ursache ausgeschlossen (1.200 Auflösungen gemessen, schlechteste 21 ms). Bei N = 21 bleiben nur ~4,3 s Luft, ein einzelner ~5-s-Hänger genügt also — deshalb steht das hier als benannte Beobachtung und nicht als erledigt.
+
+**Merge und Deploy.** Die Fassung des Plans vom Nachmittag des 2026-09-08 trug eine Merge- und Deploy-Sperre bis zum 2026-10-08; sie ist mit der Entscheidung des Nutzers vom Abend des 2026-09-08 **aufgehoben** (Epic #118, „Nachtrag 2026-09-08 abends"). Deploy am **2026-09-09 nach 12:48 lokal**, gebündelt mit #122 (`stop_grace_period`) und #129 — vorher läuft die 24-Stunden-Nachkontrolle aus #117 (Start 2026-09-08 10:48 UTC) aus und wird **zuerst ausgewertet**; jeder Deploy kostet einen Worker-Neustart und damit ihren Zeitanker. Die Begründung für das Vorziehen: Das Messfenster aus #118 hatte am 2026-09-08 selbst erst begonnen, ein Reset an Tag 1 kostet **null Fenstertage** — und ob dieser Umbau überhaupt ein Reset ist, ist offen: kein `AlgorithmVersion`-Bump, keine Schemaänderung, kein neuer Stichtag, kein Rollback. Was er ändert, ist die **Erfassungsdeckung**, nicht die Zählregel: die Live-Seite verliert je Ereignis weniger, Σ|Log − Live| kann dadurch nur sinken, nie steigen. Genau das ist auch der Prod-Beleg für den lokal nicht beweisbaren Fall B (Twitchs eigenes `RECONNECT`): die TwitchLib-Zeile „Reconnecting to Twitch" auf Information, unmittelbar gefolgt von „TwitchClient getrennt", „Wiederaufbau #1", „Twitch-Verbindung steht nach … s" — und **ohne** „TwitchClient reconnected". Ein Sprung von Σ|Log − Live| nach **oben** nach dem Deploy wäre der Gegenbeleg zu dieser Einordnung (Risiko R7).
+
+**Brücke, nicht Endstation.** Die Drosselung beseitigt das JOIN-Problem nicht, sie beherrscht es. Der Weg, der es strukturell beseitigt, ist belegt: EventSub über **Conduits** hängt die Kanal-Subscriptions an den Conduit statt an die Verbindung, ein abgerissener Shard wird mit **einem** `PATCH /helix/eventsub/conduits/shards` wieder eingehängt — unabhängig von der Kanalzahl —, und mit App-Access-Token entfallen beide Twitch-Limits. Der Preis ist das Ende des anonymen Betriebs (Bot-Account, `channel:bot`-Zustimmung je Kanal), also eine Produktentscheidung, die nicht hierher gehört (#125). Dieses Modell ist so geschnitten, dass sie später nur die **Aktion** austauscht: ein Conduit-Manager implementiert dieselben Interface-Mitglieder, `RejoinDesiredChannelsAsync` wird dort ein No-op, und Backoff-Policy, Watchdog-Policy und Schleife bleiben unverändert (E5). Wer die Drosselung später für das Ende der Überlegung hält, liest hier, dass sie es nicht ist — Details in `docs/Konzept-Worker-Reconnect-2026-09-08.md`, Abschnitt 9.
 
 ---
 
@@ -320,6 +549,8 @@ Reconnect auf einem lauten Kanal, Negativ- und Positivlauf über je 30 min) steh
 das **Merge-Gate**. Bis dahin wird der Branch nicht gemergt. Ob der 2–6-%-Überhang der Log-Seite
 aus #69 auf diese Doppelschleife zurückgeht, entscheidet erst der bindende Lauf nach dem Deploy.
 
+**Nachtrag 2026-09-08 — zwei Aussagen dieses Eintrags sind überholt, der Rest steht.** Mit dem Selbstreconnect (#68, Eintrag oben in diesem Log) fällt der Pfad weg, den die beiden Abschnitte „Warum nicht inline im Handler (E4)" und „Warum jedes `OnReconnected`, auch unser eigenes (E5)" beschreiben: Der Client wird bei einem Verlust **sofort** ersetzt statt im nächsten Watchdog-Tick, und die Topologie-Aussage „`ReconnectAction.Reconnect` heißt faktisch reconnect jetzt, recreate einen Tick später" trifft nicht mehr zu — es gibt keinen In-Place-Reconnect mehr, weil `NoReconnectionPolicy` ihn strukturell unmöglich macht, und damit auch keine Spent-Marke und keinen `clientSpent`-Zweig in `TwitchWatchdogPolicy`. Der Versatz, den E4 begründete (TwitchLibs ungedrosselter Rejoin darf nicht mit unserem gedrosselten kollidieren), erledigt sich mit derselben Ursache: TwitchLib rejoint gar nicht mehr. **Unverändert gültig bleiben:** der Doppelschleifen-Mechanismus als Befund über die Bibliothek, „genau ein langlebiger Client, im Sinn von einer zur Zeit", „ersetzen statt reparieren" als Regel, und `IrcLineSpliceRule` als Negativkontrolle — sie soll nach dem Umbau strukturell nie mehr anschlagen, und genau deshalb bleibt sie stehen.
+
 ---
 
 ### 2026-09-08 — Der Match-Cache wird aus Postgres vorgewärmt, bevor 7TV gefragt wird
@@ -451,6 +682,103 @@ aus Zug 1 bleibt bis zum Ende des bindenden Laufs in Kraft.
 `SharedOnlyRow_ReadsAsUnused_LikeBotOnly` und behauptet mit demselben Seed das umgekehrte
 Verhalten. Er war der eingebaute Beleg, dass die Brücke stand; jetzt ist er der Beleg, dass sie
 gefallen ist. Ein gelöschter Test hätte beides nicht belegt.
+
+---
+
+### 2026-09-08 — Ein stiller Reload gleicht die Auswahl ab und sagt es (#94)
+
+**Betrifft:** [`../web/src/app/shared/selection/list-selection.ts`](../web/src/app/shared/selection/list-selection.ts)
+(`retainAmong`, `retainVisible`) ·
+[`../web/src/app/features/usage-stats/usage-stats-page.ts`](../web/src/app/features/usage-stats/usage-stats-page.ts)
+(`loadTotals`, `selectionPrunedFeedback`) ·
+[`../web/src/app/features/usage-stats/usage-stats-page.html`](../web/src/app/features/usage-stats/usage-stats-page.html)
+· `web/public/i18n/de.json` + `en.json` (`usageStats.selectionPruned`)
+
+**Was sich ändert.** `loadTotals(..., { preserveSelection: true })` übersprang bisher nur
+`selection.clear()` und glich die gehaltenen Schlüssel gegen nichts ab. Jetzt beschneidet der
+Zweig die Auswahl gegen die frisch geladene Antwort, und fällt dabei etwas weg, erscheint eine
+Rückmeldung, die nach vier Sekunden von selbst verschwindet. Zwei Pfade laufen ohne Nutzeraktion
+dort hinein: der Live-Reload nach `usage.flushed`/`channel.synced` und der Sync-Recheck-Poll.
+
+**Der Schaden war ein anderer als vermutet.** Das Issue nahm an, eine Abstimmung könne über ein
+archiviertes Emote laufen. Sie kann es nicht: `VoteSessionService.CreateAsync` prüft den Stimmzettel
+all-or-nothing und lehnt mit `emote_ids_invalid` ab, sobald eine ID unbekannt, fremd oder archiviert
+ist. Der wirkliche Defekt war eine **Sackgasse**. Der Knopf war freigegeben, weil Sperre, Etikett und
+Wirkung alle aus `selectedKeys()` stammen und untereinander stimmig sind; erst der abgeschickte
+Dialog lief in den 400. Weil `CreateVoteSessionDialogData.emoteIds` beim Öffnen eingefroren wird,
+schickte auch ein zweiter Versuch dieselbe tote Liste — ohne Neuladen kam der Nutzer nicht heraus,
+und nichts sagte ihm, dass eine stille Datenänderung schuld war und nicht er.
+
+**Warum `retainAmong` und nicht `retainVisible`.** `retainVisible()` beschneidet gegen `items()` —
+auf dieser Seite `atlasOrder()`, also die **gefilterte** Sicht. Das ist die richtige Semantik für
+den Filter-Callback und die falsche für einen Datenreload: ein Reload ändert Nutzungszahlen, eine
+markierte Zeile kann dadurch aus dem aktiven `minCount`/`maxCount`-Fenster fallen, und sie wäre dann
+verworfen und als „nicht mehr im Set“ gemeldet worden, obwohl sie unverändert im Set liegt. Die neue
+Methode nimmt die Vergleichsmenge deshalb als Argument; der Reload übergibt die ungefilterte
+Antwort. `retainVisible()` delegiert an sie (`return this.retainAmong(this.items())`), damit es
+genau eine Beschneidungsmechanik gibt, und beide geben die Zahl der entfernten Schlüssel zurück.
+Verhalten und Aufrufzeitpunkt von `retainVisible()` bleiben unverändert — der zweite Aufrufer,
+`vote-session-detail-page.ts`, nimmt sie als `onChange: () => void` entgegen und ignoriert den
+Rückgabewert.
+
+**Warum die Meldung nicht im Dock steht.** Das Dock wäre der thematisch nächste Ort, aber
+`actionDockHasContent` blendet die Markier-Hälfte aus, sobald `markedCount` null ist, und ohne
+laufenden Lösch-, Wiederherstell- oder Import-Lauf unmountet dann die ganze `.app-dock`. Genau im
+schlimmsten Fall — alle markierten Emotes sind weg — hätte die Meldung also keine Fläche, auf der
+sie erscheinen könnte. Sie sitzt deshalb an der Emote-Zählzeile, die immer steht. Die
+Dock-Gating-Regel bleibt unangetastet.
+
+**Die stumme Variante war die Alternative und ist verworfen.** Ein reiner Abgleich ohne Hinweis
+hätte die Sackgasse ebenso beseitigt. Er hätte aber eine Auswahl lautlos schrumpfen lassen: aus zwölf
+markierten Emotes werden elf, während der Nutzer wegsieht, und niemand sagt ihm warum. Das ist
+dieselbe Sorte stiller Lüge, gegen die [#80](https://github.com/sensitron/EmotePurge/issues/80)
+angetreten ist, nur mit umgekehrtem Vorzeichen.
+
+**Muster, nicht Neuerfindung.** Es gibt keinen Toast-Service (festgehalten in
+`channel-workspace-layout.ts`). Die transiente Meldung folgt demselben Aufbau wie
+`showResyncFeedback` dort und sein Zwilling in `admin-channels-page.ts`: eine Konstante von 4000 ms,
+ein Signal, ein `setTimeout`-Handle, das beim Neusetzen zuerst gelöscht wird, und ein
+`role="status"` — keine `alert`-Rolle, denn es ist kein Fehler. Abweichend hält das Signal hier
+`{ key, count }` statt nur den Schlüssel: die Zahl muss interpoliert werden, und zwei getrennte
+Signale könnten bei einem zweiten Abgleich zwischen ihren beiden Schreibvorgängen auseinanderlaufen.
+
+**Der #80-Test prüft jetzt etwas anderes, und der #80-Fix ist ungetestet.** Der E2E-Fall aus
+`a63f78c` behauptete, nach einem Reload, der jede markierte Zeile archiviert, stehe der
+Dock-Shortcut gesperrt auf „(0)“. Dieser Ausgang ist nicht mehr erreichbar: die Schlüssel werden
+jetzt beschnitten, `markedCount` fällt auf null, und das Dock unmountet mitsamt dem Knopf. Der Test
+behauptet deshalb das neue Verhalten. Damit ist der eigentliche #80-Fix —
+`importShortcutSelectionCount` auf `selectedItems()` statt `selectedKeys()` — von keinem Test mehr
+abgedeckt, denn der Zustand, gegen den er verteidigt, entsteht nach diesem Eintrag gar nicht mehr.
+Er bleibt trotzdem stehen: er kostet nichts und deckt weiterhin das Rennfenster zwischen einem
+Reload und einem Klick ab.
+
+**Nachtrag aus der Codex-Zweitmeinung: die Live-Region steht jetzt dauerhaft.** Der Review fand
+zwei Fehler in der ersten Fassung, beide bestätigt. Erstens hing die Meldung samt ihrer
+`role="status"`-Region an einem `@if` — eine Live-Region, die erst *mit* ihrem Inhalt entsteht,
+kündigt bei den meisten Screenreader-/Browser-Paarungen nichts an, weil sie nur Mutationen an einer
+bereits bestehenden Region ansagen. `app-shell.ts` hält genau das seit Längerem fest und löst es
+richtig; das transiente Muster in `channel-workspace-layout.ts` und `admin-channels-page.ts` tut es
+nicht. Die Meldung ist deshalb jetzt zwei Elemente: eine permanent gemountete `sr-only`-Region, in
+der nur der Text wechselt, und daneben der sichtbare Text mit `aria-hidden`, damit nichts doppelt
+vorgelesen wird. §4.5 der Designsprache schreibt das fest und nennt die beiden Bestandsstellen
+ausdrücklich als noch nicht konform. Zweitens wurde der Timer nur in `destroyRef.onDestroy`
+abgeräumt — `channelName` ist ein Input, die Komponente wird beim Kanalwechsel also wiederverwendet
+(dieselbe Tatsache, aus der der #112-Regressionstest lebt), und eine Meldung aus den letzten vier
+Sekunden stand danach auf dem neuen Kanal und behauptete dort etwas Falsches. `load()` räumt sie
+jetzt ab; die beiden `preserveSelection`-Pfade gehen nicht durch `load()` und verlieren ihren
+Hinweis dadurch nicht.
+
+**Nebenwirkung der permanenten Region:** die Usage-Stats-Seite trägt seither ein zweites
+`role="status"` auch im Ruhezustand. Drei Abfragen in `usage-atlas.e2e.spec.ts` waren dadurch nicht
+mehr eindeutig und filtern jetzt auf die Zählzeile. Wer dort eine Rolle abfragt, muss das
+mitdenken.
+
+**Was ausdrücklich offen bleibt.** Erstens die enge Rennbedingung, dass ein Reload eintrifft,
+während der Erstellungsdialog bereits offen ist — dessen `emoteIds` sind dann schon eingefroren, und
+der 400 kommt trotzdem. Zweitens `vote-session-detail-page.ts`, wo dieselbe fehlende Abstimmung
+zwischen stillem Reload und Auswahl existiert; sie ist dort heute folgenlos, weil die Seite
+`selectedKeys()` nirgends liest, kann aber ein entarchiviertes Emote unbemerkt wieder als markiert
+zeigen. Beides ist als eigenes Ticket zu führen, nicht hier mitgenommen.
 
 ---
 

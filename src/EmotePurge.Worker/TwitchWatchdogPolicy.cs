@@ -4,13 +4,19 @@ public readonly record struct WatchdogDecision(bool ForceReconnect, string? Reas
 
 /// <summary>
 /// The staleness decision of <see cref="TwitchConnectionWatchdog"/>, separated from the transport
-/// and the clock — same pattern as <see cref="ReconnectPolicy"/>, elapsed time is passed in.
+/// and the clock — elapsed time is passed in.
 /// <para>
 /// Until 2026-08-03 the watchdog measured chat activity (last chat message), which is a proxy for
 /// connection health that fails exactly at night: with every joined channel offline it forced a
 /// reconnect of a perfectly healthy connection every ~5–10 minutes. It now measures received IRC
 /// frames instead — Twitch's server PING arrives roughly every five minutes even on a completely
 /// silent connection, so a healthy socket can no longer look stale (see the DECISIONS entry).
+/// </para>
+/// <para>
+/// This policy takes no in-flight-reconnect input: the reconnect loop is its only caller, and that
+/// loop only ticks while it is waiting for the next signal — it cannot be mid-reconnect and ticking
+/// at the same time. Such an input would only mean something once the tick moves onto its own timer
+/// independent of that wait, and it should come back with that change, not ahead of it.
 /// </para>
 /// </summary>
 public static class TwitchWatchdogPolicy
@@ -26,18 +32,15 @@ public static class TwitchWatchdogPolicy
     /// nothing to mistake for a quiet connection, and reconnects cannot look abusive to Twitch
     /// while no connection is up. Only a short cooldown, so a hard outage doesn't turn into a
     /// tight loop.
+    /// <para>
+    /// Since the worker drives its own reconnect (#68) this branch is a backstop that must never
+    /// fire: every real loss raises a TwitchLib event that becomes a signal within about a second,
+    /// so a tick finding the client disconnected means the event path failed. Its log line is
+    /// therefore an error indicator, not a normal step (risk R1).
+    /// </para>
     /// </summary>
     public static readonly TimeSpan DisconnectedCooldown = TimeSpan.FromMinutes(1);
 
-    /// <param name="clientSpent">
-    /// Whether the current TwitchLib client object has lived through an in-place reconnect
-    /// (issue #114) and must be replaced. Checked first and overrides every other signal —
-    /// <paramref name="isConnected"/>, frame age and both cooldowns — because a spent client is a
-    /// wrong-object problem, not a staleness problem: it can be perfectly "connected" and still be
-    /// running two racing read loops. No cooldown applies to this branch either: replacing it
-    /// clears the state via <c>ReconnectPolicy.RegisterClientReplaced</c>, so a failed new open
-    /// cannot turn this branch into a tick loop.
-    /// </param>
     /// <param name="sinceOpenAttempt">
     /// Elapsed since the last connect/reconnect attempt started, or <c>null</c> if none was ever
     /// made — in which case there is nothing to watch over yet.
@@ -54,19 +57,11 @@ public static class TwitchWatchdogPolicy
     /// frames — the 2026-07-26 reconnect storm, kept from the previous design.
     /// </param>
     public static WatchdogDecision Decide(
-        bool clientSpent,
         bool isConnected,
         TimeSpan? sinceOpenAttempt,
         TimeSpan? sinceLastFrame,
         TimeSpan? sinceLastForcedReconnect)
     {
-        if (clientSpent)
-        {
-            return new WatchdogDecision(
-                true,
-                "TwitchClient wurde durch einen In-Place-Reconnect verbraucht (TwitchLib-Doppelschleife, Issue #114).");
-        }
-
         if (!isConnected)
         {
             if (sinceOpenAttempt is null || IsInCooldown(sinceLastForcedReconnect, DisconnectedCooldown))
