@@ -50,7 +50,7 @@ public class SevenTvApiClient(
     // shape). Deliberately omits Emote.images — see the comment on SevenTvGqlEmoteSetPreviewResponseDto
     // for why, and BuildForeignImageUrl for how the image url is built instead.
     private const string GqlEmoteSetPreviewQuery =
-        "query($id: Id!, $page: Int!, $perPage: Int!) { emote_sets: emoteSets { emote_set: emoteSet(id: $id) { emotes(page: $page, perPage: $perPage) { total_count: totalCount page_count: pageCount items { alias emote { id default_name: defaultName scores { top_all_time: topAllTime trending_day: trendingDay } } } } } } }";
+        "query($id: Id!, $page: Int!, $perPage: Int!) { emote_sets: emoteSets { emote_set: emoteSet(id: $id) { emotes(page: $page, perPage: $perPage) { total_count: totalCount page_count: pageCount items { alias emote { id default_name: defaultName flags { animated } scores { top_all_time: topAllTime trending_day: trendingDay } } } } } } }";
 
     // Latches the fallback-set-load path (issue #43) from Information down to Debug after its first
     // occurrence in this process. Once 7TV finishes rolling out the null embedded emote_set, this
@@ -632,20 +632,38 @@ public class SevenTvApiClient(
             emoteId,
             dto.Alias,
             dto.Emote?.DefaultName ?? string.Empty,
-            BuildForeignImageUrl(emoteId),
+            BuildForeignImageUrl(emoteId, dto.Emote?.Flags?.Animated ?? false),
             dto.Emote?.Scores?.TopAllTime,
             dto.Emote?.Scores?.TrendingDay);
     }
 
-    // 7TV's emote CDN url is fixed and keyed only by the emote id — confirmed live 2026-09-09 against
-    // two v4 Emote.images responses (BOOBA, RainTime): every variant sits under
-    // https://cdn.7tv.app/emote/{id}/{scale}{_static?}.{ext}. Building the 4x still directly from the
-    // id avoids requesting the images list at all (see GqlEmoteSetPreviewQuery's comment for the
-    // measured payload cost of doing so), and keeps the same "4x_static.webp" convention
-    // SevenTvEmoteJsonMapper.BuildImageUrl and the frontend's STILL_SUFFIX already use for the
-    // tracked-channel path — one visual language for both.
-    private static string BuildForeignImageUrl(string emoteId) =>
-        emoteId.Length == 0 ? string.Empty : $"https://cdn.7tv.app/emote/{emoteId}/4x_static.webp";
+    // 7TV's emote CDN url is fixed and keyed only by the emote id — every variant sits under
+    // https://cdn.7tv.app/emote/{id}/{scale}{_static?}.{ext}. Building the 4x directly from the id
+    // avoids requesting the images list at all (see GqlEmoteSetPreviewQuery's comment for the
+    // measured payload cost of doing so).
+    //
+    // The "_static" rendition, however, only exists when the source is animated — it is 7TV's
+    // flattened first frame, and there is nothing to flatten otherwise. Hardcoding it cost a 404 for
+    // every still emote: measured 2026-09-09 against HandOfBlood's set, 305 of 956 emotes (31.9 %)
+    // are stills and answered 404 on 4x_static.webp while 4x.webp answered 200. That is why the flag
+    // is queried rather than assumed — Emote.flags.animated is a plain Boolean and costs ~26 bytes an
+    // emote (+18.1 % on a 45-item page, against +1640 % for pulling Emote.images).
+    //
+    // The resulting string is byte-identical to what the tracked-channel path produces, and must
+    // stay so: SevenTvEmoteJsonMapper.BuildImageUrl reads the same distinction out of 7TV's own
+    // host.files[].static_name — literally "4x_static.webp" for an animated emote and "4x.webp" for a
+    // still one (both verified live 2026-09-09 on this very set) — and the frontend's STILL_SUFFIX
+    // derives the animated url by stripping that marker, so its presence is load-bearing on both
+    // paths alike.
+    //
+    // The false default when the flag is absent is a guard, not a behaviour: the v4 schema types
+    // Emote.flags and its animated member as non-null, so no captured payload omits them. It falls to
+    // 4x.webp on purpose, because that rendition exists for every emote — on an animated one it
+    // simply carries all frames — whereas the other guess would render nothing at all.
+    private static string BuildForeignImageUrl(string emoteId, bool animated) =>
+        emoteId.Length == 0
+            ? string.Empty
+            : $"https://cdn.7tv.app/emote/{emoteId}/{(animated ? "4x_static.webp" : "4x.webp")}";
 
     private enum PreviewPageStatus
     {

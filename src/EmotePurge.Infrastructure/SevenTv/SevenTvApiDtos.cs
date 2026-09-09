@@ -279,7 +279,16 @@ internal sealed class SevenTvGqlEmoteSetPreviewEmoteDto
 {
     public string Id { get; set; } = string.Empty;
     public string DefaultName { get; set; } = string.Empty;
+    public SevenTvGqlEmoteSetPreviewFlagsDto? Flags { get; set; }
     public SevenTvGqlEmoteSetPreviewScoresDto? Scores { get; set; }
+}
+
+// Only the one flag the image url depends on — EmoteFlags carries six more (publicListed, private,
+// nsfw, defaultZeroWidth, approvedPersonal, deniedPersonal) that nothing on this path reads.
+// See SevenTvApiClient.BuildForeignImageUrl for why this one is worth its ~26 bytes an emote.
+internal sealed class SevenTvGqlEmoteSetPreviewFlagsDto
+{
+    public bool Animated { get; set; }
 }
 
 // Only the two fields the response contract (spec section 4) exposes — EmoteScores carries five more

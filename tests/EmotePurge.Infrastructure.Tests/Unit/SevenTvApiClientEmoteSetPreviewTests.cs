@@ -29,8 +29,8 @@ public class SevenTvApiClientEmoteSetPreviewTests
         // exactly, so nothing here should read as truncated.
         var handler = new PagedStubHandler(page => page switch
         {
-            1 => Page(totalCount: 3, pageCount: 2, ("e1", "AliasOne", "DefaultOne", 10, 1)),
-            2 => Page(totalCount: 3, pageCount: 2, ("e2", "AliasTwo", "DefaultTwo", 20, 2), ("e3", "AliasThree", "DefaultThree", 30, 3)),
+            1 => Page(totalCount: 3, pageCount: 2, ("e1", "AliasOne", "DefaultOne", 10, 1, true)),
+            2 => Page(totalCount: 3, pageCount: 2, ("e2", "AliasTwo", "DefaultTwo", 20, 2, true), ("e3", "AliasThree", "DefaultThree", 30, 3, true)),
             _ => throw new InvalidOperationException($"unexpected page {page}")
         });
         var client = CreateClient(handler);
@@ -48,7 +48,7 @@ public class SevenTvApiClientEmoteSetPreviewTests
     public async Task PageCountAtOrBelowOne_StopsAfterTheFirstPage_NoOverfetch()
     {
         var handler = new PagedStubHandler(page => page == 1
-            ? Page(totalCount: 1, pageCount: 1, ("e1", "Alias", "Default", null, null))
+            ? Page(totalCount: 1, pageCount: 1, ("e1", "Alias", "Default", null, null, true))
             : throw new InvalidOperationException($"unexpected page {page}"));
         var client = CreateClient(handler);
 
@@ -68,7 +68,7 @@ public class SevenTvApiClientEmoteSetPreviewTests
     [Fact]
     public async Task ReachingThePageCap_ReportsTruncated_WithTheRealTotalCount()
     {
-        var handler = new PagedStubHandler(page => Page(totalCount: 5000, pageCount: 11, ($"e{page}", $"Alias{page}", $"Default{page}", null, null)));
+        var handler = new PagedStubHandler(page => Page(totalCount: 5000, pageCount: 11, ($"e{page}", $"Alias{page}", $"Default{page}", null, null, true)));
         var client = CreateClient(handler);
 
         var result = await client.GetEmoteSetPreviewAsync(SetId);
@@ -143,7 +143,7 @@ public class SevenTvApiClientEmoteSetPreviewTests
     [Fact]
     public async Task AliasAndDefaultName_AreKeptDistinct_WhenTheyDiffer()
     {
-        var handler = new PagedStubHandler(_ => Page(totalCount: 1, pageCount: 1, ("e1", "renamedInThisSet", "OriginalUploadName", 42, 7)));
+        var handler = new PagedStubHandler(_ => Page(totalCount: 1, pageCount: 1, ("e1", "renamedInThisSet", "OriginalUploadName", 42, 7, true)));
         var client = CreateClient(handler);
 
         var result = await client.GetEmoteSetPreviewAsync(SetId);
@@ -154,15 +154,83 @@ public class SevenTvApiClientEmoteSetPreviewTests
         Assert.Equal(42, item.TopAllTime);
         Assert.Equal(7, item.Trending);
         // Built from the emote id, never fetched via the (far more expensive) Emote.images list —
-        // see BuildForeignImageUrl.
+        // see BuildForeignImageUrl. This emote is animated, hence the still rendition.
         Assert.Equal("https://cdn.7tv.app/emote/e1/4x_static.webp", item.ImageUrl);
+    }
+
+    /// <summary>
+    /// The image url has to follow the emote's animated flag, because 7TV only ever materialises the
+    /// "_static" rendition for an animated source — it is the flattened first frame, and a still
+    /// emote has nothing to flatten. Asking for it anyway answers 404, which is what this pins:
+    /// measured live 2026-09-09 against HandOfBlood's set, 305 of its 956 emotes (31.9 %) are stills
+    /// and every one of them 404'd on 4x_static.webp while answering 200 on 4x.webp. The bug survived
+    /// its first review precisely because only the animated branch was covered here.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "https://cdn.7tv.app/emote/e1/4x_static.webp")]
+    [InlineData(false, "https://cdn.7tv.app/emote/e1/4x.webp")]
+    public async Task ImageUrl_FollowsTheAnimatedFlag(bool animated, string expected)
+    {
+        var handler = new PagedStubHandler(_ => Page(totalCount: 1, pageCount: 1, ("e1", "Alias", "Default", null, null, animated)));
+        var client = CreateClient(handler);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        var item = Assert.Single(result.Preview!.Items);
+        Assert.Equal(expected, item.ImageUrl);
+    }
+
+    /// <summary>
+    /// The url built above is only as good as the flag it reads, so the query must actually ask for
+    /// it. Without this the stub would keep handing the flag over even after a regression dropped
+    /// <c>flags { animated }</c> from the real query — every parser assertion above would stay green
+    /// while production went back to guessing.
+    /// </summary>
+    [Fact]
+    public async Task PreviewQuery_AsksForTheAnimatedFlag()
+    {
+        var handler = new PagedStubHandler(_ => Page(totalCount: 0, pageCount: 1));
+        var client = CreateClient(handler);
+
+        await client.GetEmoteSetPreviewAsync(SetId);
+
+        var query = Assert.Single(handler.SentQueries);
+        Assert.Contains("flags { animated }", query, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A payload without the flag must still yield a url that loads. The v4 schema types
+    /// <c>Emote.flags</c> and its <c>animated</c> member as non-null, so this is a guard rather than
+    /// an observed behaviour — but the fallback direction is the whole point: 4x.webp exists for
+    /// every emote (on an animated one it simply carries all frames), while the other guess renders
+    /// nothing at all for a third of a typical set.
+    /// </summary>
+    [Fact]
+    public async Task MissingAnimatedFlag_FallsBackToTheRenditionThatAlwaysExists()
+    {
+        var handler = new PagedStubHandler(_ => PageWithoutFlags("e1"));
+        var client = CreateClient(handler);
+
+        var result = await client.GetEmoteSetPreviewAsync(SetId);
+
+        var item = Assert.Single(result.Preview!.Items);
+        Assert.Equal("https://cdn.7tv.app/emote/e1/4x.webp", item.ImageUrl);
+    }
+
+    // Strips the flags object back out of an otherwise normal single-item page, so the guard above is
+    // exercised against the same shape everything else here uses.
+    private static string PageWithoutFlags(string emoteId)
+    {
+        var root = JsonNode.Parse(Page(totalCount: 1, pageCount: 1, (emoteId, "Alias", "Default", null, null, true)))!;
+        root["data"]!["emote_sets"]!["emote_set"]!["emotes"]!["items"]![0]!["emote"]!.AsObject().Remove("flags");
+        return root.ToJsonString();
     }
 
     // Built through JsonNode rather than a hand-assembled string: the response nests five levels
     // deep (data.emote_sets.emote_set.emotes.items[].emote.scores), and getting the brace-counting
     // right in a raw string literal for that shape is exactly the kind of thing worth not doing by
     // hand.
-    private static string Page(int totalCount, int pageCount, params (string Id, string Alias, string DefaultName, int? TopAllTime, int? TrendingDay)[] items)
+    private static string Page(int totalCount, int pageCount, params (string Id, string Alias, string DefaultName, int? TopAllTime, int? TrendingDay, bool Animated)[] items)
     {
         var itemsArray = new JsonArray();
         foreach (var item in items)
@@ -174,6 +242,10 @@ public class SevenTvApiClientEmoteSetPreviewTests
                 {
                     ["id"] = item.Id,
                     ["default_name"] = item.DefaultName,
+                    ["flags"] = new JsonObject
+                    {
+                        ["animated"] = item.Animated,
+                    },
                     ["scores"] = new JsonObject
                     {
                         ["top_all_time"] = item.TopAllTime ?? 0,
@@ -217,12 +289,15 @@ public class SevenTvApiClientEmoteSetPreviewTests
     {
         public List<int> RequestedPages { get; } = [];
 
+        public List<string> SentQueries { get; } = [];
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             using var doc = JsonDocument.Parse(body);
             var page = doc.RootElement.GetProperty("variables").GetProperty("page").GetInt32();
             RequestedPages.Add(page);
+            SentQueries.Add(doc.RootElement.GetProperty("query").GetString() ?? string.Empty);
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {

@@ -300,10 +300,16 @@ gerade". Die Erkennung sitzt deshalb im Parser, nicht im HTTP-Handler.
 eine zu kurze Liste, die sich nicht als zu kurz zu erkennen gibt, ist schlimmer als ein Fehler. Die
 Antwort trägt darum `truncated` samt `totalCount`, und die Oberfläche sagt es.
 
-**Die Bild-URL wird aus der Emote-Id gebaut, nicht abgefragt.** `Emote.images` mitzuholen verteuerte
-die Antwort live gemessen um das Dreizehnfache (101.541 gegen 7.734 Bytes für 45 Emotes). Die
-CDN-Form ist fest und allein durch die Id bestimmt; sie entspricht der Konvention, die
-`SevenTvEmoteJsonMapper.BuildImageUrl` bereits ausliefert.
+**Die Bild-URL wird aus Id und Animiertheit gebaut, nicht abgefragt.** `Emote.images` mitzuholen
+verteuerte die Antwort um das 17,4-Fache (113.748 gegen 6.535 Bytes für 45 Emotes); `flags { animated }`
+kostet 18,9 % und genügt. **Die Id allein genügt nicht** — das war der erste Anlauf und er war falsch:
+eine `_static`-Rendition existiert bei 7TV nur für animierte Emotes, für statische antwortet
+`4x_static.webp` mit 404. Live gemessen sind das 305 von 956 Emotes eines echten Sets, also knapp ein
+Drittel kaputter Bilder. Aufgefallen ist es erst, als eine Sonde die gebauten URLs wirklich abrief;
+die Konvention war zuvor „gegen zwei Antworten bestätigt", und beide waren zufällig animiert. Der
+Bestandspfad rät deshalb nicht, sondern liest `host.files[].static_name` — 7TV benennt die Datei
+selbst. Die erzeugte Zeichenkette ist jetzt bytegleich mit jener, und der `_static`-Marker bleibt
+tragend, weil das Frontend die animierte URL durch sein Entfernen ableitet.
 
 **Kein Worker, kein Join, keine Migration.** Der Endpunkt schreibt nichts in unsere Datenbank. Das
 Messfenster aus Epic #118 (bis 2026-10-07) bleibt dadurch unberührt — eine ausdrückliche Auflage
