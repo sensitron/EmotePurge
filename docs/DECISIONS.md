@@ -68,6 +68,46 @@ grep -i "secret source\|SONAR_TOKEN"`), nicht die Coverage.
 
 ---
 
+### 2026-09-09 — `vitest` bleibt auf der 4.x-Linie, bis Angular die 5 mitbringt
+
+**Betrifft:** [`../.github/dependabot.yml`](../.github/dependabot.yml) (npm-Block, `ignore`)
+
+**Was sich ändert.** Major-Updates von `vitest` und `@vitest/coverage-v8` sind für Dependabot
+gesperrt. Beide Pakete zusammen, nicht einzeln — das ist der Punkt, an dem die Regel sonst
+wirkungslos wäre.
+
+**Warum.** Dependabot hatte die beiden als #101 und #102 auf 5.0.0 angeboten, jeweils als eigenen
+PR. Beide waren rot, und zwar nicht am Sonar-Gate, sondern schon an `npm ci`:
+
+```
+npm error code ERESOLVE
+npm error While resolving: @vitest/coverage-v8@5.0.0
+npm error Found: vitest@4.1.11
+npm error Conflicting peer dependency: vitest@5.0.0
+```
+
+Zwei Gründe, die unabhängig voneinander greifen. Erstens der Zuschnitt: die beiden Pakete teilen
+einen Kern und sind nur gemeinsam auflösbar — dasselbe Muster wie bei den
+`Testcontainers.*`-Geschwistern am 2026-09-04. Zweitens, und das ist der härtere Grund:
+**jede** veröffentlichte `@angular/build`-Version der 22.1.x-Reihe deklariert
+`peerDependencies.vitest: ^4.0.8` (geprüft über 22.1.1 bis 22.1.7). Es gibt also derzeit gar keine
+Kombination, in der vitest 5 hier auflösbar wäre — auch ein zusammengefasster PR beider Pakete
+bliebe rot. Die PRs sind nicht reparierbar, sondern gegenstandslos.
+
+Sachlich bestätigt die Regel nur, was am 2026-09-04 schon entschieden war: vitest 4 → 5 ist eine
+Migration (Bruch der Config-API), kein Wartungsupdate, und gehört in ein eigenes Vorhaben. Neu ist,
+dass die Entscheidung jetzt durchgesetzt wird statt jede Woche von Hand wiederholt zu werden.
+
+**Nebenwirkung, die man kennen muss.** Eine neue `ignore`-Regel schließt passende offene PRs von
+selbst, sobald sie auf `main` liegt — #101 und #102 verschwinden also ohne `gh pr close`. Wer die
+Begründung im PR sehen will, muss sie per `gh pr comment` nachreichen, nach dem Schließen.
+
+**Wann die Regel wieder weg muss.** Mit dem Angular-Major, der vitest 5 als Peer trägt. Der
+Upgrade bringt beide Pakete ohnehin mit; bleibt die Regel dann stehen, hängt das Frontend still
+auf einer alten Testrunner-Linie fest.
+
+---
+
 ### 2026-09-08 — Commit, Push und PR laufen ohne Rückfrage, der Merge nicht (Regel 1)
 
 **Betrifft:** [`../CLAUDE.md`](../CLAUDE.md) (Regel 1)
