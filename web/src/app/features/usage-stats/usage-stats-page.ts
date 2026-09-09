@@ -85,26 +85,13 @@ import {
   usageFillPercent,
 } from '../../shared/emotes/usage-bands';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
-import { CSV_MIME } from '../../shared/export/csv';
-import {
-  ExportDialogData,
-  ExportDialogOption,
-  ExportScope,
-  openExportDialog,
-} from '../../shared/export/export-dialog';
-import {
-  buildEmoteListEnvelope,
-  emoteListFilename,
-  emoteListJson,
-} from '../../shared/export/emote-list-export';
-import { JSON_MIME } from '../../shared/export/export-envelope';
+import { ExportDialogData, ExportScope, openExportDialog } from '../../shared/export/export-dialog';
 import { downloadFile } from '../../shared/export/file-download';
 import {
-  UsageExportInput,
-  usageCsv,
-  usageExportFilename,
-  usageJson,
-} from '../../shared/export/usage-export';
+  ExportPurposeId,
+  buildUsageExportPurposeDownload,
+  usageExportPurposeOptions,
+} from '../../shared/export/usage-export-purposes';
 import {
   ATLAS_CELL_PX,
   ATLAS_ROW_PX,
@@ -152,8 +139,8 @@ interface CapturedImportScope {
  * `openExport`'s counterpart to `CapturedImportScope` — same reasoning (see `openImportTarget`'s
  * docstring), now applying to the export dialog too since the emote-list purpose put a file path
  * that reads `emoteSetId` behind it. Holds the raw `EmoteUsageTotal` rows rather than `ImportRow`s
- * because the two usage branches (CSV/JSON) need the full totals; only the emote-list branch
- * narrows them via `toImportRow`.
+ * because the two usage branches (CSV/JSON) need the full totals; only the emote-list purpose
+ * narrows them, inside `buildUsageExportPurposeDownload`.
  */
 interface CapturedExportScope {
   readonly channelName: string;
@@ -162,9 +149,6 @@ interface CapturedExportScope {
   readonly selection: readonly EmoteUsageTotal[];
   readonly visible: readonly EmoteUsageTotal[];
 }
-
-/** The three purposes `openExport` offers, in display order (see the option list built there). */
-type ExportPurposeId = 'usage-csv' | 'usage-json' | 'emote-list';
 
 const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
   sevenTvEmoteId: emote.sevenTvEmoteId,
@@ -1217,6 +1201,11 @@ export class UsageStatsPage {
    *
    * `trendFor` stays a live callback, deliberately not captured — the trend column is derived from
    * live state at serialization time, same as before (E4).
+   *
+   * The two decisions this method used to make itself — which purposes are on offer, and what each
+   * one serializes — now live in `shared/export/usage-export-purposes.ts` as pure functions with
+   * their own spec (Regel 12). What is left here is capture, opening the dialog, and handing the
+   * choice to that module.
    */
   protected openExport(): void {
     const captured: CapturedExportScope = {
@@ -1227,21 +1216,10 @@ export class UsageStatsPage {
       visible: this.atlasOrder(),
     };
 
-    const options: (ExportDialogOption & { id: ExportPurposeId })[] = [
-      { id: 'usage-csv', labelKey: 'export.purposeAnalyse', hintKey: 'export.purposeAnalyseHint' },
-      {
-        id: 'usage-json',
-        labelKey: 'export.purposeProcess',
-        hintKey: 'export.purposeProcessHint',
-      },
-    ];
-    if (captured.emoteSetId !== null && this.importScopeCurrent()) {
-      options.push({
-        id: 'emote-list',
-        labelKey: 'export.purposeReimport',
-        hintKey: 'export.purposeReimportHint',
-      });
-    }
+    // E3: the emote-list purpose is only offered when there is a set to source it from and the
+    // capture still matches the channel that set belongs to — see `usageExportPurposeOptions`.
+    const emoteListOfferable = captured.emoteSetId !== null && this.importScopeCurrent();
+    const options = usageExportPurposeOptions(emoteListOfferable);
 
     const data: ExportDialogData<ExportPurposeId> = {
       rowCount: captured.visible.length,
@@ -1257,56 +1235,23 @@ export class UsageStatsPage {
         return;
       }
       const rows = choice.scope === 'selection' ? captured.selection : captured.visible;
-
-      switch (choice.optionId) {
-        case 'usage-csv':
-        case 'usage-json': {
-          const input: UsageExportInput = {
-            channelName: captured.channelName,
-            from: this.from(),
-            to: this.to(),
-            rows,
-            scope: choice.scope,
-            filtered: captured.filtered,
-            trendFor: (row) => this.trendFor(row),
-          };
-          if (choice.optionId === 'usage-csv') {
-            downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
-          } else {
-            downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
-          }
-          return;
-        }
-        case 'emote-list': {
-          const emoteSetId = captured.emoteSetId;
-          if (emoteSetId === null) {
-            // Unreachable: this option is only offered when the capture carried a set id (E3).
-            // Narrowing rather than asserting keeps that invariant checked instead of declared —
-            // if the offer rule and this branch ever drift apart, nothing is written.
-            return;
-          }
-          // Same dedupe, envelope and filename the target dialog's file destination used before
-          // #141 moved it here — the written file is unchanged, only the way in.
-          const deduped = dedupeImportRows(rows.map(toImportRow));
-          const envelope = buildEmoteListEnvelope({
-            channelName: captured.channelName,
-            emoteSetId,
-            scope: choice.scope,
-            rows: deduped.rows,
-          });
-          downloadFile(
-            emoteListFilename(captured.channelName, envelope.exportedAt),
-            emoteListJson(envelope),
-            JSON_MIME,
-          );
-          return;
-        }
-        default: {
-          // Exhaustiveness check: a new ExportPurposeId that reaches here fails the build.
-          const exhaustive: never = choice.optionId;
-          throw new Error(`Unhandled export purpose: ${String(exhaustive)}`);
-        }
+      const download = buildUsageExportPurposeDownload(choice.optionId, {
+        channelName: captured.channelName,
+        emoteSetId: captured.emoteSetId,
+        from: this.from(),
+        to: this.to(),
+        filtered: captured.filtered,
+        rows,
+        scope: choice.scope,
+        trendFor: (row) => this.trendFor(row),
+      });
+      if (download === null) {
+        // Unreachable: the emote-list option is only offered when the capture carried a set id
+        // (E3) — see `buildUsageExportPurposeDownload`'s own docstring for why this stays a
+        // narrowed no-op rather than an assertion.
+        return;
       }
+      downloadFile(download.filename, download.content, download.mimeType);
     });
   }
 
