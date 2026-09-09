@@ -74,6 +74,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     public IForeignEmoteSetService ForeignEmoteSet { get; } = Substitute.For<IForeignEmoteSetService>();
 
     /// <summary>
+    /// Substituted so the sync-imported contract tests can reach the handler at all: every other
+    /// case in that group is answered by a filter or a body check short-circuiting before it, but
+    /// "this SourceKind is accepted" can only be shown by the call arriving at the service — and the
+    /// real implementation would go to Postgres. It is also what lets a test read back the exact
+    /// vocabulary and source name the endpoint forwarded (spec F5/AK 12).
+    /// </summary>
+    public IEmoteService Emotes { get; } = Substitute.For<IEmoteService>();
+
+    /// <summary>
     /// Substituted because Program.cs now runs the S3-34 migration guard at startup — the real
     /// implementation would open a connection to the placeholder database configured below.
     /// The substitute simply completes, which is the "fully migrated" answer.
@@ -110,6 +119,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddSingleton(_ => WorkerHealth);
             services.AddSingleton(_ => LiveEventStream);
             services.AddScoped(_ => ForeignEmoteSet);
+            services.AddScoped(_ => Emotes);
             services.AddScoped(_ => _migrationGuard);
 
             // Load-bearing, and not obvious: RequestDelegateFactory resolves a handler's injected

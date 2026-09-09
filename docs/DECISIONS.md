@@ -378,6 +378,62 @@ ist es ein eigenes Ticket wert.
 
 ---
 
+### 2026-09-09 — Die dritte Herkunftsvokabel `seventv-channel` muss an drei Stellen ankommen, und `ImportOrigin` wird nur noch an einer auseinandergenommen (#147)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/EmoteEndpoints.cs` ·
+`src/EmotePurge.Infrastructure/Services/AuditLogQueryService.cs` ·
+`web/src/app/core/seven-tv/import-source.ts` ·
+`web/src/app/core/seven-tv/seven-tv-import.service.ts` ·
+`web/src/app/core/emotes/emote-admin.service.ts` ·
+`web/src/app/shared/seven-tv/import-confirm-dialog.ts` ·
+`web/src/app/shared/seven-tv/foreign-import-flow.ts` ·
+`web/src/app/features/usage-stats/usage-stats-page.html`
+
+**Ein Import aus einem fremden Set ist eine eigene Herkunft, kein `channel`.** Die Vokabel
+`"seventv-channel"` steht dauerhaft in write-once-Audit-Zeilen; sie in `"channel"` zu falten würde
+den Unterschied für immer einebnen, den die Zeile später erklären soll. Sie muss deshalb **vor** dem
+ersten Produktionslauf feststehen — nach einem Revert bleiben bereits geschriebene Zeilen mit dieser
+Vokabel stehen.
+
+**Sie an einer Stelle einzutragen reicht nicht.** Drei Stellen im Backend sehen sie, und nur die
+erste meldet sich, wenn man sie vergisst: die Vokabelprüfung des Endpunkts, der Kind/Name-Abgleich
+und der Herkunftszweig des Audit-Renderers. Der Renderer prüfte `sourceKind is "channel" or "file"`
+und ließ alles andere in den nackten `EmoteCount`-Zweig fallen — der Kommentar darüber benennt genau
+diesen Schaden („silently drop the one thing that row can't be reconstructed from otherwise"). Ohne
+den dritten Schritt hätte jede Fremdkanal-Zeile ihre Herkunft verloren, dauerhaft und unbemerkt.
+
+**Der Kind/Name-Abgleich bleibt unverändert — aber nicht mehr aus Zufall.** Er fragt binär „Datei
+gegen Nicht-Datei" und trägt die neue Vokabel deshalb versehentlich richtig. Das steht jetzt als
+Kommentar dort, samt der Bedingung, unter der es aufhört zu gelten: eine vierte, namenlose Herkunft
+müsste diese Zeile anfassen. Ein Test hält beide Richtungen fest.
+
+**`=== 'channel'` und `!== 'file'` sind ab dem dritten Union-Mitglied nicht mehr dasselbe.** Sie
+fallen in entgegengesetzte Richtungen, und im Bestand standen beide Formen nebeneinander. Die
+teuerste Fundstelle war still und typkorrekt: der Wire-Rumpf sendete den Quellnamen nur für
+`kind === 'channel'`, hätte für die neue Herkunft `null` geschickt und wäre mit 400 abgewiesen worden
+— **nachdem die 7TV-Mutationen gelaufen sind**. Die Emotes wären kopiert, die Meldung gescheitert,
+die Herkunft weg.
+
+**`ImportOrigin` wird darum nur noch in `importOriginSourceChannelName` auseinandergenommen**,
+`switch` über den Diskriminanten mit `never`-Arm. Ein viertes Union-Mitglied ist dort ein
+Build-Fehler statt einer Laufzeitüberraschung. Der Bestätigungsdialog prüft `kind` im Template gar
+nicht mehr: dass die alte Prüfung laut war, lag allein daran, dass der `@else`-Zweig zufällig
+`origin.fileName` las — und ein Template ist der Ort, an dem ein falscher Zweig gerade nicht
+typgeprüft wird.
+
+**Der Hinweis „gleiche Datei, gleicher Kanal" bleibt dateiexklusiv.** Er handelt von einer
+heruntergeladenen Liste, die im Kreis läuft; die Zielauswahl schließt den Quellkanal aus. Für beide
+Kanal-Herkünfte ist der Befund damit unmöglich statt bloß unwahrscheinlich — das steht jetzt als
+Begründung im Code.
+
+**Der Einstieg sitzt neben dem Datei-Import, unter `!isCoarse()`, aber nicht unter
+`activeEmoteSetId()`.** Der Import endet in einem 7TV-Schreibvorgang, und den Token trägt niemand auf
+dem Handy — die Grobzeiger-Sperre gilt also. Das aktive Set des *Zielkanals* gilt nicht: eine
+Fremdübernahme braucht weder dieses Set noch eine Zeile im Raster, und die Bedingung hätte die neue
+Quelle ausgerechnet auf den noch nicht synchronisierten Kanälen versteckt.
+
+---
+
 ### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
 
 **Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,

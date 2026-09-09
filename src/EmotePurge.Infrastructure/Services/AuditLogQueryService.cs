@@ -21,6 +21,16 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
     private const string SourceKindProperty = "sourceKind";
     private const string SourceChannelNameProperty = "sourceChannelName";
 
+    // The closed vocabulary the endpoint accepts for that discriminator (EmoteEndpoints, F5.1).
+    // Both channel-shaped kinds render as ImportedFromChannel: what the row has to preserve is that
+    // the emotes came from a channel and which one, not through which of the two read paths we saw
+    // that channel. Kept as a named set so the connection to the endpoint's list is visible — an
+    // unlisted word here costs the provenance of every row written with it, permanently, because
+    // audit rows are write-once (F5.3).
+    private const string ChannelSourceKind = "channel";
+    private const string ForeignChannelSourceKind = "seventv-channel";
+    private const string FileSourceKind = "file";
+
     public async Task<PagedResult<AuditLogEntryDto>> ListAsync(int page, int pageSize, AuditLogFilter? filter = null, CancellationToken cancellationToken = default)
     {
         var query = ApplyFilter(db.AuditLogEntries.AsNoTracking(), filter);
@@ -142,7 +152,8 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
         {
             var sourceKind = sourceKindElement.GetString();
 
-            if (sourceKind is "channel" or "file" && TryReadCount(root, AuditLogDetail.Kinds.EmoteCount, out var importedCount))
+            if (sourceKind is ChannelSourceKind or ForeignChannelSourceKind or FileSourceKind
+                && TryReadCount(root, AuditLogDetail.Kinds.EmoteCount, out var importedCount))
             {
                 string? source = null;
                 if (root.TryGetProperty(SourceChannelNameProperty, out var sourceChannelNameElement)
@@ -158,7 +169,7 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
                 // somehow carries a source channel is still a file import, and reading the name
                 // instead would file it under a channel origin it never had. A stray name is
                 // dropped rather than shown.
-                if (sourceKind == "file")
+                if (sourceKind == FileSourceKind)
                 {
                     return new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromFile, importedCount, null);
                 }
@@ -166,7 +177,8 @@ public class AuditLogQueryService(AppDbContext db) : IAuditLogQueryService
                 // A channel origin that cannot name its channel falls through to the bare count
                 // below instead of claiming an origin. The endpoint rejects that combination, so
                 // this only covers rows that got in around it; saying "N emotes" is honest, while
-                // both import kinds would not be.
+                // both import kinds would not be. Holds for the foreign kind as well — it is
+                // name-carrying for exactly the same reason.
                 if (source is not null)
                 {
                     return new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromChannel, importedCount, source);

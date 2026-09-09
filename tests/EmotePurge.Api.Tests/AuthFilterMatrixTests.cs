@@ -40,6 +40,7 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
         factory.VoteEligibility.ClearReceivedCalls();
         factory.Channels.ClearReceivedCalls();
         factory.ResyncCooldown.ClearReceivedCalls();
+        factory.Emotes.ClearReceivedCalls();
 
         // Default to "the slot was free", so the cooldown never masks the status code a test is
         // actually asserting. The one case that cares sets it explicitly.
@@ -422,6 +423,84 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(ApiErrorCodes.InvalidSourceKind, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task SyncImported_ForwardsAForeignChannelSource_WithItsKindAndName()
+    {
+        // The third vocabulary word (foreign-import spec E6): a channel EmotePurge does not track,
+        // read straight from 7TV. Asserted on the service call rather than only on the status code,
+        // because what must survive is the *word* — it is written into a write-once audit row and
+        // read back by AuditLogQueryService, which only renders provenance for words it knows.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+        _factory.Emotes.MarkImportedAsync(
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<string?>(), Arg.Any<string>(),
+                Arg.Any<AuditActor>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": "handofblood", "sourceKind": "seventv-channel"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        await _factory.Emotes.Received(1).MarkImportedAsync(
+            Channel,
+            Arg.Is<IReadOnlyList<string>>(ids => ids.Count == 1 && ids[0] == "7tv-x1"),
+            "handofblood",
+            "seventv-channel",
+            Arg.Any<AuditActor>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_ForAForeignChannelSourceWithoutAName()
+    {
+        // The other half of F5.2: the kind/name agreement asks "file versus not-file", so the new
+        // word has to be name-carrying like "channel" is. Pinned rather than trusted — the condition
+        // covers it by accident of its shape, not because anybody wrote it down.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": null, "sourceKind": "seventv-channel"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidSourceKind, await ReadErrorCodeAsync(response));
+        await _factory.Emotes.DidNotReceive().MarkImportedAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<string?>(), Arg.Any<string>(),
+            Arg.Any<AuditActor>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_ForAForeignChannelSourceKindInTheWrongCase()
+    {
+        // Ordinal and strictly lower-case, same as for the two older words: the only caller is our
+        // own frontend, and a case-insensitive fallback would let a frontend bug write a word the
+        // audit renderer does not know.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": "handofblood", "sourceKind": "SevenTv-Channel"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidSourceKind, await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task SyncImported_Answers400_ForAForeignChannelSourceWithAMalformedName()
+    {
+        // The source name of a foreign import is typed by the user into the picker and ends up in
+        // jsonb forever (R6), so it goes through the same channel-name validation as every other
+        // inbound name — the new kind does not get a free pass around it.
+        _factory.ChannelAccess.CanViewUsageStatsAsync(Arg.Any<TwitchPrincipalInfo>(), Channel, Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var body = """{"sevenTvEmoteIds": ["7tv-x1"], "sourceChannelName": "not a channel!", "sourceKind": "seventv-channel"}""";
+        var response = await SendAsync("POST", $"/api/channels/{Channel}/emotes/sync-imported", NewUserId(), body: body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.InvalidChannelName, await ReadErrorCodeAsync(response));
     }
 
     [Fact]

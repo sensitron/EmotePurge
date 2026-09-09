@@ -25,8 +25,9 @@ internal static class ApiErrorCodes
     public const string ChannelNotJoined = "channel_not_joined";
     public const string EmoteIdEmpty = "emote_id_empty";
     public const string InvalidVoteType = "invalid_vote_type";
-    // sync-imported's SourceKind: a closed vocabulary ("channel"/"file") the frontend itself
-    // constructs, so an unrecognized value is a frontend bug to surface, not a case to guess at.
+    // sync-imported's SourceKind: a closed vocabulary ("channel"/"file"/"seventv-channel") the
+    // frontend itself constructs, so an unrecognized value is a frontend bug to surface, not a case
+    // to guess at. Also answers a body whose kind and source name contradict each other.
     public const string InvalidSourceKind = "invalid_source_kind";
     public const string ChannelNotFound = "channel_not_found";
     // 404 from the join endpoint, and distinct from ChannelNotFound above: that one means "we do not

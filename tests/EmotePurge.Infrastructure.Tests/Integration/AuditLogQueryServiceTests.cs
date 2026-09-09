@@ -209,6 +209,61 @@ public class AuditLogQueryServiceTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task ListAsync_ProjectsAnImportFromAForeignChannel_OnBothCountAndSource()
+    {
+        // The third sourceKind (foreign-import spec E6/F5.3). Without this word in the renderer's
+        // vocabulary the row would fall through to the bare emoteCount branch and lose the one thing
+        // it cannot be reconstructed from — where the emotes came from. Audit rows are write-once,
+        // so that loss would be permanent and completely silent.
+        // It renders as ImportedFromChannel, like a tracked-channel import: what the reader needs is
+        // that it came from a channel and which one, not which of our two read paths saw it.
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-imp-fgn";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 18, 15, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncImported,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 7, "sourceChannelName": "handofblood", "sourceKind": "seventv-channel"}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.ImportedFromChannel, 7, "handofblood"), dto.Detail);
+    }
+
+    [Fact]
+    public async Task ListAsync_FallsBackToTheBareCount_WhenAForeignChannelSourceCarriesNoName()
+    {
+        // Same degradation as the tracked-channel case below: the endpoint rejects this combination,
+        // so a row like this only exists if something got in around it — and then "7 emotes" is
+        // honest while "from " with nothing after it is not.
+        await using var db = fixture.CreateDbContext();
+        var channel = $"{ChannelPrefix}-fgn-nonm";
+        db.AuditLogEntries.Add(new AuditLogEntry
+        {
+            OccurredAtUtc = new DateTime(2099, 7, 31, 18, 20, 0, DateTimeKind.Utc),
+            ActorTwitchUserId = "4711",
+            ActorLogin = "sensitron",
+            Action = AuditActions.EmotesSyncImported,
+            ChannelName = channel,
+            DetailsJson = """{"emoteCount": 7, "sourceChannelName": null, "sourceKind": "seventv-channel"}"""
+        });
+        await db.SaveChangesAsync();
+
+        var page = await new AuditLogQueryService(db)
+            .ListAsync(1, 50, new AuditLogFilter(null, channel, null));
+
+        var dto = Assert.Single(page.Items);
+        Assert.Equal(new AuditLogDetail(AuditLogDetail.Kinds.EmoteCount, 7, null), dto.Detail);
+    }
+
+    [Fact]
     public async Task ListAsync_FallsBackToTheBareCount_WhenAChannelSourceCarriesNoName()
     {
         // The endpoint rejects this combination, so it should never reach the column. If it ever
