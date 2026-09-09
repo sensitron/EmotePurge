@@ -38,13 +38,18 @@ der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebau
    allen Bundle-Stylesheets injiziert, und sie spiegelt die Bottom-Sheet-Regeln **in beiden Hälften**
    — Andockung auf dem Wrapper mit `!important`, Geometrie auf der Pane. Wer nur die Pane-Hälfte
    kopiert, bekommt einen zentrierten Dialog.
-3. **Die Pane-Breite ist über alle Schritte konstant.** Die erste Fassung schaltete die Klasse je
-   Schritt per `overlayRef.addPanelClass` — technisch sauber, aber ein Layout-Sprung beim
-   Schrittwechsel. Nutzer-Wertung am 2026-09-10: lieber eine suboptimal breite Fläche als ein
-   Rahmen, der unter dem Leser springt. Die Klasse wird deshalb **einmal beim Öffnen** gewählt;
-   `openAppDialog` hat dafür eine `panelClass`-Option bekommen, die **zusätzlich** zu
-   `app-dialog-panel` gesetzt wird, nie an ihrer Stelle. Was ein schmaler Schritt stattdessen tut,
-   ist seinen Inhalt zu begrenzen: das Kanalfeld trägt `max-w-sm`.
+3. **Breit ist die Pane genau, solange das Raster steht.** Zwischendurch war sie über alle Schritte
+   konstant breit — abgeleitet aus der Regel „keine Layout-Sprünge" und am fertigen Bild vom Nutzer
+   wieder verworfen (2026-09-10): die drei Formularzustände (Quellenwahl, Datei-Zweig, Kanal-Zweig
+   **vor** dem Laden) sahen in 72 rem verloren aus. Maßgeblich ist jetzt der Inhalt des Zustands, und
+   die eine verbleibende Größenänderung fällt mit „Set laden" zusammen — mit einem ohnehin sichtbaren
+   Inhaltswechsel, dem einzigen Ort, an dem eine Größenänderung als Folge lesbar ist statt als
+   Willkür. Geschaltet wird über `overlayRef.addPanelClass`, nicht per `panelClass` beim Öffnen (dort
+   ist der Zustand noch nicht bekannt) und erst recht nicht per `max-w-*` am Inhalt — §7 gibt die
+   Breite der Pane. Auslöser ist die Sichtbarkeit des Rasters, nicht der Schritt. Das Kanalfeld
+   behält sein `max-w-sm`: im geladenen Zustand steht das Formular über dem 72-rem-Raster, und
+   ungekappt spannte es dort über die ganze Pane; bei 24 rem ist es vor und nach dem Laden gleich
+   breit.
 4. **Genau ein Scroll-Container.** Pane **und** virtualisiertes Raster scrollten übereinander. Eine
    Prozent-Höhenkette überlebt die beiden `display: inline`-Component-Hosts zwischen Pane und Inhalt
    nicht (steht so schon in §7); das Viewport ist deshalb gegen `dvh` bemessen
@@ -58,7 +63,12 @@ der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebau
    „7TV-Verbreitung (gesamt)"/„(Trend)"; und, solange eine Score-Sortierung aktiv ist, ein stiller
    Satz, der sagt, was die Zahl auf der Kachel **nicht** ist. Die beiden Auflagen aus dem Konzept
    (P5') gelten unverändert: nie die Vorbelegung, nie bloß „Beliebtheit".
-6. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
+6. **Der Hinweis zur Zahl auf der Kachel gehört zum Raster**, nicht an die Sortierzeile geklebt: er
+   wickelt sich mit dem Raster in eine eigene, engere Flex-Spalte (§7 — Abstände macht die Shell,
+   Engzusammengehörendes seine eigene Spalte), statt in gleichem Abstand zwischen beiden zu schweben
+   und für keines von beiden als Bildunterschrift zu lesen. Der Raster-Host bekam dafür überhaupt
+   erst eine Flex-Spalte; vorher stapelten seine Kinder als nackte Blöcke ganz ohne Abstand.
+7. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
    einzelner Emotes ist der Name die Entscheidungsgrundlage — er landet im Zielset und der
    Kollisionshinweis handelt von ihm. Sichtbar steht der **Alias** des Quellsets; der globale
    Basisname kommt dort dazu, wo er abweicht (296 von 956 bei HandOfBlood), und zwar im zugänglichen

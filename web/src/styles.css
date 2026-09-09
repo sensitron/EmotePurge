@@ -616,11 +616,12 @@
    shell. It sits AFTER the base rules on purpose: same specificity, later source — which is what
    lets it override `.app-dialog-panel`'s own `max-width` in both the fine and the coarse case.
 
-   It is chosen once, at open time (`openAppDialog`'s `panelClass` option), and holds for every step
-   of that dialog — including the two that would fit in 28rem. A pane that resizes between steps is a
-   layout jump, and the house rule prefers an airy first step over a frame that moves while the
-   reader is inside it. What the narrow steps do instead is cap their own content: the channel field
-   carries a `max-w-sm` of its own.
+   `ImportSourceDialog` adds and removes it at runtime (overlayRef.addPanelClass) against exactly one
+   condition: is the grid on screen. Its three form states — the source choice, the file branch, and
+   the channel branch before a set has loaded — stay on the ordinary 28rem, because a form's worth of
+   content in 72rem looks lost. That leaves one resize, and it coincides with "Set laden", i.e. with a
+   content change the reader is already watching; a size change there reads as consequence rather
+   than caprice.
 
    On this pane the *pane* deliberately does not scroll — the grid inside it does, and it is the only
    scroll container in the dialog (a pane scrollbar plus a viewport scrollbar was the reported

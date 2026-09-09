@@ -18,15 +18,6 @@ export interface AppDialogOptions<D> {
    * short action phrase ("Channel verlassen"), never the message itself.
    */
   ariaLabel?: string;
-  /**
-   * One extra pane class **on top of** `app-dialog-panel`, never instead of it — for a dialog whose
-   * content genuinely needs different geometry (the import dialog's emote grid: `app-dialog-panel-wide`).
-   * The base class stays on the pane, so the bottom-sheet rules and the pane chrome keep applying and
-   * the extra class only overrides what it names. Whatever it changes it changes for the dialog's
-   * whole life: a pane that resizes between steps is a layout jump, and the house rule is that a
-   * suboptimally wide surface beats a frame that moves under the reader.
-   */
-  panelClass?: string;
 }
 
 /**
@@ -46,7 +37,7 @@ export function openAppDialog<R, D = unknown>(
   return dialog.open<R, D>(component, {
     data: options.data,
     backdropClass: 'app-dialog-backdrop',
-    panelClass: options.panelClass ? ['app-dialog-panel', options.panelClass] : 'app-dialog-panel',
+    panelClass: 'app-dialog-panel',
     ...(options.ariaLabel ? { ariaLabel: options.ariaLabel } : { ariaLabelledBy: DIALOG_TITLE_ID }),
   });
 }

@@ -140,77 +140,89 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
         </span>
       </div>
 
-      <!-- Only while a score sort is active: it explains the number that just appeared on every
-           tile, and says in so many words what the number is NOT about. Nothing to read while the
-           set order is showing, so nothing is shown. -->
-      @if (sortMode() !== 'none') {
-        <p class="text-xs text-fg-muted">
-          {{ 'import.foreignChannel.sort.scoreHint' | transloco }}
-        </p>
-      }
+      <!-- The hint belongs to the TILES, not to the sort row: it explains the number printed on
+           each of them. So it wraps together with the grid in its own tight column (§7 — spacing is
+           the shell's flex gap, and what belongs together more closely than that rhythm wraps
+           itself in its own tighter flex column), instead of floating at equal distance between the two
+           and reading as a caption for neither. It appears only while a score sort is active; with
+           the set order showing there is no number to explain. -->
+      <div class="flex flex-col gap-1">
+        @if (sortMode() !== 'none') {
+          <p class="text-xs text-fg-muted">
+            {{ 'import.foreignChannel.sort.scoreHint' | transloco }}
+          </p>
+        }
 
-      <div
-        #gridContainer
-        role="group"
-        [attr.aria-label]="'import.foreignChannel.grid.ariaLabel' | transloco"
-      >
-        <cdk-virtual-scroll-viewport
-          [itemSize]="rowPx"
-          class="h-[clamp(16rem,calc(100dvh-26rem),34rem)]"
+        <div
+          #gridContainer
+          role="group"
+          [attr.aria-label]="'import.foreignChannel.grid.ariaLabel' | transloco"
         >
-          <div *cdkVirtualFor="let row of rows(); trackBy: trackRowIndex" [style.height.px]="rowPx">
+          <cdk-virtual-scroll-viewport
+            [itemSize]="rowPx"
+            class="h-[clamp(16rem,calc(100dvh-26rem),34rem)]"
+          >
             <div
-              class="grid gap-1"
-              [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx + 'px)'"
+              *cdkVirtualFor="let row of rows(); trackBy: trackRowIndex"
+              [style.height.px]="rowPx"
             >
-              @for (emote of row; track emote.sevenTvEmoteId) {
-                <button
-                  type="button"
-                  class="flex w-16 flex-col items-stretch"
-                  [attr.aria-pressed]="selection.isSelected(emote)"
-                  [attr.aria-label]="cellLabel(emote)"
-                  [title]="cellLabel(emote)"
-                  (click)="onCellClick(emote, $event)"
-                  (mousedown)="$event.shiftKey && $event.preventDefault()"
-                >
-                  <span
-                    class="app-sprite-cell relative block h-16 w-16 transition-shadow hover:inset-ring-1 hover:inset-ring-border-strong"
+              <div
+                class="grid gap-1"
+                [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx + 'px)'"
+              >
+                @for (emote of row; track emote.sevenTvEmoteId) {
+                  <button
+                    type="button"
+                    class="flex w-16 flex-col items-stretch"
+                    [attr.aria-pressed]="selection.isSelected(emote)"
+                    [attr.aria-label]="cellLabel(emote)"
+                    [title]="cellLabel(emote)"
+                    (click)="onCellClick(emote, $event)"
+                    (mousedown)="$event.shiftKey && $event.preventDefault()"
                   >
-                    <app-emote-sprite [url]="emote.imageUrl" [size]="cellPx" />
-                    @if (sortMode() !== 'none') {
-                      <span
-                        class="absolute bottom-0 left-0 px-1 font-mono text-[9px] leading-[1.4] font-medium"
-                        [style.background-color]="'var(--ep-sprite-scrim)'"
-                        [style.color]="'var(--ep-sprite-scrim-fg)'"
-                        >{{ scoreBadge(emote) }}</span
-                      >
-                    }
-                    @if (selection.isSelected(emote)) {
-                      <span
-                        class="pointer-events-none absolute inset-0 bg-accent-wash/70 inset-ring-2 inset-ring-accent-fg"
-                        aria-hidden="true"
-                      ></span>
-                    }
-                  </span>
-                  <!-- aria-hidden: the accessible name of the tile already carries the alias and,
+                    <span
+                      class="app-sprite-cell relative block h-16 w-16 transition-shadow hover:inset-ring-1 hover:inset-ring-border-strong"
+                    >
+                      <app-emote-sprite [url]="emote.imageUrl" [size]="cellPx" />
+                      @if (sortMode() !== 'none') {
+                        <span
+                          class="absolute bottom-0 left-0 px-1 font-mono text-[9px] leading-[1.4] font-medium"
+                          [style.background-color]="'var(--ep-sprite-scrim)'"
+                          [style.color]="'var(--ep-sprite-scrim-fg)'"
+                          >{{ scoreBadge(emote) }}</span
+                        >
+                      }
+                      @if (selection.isSelected(emote)) {
+                        <span
+                          class="pointer-events-none absolute inset-0 bg-accent-wash/70 inset-ring-2 inset-ring-accent-fg"
+                          aria-hidden="true"
+                        ></span>
+                      }
+                    </span>
+                    <!-- aria-hidden: the accessible name of the tile already carries the alias and,
                        where it differs, the global default name — announcing the visible line as
                        well would read the alias twice. -->
-                  <span
-                    [class]="
-                      'block truncate text-center text-[10px] leading-4 ' +
-                      (selection.isSelected(emote) ? 'font-medium text-fg' : 'text-fg-muted')
-                    "
-                    aria-hidden="true"
-                    >{{ emote.name }}</span
-                  >
-                </button>
-              }
+                    <span
+                      [class]="
+                        'block truncate text-center text-[10px] leading-4 ' +
+                        (selection.isSelected(emote) ? 'font-medium text-fg' : 'text-fg-muted')
+                      "
+                      aria-hidden="true"
+                      >{{ emote.name }}</span
+                    >
+                  </button>
+                }
+              </div>
             </div>
-          </div>
-        </cdk-virtual-scroll-viewport>
+          </cdk-virtual-scroll-viewport>
+        </div>
       </div>
     }
   `,
+  // The grid's own children are the shell's rhythm one level down: without a flex host they would
+  // stack as bare blocks with no gap at all, which is what made the score hint cling to whatever
+  // happened to sit above it.
+  host: { class: 'flex flex-col gap-3' },
 })
 export class ForeignEmoteGrid {
   readonly emotes = input.required<ForeignEmoteRow[]>();

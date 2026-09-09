@@ -1,5 +1,5 @@
 import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
-import { Component, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { Button } from '../ui/button';
@@ -37,8 +37,8 @@ interface SourceOption {
   hintKey: string;
 }
 
-/** Added on top of `app-dialog-panel` for the whole life of this dialog — see the rule of the same
- *  name in `styles.css`. */
+/** Added on top of `app-dialog-panel` for as long as the emote grid is on screen, removed again
+ *  when it is not — see the rule of the same name in `styles.css`. */
 const WIDE_PANEL_CLASS = 'app-dialog-panel-wide';
 
 const SOURCE_OPTIONS: SourceOption[] = [
@@ -69,14 +69,16 @@ const SOURCE_OPTIONS: SourceOption[] = [
  * closed, which is what keeps the app's one-dialog-at-a-time rule intact and lets each chain keep
  * its own ordering.
  *
- * The pane is wide for **every** step, not only for the grid one that needs it. Width belongs to the
- * pane and not to the content (§7), and a pane that resizes between steps is a layout jump: the house
- * rule prefers a first step that looks airy over a frame that moves while the reader is in it. The
- * width is therefore chosen once, at open time, and nothing in here touches the overlay again.
+ * **The pane is wide exactly while the emote grid is showing.** Width belongs to the pane and not to
+ * the content (§7), so the switch is an overlay panel class and not a `max-w-*` somewhere in a
+ * template — but it is *not* a property of the whole dialog either: all three form states (the source
+ * choice, the file branch, the channel branch before a set has loaded) carry a form's worth of content
+ * and looked lost in 72rem. They stay at the ordinary 28rem.
  *
- * The one width that *is* the content's business is the channel field inside the grid step: a
- * normalized Twitch login is a dozen characters, and stretching its row across 72rem would be the
- * opposite mistake.
+ * That leaves exactly one resize, and it coincides with "Set laden" — i.e. with a content change the
+ * reader is already watching, which is the one moment a size change reads as consequence rather than
+ * caprice. Nothing else moves. The trigger is therefore the grid's visibility, not the step: entering
+ * the channel branch changes nothing until the set is there.
  */
 @Component({
   selector: 'app-import-source-dialog',
@@ -173,6 +175,24 @@ export class ImportSourceDialog {
 
   protected readonly channelResult = computed(() => this.channelStep()?.result() ?? null);
 
+  /** The one thing that decides the pane's width — see the class doc. `false` on every step that
+   *  has no grid on it, including the channel step before its first successful load. */
+  private readonly gridVisible = computed(() => this.channelStep()?.showsGrid() ?? false);
+
+  constructor() {
+    // The overlay ref is CDK's own handle on the pane element, and the pane is where a width has to
+    // land (§7). Nothing inside the template can reach it, and `panelClass` at open time cannot
+    // either — it is decided before the dialog has any state.
+    effect(() => {
+      const overlayRef = this.dialogRef.overlayRef;
+      if (this.gridVisible()) {
+        overlayRef.addPanelClass(WIDE_PANEL_CLASS);
+      } else {
+        overlayRef.removePanelClass(WIDE_PANEL_CLASS);
+      }
+    });
+  }
+
   protected goTo(step: ImportSourceStep): void {
     this.step.set(step);
   }
@@ -197,6 +217,6 @@ export function openImportSourceDialog(
   return openAppDialog<ImportSourceDialogResult | undefined, ImportSourceDialogData>(
     dialog,
     ImportSourceDialog,
-    { data, panelClass: WIDE_PANEL_CLASS },
+    { data },
   );
 }

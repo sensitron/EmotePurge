@@ -64,11 +64,12 @@ type LoadState =
     TranslocoPipe,
   ],
   template: `
-    <!-- The 24rem cap is the field's own business, not the pane's: the pane is wide for the emote
-         grid below and stays that width across every step (§7.3, no layout jumps), but a normalized
-         Twitch login is a dozen characters and an input stretched across 72rem reads as a mistake.
-         It lands the input at roughly the width it had in the 28rem pane this dialog grew out of,
-         and above the app's own w-40/w-44 filter fields. -->
+    <!-- The 24rem cap is NOT a second opinion on the pane width (§7: that belongs to the pane, and
+         the dialog widens it for the grid). It earns its place in the LOADED state, where this form
+         stays on screen above a 72rem grid: uncapped, a field for a dozen-character Twitch login
+         would stretch across the whole pane. At 24rem it is instead the same size before and after
+         "Set laden" — the pane resizes around it, the field does not move. Before the load the cap
+         is nearly inert (the 28rem pane leaves ~25rem of content width), which is the point. -->
     <form class="flex max-w-sm flex-col gap-1" (submit)="onFormSubmit($event)">
       <!-- A visible label, not just a placeholder: this is a form field in a dialog body, not a
            filter toolbar, so the design language's label duty (§5.2) applies in full. -->
@@ -164,6 +165,13 @@ export class ForeignChannelStep {
     const current = this.state();
     return current.status === 'error' ? apiErrorTranslationKey(current.error) : null;
   });
+
+  /**
+   * Whether the emote grid is on screen. The dialog widens its pane against exactly this and
+   * nothing else (§7.3): entering this step is a form, and a form does not need 72rem — the grid
+   * does, and it arrives with "Set laden".
+   */
+  readonly showsGrid = computed(() => this.loadedResponse() !== null);
 
   /**
    * The step's whole outward contract: `null` while there is nothing to carry forward, the payload

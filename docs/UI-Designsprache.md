@@ -404,12 +404,19 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Der Kopf nennt den Zweig:** „Emotes importieren" auf dem ersten Schritt, „Datei importieren" bzw.
   „Aus einem Kanal importieren" darunter. Das ist die einzige Ortsangabe, die ein Ein-Dialog-Fluss
   neben „Zurück" hat.
-- **Die Pane ist über alle Schritte gleich breit** (`app-dialog-panel-wide`, s. §7 und `styles.css`),
-  gewählt **einmal beim Öffnen** über die `panelClass`-Option von `openAppDialog`. Sie je Schritt zu
-  wechseln wäre ein Layout-Sprung; die Hausregel nimmt lieber einen luftigen ersten Schritt in Kauf
-  als einen Rahmen, der unter dem Leser springt. Was ein schmaler Schritt stattdessen tut, ist seinen
-  **Inhalt** zu begrenzen — das Kanalfeld trägt sein eigenes `max-w-sm`, weil ein normalisierter
-  Twitch-Login ein Dutzend Zeichen hat.
+- **Die Pane ist breit, solange das Raster steht — und nur dann** (`app-dialog-panel-wide`, s. §7 und
+  `styles.css`). Die Breite gehört der Pane, nicht dem Inhalt, der Schalter ist deshalb die
+  Panel-Klasse und keine `max-w-*` im Template; gesetzt wird sie zur Laufzeit über
+  `overlayRef.addPanelClass`, weil beim Öffnen noch niemand weiß, ob ein Raster kommt. Die drei
+  Formularzustände — Quellenwahl, Datei-Zweig, Kanal-Zweig **vor** dem Laden — bleiben bei den
+  gewöhnlichen 28 rem: ein Formular in 72 rem sieht verloren aus. **Damit gibt es genau eine
+  Größenänderung, und sie fällt mit „Set laden" zusammen**, also mit einem ohnehin sichtbaren
+  Inhaltswechsel — der einzige Ort, an dem eine Größenänderung als Folge lesbar ist statt als
+  Willkür. Auslöser ist die Sichtbarkeit des Rasters, nicht der Schritt.
+- **Das Kanalfeld trägt trotzdem ein `max-w-sm`**, und das ist keine zweite Meinung über die
+  Pane-Breite: das Formular bleibt im geladenen Zustand **über** dem 72-rem-Raster stehen. Ungekappt
+  spannte ein Feld für ein Dutzend Zeichen dort über die ganze Pane. Bei 24 rem ist es vor und nach
+  „Set laden" gleich breit — die Pane wächst um das Feld herum, das Feld bewegt sich nicht.
 - **Datei-Zweig (`FileImportStep`, `shared/seven-tv/file-import-step.ts`).** Er **liest und prüft**
   die Datei — mehr nicht. Bis #147 war er ein eigener Dialog (`FileImportDialog`); geändert hat sich
   allein seine Behausung, nicht sein Verhalten.

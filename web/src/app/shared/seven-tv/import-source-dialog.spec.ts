@@ -1,4 +1,4 @@
-import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
+import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
@@ -12,11 +12,7 @@ import { LanguageService } from '../../core/i18n/language.service';
 import { ForeignEmoteSetResponse } from '../../core/seven-tv/foreign-emote-set.model';
 import { FileImportStep } from './file-import-step';
 import { ForeignChannelStep } from './foreign-channel-step';
-import {
-  ImportSourceDialog,
-  ImportSourceDialogResult,
-  openImportSourceDialog,
-} from './import-source-dialog';
+import { ImportSourceDialog, ImportSourceDialogResult } from './import-source-dialog';
 
 const DE_TRANSLATIONS = {
   common: { cancel: 'Abbrechen' },
@@ -98,10 +94,14 @@ describe('ImportSourceDialog', () => {
   let host: HTMLElement;
   let httpMock: HttpTestingController;
   let closed: (ImportSourceDialogResult | undefined)[];
+  let addPanelClass: ReturnType<typeof vi.fn>;
+  let removePanelClass: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     closed = [];
+    addPanelClass = vi.fn();
+    removePanelClass = vi.fn();
 
     await TestBed.configureTestingModule({
       imports: [
@@ -117,7 +117,10 @@ describe('ImportSourceDialog', () => {
         { provide: DIALOG_DATA, useValue: { channelName: 'somechannel', setId: 'set-current' } },
         {
           provide: DialogRef,
-          useValue: { close: (result?: ImportSourceDialogResult) => closed.push(result) },
+          useValue: {
+            close: (result?: ImportSourceDialogResult) => closed.push(result),
+            overlayRef: { addPanelClass, removePanelClass },
+          },
         },
         {
           provide: LanguageService,
@@ -214,21 +217,31 @@ describe('ImportSourceDialog', () => {
     });
   });
 
-  describe('the pane', () => {
-    it('opens wide, on top of the ordinary pane chrome and for every step alike', () => {
-      // The grid needs the width; keeping it across the narrow steps too is the "no layout jumps"
-      // rule — a pane that resizes between steps moves the frame under the reader. Hence one
-      // decision at open time and nothing that touches the overlay afterwards.
-      const open = vi.fn(() => ({ closed: undefined }));
+  describe('the pane widens for the grid and for nothing else', () => {
+    it('stays narrow on every form state, including the channel step before a set has loaded', () => {
+      // All three carry a form's worth of content and looked lost at 72rem. Entering the channel
+      // branch is explicitly not enough — the grid is what needs the width.
+      sourceOption('Aus einer Datei').click();
+      fixture.detectChanges();
+      expect(addPanelClass).not.toHaveBeenCalled();
 
-      openImportSourceDialog({ open } as unknown as Dialog, {
-        channelName: 'somechannel',
-        setId: 'set-current',
-      });
+      button('Zurück').click();
+      fixture.detectChanges();
+      goToChannelStep();
 
-      const calls = open.mock.calls as unknown as unknown[][];
-      const config = calls[0][1] as { panelClass: string[] };
-      expect(config.panelClass).toEqual(['app-dialog-panel', 'app-dialog-panel-wide']);
+      expect(addPanelClass).not.toHaveBeenCalled();
+    });
+
+    it('widens when the set arrives and narrows again when it is gone', () => {
+      goToChannelStep();
+      markOneEmote();
+      expect(addPanelClass).toHaveBeenCalledWith('app-dialog-panel-wide');
+
+      // The one resize coincides with "Set laden"; going back takes the width with it.
+      button('Zurück').click();
+      fixture.detectChanges();
+
+      expect(removePanelClass).toHaveBeenLastCalledWith('app-dialog-panel-wide');
     });
   });
 
