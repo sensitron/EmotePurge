@@ -19,6 +19,17 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
     open-pull-requests-limit: 5
+    # vitest 5 cannot be resolved here: every published @angular/build 22.1.x declares
+    # peerDependencies.vitest ^4.0.8, so npm ci dies with ERESOLVE (that was PRs #101/#102).
+    # The two packages also share a core and are only green together — a lone bump of either
+    # one is red regardless of the peer range. This is maintenance-vs-migration, not a version
+    # preference: vitest 5 breaks the config API. Lift the rule with the Angular major that
+    # carries vitest 5; that upgrade brings both packages along.
+    ignore:
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
+        update-types: ["version-update:semver-major"]
 
   # Wildcards instead of "/" on purpose: the solution file is the new .slnx format, so pointing
   # at the csproj directories does not depend on Dependabot's .slnx support.
