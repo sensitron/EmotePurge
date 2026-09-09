@@ -49,7 +49,7 @@ public class SevenTvForeignEmoteSetEndpointTests : IClassFixture<ApiFactory>
         var emoteSet = new ForeignEmoteSet(
             Channel, "01FRY81K4800085N93FNKSBYXS", "01FRY81K4800085N93FNKSBYXS-set", 1, false,
             [new ForeignEmoteRow("e1", "Alias", "Default", "https://cdn.7tv.app/emote/e1/4x_static.webp", 500, 12)]);
-        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Channel, Arg.Any<CancellationToken>())
+        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Channel, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(ForeignEmoteSetLookupResult.Ok(emoteSet));
 
         var response = await SendAsync(Channel, NewUserId());
@@ -76,13 +76,39 @@ public class SevenTvForeignEmoteSetEndpointTests : IClassFixture<ApiFactory>
     public async Task EveryFailureStatus_MapsToItsDocumentedResponse(
         ForeignEmoteSetLookupStatus status, HttpStatusCode expectedStatusCode, string expectedErrorCode)
     {
-        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(ForeignEmoteSetLookupResult.Failed(status));
 
         var response = await SendAsync(Channel, NewUserId());
 
         Assert.Equal(expectedStatusCode, response.StatusCode);
         Assert.Equal(expectedErrorCode, await ReadErrorCodeAsync(response));
+    }
+
+    /// <summary>T2, spec E3: <c>?refresh=true</c> reaches the service as <c>refresh: true</c>.</summary>
+    [Fact]
+    public async Task RefreshQueryParam_IsPassedThroughToTheService()
+    {
+        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Channel, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.NoSevenTvAccount));
+
+        await SendAsync(Channel, NewUserId(), refresh: true);
+
+        await _factory.ForeignEmoteSet.Received(1).GetForeignEmoteSetAsync(Channel, true, Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>The counterpart: an absent query string reaches the service as <c>refresh: false</c>,
+    /// not as a 400 for a "missing" parameter — the whole point of giving it a C# default.</summary>
+    [Fact]
+    public async Task AbsentRefreshQueryParam_DefaultsToFalse()
+    {
+        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Channel, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.NoSevenTvAccount));
+
+        var response = await SendAsync(Channel, NewUserId());
+
+        Assert.NotEqual(HttpStatusCode.BadRequest, response.StatusCode);
+        await _factory.ForeignEmoteSet.Received(1).GetForeignEmoteSetAsync(Channel, false, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -104,7 +130,7 @@ public class SevenTvForeignEmoteSetEndpointTests : IClassFixture<ApiFactory>
     public async Task InvalidChannelName_OverBudget_Gets429_NotThe400ItWouldGetOtherwise()
     {
         var userId = NewUserId();
-        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.NoSevenTvAccount));
 
         // Spend the ForeignEmoteLookup budget (10/min, RateLimitingOptions.ForeignEmoteLookup) on
@@ -128,7 +154,7 @@ public class SevenTvForeignEmoteSetEndpointTests : IClassFixture<ApiFactory>
     public async Task ValidChannelName_OverBudget_Gets429()
     {
         var userId = NewUserId();
-        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _factory.ForeignEmoteSet.GetForeignEmoteSetAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.NoSevenTvAccount));
 
         for (var i = 0; i < 10; i++)
@@ -149,14 +175,15 @@ public class SevenTvForeignEmoteSetEndpointTests : IClassFixture<ApiFactory>
         return JsonDocument.Parse(body).RootElement.GetProperty("errorCode").GetString();
     }
 
-    private async Task<HttpResponseMessage> SendAsync(string channelName, string? userId)
+    private async Task<HttpResponseMessage> SendAsync(string channelName, string? userId, bool refresh = false)
     {
         var client = _factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false
         });
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/seventv/channels/{channelName}/emotes");
+        var path = $"/api/seventv/channels/{channelName}/emotes" + (refresh ? "?refresh=true" : "");
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
         if (userId is not null)
         {
             request.Headers.Add(TestAuthHandler.UserIdHeader, userId);

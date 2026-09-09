@@ -1,0 +1,194 @@
+using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
+using Microsoft.Extensions.Logging;
+
+namespace EmotePurge.Infrastructure.SevenTv;
+
+/// <summary>
+/// The hardening decorator around the foreign-channel-import preview (spec 2026-09-09, T2/section 6):
+/// wraps the raw <see cref="ForeignEmoteSetService"/> resolution chain with the 60 s cache (E3),
+/// request coalescing, the 429-aware circuit breaker (E4) and the provider-wide budget (E5b) — in
+/// that order, one process-wide instance of each collaborator shared across every request.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Order of guards.</b> The cache is checked first and, on a hit, short-circuits everything below
+/// it — no coalescing key is even taken. A miss (or <c>refresh: true</c>, which always skips the
+/// cache) enters the coalescer, so concurrent identical lookups share one execution of the breaker
+/// and budget gate below rather than each consulting them separately. Only inside that shared
+/// execution does the breaker decide whether to allow an attempt at all, and only if it does does the
+/// budget gate wait for a concurrency slot and rate-window headroom before the raw chain is actually
+/// invoked.
+/// </para>
+/// <para>
+/// <b>Every reachable path through <see cref="ExecuteGuardedAsync"/> resolves the breaker's probe
+/// state exactly once</b> whenever <see cref="ForeignSevenTvBreakerPolicy.TryAcquire"/> returned
+/// <c>Allowed: true</c> — via <see cref="ForeignSevenTvBreakerPolicy.RecordSuccess"/>,
+/// <see cref="ForeignSevenTvBreakerPolicy.RecordFailure"/>, or, for an outcome that says nothing
+/// about 7TV's health (a budget timeout, or a lookup that never reached 7TV in the first place — see
+/// <see cref="ApplyBreakerFeedback"/>), <see cref="ForeignSevenTvBreakerPolicy.ReleaseProbeWithoutOutcome"/>.
+/// The <c>finally</c> block is the backstop for anything unexpected that still manages to skip all of
+/// those — without it, a single truly unforeseen exception during the probe's one allowed attempt
+/// would leave the breaker stuck open forever, since no later caller is ever let through to prove it
+/// recovered.
+/// </para>
+/// </remarks>
+public sealed class HardenedForeignEmoteSetService(
+    IForeignEmoteSetService inner,
+    IForeignEmoteSetCache cache,
+    ForeignEmoteSetRequestCoalescer coalescer,
+    ForeignSevenTvBreakerPolicy breaker,
+    ForeignEmoteSetProviderBudget budget,
+    IRateLimitTelemetry telemetry,
+    ILogger<HardenedForeignEmoteSetService> logger) : IForeignEmoteSetService
+{
+    /// <summary>
+    /// How long a caller waits for the provider-wide budget (E5b) before giving up and answering
+    /// "unavailable" instead of continuing to wait.
+    /// </summary>
+    /// <remarks>
+    /// The spec leaves this value open deliberately (section 6, "offener Punkt"). Chosen at 5 s:
+    /// generous relative to the measured typical cost of one foreign-set fetch (0.72 s for a
+    /// 956-emote set against HandOfBlood's real set, section 6 of the spec) — several times over, so
+    /// a passing burst of up to two other concurrent lookups clearing the concurrency gate ahead of a
+    /// third caller resolves well inside the window in the overwhelmingly common case — while still
+    /// staying short enough that opening the import dialog does not feel hung to someone who lands on
+    /// the losing side of a genuine spike. It intentionally does *not* try to cover the pathological
+    /// worst case (up to ten sequential paginated pages at the client's own 10 s HTTP timeout each);
+    /// a wait that long would defeat the point of failing fast at all. If live use shows 5 s rejects
+    /// too eagerly during normal traffic, or too rarely to matter, this is the one number to revisit
+    /// — nothing else in this class assumes a particular value.
+    /// </remarks>
+    private static readonly TimeSpan BudgetWaitTimeout = TimeSpan.FromSeconds(5);
+
+    public async Task<ForeignEmoteSetLookupResult> GetForeignEmoteSetAsync(
+        string channelName, bool refresh = false, CancellationToken cancellationToken = default)
+    {
+        var normalized = ChannelName.Normalize(channelName);
+
+        if (!refresh)
+        {
+            var cached = await cache.TryGetAsync(normalized, cancellationToken);
+            telemetry.RecordCacheLookup(RateLimitCacheNames.ForeignEmoteSet, hit: cached is not null);
+            if (cached is not null)
+            {
+                return ForeignEmoteSetLookupResult.Ok(cached);
+            }
+        }
+
+        // Coalesced regardless of refresh: a plain cache-miss lookup and a forced refresh for the
+        // same channel run the identical chain, so sharing whichever of the two happened to start
+        // first is correct either way — not just permitted.
+        return await coalescer.CoalesceAsync(normalized, () => ExecuteGuardedAsync(normalized, cancellationToken));
+    }
+
+    private async Task<ForeignEmoteSetLookupResult> ExecuteGuardedAsync(string normalizedChannelName, CancellationToken cancellationToken)
+    {
+        var decision = breaker.TryAcquire();
+        if (!decision.Allowed)
+        {
+            // Deliberately not louder than Debug: this fires on every rejected request while the
+            // breaker is open, and the one event worth a real log line — the breaker actually opening
+            // — is logged exactly once, below, at the point the transition happens.
+            logger.LogDebug(
+                "Fremdkanal-Vorschau für {ChannelName}: Circuit-Breaker offen, kein Upstream-Aufruf (verbleibende Offenzeit {RemainingSeconds}s).",
+                normalizedChannelName, Math.Ceiling(decision.RemainingOpenTime.TotalSeconds));
+            return ForeignEmoteSetLookupResult.Failed(
+                decision.OpenedByRateLimit
+                    ? ForeignEmoteSetLookupStatus.SevenTvRateLimited
+                    : ForeignEmoteSetLookupStatus.SevenTvUnavailable);
+        }
+
+        var breakerResolved = false;
+        IDisposable? permit = null;
+        try
+        {
+            permit = await budget.TryAcquireAsync(BudgetWaitTimeout, cancellationToken);
+            if (permit is null)
+            {
+                logger.LogWarning(
+                    "Fremdkanal-Vorschau für {ChannelName}: providerweites 7TV-Budget nach {TimeoutSeconds}s Wartezeit nicht verfügbar.",
+                    normalizedChannelName, BudgetWaitTimeout.TotalSeconds);
+                // Never reached the inner chain — nothing to tell the breaker about 7TV's health, but
+                // the probe slot (if this was one) still needs releasing.
+                breaker.ReleaseProbeWithoutOutcome();
+                breakerResolved = true;
+                return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.SevenTvUnavailable);
+            }
+
+            var result = await inner.GetForeignEmoteSetAsync(normalizedChannelName, refresh: false, cancellationToken);
+            LogBreakerTransition(normalizedChannelName, result.Status, ApplyBreakerFeedback(result));
+            breakerResolved = true;
+
+            if (result.Status == ForeignEmoteSetLookupStatus.Ok)
+            {
+                await cache.SetAsync(normalizedChannelName, result.EmoteSet!, cancellationToken);
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (!breakerResolved)
+            {
+                // Backstop for a genuinely unexpected exception (including cancellation) that skipped
+                // every other resolution path above — treated as a plain failure, never a rate limit:
+                // whatever happened here is not something 7TV told us.
+                breaker.RecordFailure(ForeignSevenTvBreakerOutcome.OtherFailure, null);
+            }
+
+            permit?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Feeds one lookup outcome back into the breaker. <see cref="ForeignEmoteSetLookupStatus.Ok"/>,
+    /// <see cref="ForeignEmoteSetLookupStatus.NoSevenTvAccount"/> and
+    /// <see cref="ForeignEmoteSetLookupStatus.NoActiveEmoteSet"/> all required a real 7TV answer to
+    /// produce, so all three count as evidence 7TV is healthy — "account not found" and "no active
+    /// set" are legitimate answers, not failures. <see cref="ForeignEmoteSetLookupStatus.ChannelNotOnTwitch"/>
+    /// and <see cref="ForeignEmoteSetLookupStatus.TwitchUnavailable"/> never reach 7TV at all — the
+    /// breaker exists to protect 7TV specifically, so these say nothing about it either way.
+    /// </summary>
+    private ForeignSevenTvBreakerTransition ApplyBreakerFeedback(ForeignEmoteSetLookupResult result) => result.Status switch
+    {
+        ForeignEmoteSetLookupStatus.Ok
+            or ForeignEmoteSetLookupStatus.NoSevenTvAccount
+            or ForeignEmoteSetLookupStatus.NoActiveEmoteSet => breaker.RecordSuccess(),
+        ForeignEmoteSetLookupStatus.SevenTvRateLimited =>
+            breaker.RecordFailure(ForeignSevenTvBreakerOutcome.RateLimited, result.RetryAfter),
+        ForeignEmoteSetLookupStatus.SevenTvUnavailable =>
+            breaker.RecordFailure(ForeignSevenTvBreakerOutcome.OtherFailure, null),
+        ForeignEmoteSetLookupStatus.ChannelNotOnTwitch or ForeignEmoteSetLookupStatus.TwitchUnavailable =>
+            ReleaseProbeAsNoEvidence(),
+        _ => throw new ArgumentOutOfRangeException(nameof(result), result.Status, "Unbekannter ForeignEmoteSetLookupStatus.")
+    };
+
+    private ForeignSevenTvBreakerTransition ReleaseProbeAsNoEvidence()
+    {
+        breaker.ReleaseProbeWithoutOutcome();
+        return ForeignSevenTvBreakerTransition.None;
+    }
+
+    private void LogBreakerTransition(string normalizedChannelName, ForeignEmoteSetLookupStatus status, ForeignSevenTvBreakerTransition transition)
+    {
+        switch (transition)
+        {
+            case ForeignSevenTvBreakerTransition.Opened:
+                // The one line this whole class exists to log exactly once per open event, not per
+                // rejected request (spec section 6): a transition only ever happens on the call that
+                // causes it, never on the many rejections that follow while it stays open.
+                logger.LogWarning(
+                    "7TV-Circuit-Breaker für Fremdkanal-Vorschauen geöffnet (ausgelöst durch Kanal {ChannelName}, Status {Status}).",
+                    normalizedChannelName, status);
+                break;
+            case ForeignSevenTvBreakerTransition.Closed:
+                logger.LogInformation("7TV-Circuit-Breaker für Fremdkanal-Vorschauen wieder geschlossen.");
+                break;
+            case ForeignSevenTvBreakerTransition.None:
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(transition), transition, "Unbekannter ForeignSevenTvBreakerTransition.");
+        }
+    }
+}

@@ -17,7 +17,10 @@ public class ForeignEmoteSetService(
     ISevenTvApiClient sevenTvApiClient,
     ILogger<ForeignEmoteSetService> logger) : IForeignEmoteSetService
 {
-    public async Task<ForeignEmoteSetLookupResult> GetForeignEmoteSetAsync(string channelName, CancellationToken cancellationToken = default)
+    // refresh (T2, spec E3) is meaningless here: this implementation never caches anything, so there
+    // is nothing for it to bypass. Only the hardening decorator that wraps this class interprets it.
+    public async Task<ForeignEmoteSetLookupResult> GetForeignEmoteSetAsync(
+        string channelName, bool refresh = false, CancellationToken cancellationToken = default)
     {
         var normalized = ChannelName.Normalize(channelName);
 
@@ -77,7 +80,8 @@ public class ForeignEmoteSetService(
             case SevenTvPreviewLookupStatus.RateLimited:
                 logger.LogWarning(
                     "Fremdkanal-Vorschau für {ChannelName}: 7TV meldet Überlast (429).", normalized);
-                return ForeignEmoteSetLookupResult.Failed(ForeignEmoteSetLookupStatus.SevenTvRateLimited);
+                return ForeignEmoteSetLookupResult.Failed(
+                    ForeignEmoteSetLookupStatus.SevenTvRateLimited, previewResult.RetryAfter);
             case SevenTvPreviewLookupStatus.Unavailable:
                 logger.LogInformation(
                     "Fremdkanal-Vorschau für {ChannelName}: 7TV-Set-Abruf fehlgeschlagen.", normalized);

@@ -208,7 +208,7 @@ public class SevenTvApiClientEmoteSetPreviewTests
     private static SevenTvApiClient CreateClient(HttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri("https://7tv.io/v3/") };
-        return new SevenTvApiClient(httpClient, new RecordingLogger<SevenTvApiClient>());
+        return new SevenTvApiClient(httpClient, new RecordingRateLimitTelemetry(), new RecordingLogger<SevenTvApiClient>());
     }
 
     /// <summary>Answers every POST with the response the given function derives from the request's

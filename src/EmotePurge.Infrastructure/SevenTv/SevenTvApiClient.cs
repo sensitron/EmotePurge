@@ -2,12 +2,15 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
+using EmotePurge.Infrastructure.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace EmotePurge.Infrastructure.SevenTv;
 
-public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> logger) : ISevenTvApiClient
+public class SevenTvApiClient(
+    HttpClient httpClient, IRateLimitTelemetry telemetry, ILogger<SevenTvApiClient> logger) : ISevenTvApiClient
 {
     private const string GqlUsersQuery =
         "query($q: String!) { users(query: $q) { id username connections { platform username id } } }";
@@ -320,32 +323,25 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
 
             for (var page = 1; page <= MaxSetEntryPages; page++)
             {
-                var payload = new
-                {
-                    query = GqlEmoteSetPreviewQuery,
-                    variables = new { id = emoteSetId, page, perPage = SetEntriesPerPage }
-                };
-                var response = await httpClient.PostAsJsonAsync(V4GqlPath, payload, cancellationToken);
-                response.EnsureSuccessStatusCode();
+                var pageResult = await FetchPreviewPageAsync(emoteSetId, page, cancellationToken);
 
-                var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlEmoteSetPreviewResponseDto>(
-                    SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
-
-                // The single most expensive mistake in the whole spec (section 5/AK7): 7TV answers an overload
-                // with HTTP 200 and a GraphQL error carrying extensions.status == 429, which — without
-                // this check — is indistinguishable from a set that genuinely has zero entries. The
-                // second is explicitly not an error (see the state table), so this has to be checked
-                // before the "no usable data" branch below, not folded into it.
-                if (IsRateLimited(dto?.Errors))
+                // The single most expensive mistake in the whole spec (section 5/AK7): 7TV answers an
+                // overload — HTTP 429 outright, or HTTP 200 with a GraphQL error carrying
+                // extensions.status == 429 — which without this check is indistinguishable from a set
+                // that genuinely has zero entries. The second is explicitly not an error (see the
+                // state table), so both forms of a confirmed 429 are checked before the "no usable
+                // data" branch below, not folded into it. FetchPreviewPageAsync tells the two forms
+                // apart itself; from here on they are one outcome.
+                if (pageResult.Status == PreviewPageStatus.RateLimited)
                 {
                     logger.LogWarning(
-                        "7TV meldet Überlast (extensions.status: 429) beim Vorschau-Abruf für Set {SetId}, Seite {Page}.",
+                        "7TV meldet Überlast (429) beim Vorschau-Abruf für Set {SetId}, Seite {Page}.",
                         emoteSetId, page);
-                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.RateLimited);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.RateLimited, pageResult.RetryAfter);
                 }
 
-                var pageDto = dto?.Data?.EmoteSets?.EmoteSet?.Emotes;
-                if (pageDto is null)
+                var pageDto = pageResult.Dto?.Data?.EmoteSets?.EmoteSet?.Emotes;
+                if (pageResult.Status == PreviewPageStatus.Unavailable || pageDto is null)
                 {
                     logger.LogWarning(
                         "7TV-Vorschau-Abruf für Set {SetId} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?), Seite {Page}.",
@@ -383,6 +379,78 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
             return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.Unavailable);
         }
     }
+
+    // One HTTP request, one telemetry observation — the unit the telemetry vertrag (spec section 6)
+    // is written against. ProviderRequestTelemetryHandler is silenced for this request
+    // (ProviderTelemetrySuppression.OptionsKey) because it only ever sees the raw HTTP status: a 7TV
+    // overload disguised as HTTP 200 with extensions.status 429 would land in its count as a plain
+    // success. This method reports itself instead, after parsing far enough to know the real,
+    // semantic outcome, under RateLimitCallSources.SevenTvForeignPreview rather than SevenTvRest.
+    private async Task<PreviewPageResult> FetchPreviewPageAsync(string emoteSetId, int page, CancellationToken cancellationToken)
+    {
+        var payload = new
+        {
+            query = GqlEmoteSetPreviewQuery,
+            variables = new { id = emoteSetId, page, perPage = SetEntriesPerPage }
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, V4GqlPath) { Content = JsonContent.Create(payload) };
+        request.Options.Set(ProviderTelemetrySuppression.OptionsKey, true);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var retryAfterSeconds = ProviderRequestTelemetryHandler.ReadRetryAfterSeconds(response);
+
+        // A literal HTTP 429 — distinct from the disguised-as-200 form checked below, and previously
+        // indistinguishable from it: EnsureSuccessStatusCode() used to throw here and fall into the
+        // generic catch below as a plain Unavailable, losing exactly the distinction E4 needs to open
+        // the breaker immediately instead of counting toward its five-failure threshold.
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            RecordForeignPreviewObservation(response, statusOverride: 429, retryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.RateLimited, null, ToRetryAfter(retryAfterSeconds));
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.Unavailable, null, null);
+        }
+
+        SevenTvGqlEmoteSetPreviewResponseDto? dto;
+        try
+        {
+            dto = await response.Content.ReadFromJsonAsync<SevenTvGqlEmoteSetPreviewResponseDto>(
+                SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            // The HTTP layer really did answer 200 — that is what gets counted — even though the body
+            // could not be parsed. The caller's outer catch maps the rethrown exception to Unavailable.
+            RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
+            throw;
+        }
+
+        if (IsRateLimited(dto?.Errors))
+        {
+            RecordForeignPreviewObservation(response, statusOverride: 429, retryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.RateLimited, null, ToRetryAfter(retryAfterSeconds));
+        }
+
+        RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
+        return new PreviewPageResult(PreviewPageStatus.Ok, dto, null);
+    }
+
+    private void RecordForeignPreviewObservation(HttpResponseMessage response, int? statusOverride, int? retryAfterSeconds) =>
+        telemetry.RecordProviderResponse(new ProviderResponseObservation(
+            RateLimitProviders.SevenTv,
+            RateLimitCallSources.SevenTvForeignPreview,
+            statusOverride ?? (int)response.StatusCode,
+            retryAfterSeconds,
+            ProviderRequestTelemetryHandler.ReadHeader(response, "Ratelimit-Limit"),
+            ProviderRequestTelemetryHandler.ReadHeader(response, "Ratelimit-Remaining"),
+            ProviderRequestTelemetryHandler.ReadHeader(response, "Ratelimit-Reset")));
+
+    private static TimeSpan? ToRetryAfter(int? retryAfterSeconds) =>
+        retryAfterSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null;
 
     // Common continuation for both branches of GetChannelStateForTwitchUserAsync: whether emoteSetDto
     // came straight off the primary response or was reloaded via the issue #43 fallback, everything
@@ -578,4 +646,16 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     // tracked-channel path — one visual language for both.
     private static string BuildForeignImageUrl(string emoteId) =>
         emoteId.Length == 0 ? string.Empty : $"https://cdn.7tv.app/emote/{emoteId}/4x_static.webp";
+
+    private enum PreviewPageStatus
+    {
+        Ok,
+        RateLimited,
+        Unavailable
+    }
+
+    // Nested at the class end (Regel 19) — a pure return-value carrier local to FetchPreviewPageAsync,
+    // not part of this client's public shape.
+    private readonly record struct PreviewPageResult(
+        PreviewPageStatus Status, SevenTvGqlEmoteSetPreviewResponseDto? Dto, TimeSpan? RetryAfter);
 }

@@ -311,6 +311,73 @@ dieser Runde, keine glückliche Nebenwirkung.
 
 ---
 
+### 2026-09-09 — Die Fremdset-Vorschau wird gehärtet, weil 7TV eine Server-IP sieht und nicht N Nutzer (#147)
+
+**Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/HardenedForeignEmoteSetService.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignSevenTvBreakerPolicy.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetProviderBudget.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetRequestCoalescer.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetCache.cs` ·
+`src/EmotePurge.Infrastructure/Telemetry/ProviderRequestTelemetryHandler.cs` ·
+`src/EmotePurge.Infrastructure/ServiceCollectionExtensions.cs` ·
+`src/EmotePurge.Core/Services/IForeignEmoteSetCache.cs` · `src/EmotePurge.Core/Services/IRateLimitTelemetry.cs`
+
+**Ein Limit pro Nutzer begrenzt gegenüber 7TV nichts.** Der Endpunkt nimmt einen frei getippten
+Kanalnamen entgegen; zehn verschiedene Namen umgehen Cache und Koaleszierung vollständig und kosten
+je bis zu einen Helix-Abruf, ein `userByConnection` und zehn Set-Seiten. 7TV sieht davon nicht zehn
+Nutzer, sondern eine Server-IP. Deshalb steht neben der Per-Nutzer-Policy `ForeignEmoteLookup`
+(10/min) ein **providerweites** Budget: höchstens zwei gleichzeitige Abrufe und 60
+Upstream-Requests je Minute aus diesem Feature. **Über der Schranke wird gewartet, nicht
+abgelehnt** — die Alternative wäre, unter Last genau den Fehler zu zeigen, den die Schranke
+verhindern soll.
+
+**Die Wartezeit ist auf 5 s gedeckelt, und diese Zahl ist eine Setzung.** Sie ist großzügig gegen
+die gemessenen 0,72 s eines typischen Abrufs und kurz genug, den Import-Dialog nicht hängen zu
+lassen. Sie deckt den pathologischen Fall (zehn Seiten × HTTP-Timeout) bewusst **nicht** ab. Wenn
+der Live-Betrieb widerspricht, ist das die Zahl, die man anfasst.
+
+**Der Breaker öffnet bei einem bestätigten 429 sofort, nicht nach fünf Fehlern.** 7TVs Sperre läuft
+rund eine Stunde; ein Breaker, der nach einem eindeutigen 429 noch vier Versuche zulässt und dann
+nach starren 60 s erneut anklopft, verschärft die Sperre, die er vermeiden soll. Die Offenzeit folgt
+darum einem vorliegenden `Retry-After`, und nur ersatzweise den 60 s. Sonstige Upstream-Fehler
+behalten die Fünferschwelle. Pure Policy-Klasse wie `TwitchReconnectBackoffPolicy` und
+`SevenTvBackoffPolicy`, kein Polly.
+
+**Ein 429 kommt in zwei Gestalten, und die zweite war zunächst unsichtbar.** Dass 7TV Überlast als
+HTTP 200 mit `extensions.status: 429` tarnt, war von Anfang an eingeplant. Beim Härten fiel auf, dass
+der *literale* HTTP 429 durch `EnsureSuccessStatusCode()` in den generischen Catch lief und als
+schlichtes `Unavailable` zurückkam — ununterscheidbar von jedem anderen Fehler. Der Breaker hätte
+damit für die unverkleidete Hälfte der Fälle nie schnell geöffnet. Beide Gestalten werden jetzt vor
+allem geprüft, was werfen könnte.
+
+**Die Telemetrie meldet die Client-Methode selbst, nicht der Message-Handler.** Der Handler bekommt
+seine Call-Source fest bei der Registrierung des typisierten Clients; eine neue Methode erschiene
+weiter unter `seventv-rest`. Schlimmer: er sieht bei `extensions.status: 429` nur HTTP 200, und der
+Store wertet allein einen HTTP-429 als Rate-Limit — ausgerechnet der wichtigste Fehler bliebe im
+Admin-Monitoring unsichtbar. Für diesen Pfad wird der Handler darum über
+`ProviderTelemetrySuppression.OptionsKey` stillgelegt, und die Beobachtung entsteht **nach** dem
+Parsen, unter der neuen Quelle `seventv-foreign-preview`. **Genau eine Beobachtung je
+Upstream-Request** — nicht null, nicht zwei; ein Test hält das fest. Das ist der erste Präzedenzfall
+dafür, dass eine Client-Methode ihre eigene Telemetrie meldet, und er gilt für Fälle, in denen das
+semantische Ergebnis erst nach dem Rumpf feststeht.
+
+**Der Dekorator hängt über keyed DI vor dem rohen Dienst** (`AddKeyedScoped` /
+`GetRequiredKeyedService`) — erster Einsatz von keyed services in diesem Repo. Gewählt gegen ein
+zweites Interface, weil Tests so beide Seiten unabhängig substituieren können, ohne dass eine
+Attrappe der Härtung in der Signatur des Fachdienstes auftaucht.
+
+**Bekannte Grenze, bewusst in Kauf genommen:** Breaker-Zustand, Koaleszierung und das providerweite
+Budget sind Singletons **in einem Prozess**. Bei einer zweiten Api-Replica bräuchten alle drei
+verteilten Zustand — dieselbe Klasse von Grenze wie der In-Process-Lock des Twitch-Token-Refresh.
+Heute läuft eine Replica.
+
+**`ResolveSevenTvIdentityAsync` bleibt außen vor.** Ein 429 dort zählt über den Gesamtstatus in die
+generische Fünferschwelle, bekommt aber keinen Schnellpfad, weil die Methode mit `SevenTvSyncService`
+und `ChannelAccessService` geteilt wird. Bewusst nicht mitgeändert; falls es sich im Betrieb rächt,
+ist es ein eigenes Ticket wert.
+
+---
+
 ### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
 
 **Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,

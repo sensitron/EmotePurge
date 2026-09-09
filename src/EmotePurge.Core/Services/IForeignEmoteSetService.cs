@@ -16,7 +16,16 @@ namespace EmotePurge.Core.Services;
 /// </remarks>
 public interface IForeignEmoteSetService
 {
-    Task<ForeignEmoteSetLookupResult> GetForeignEmoteSetAsync(string channelName, CancellationToken cancellationToken = default);
+    /// <param name="channelName">A Twitch login, in any casing — normalized inside.</param>
+    /// <param name="refresh">
+    /// <c>true</c> bypasses the 60 s cache (spec E3's "neu laden") — the hardening decorator's
+    /// concern entirely. It still passes through the same rate-limit policy and the same circuit
+    /// breaker (spec section 6): a forced refresh is not a way around either guard, only around the
+    /// cache. The base implementation registered under this interface ignores the flag — it never
+    /// caches anything in the first place, so there is nothing for it to bypass.
+    /// </param>
+    Task<ForeignEmoteSetLookupResult> GetForeignEmoteSetAsync(
+        string channelName, bool refresh = false, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -53,10 +62,11 @@ public enum ForeignEmoteSetLookupStatus
 /// </summary>
 public sealed class ForeignEmoteSetLookupResult
 {
-    private ForeignEmoteSetLookupResult(ForeignEmoteSetLookupStatus status, ForeignEmoteSet? emoteSet)
+    private ForeignEmoteSetLookupResult(ForeignEmoteSetLookupStatus status, ForeignEmoteSet? emoteSet, TimeSpan? retryAfter)
     {
         Status = status;
         EmoteSet = emoteSet;
+        RetryAfter = retryAfter;
     }
 
     public ForeignEmoteSetLookupStatus Status { get; }
@@ -64,13 +74,21 @@ public sealed class ForeignEmoteSetLookupResult
     /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="ForeignEmoteSetLookupStatus.Ok"/>.</summary>
     public ForeignEmoteSet? EmoteSet { get; }
 
+    /// <summary>
+    /// Carried through from <see cref="EmotePurge.Core.SevenTv.SevenTvEmoteSetPreviewResult.RetryAfter"/> when
+    /// <see cref="Status"/> is <see cref="ForeignEmoteSetLookupStatus.SevenTvRateLimited"/> — the
+    /// hardening decorator's circuit breaker (spec E4) honors it over its own default open duration.
+    /// <c>null</c> for every other status, and also for a rate limit 7TV reported with no such header.
+    /// </summary>
+    public TimeSpan? RetryAfter { get; }
+
     public static ForeignEmoteSetLookupResult Ok(ForeignEmoteSet emoteSet)
     {
         ArgumentNullException.ThrowIfNull(emoteSet);
-        return new ForeignEmoteSetLookupResult(ForeignEmoteSetLookupStatus.Ok, emoteSet);
+        return new ForeignEmoteSetLookupResult(ForeignEmoteSetLookupStatus.Ok, emoteSet, null);
     }
 
-    public static ForeignEmoteSetLookupResult Failed(ForeignEmoteSetLookupStatus status)
+    public static ForeignEmoteSetLookupResult Failed(ForeignEmoteSetLookupStatus status, TimeSpan? retryAfter = null)
     {
         if (status == ForeignEmoteSetLookupStatus.Ok)
         {
@@ -83,7 +101,7 @@ public sealed class ForeignEmoteSetLookupResult
             throw new ArgumentOutOfRangeException(nameof(status), status, "Unbekannter ForeignEmoteSetLookupStatus.");
         }
 
-        return new ForeignEmoteSetLookupResult(status, null);
+        return new ForeignEmoteSetLookupResult(status, null, retryAfter);
     }
 }
 

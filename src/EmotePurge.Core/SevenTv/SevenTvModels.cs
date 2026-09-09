@@ -441,10 +441,11 @@ public enum SevenTvPreviewLookupStatus
 /// </summary>
 public sealed class SevenTvEmoteSetPreviewResult
 {
-    private SevenTvEmoteSetPreviewResult(SevenTvPreviewLookupStatus status, SevenTvEmoteSetPreview? preview)
+    private SevenTvEmoteSetPreviewResult(SevenTvPreviewLookupStatus status, SevenTvEmoteSetPreview? preview, TimeSpan? retryAfter)
     {
         Status = status;
         Preview = preview;
+        RetryAfter = retryAfter;
     }
 
     public SevenTvPreviewLookupStatus Status { get; }
@@ -452,13 +453,22 @@ public sealed class SevenTvEmoteSetPreviewResult
     /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="SevenTvPreviewLookupStatus.Ok"/>.</summary>
     public SevenTvEmoteSetPreview? Preview { get; }
 
+    /// <summary>
+    /// 7TV's own <c>Retry-After</c> header on the response that produced
+    /// <see cref="SevenTvPreviewLookupStatus.RateLimited"/>, when it sent one — <c>null</c> for every
+    /// other status, and also <c>null</c> for a rate limit 7TV reported with no such header (the
+    /// hardening decorator's circuit breaker falls back to its own default open duration then, per
+    /// spec E4).
+    /// </summary>
+    public TimeSpan? RetryAfter { get; }
+
     public static SevenTvEmoteSetPreviewResult Ok(SevenTvEmoteSetPreview preview)
     {
         ArgumentNullException.ThrowIfNull(preview);
-        return new SevenTvEmoteSetPreviewResult(SevenTvPreviewLookupStatus.Ok, preview);
+        return new SevenTvEmoteSetPreviewResult(SevenTvPreviewLookupStatus.Ok, preview, null);
     }
 
-    public static SevenTvEmoteSetPreviewResult Failed(SevenTvPreviewLookupStatus status)
+    public static SevenTvEmoteSetPreviewResult Failed(SevenTvPreviewLookupStatus status, TimeSpan? retryAfter = null)
     {
         if (status == SevenTvPreviewLookupStatus.Ok)
         {
@@ -471,7 +481,7 @@ public sealed class SevenTvEmoteSetPreviewResult
             throw new ArgumentOutOfRangeException(nameof(status), status, "Unbekannter SevenTvPreviewLookupStatus.");
         }
 
-        return new SevenTvEmoteSetPreviewResult(status, null);
+        return new SevenTvEmoteSetPreviewResult(status, null, retryAfter);
     }
 }
 

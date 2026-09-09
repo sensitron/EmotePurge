@@ -3,6 +3,19 @@ using EmotePurge.Core.Services;
 namespace EmotePurge.Infrastructure.Telemetry;
 
 /// <summary>
+/// Carries the one <see cref="HttpRequestOptions"/> key this handler checks before recording
+/// anything (spec 2026-09-09, section 6 telemetry vertrag). Set on a request to silence the shared
+/// handler for it — the request's own code reports itself instead, under its own call source, with
+/// whatever it learns from the parsed response body that the handler, seeing only the raw HTTP
+/// status, cannot: 7TV disguises an overload as HTTP 200 with <c>extensions.status: 429</c>, which
+/// this handler would otherwise file as a plain success.
+/// </summary>
+public static class ProviderTelemetrySuppression
+{
+    public static readonly HttpRequestOptionsKey<bool> OptionsKey = new("EmotePurge.SuppressProviderTelemetry");
+}
+
+/// <summary>
 /// Counts what Twitch and 7TV actually answered, at the outgoing boundary — one instance per typed
 /// client, each carrying its own call source.
 /// </summary>
@@ -43,6 +56,11 @@ public sealed class ProviderRequestTelemetryHandler(
     {
         var response = await base.SendAsync(request, cancellationToken);
 
+        if (request.Options.TryGetValue(ProviderTelemetrySuppression.OptionsKey, out var suppressed) && suppressed)
+        {
+            return response;
+        }
+
         // Fire-and-forget by contract (RateLimitTelemetryExtensions): a counter must not add a Redis
         // round trip to every provider call, and must never be able to fail one.
         telemetry.RecordProviderResponse(new ProviderResponseObservation(
@@ -60,8 +78,12 @@ public sealed class ProviderRequestTelemetryHandler(
     /// <summary>
     /// The provider's own <c>Retry-After</c>, in seconds. Both forms are accepted — a delta and an
     /// HTTP date — because the header allows both and which one arrives is the provider's choice.
+    /// Internal rather than private: <c>SevenTvApiClient</c>'s own telemetry reporting for the
+    /// suppressed foreign-channel-import requests (this class's doc comment) reads the exact same
+    /// header the exact same way, and a second copy of this parsing would be the kind of drift this
+    /// project's decision log already has an entry about.
     /// </summary>
-    private static int? ReadRetryAfterSeconds(HttpResponseMessage response)
+    internal static int? ReadRetryAfterSeconds(HttpResponseMessage response)
     {
         var retryAfter = response.Headers.RetryAfter;
         if (retryAfter is null)
@@ -88,7 +110,7 @@ public sealed class ProviderRequestTelemetryHandler(
     /// One header, kept as the string it arrived as. Absent for 7TV, which sends none of them — and
     /// absent is the honest answer there, not a zero.
     /// </summary>
-    private static string? ReadHeader(HttpResponseMessage response, string name)
+    internal static string? ReadHeader(HttpResponseMessage response, string name)
         => response.Headers.TryGetValues(name, out var values)
             ? values.FirstOrDefault()
             : null;

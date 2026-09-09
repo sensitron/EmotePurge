@@ -20,6 +20,11 @@ namespace EmotePurge.Infrastructure;
 
 public static class ServiceCollectionExtensions
 {
+    // The raw foreign-channel-import chain's DI key (see its registration below) — private because
+    // nothing outside this method resolves it directly; the hardening decorator is the only consumer,
+    // and it takes the raw chain through a plain constructor parameter, not a keyed-service attribute.
+    private const string RawForeignEmoteSetServiceKey = "raw-foreign-emote-set";
+
     public static IServiceCollection AddEmotePurgeInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddDbContext<AppDbContext>(options =>
@@ -78,11 +83,31 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ChannelSyncGate>();
         services.AddScoped<ISevenTvSyncService, SevenTvSyncService>();
 
-        // Foreign-channel-import read path (spec 2026-09-09, T1). Scoped like the other stateless
-        // services above — it holds no state of its own, only the two collaborators it composes.
-        // Hardening (cache/breaker/coalescing/provider budget, T2) is a separate decorator this
-        // registration is left free to wrap around later.
-        services.AddScoped<IForeignEmoteSetService, ForeignEmoteSetService>();
+        // Foreign-channel-import read path (spec 2026-09-09). The raw resolution chain (T1) is
+        // registered under a key so the hardening decorator (T2, below) can depend on
+        // IForeignEmoteSetService for its inner collaborator without resolving itself — the two
+        // share one interface on purpose, so a unit test can substitute either side independently of
+        // the other, the same way ForeignEmoteSetServiceTests already substitutes the raw chain's own
+        // two collaborators.
+        services.AddKeyedScoped<IForeignEmoteSetService, ForeignEmoteSetService>(RawForeignEmoteSetServiceKey);
+
+        // Hardening (spec section 6, T2): a 60 s Redis cache (E3), request coalescing, a 429-aware
+        // circuit breaker (E4) and a provider-wide concurrency/rate budget (E5b) wrapped around the
+        // raw chain above. The three collaborators that carry state across requests are singletons —
+        // a breaker, a budget or an in-flight-request table scoped per request would guard nothing —
+        // while the decorator itself stays scoped, matching the raw chain it wraps.
+        services.AddSingleton<IForeignEmoteSetCache, ForeignEmoteSetCache>();
+        services.AddSingleton<ForeignEmoteSetRequestCoalescer>();
+        services.AddSingleton<ForeignSevenTvBreakerPolicy>();
+        services.AddSingleton<ForeignEmoteSetProviderBudget>();
+        services.AddScoped<IForeignEmoteSetService>(sp => new HardenedForeignEmoteSetService(
+            sp.GetRequiredKeyedService<IForeignEmoteSetService>(RawForeignEmoteSetServiceKey),
+            sp.GetRequiredService<IForeignEmoteSetCache>(),
+            sp.GetRequiredService<ForeignEmoteSetRequestCoalescer>(),
+            sp.GetRequiredService<ForeignSevenTvBreakerPolicy>(),
+            sp.GetRequiredService<ForeignEmoteSetProviderBudget>(),
+            sp.GetRequiredService<IRateLimitTelemetry>(),
+            sp.GetRequiredService<ILogger<HardenedForeignEmoteSetService>>()));
 
         services.AddHttpClient<ITwitchAuthClient, TwitchAuthClient>(client =>
         {

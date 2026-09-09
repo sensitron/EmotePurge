@@ -30,9 +30,14 @@ public static class SevenTvEndpoints
         group.MapGet("", async (
             string channelName,
             IForeignEmoteSetService foreignEmoteSetService,
-            CancellationToken ct) =>
+            CancellationToken ct,
+            bool refresh = false) => // query string; a C# default is what makes minimal API treat it
+                                     // as optional instead of answering a plain request with 400
         {
-            var result = await foreignEmoteSetService.GetForeignEmoteSetAsync(channelName, ct);
+            // refresh=true (T2, spec E3) bypasses the hardening decorator's 60 s cache but still
+            // passes through the same rate-limit policy and the same circuit breaker — no separate
+            // policy was ever needed for it.
+            var result = await foreignEmoteSetService.GetForeignEmoteSetAsync(channelName, refresh, ct);
 
             // Mirrors the state table in spec section 5 one-to-one. SevenTvRateLimited and
             // SevenTvUnavailable deliberately share a branch and a code: the table has one row for
