@@ -818,8 +818,9 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // The export dialog is a page state of its own: format choice, row count and (elsewhere) the
-    // withheld-columns notice all render only here.
+    // The export dialog is a page state of its own: the purpose-sorted option group (#141, three
+    // two-line rows here — the third only because channelWorkspace gives sensitron an active set),
+    // row count and (elsewhere) the withheld-columns notice all render only here.
     slug: 'usage-stats-export-dialog',
     path: '/channels/sensitron/usage-stats',
     setup: async (page) => {
@@ -840,8 +841,8 @@ const SCENARIOS: Scenario[] = [
   {
     // The push flow's first step (#72, K3): the target picker, opened without a grid selection so
     // the scope radiogroup does not render and every visible row is the implied scope. One tracked,
-    // one untracked (disabled with its hint) channel plus the "save as file" row is the state the
-    // picker is in most often.
+    // one untracked (disabled with its hint) channel is the state the picker is in most often — the
+    // file destination moved to the export dialog (#141), see `usage-stats-export-dialog` above.
     slug: 'usage-stats-import-target-dialog',
     path: '/channels/sensitron/usage-stats',
     requiresFinePointer: true,

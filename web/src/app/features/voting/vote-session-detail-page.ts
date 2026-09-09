@@ -38,7 +38,11 @@ import {
 import { EmoteSprite } from '../../shared/emotes/emote-sprite';
 import { EmoteSpriteAnimated } from '../../shared/emotes/emote-sprite-animated';
 import { CSV_MIME } from '../../shared/export/csv';
-import { ExportDialogData, openExportDialog } from '../../shared/export/export-dialog';
+import {
+  ExportDialogData,
+  FORMAT_EXPORT_OPTIONS,
+  openExportDialog,
+} from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
@@ -577,11 +581,13 @@ export class VoteSessionDetailPage {
       // This page has no grid selection to export — the ballot itself already is the subset.
       selectionCount: 0,
       noticeKeys,
+      optionsLegendKey: 'export.formatLabel',
+      options: FORMAT_EXPORT_OPTIONS,
     };
     openExportDialog(this.dialog, data).closed.subscribe((choice) => {
-      if (choice?.format === 'csv') {
+      if (choice?.optionId === 'csv') {
         downloadFile(votingExportFilename(input, 'csv'), votingCsv(input), CSV_MIME);
-      } else if (choice?.format === 'json') {
+      } else if (choice?.optionId === 'json') {
         downloadFile(votingExportFilename(input, 'json'), votingJson(input), JSON_MIME);
       }
     });

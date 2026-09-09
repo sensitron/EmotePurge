@@ -25,19 +25,18 @@ export interface ImportTargetDialogData {
   forcedScope?: ExportScope;
 }
 
-/** What was chosen: a scope over the source rows, plus where they should go. */
+/** What was chosen: a scope over the source rows, plus the channel they should go into. */
 export interface ImportTargetChoice {
   scope: ExportScope;
-  target: { kind: 'channel'; channelName: string } | { kind: 'file' };
+  channelName: string;
 }
 
-type TargetSelection = { kind: 'channel'; channelName: string } | { kind: 'file' } | null;
+type TargetSelection = { channelName: string } | null;
 
 /**
- * First step of the copy flow (#72, K3): choose *what* (scope) and *where* (target channel, or a
- * file to save for later). Loads `listMine()` itself on open — the same call the overview page
- * makes, deliberately uncached (`ChannelService.listMine` docstring) so a role granted a moment ago
- * already shows up.
+ * First step of the copy flow (#72, K3): choose *what* (scope) and *where* (target channel).
+ * Loads `listMine()` itself on open — the same call the overview page makes, deliberately
+ * uncached (`ChannelService.listMine` docstring) so a role granted a moment ago already shows up.
  *
  * Scope defaults to `selection` when a selection exists (R12) — the opposite of the export dialog,
  * which defaults to `visible`. Export's risk is silently *narrowing* an export; this dialog's risk
@@ -105,47 +104,42 @@ type TargetSelection = { kind: 'channel'; channelName: string } | { kind: 'file'
           </app-notice-banner>
         }
 
-        <div
-          class="flex flex-col gap-1"
-          role="radiogroup"
-          [attr.aria-label]="'import.target.label' | transloco"
-        >
+        <!-- role="radiogroup" only wraps the @for below, and only when it has something to own:
+             ARIA requires a radiogroup to contain at least one radio, and with the file radio gone
+             this container can legitimately hold zero (E5 — no channel qualifies). The "no channel"
+             message therefore renders as a sibling, never inside an otherwise-empty group. -->
+        @if (options().length > 0) {
+          <div
+            class="flex flex-col gap-1"
+            role="radiogroup"
+            [attr.aria-label]="'import.target.label' | transloco"
+          >
+            @for (option of options(); track option.channelName) {
+              <label class="flex items-center gap-2 py-1" [class.opacity-60]="option.disabled">
+                <input
+                  type="radio"
+                  class="h-4 w-4 accent-accent-solid"
+                  name="import-target"
+                  [disabled]="option.disabled"
+                  [checked]="isChannelChecked(option.channelName)"
+                  (change)="selectChannel(option.channelName)"
+                />
+                #{{ option.channelName }}
+                @if (option.disabled) {
+                  <span class="text-xs text-fg-muted">
+                    ({{ 'import.target.notTracked' | transloco }})
+                  </span>
+                }
+              </label>
+            }
+          </div>
+        } @else if (!reauthRequired() && !loadFailed() && !listIncomplete()) {
           <!-- Only when there genuinely is no channel. After a reauth, a failed load or a
                partial one the empty list says nothing about the account, and claiming otherwise
                invites ignoring the notice above: an unavailable 7TV hides precisely the editor
                targets, so "no channel fits" would be a claim this list cannot support. -->
-          @if (!reauthRequired() && !loadFailed() && !listIncomplete() && options().length === 0) {
-            <p class="text-sm text-fg-muted">{{ 'import.target.none' | transloco }}</p>
-          }
-          @for (option of options(); track option.channelName) {
-            <label class="flex items-center gap-2 py-1" [class.opacity-60]="option.disabled">
-              <input
-                type="radio"
-                class="h-4 w-4 accent-accent-solid"
-                name="import-target"
-                [disabled]="option.disabled"
-                [checked]="isChannelChecked(option.channelName)"
-                (change)="selectChannel(option.channelName)"
-              />
-              #{{ option.channelName }}
-              @if (option.disabled) {
-                <span class="text-xs text-fg-muted">
-                  ({{ 'import.target.notTracked' | transloco }})
-                </span>
-              }
-            </label>
-          }
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="import-target"
-              [checked]="target()?.kind === 'file'"
-              (change)="selectFile()"
-            />
-            {{ 'import.target.saveAsFile' | transloco }}
-          </label>
-        </div>
+          <p class="text-sm text-fg-muted">{{ 'import.target.none' | transloco }}</p>
+        }
       }
 
       <button
@@ -222,15 +216,11 @@ export class ImportTargetDialog {
 
   protected isChannelChecked(channelName: string): boolean {
     const current = this.target();
-    return current !== null && current.kind === 'channel' && current.channelName === channelName;
+    return current !== null && current.channelName === channelName;
   }
 
   protected selectChannel(channelName: string): void {
-    this.target.set({ kind: 'channel', channelName });
-  }
-
-  protected selectFile(): void {
-    this.target.set({ kind: 'file' });
+    this.target.set({ channelName });
   }
 
   protected submit(): void {
@@ -238,7 +228,7 @@ export class ImportTargetDialog {
     if (target === null) {
       return;
     }
-    this.dialogRef.close({ scope: this.scope(), target });
+    this.dialogRef.close({ scope: this.scope(), channelName: target.channelName });
   }
 }
 

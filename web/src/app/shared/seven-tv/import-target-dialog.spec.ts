@@ -27,7 +27,6 @@ const DE_TRANSLATIONS = {
       title: 'Emotes übertragen',
       label: 'Zielkanal',
       notTracked: 'Kanal muss erst beitreten',
-      saveAsFile: 'Als Datei speichern',
       none: 'Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.',
       listIncomplete:
         'Die Kanalliste ist gerade unvollständig — fehlende Kanäle erscheinen nach einem erneuten Laden.',
@@ -86,8 +85,11 @@ interface Harness {
   scopeInputs(): HTMLInputElement[];
   scopeInput(value: 'visible' | 'selection'): HTMLInputElement;
   channelInput(name: string): HTMLInputElement | undefined;
-  fileInput(): HTMLInputElement;
   targetInputCount(): number;
+  /** The target radiogroup itself, keyed on its `aria-label` (`import.target.label`) rather than
+   *  just "any `[role=radiogroup]`" — the scope radiogroup above it (`export.scopeLabel`) is a
+   *  second, unrelated one and must not be picked up here by accident. */
+  targetRadiogroup(): Element | undefined;
 }
 
 describe('ImportTargetDialog', () => {
@@ -185,17 +187,11 @@ describe('ImportTargetDialog', () => {
         return input;
       },
       channelInput: (name) => labelStartingWith(`#${name}`)?.querySelector('input') ?? undefined,
-      fileInput: () => {
-        const inputs = Array.from(
-          host.querySelectorAll<HTMLInputElement>('input[name="import-target"]'),
-        );
-        const input = inputs.at(-1);
-        if (!input) {
-          throw new Error('no target radios rendered at all');
-        }
-        return input;
-      },
       targetInputCount: () => host.querySelectorAll('input[name="import-target"]').length,
+      targetRadiogroup: () =>
+        Array.from(host.querySelectorAll('[role="radiogroup"]')).find(
+          (el) => el.getAttribute('aria-label') === 'Zielkanal',
+        ),
     };
   }
 
@@ -243,9 +239,7 @@ describe('ImportTargetDialog', () => {
       dialog.detect();
       dialog.button(SUBMIT).click();
 
-      expect(closed).toEqual([
-        { scope: 'visible', target: { kind: 'channel', channelName: 'chan' } },
-      ]);
+      expect(closed).toEqual([{ scope: 'visible', channelName: 'chan' }]);
     });
 
     it('omits the scope radiogroup entirely when a caller forces the scope, even with a selection', async () => {
@@ -263,9 +257,7 @@ describe('ImportTargetDialog', () => {
       dialog.detect();
       dialog.button(SUBMIT).click();
 
-      expect(closed).toEqual([
-        { scope: 'selection', target: { kind: 'channel', channelName: 'chan' } },
-      ]);
+      expect(closed).toEqual([{ scope: 'selection', channelName: 'chan' }]);
     });
   });
 
@@ -415,36 +407,36 @@ describe('ImportTargetDialog', () => {
       expect(order).toEqual(['#alpha', '#mike', '#zulu']);
     });
 
-    it('always renders the file option, listed after every channel option', async () => {
+    it('renders an empty target group with the "none" message and a disabled "Weiter" when the account has no eligible channel (E5)', async () => {
+      const dialog = render();
+      await resolve(dialog, 0, channelsResult());
+
+      expect(dialog.targetInputCount()).toBe(0);
+      expect(dialog.text()).toContain(
+        'Kein weiterer Kanal, in dem du Broadcaster oder 7TV-Editor bist.',
+      );
+      expect(dialog.button(SUBMIT).disabled).toBe(true);
+      // ARIA forbids a radiogroup that owns zero radios — with the "none" message rendered as a
+      // sibling instead of inside the group (see import-target-dialog.ts), this state must not
+      // expose a `role="radiogroup"` at all.
+      expect(dialog.targetRadiogroup()).toBeUndefined();
+    });
+
+    it('still exposes the target radiogroup once at least one channel qualifies', async () => {
       const dialog = render();
       await resolve(
         dialog,
         0,
-        channelsResult({
-          channels: [channel({ channelName: 'onlychannel', isBroadcaster: true })],
-        }),
+        channelsResult({ channels: [channel({ channelName: 'alpha', isBroadcaster: true })] }),
       );
-
-      const host = dialog.fixture.nativeElement as HTMLElement;
-      const inputs = Array.from(
-        host.querySelectorAll<HTMLInputElement>('input[name="import-target"]'),
-      );
-      expect(inputs).toHaveLength(2);
-      expect(inputs[1]).toBe(dialog.fileInput());
-      expect(dialog.text()).toContain('Als Datei speichern');
-    });
-
-    it('renders only the file option when the account has no eligible channel', async () => {
-      const dialog = render();
-      await resolve(dialog, 0, channelsResult());
 
       expect(dialog.targetInputCount()).toBe(1);
-      expect(dialog.fileInput()).toBeDefined();
+      expect(dialog.targetRadiogroup()).toBeDefined();
     });
   });
 
   describe('target selection', () => {
-    it('starts with no target selected — neither a channel nor the file radio checked', async () => {
+    it('starts with no channel selected', async () => {
       const dialog = render();
       await resolve(
         dialog,
@@ -455,10 +447,9 @@ describe('ImportTargetDialog', () => {
       );
 
       expect(dialog.channelInput('somechannel')?.checked).toBe(false);
-      expect(dialog.fileInput().checked).toBe(false);
     });
 
-    it('checks the chosen channel exclusively, unchecking the file option', async () => {
+    it('checks the chosen channel once selected', async () => {
       const dialog = render();
       await resolve(
         dialog,
@@ -467,35 +458,11 @@ describe('ImportTargetDialog', () => {
           channels: [channel({ channelName: 'somechannel', isBroadcaster: true })],
         }),
       );
-
-      dialog.fileInput().click();
-      dialog.detect();
-      expect(dialog.fileInput().checked).toBe(true);
 
       dialog.channelInput('somechannel')?.click();
       dialog.detect();
 
       expect(dialog.channelInput('somechannel')?.checked).toBe(true);
-      expect(dialog.fileInput().checked).toBe(false);
-    });
-
-    it('checks the file option exclusively, unchecking a previously chosen channel', async () => {
-      const dialog = render();
-      await resolve(
-        dialog,
-        0,
-        channelsResult({
-          channels: [channel({ channelName: 'somechannel', isBroadcaster: true })],
-        }),
-      );
-
-      dialog.channelInput('somechannel')?.click();
-      dialog.detect();
-      dialog.fileInput().click();
-      dialog.detect();
-
-      expect(dialog.fileInput().checked).toBe(true);
-      expect(dialog.channelInput('somechannel')?.checked).toBe(false);
     });
   });
 
@@ -525,27 +492,20 @@ describe('ImportTargetDialog', () => {
       dialog.detect();
       dialog.button(SUBMIT).click();
 
-      expect(closed).toEqual([
-        { scope: 'selection', target: { kind: 'channel', channelName: 'somechannel' } },
-      ]);
-    });
-
-    it('closes with the chosen scope and the file target', async () => {
-      const dialog = render(defaultData({ selectionCount: 2 }));
-      await resolve(dialog, 0, channelsResult());
-
-      dialog.fileInput().click();
-      dialog.detect();
-      dialog.button(SUBMIT).click();
-
-      expect(closed).toEqual([{ scope: 'selection', target: { kind: 'file' } }]);
+      expect(closed).toEqual([{ scope: 'selection', channelName: 'somechannel' }]);
     });
 
     it('closes empty-handed on cancel, even with a target already chosen', async () => {
       const dialog = render();
-      await resolve(dialog, 0, channelsResult());
+      await resolve(
+        dialog,
+        0,
+        channelsResult({
+          channels: [channel({ channelName: 'somechannel', isBroadcaster: true })],
+        }),
+      );
 
-      dialog.fileInput().click();
+      dialog.channelInput('somechannel')?.click();
       dialog.detect();
       dialog.button(CANCEL).click();
 

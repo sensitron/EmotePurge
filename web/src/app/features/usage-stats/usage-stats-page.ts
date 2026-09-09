@@ -85,21 +85,14 @@ import {
   usageFillPercent,
 } from '../../shared/emotes/usage-bands';
 import { SlotBudgetBar } from '../../shared/emotes/slot-budget-bar';
-import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData, ExportScope, openExportDialog } from '../../shared/export/export-dialog';
-import {
-  buildEmoteListEnvelope,
-  emoteListFilename,
-  emoteListJson,
-} from '../../shared/export/emote-list-export';
-import { JSON_MIME } from '../../shared/export/export-envelope';
 import { downloadFile } from '../../shared/export/file-download';
 import {
-  UsageExportInput,
-  usageCsv,
-  usageExportFilename,
-  usageJson,
-} from '../../shared/export/usage-export';
+  ExportPurposeId,
+  buildUsageExportPurposeDownload,
+  toImportRow,
+  usageExportPurposeOptions,
+} from '../../shared/export/usage-export-purposes';
 import {
   ATLAS_CELL_PX,
   ATLAS_ROW_PX,
@@ -143,10 +136,28 @@ interface CapturedImportScope {
   readonly visible: readonly ImportRow[];
 }
 
-const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
-  sevenTvEmoteId: emote.sevenTvEmoteId,
-  name: emote.emoteName,
-});
+/**
+ * `openExport`'s counterpart to `CapturedImportScope` — same reasoning (see `openImportTarget`'s
+ * docstring), now applying to the export dialog too since the emote-list purpose put a file path
+ * that reads `emoteSetId` behind it. Holds the raw `EmoteUsageTotal` rows rather than `ImportRow`s
+ * because the two usage branches (CSV/JSON) need the full totals; only the emote-list purpose
+ * narrows them, inside `buildUsageExportPurposeDownload`.
+ *
+ * `channelName`/`from`/`to` are read from `totalsChannel`/`totalsRange`, not from
+ * `channelName()`/`from()`/`to()` — those move the instant a range change or a live reload starts,
+ * while `totalsChannel`/`totalsRange` only move once that reload's rows have actually landed (see
+ * their declarations). Reading the live signals here would let the capture pair rows from one
+ * query with the channel/range label of a newer, still in-flight one.
+ */
+interface CapturedExportScope {
+  readonly channelName: string;
+  readonly emoteSetId: string | null;
+  readonly from: string;
+  readonly to: string;
+  readonly filtered: boolean;
+  readonly selection: readonly EmoteUsageTotal[];
+  readonly visible: readonly EmoteUsageTotal[];
+}
 
 // Sorting a never-used emote needs a position, not a crash. It is the deadest thing in the list, so
 // it sorts as older than any real date: descending (most recent first) puts them at the very end,
@@ -577,6 +588,16 @@ export class UsageStatsPage {
    *  Exists because the two requests answer independently: knowing that *something* has finished
    *  loading says nothing about whether the rows and the set id describe the same channel. */
   private readonly totalsChannel = signal<string | null>(null);
+
+  /** The `[from, to]` range the rows in `emotes()` were loaded for — totalsChannel's range
+   *  counterpart, written alongside it in the very same place for the very same reason: `from()`/
+   *  `to()` move the moment a range-menu change or a live `usageFlushed`/`channel.synced` event
+   *  starts a reload, while `emotes()` still holds the previous response until that reload's own
+   *  success branch replaces it. `openExport` reads this instead of `from()`/`to()` so the exported
+   *  file cannot label one moment's rows with another moment's range. */
+  private readonly totalsRange = signal<{ readonly from: string; readonly to: string } | null>(
+    null,
+  );
 
   /** The channel for which an active-set request is in flight or has already answered, success or
    *  failure. A plain field, not a signal: writing it must never itself retrigger load()'s effect —
@@ -1172,39 +1193,93 @@ export class UsageStatsPage {
     openEmoteDrilldownDialog(this.dialog, data);
   }
 
-  // Exports the *visible* list (filtered + sorted, in atlas order) by default, or — chosen in the
-  // dialog — the current selection: the same rows that drive mass-delete and vote-session creation.
-  // Client-side serialization on purpose — the read model is already loaded, and a download must
-  // never see more than the page does (A12).
+  /**
+   * Exports the *visible* list (filtered + sorted, in atlas order) by default, or — chosen in the
+   * dialog — the current selection: the same rows that drive mass-delete and vote-session
+   * creation. Client-side serialization on purpose — the read model is already loaded, and a
+   * download must never see more than the page does (A12).
+   *
+   * Sorted by purpose, not by format (#141): usage figures as CSV or JSON, or — when an active
+   * 7TV set makes it fulfillable (E3) — the emote list to re-import elsewhere. An option that
+   * fails on submit is exactly the trap E3 rules out, which is why the third row is a visibility
+   * check rather than an always-shown option.
+   *
+   * Everything is captured *before* the dialog opens, for the same reason `openImportTarget`
+   * captures early (see its docstring): this page keeps reloading while the dialog is open
+   * (`usageFlushed`, `channel.synced`), and the keyed selection deliberately survives that reload.
+   * Reading `rows`/`filtered`/the scope only after close would let a later reload swap in
+   * different rows under an unchanged-looking selection, silently pairing them with the
+   * already-captured `emoteSetId` — invisible, because a surviving selection looks exactly like an
+   * unchanged one. Capturing up front also means the dialog's own `rowCount`/`selectionCount`
+   * (read from this same capture) can no longer promise a count the download later disagrees with.
+   *
+   * `channelName`/`from`/`to` are captured from `totalsChannel`/`totalsRange`, not from
+   * `channelName()`/`from()`/`to()`: `load()` sets `isLoading` without clearing `emotes()`, so an
+   * in-flight reload (a range change, a channel switch, a live event) leaves `atlasOrder()` still
+   * showing the previous query's rows while the route/range signals already report the next one.
+   * Reading those live would label one moment's rows with another moment's query — see
+   * `totalsChannel`'s and `totalsRange`'s declarations, which solve the same problem for the import
+   * push already.
+   *
+   * `trendFor` stays a live callback, deliberately not captured — the trend column is derived from
+   * live state at serialization time, same as before (E4).
+   *
+   * The two decisions this method used to make itself — which purposes are on offer, and what each
+   * one serializes — now live in `shared/export/usage-export-purposes.ts` as pure functions with
+   * their own spec (Regel 12). What is left here is capture, opening the dialog, and handing the
+   * choice to that module.
+   */
   protected openExport(): void {
-    const data: ExportDialogData = {
-      rowCount: this.atlasOrder().length,
+    // Falls back to the live signals only in the state atlasOrder().length === 0 already rules out
+    // for the button that calls this (see the template): before the very first totals response,
+    // totalsChannel()/totalsRange() are still null and there are no rows to mislabel anyway.
+    const range = this.totalsRange();
+    const captured: CapturedExportScope = {
+      channelName: this.totalsChannel() ?? this.channelName(),
+      emoteSetId: this.activeEmoteSetId(),
+      from: range?.from ?? this.from(),
+      to: range?.to ?? this.to(),
       filtered: this.usageFilter.isAnyActive(),
-      selectionCount: this.selection.selectedKeys().length,
+      selection: this.selection.selectedItems(),
+      visible: this.atlasOrder(),
+    };
+
+    // E3: the emote-list purpose is only offered when there is a set to source it from and the
+    // capture still matches the channel that set belongs to — see `usageExportPurposeOptions`.
+    const emoteListOfferable = captured.emoteSetId !== null && this.importScopeCurrent();
+    const options = usageExportPurposeOptions(emoteListOfferable);
+
+    const data: ExportDialogData<ExportPurposeId> = {
+      rowCount: captured.visible.length,
+      filtered: captured.filtered,
+      selectionCount: captured.selection.length,
       // Whoever can open this page sees every usage figure — nothing to explain away here.
       noticeKeys: [],
+      optionsLegendKey: 'export.purposeLabel',
+      options,
     };
     openExportDialog(this.dialog, data).closed.subscribe((choice) => {
       if (!choice) {
         return;
       }
-      // Built after the dialog closes, from the chosen scope. selectedItems() is safe here for
-      // the same reason as selectedForDelete: everything that removes rows from the atlas also
-      // clears or prunes the selection.
-      const input: UsageExportInput = {
-        channelName: this.channelName(),
-        from: this.from(),
-        to: this.to(),
-        rows: choice.scope === 'selection' ? this.selection.selectedItems() : this.atlasOrder(),
+      const rows = choice.scope === 'selection' ? captured.selection : captured.visible;
+      const download = buildUsageExportPurposeDownload(choice.optionId, {
+        channelName: captured.channelName,
+        emoteSetId: captured.emoteSetId,
+        from: captured.from,
+        to: captured.to,
+        filtered: captured.filtered,
+        rows,
         scope: choice.scope,
-        filtered: this.usageFilter.isAnyActive(),
         trendFor: (row) => this.trendFor(row),
-      };
-      if (choice.format === 'csv') {
-        downloadFile(usageExportFilename(input, 'csv'), usageCsv(input), CSV_MIME);
-      } else {
-        downloadFile(usageExportFilename(input, 'json'), usageJson(input), JSON_MIME);
+      });
+      if (download === null) {
+        // Unreachable: the emote-list option is only offered when the capture carried a set id
+        // (E3) — see `buildUsageExportPurposeDownload`'s own docstring for why this stays a
+        // narrowed no-op rather than an assertion.
+        return;
       }
+      downloadFile(download.filename, download.content, download.mimeType);
     });
   }
 
@@ -1295,9 +1370,8 @@ export class UsageStatsPage {
 
   /**
    * `openImportTarget`'s continuation once a target has been chosen. Works exclusively off the
-   * scope captured before the dialog opened (see there) — both destinations read the very same
-   * rows, so the file a user saves and the run they start describe the identical moment — and
-   * only branches on where those rows are going.
+   * scope captured before the dialog opened (see there) — the run started here reads the very
+   * same rows the dialog counted, not whatever the grid holds by the time this fires.
    */
   private startImportFromChoice(captured: CapturedImportScope, choice: ImportTargetChoice): void {
     const rows = choice.scope === 'selection' ? captured.selection : captured.visible;
@@ -1311,21 +1385,6 @@ export class UsageStatsPage {
       discardedRows: 0,
     };
 
-    if (choice.target.kind === 'file') {
-      const envelope = buildEmoteListEnvelope({
-        channelName: captured.channelName,
-        emoteSetId: captured.emoteSetId,
-        scope: choice.scope,
-        rows: source.rows,
-      });
-      downloadFile(
-        emoteListFilename(captured.channelName, envelope.exportedAt),
-        emoteListJson(envelope),
-        JSON_MIME,
-      );
-      return;
-    }
-
     const deps: ImportFlowDeps = {
       dialog: this.dialog,
       emoteAdminService: this.emoteAdminService,
@@ -1333,7 +1392,7 @@ export class UsageStatsPage {
       importService: this.importService,
       arbiter: this.arbiter,
     };
-    startImportFlow(deps, source, choice.target.channelName);
+    startImportFlow(deps, source, choice.channelName);
   }
 
   // Quiet counterpart to the set-status fetch in load(): no sync-poll, and a failed refetch keeps
@@ -1535,6 +1594,7 @@ export class UsageStatsPage {
           // Written next to the rows themselves, never before: until this line runs, the grid still
           // shows the previous channel's emotes (see totalsChannel's declaration).
           this.totalsChannel.set(channelName);
+          this.totalsRange.set({ from, to });
           if (options.preserveSelection) {
             // Reconciles against the freshly loaded, UNFILTERED `emotes` — not atlasOrder()/
             // retainVisible(), which read the filtered view and would wrongly drop a row that

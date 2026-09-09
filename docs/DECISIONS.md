@@ -10,6 +10,47 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-09 — Der Ziel-Dialog verliert sein Datei-Ziel: „Übertragen" und „Exportieren" trennen sich nach Transportweg (#141)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-target-dialog.ts` ·
+`web/src/app/shared/seven-tv/import-target-dialog.spec.ts` ·
+`web/src/app/features/usage-stats/usage-stats-page.ts` · `web/public/i18n/de.json` ·
+`web/public/i18n/en.json` · `docs/UI-Designsprache.md` (§7.2, §8.7)
+
+**Der Schnitt läuft jetzt nach Transportweg, nicht mehr nach Format.** Seit #141 (Task 4/5) gilt:
+„Übertragen…" geht immer in einen Kanal, „Exportieren" immer in eine Datei, die sich später wieder
+einlesen lässt. Der Ziel-Dialog (`import-target-dialog.ts`) verliert dafür seinen Datei-Radio samt
+`selectFile()` und dem `{kind:'file'}`-Zweig von `TargetSelection`/`ImportTargetChoice`; wer eine
+Datei will, geht über den Export-Dialog, der seit #141 eine dritte Zweck-Zeile „Emotes später wieder
+einlesen" anbietet, sobald ein aktives 7TV-Set das erlaubt (E3). Ohne wählbaren Kanal bleibt der
+Ziel-Dialog bewusst ein Sackgassen-Dialog: leere Ziel-Gruppe, `import.target.none`-Meldung, „Weiter"
+gesperrt (E5) — er öffnet sich trotzdem, er hat nur nichts zur Wahl.
+
+**Die #92-Begründung entfällt damit.** Der Eintrag vom 2026-09-07 („Ein Verb für die Übertragung,
+und die JSON-Option ist ein Datenauszug") begründete den Namen „Übertragen…" so: „das Kommando kann
+als Ziel einen Kanal *oder* eine Datei haben". Das stimmt seit diesem Commit nicht mehr — der
+Datei-Ausgang ist aus dem Ziel-Dialog verschwunden, „Übertragen…" hat nur noch ein Ziel.
+
+**Der Name bleibt trotzdem, jetzt aus dem einfacheren Grund.** „Übertragen…" heißt weiterhin
+„Übertragen…" — nicht weil es zwei Ziele deckt, sondern weil es genau einen Transportweg
+beschreibt: in einen anderen 7TV-Kanal. Eine erneute Umbenennung hätte niemandem genutzt, den die
+Umbenennung vom 2026-09-07 gerade erst erreicht hat, und der Name war nie an der Zwei-Ziele-Prämisse
+aufgehängt — er ist nur nicht mehr aus ihr *begründet*.
+
+**Kein stiller Refactor.** Die Anordnung, die dieser Commit umkehrt — der Datei-Ausgang als Radio
+im selben Ziel-Dialog wie die Kanalwahl —, war kein Zufall, sondern das Ergebnis von #80: drei
+Prüfrunden und ein Schiedsspruch (`docs/designs/Aktionszeile-80-2026-09-06.md`) haben §8.7 und die
+Zeilenreihenfolge in §7.2 genau so festgelegt. Wer das umkehrt, schreibt es hier auf, statt die
+Änderung im Diff verschwinden zu lassen.
+
+**Ältere Einträge dieses Logs werden nicht nachgebessert.** Der Eintrag vom 2026-09-07 zitiert
+weiterhin „das Kommando kann als Ziel einen Kanal *oder* eine Datei haben" als das, was damals
+galt — er hält fest, was zu dem Zeitpunkt entschieden wurde, nicht was heute noch stimmt. Nachgezogen
+wird nur der Ist-Stand: `docs/UI-Designsprache.md` §7.2 (Zeilenreihenfolge, Scope-Asymmetrie) und
+§8.7 (Bestätigung, dass „Übertragen" und „Exportieren" zwei echte Absichten sind).
+
+---
+
 ### 2026-09-09 — Die beiden TwitchLib-Transporte sind von der Coverage-Messung ausgenommen (#68)
 
 **Betrifft:** [`../.github/workflows/sonarcloud.yml`](../.github/workflows/sonarcloud.yml)

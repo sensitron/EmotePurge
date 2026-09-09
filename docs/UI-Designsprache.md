@@ -329,14 +329,18 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
      höchstens **eine** Meldung (exklusiv) — `reauthRequired` (warning), sonst `loadFailed` (error +
      „Erneut laden"), sonst `listIncomplete` (info).
   3. Ziel-Radiogruppe: ein Radio je Kanal, in dem der Nutzer Broadcaster oder 7TV-Editor ist
-     (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle,
-     zuletzt ein Radio „Als Datei speichern".
+     (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle.
+     Gibt es keinen solchen Kanal, bleibt die Gruppe leer und die `import.target.none`-Meldung
+     erscheint an ihrer Stelle (E5) — der Dialog öffnet sich trotzdem, er hat nur nichts zur Wahl.
   4. Abbrechen / Weiter.
 - **Scope-Default `selection` bricht bewusst mit dem Export-Dialog** (der dort `visible` vorbelegt):
   ein Export läuft Gefahr, unbemerkt zu **verengen**; ein Kopieren in ein fremdes 7TV-Set läuft
   Gefahr, unbemerkt auf mehrere hundert sichtbare Emotes zu **verbreitern** — der Wedge des Features
   ist „auswählen, dann kopieren". Ohne Grid-Auswahl gibt es keine Radiogruppe, Scope ist dann
-  `visible`. Nicht angleichen.
+  `visible`. Nicht angleichen. Der Datei-Weg, der früher als Radio in dieser Gruppe stand, liegt
+  seit #141 im Export-Dialog (§7.4) und erbt dessen Scope-Vorbelegung `visible` — der Ziel-Dialog
+  bleibt bei seinem `selection`-Default, weil die beiden jetzt getrennte Kommandos mit getrennten
+  Risiken sind, nicht mehr zwei Ausgänge desselben Dialogs.
 - **Bestätigungsdialog, Zeilenreihenfolge:** Titel (Anzahl + Zielkanal) → Herkunftszeile (Kanal,
   oder Datei mit Export-Datum/-Kanal) → Zielzeile „Ziel: Kanal · Set …", sobald die Zieldaten da
   sind → genau **einer** von drei Ladezuständen (handgerolltes Skeleton nach §6.1-Muster /
@@ -413,6 +417,47 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 - **Referenz:** `web/src/app/shared/seven-tv/file-import-dialog.ts`, `file-import-trigger.ts`,
   `file-import-trigger-gate.ts`, `restore-flow.ts`; Parser `shared/export/read-envelope.ts`,
   `purge-run-export.ts`, `import-source-parser.ts`.
+
+### 7.4 Export-Dialog (Zweck statt Format)
+
+- **Was gilt:** `ExportDialog` (`shared/export/export-dialog.ts`, `openExportDialog`) hat drei
+  Aufrufer — Nutzungsstatistik, Voting-Detailseite, Löschprotokoll —, aber nur einer von ihnen
+  sortiert seine Optionen nach Zweck statt nach Format. Der Dialog selbst verdrahtet dafür nichts
+  mehr fest: die Optionsliste kommt vom Aufrufer (`ExportDialogData.options`), der Dialog behandelt
+  jede `id` als undurchsichtig und schaltet nirgends selbst darauf.
+- **Zeilenreihenfolge im Body:**
+  1. Bereichs-Radiogruppe `visible`/`selection` (`export.scopeLabel`) — nur, wenn eine Grid-Auswahl
+     existiert (`selectionCount > 0`).
+  2. Optionsgruppe — Legende ist `optionsLegendKey`, je Option `labelKey` auf der ersten Zeile,
+     darunter `hintKey`, falls gesetzt.
+  3. Zeilenzahl (`export.rowCount`, folgt dem gewählten Bereich) plus `filteredHint`, wenn die
+     sichtbare Liste gefiltert ist.
+  4. Notice-Banner (`noticeKeys`) — Erklärungen für fehlende Spalten (geheime Abstimmung, nur für
+     Manager sichtbare Nutzungszahlen).
+  5. Abbrechen / Exportieren.
+- **`options[0]` ist die Vorbelegung — die einzige Default-Regel.** Es gibt keinen zweiten
+  Default-Begriff im Dialog. Das hält „CSV zuerst" für die beiden unveränderten Aufrufer (über die
+  geteilte Konstante `FORMAT_EXPORT_OPTIONS`) und macht „Zahlen auswerten" (= CSV) zur Vorbelegung
+  der Nutzungsstatistik, ohne dass der Dialog weiß, was ein „Format" ist.
+- **Die Zweck-Sortierung der Nutzungsstatistik ist Wortlaut-Vertrag** (`export.purposeLabel` als
+  Legende), in dieser Reihenfolge:
+  - „Zahlen auswerten" / „Nutzungsstatistik als CSV"
+  - „Zahlen weiterverarbeiten" / „Nutzungsstatistik als JSON"
+  - „Emotes später wieder einlesen" / „Emote-Liste als JSON"
+  Voting-Detailseite und Löschprotokoll bleiben bei CSV/JSON (`export.formatLabel`,
+  `FORMAT_EXPORT_OPTIONS`) — die Zweck-Liste gilt nur dort, wo mehr als ein Zweck hinter derselben
+  Aktion steckt.
+- **Die Hinweiszeile steht innerhalb des `<label>` und ist damit Teil des zugänglichen Namens**
+  („Zahlen auswerten Nutzungsstatistik als CSV") — Absicht, nicht Zufall. Der Ziel-Picker aus §7.2
+  hängt „(Kanal muss erst beitreten)" genauso in seinen Namen, und ein E2E-Fall matcht dort bereits
+  gegen das Ganze. Ein `aria-describedby` wäre die Alternative gewesen und hätte eine Abweichung
+  ohne Anlass eingeführt. Markup: das `<label>` steht auf `flex items-start` (statt `items-center`),
+  das Textpaar in einem `flex flex-col`. `export-dialog.ts` bleibt dabei die einzige Datei mit einem
+  zweizeiligen Radio-Label — eine geteilte Radio-Komponente wird bewusst **nicht** eingeführt (drei
+  Vorkommen sind kein Muster).
+- **Referenz:** `web/src/app/shared/export/export-dialog.ts`, `export-dialog.spec.ts`; Aufrufer
+  `features/usage-stats/usage-stats-page.ts`, `features/voting/vote-session-detail-page.ts`,
+  `shared/seven-tv/mass-delete-panel.ts`.
 
 ## 8. Navigation
 
@@ -516,7 +561,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 ### 8.7 Aktionsflächen: welche Fläche welches Kommando trägt
 
 - **Geltungsbereich:** Seiten mit Mehrfachauswahl auf einem Bogen — heute die Usage-Stats-Seite und die Voting-Detail-Seite.
-- **Seitenkopf** (der Kopf *der Seite*, nicht der Shell-Header) trägt Kommandos, die ohne Auswahl vollständig sind. Jedes hat genau eine Absicht; überlappen sich zwei, wird eine umbenannt oder fallengelassen — nicht verschoben. **Überlappung heißt: zwei Kommandos mit verschiedenem Namen für dieselbe Absicht.** Dieselbe Aktion unter demselben Verb an zwei Orten ist ein zweiter Einstieg, keine Überlappung — die Gleichheit des Verbs ist dabei Bedingung, nicht Beiwerk.
+- **Seitenkopf** (der Kopf *der Seite*, nicht der Shell-Header) trägt Kommandos, die ohne Auswahl vollständig sind. Jedes hat genau eine Absicht; überlappen sich zwei, wird eine umbenannt oder fallengelassen — nicht verschoben. **Überlappung heißt: zwei Kommandos mit verschiedenem Namen für dieselbe Absicht.** Dieselbe Aktion unter demselben Verb an zwei Orten ist ein zweiter Einstieg, keine Überlappung — die Gleichheit des Verbs ist dabei Bedingung, nicht Beiwerk. **Bestätigt seit #141:** „Übertragen…" und „Exportieren" waren genau dieser Grenzfall, solange „Übertragen…" auch als Datei-Ausgang taugte — seit der Ziel-Dialog sein Datei-Ziel verloren hat, sind es zwei echte Absichten (Kanal vs. Datei) statt zweier Namen für eine überlappende. Keine Regeländerung, nur der Fall, an dem sie sich jetzt sauber entscheidet.
 - **Auswahlgebundene Kommandos** — solche, die ohne Auswahl gar nicht ausführbar sind (Löschen, Zur Abstimmung stellen) — stehen **nicht** im Seitenkopf. Wo es ein Dock gibt, stehen sie dort; wo keins ist, im Fluss unter dem Bogen, wie auf der Voting-Detail-Seite (`vote-session-detail-page.html:149-157`). Das Dock ist eine Zugabe, kein Erfordernis.
 - **Das Dock trägt außerdem den Laufzustand** — Fortschritt, Protokoll, Wiederherstellen nach einem Lauf. Das kann keine andere Fläche, weil es einen *abgeschlossenen* Lauf überdauern muss.
 - **Erlaubnis, keine Pflicht:** ein Kommando, dessen Ergebnis von der Auswahl abhängt, **darf** zusätzlich als Kurzform im Dock stehen — gleiches Verb, ohne Bereichsfrage, mit der Anzahl im Text. Begründung ist Auffindbarkeit im Moment des Markierens, nicht Klick-Ersparnis: der Seitenkopf scrollt weg, das Dock nicht. **Diese Begründung ist bislang unbelegt** (n = 1); sie ist deshalb als „darf" formuliert und zwingt keine künftige Aktion in zwei Einstiege.

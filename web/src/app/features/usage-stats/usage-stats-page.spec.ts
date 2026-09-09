@@ -32,11 +32,13 @@
  * channel, which is the other half of the fix (`setStatusChannel` being written at all, not just
  * being guarded).
  */
+import { Dialog } from '@angular/cdk/dialog';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { TranslocoTestingModule } from '@jsverse/transloco';
+import { of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { channelLiveUrl, LIVE_EVENT_TYPES } from '../../core/live/live-event.model';
@@ -44,7 +46,55 @@ import { CHANNEL_RELOAD_DEBOUNCE_MS } from '../../core/live/live-reload';
 import { EVENT_SOURCE_FACTORY } from '../../core/live/event-source.factory';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { EmoteUsageTotal } from '../../core/usage-stats/usage-stat.model';
+import { CSV_MIME } from '../../shared/export/csv';
+import { ExportDialogData } from '../../shared/export/export-dialog';
+import { JSON_MIME } from '../../shared/export/export-envelope';
+import { ExportPurposeId } from '../../shared/export/usage-export-purposes';
 import { UsageStatsPage } from './usage-stats-page';
+
+/**
+ * `openExport()`'s `downloadFile(...)` call (usage-stats-page.ts) is a real `<a download>` click
+ * against a real `Blob`/object URL — the Angular unit-test system refuses `vi.mock` for relative
+ * imports, so this spy sits at the same seam `file-download.spec.ts` already uses (`URL
+ * .createObjectURL`, `document.createElement('a')`) rather than mocking the module. What each
+ * purpose *serializes* is `usage-export-purposes.spec.ts`'s job; this only pins which download a
+ * given dialog choice produces (filename shape + MIME type) and that a cancel produces none.
+ */
+interface CapturedDownload {
+  filename: string;
+  mimeType: string;
+}
+
+/** Spies on the same two seams `downloadFile` touches — restore via `vi.restoreAllMocks()` in
+ *  `afterEach`, matching `file-download.spec.ts`'s own pattern. */
+function captureDownloads(): CapturedDownload[] {
+  const downloads: CapturedDownload[] = [];
+  if (!('createObjectURL' in URL)) {
+    Object.assign(URL, { createObjectURL: () => '', revokeObjectURL: () => undefined });
+  }
+  vi.spyOn(URL, 'createObjectURL').mockImplementation((blob: Blob | MediaSource) => {
+    downloads.push({ filename: '', mimeType: (blob as Blob).type });
+    return 'blob:test';
+  });
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+
+  const originalCreateElement = document.createElement.bind(document);
+  vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+    const element = originalCreateElement(tag);
+    if (tag === 'a') {
+      vi.spyOn(element as HTMLAnchorElement, 'click').mockImplementation(() => {
+        // download is set before click() in downloadFile — the entry pushed by createObjectURL
+        // just above is the one this click belongs to.
+        const pending = downloads[downloads.length - 1];
+        if (pending) {
+          pending.filename = (element as HTMLAnchorElement).download;
+        }
+      });
+    }
+    return element;
+  });
+  return downloads;
+}
 
 /** Same stand-in as core/live/live-reload.spec.ts — jsdom ships no EventSource at all. */
 class FakeEventSource {
@@ -695,5 +745,206 @@ describe('UsageStatsPage — selection-pruned notice accessibility (#94 follow-u
     // remaining distance from where the previous two advances left off (2999 + 2 = 3001 so far).
     vi.advanceTimersByTime(4000 - 3001);
     expect(component['selectionPrunedFeedback']()).toBeNull();
+  });
+});
+
+/**
+ * `openExport()` (#141): capture, open the dialog, hand the choice to `usage-export-purposes.ts`
+ * and — unless it closed with nothing, or the emote-list branch's unreachable null-download case
+ * — trigger exactly one download (Regel 12: dialog return values are behaviour worth pinning).
+ * What each purpose *serializes* is `usage-export-purposes.spec.ts`'s job; this only pins which
+ * download a given choice produces and that a cancel produces none. `Dialog` is stubbed at the DI
+ * boundary (same pattern as `mass-delete-panel.spec.ts`) rather than driving the real CDK overlay,
+ * so `openExportDialog`'s own wrapper code still runs for real — only `Dialog.open` itself is a
+ * spy, returning a `DialogRef`-shaped stand-in whose `closed` is under the test's control.
+ */
+describe('UsageStatsPage — openExport() (#141)', () => {
+  let fixture: ComponentFixture<UsageStatsPage>;
+  let component: UsageStatsPage;
+  let httpMock: HttpTestingController;
+  let openSpy: ReturnType<typeof vi.fn>;
+  let downloads: CapturedDownload[];
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    vi.useFakeTimers();
+    downloads = captureDownloads();
+    openSpy = vi.fn();
+
+    TestBed.configureTestingModule({
+      imports: [
+        TranslocoTestingModule.forRoot({
+          langs: { de: {} },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: EVENT_SOURCE_FACTORY,
+          useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
+        },
+        { provide: Dialog, useValue: { open: openSpy } as unknown as Dialog },
+      ],
+    });
+
+    TestBed.overrideComponent(UsageStatsPage, {
+      set: { template: '<div #sheet></div><div #stickyBar></div>' },
+    });
+
+    fixture = TestBed.createComponent(UsageStatsPage);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+
+    fixture.componentRef.setInput('channelName', 'a');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    // Spies only (URL.createObjectURL/revokeObjectURL, document.createElement) — matching
+    // file-download.spec.ts's own cleanup, never replacing the global URL object outright.
+    vi.restoreAllMocks();
+  });
+
+  /** Mounts channel 'a' with an active 7TV set (E3 offers the emote-list purpose) and given
+   *  totals — otherwise identical to the "silent reload" describe block's own `mount()`. */
+  function mountWithActiveSet(totals: EmoteUsageTotal[]): void {
+    httpMock
+      .expectOne('/api/channels/a/permissions')
+      .flush({ canManage: true, canViewUsageStats: true });
+    httpMock
+      .expectOne('/api/channels/a/emotes/active-set')
+      .flush(setStatus({ activeEmoteSetId: 'set-a', trackedSince: '2026-01-01T00:00:00Z' }));
+    fixture.detectChanges();
+
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', totals);
+    flushByPath(httpMock, '/api/channels/a/usage-stats/series', {
+      from: '2026-01-01',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+  }
+
+  /** Same mount, but the channel has no active 7TV set — E3 must not offer the emote-list
+   *  purpose, and `openExport()` must not fail trying to build it. */
+  function mountWithoutActiveSet(totals: EmoteUsageTotal[]): void {
+    httpMock
+      .expectOne('/api/channels/a/permissions')
+      .flush({ canManage: true, canViewUsageStats: true });
+    httpMock
+      // '' — not null — is how EmoteSetStatus.activeEmoteSetId (a required string) says "no active
+      // set"; the page's own `activeEmoteSetId` computed treats it as null via `|| null`.
+      .expectOne('/api/channels/a/emotes/active-set')
+      .flush(setStatus({ activeEmoteSetId: '', trackedSince: '2026-01-01T00:00:00Z' }));
+    fixture.detectChanges();
+
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', totals);
+    flushByPath(httpMock, '/api/channels/a/usage-stats/series', {
+      from: '2026-01-01',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+  }
+
+  /** The `ExportDialogData` the page handed to `Dialog.open` — the second argument's `data`
+   *  field, per `openAppDialog`. */
+  function openedDialogData(): ExportDialogData<ExportPurposeId> {
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    return openSpy.mock.calls[0][1].data as ExportDialogData<ExportPurposeId>;
+  }
+
+  it('offers all three purposes once there is an active set, and choosing usage-csv downloads a CSV usage export', () => {
+    mountWithActiveSet([emote('a', 'PeepoA')]);
+    openSpy.mockReturnValue({ closed: of({ optionId: 'usage-csv', scope: 'visible' }) });
+
+    component['openExport']();
+
+    expect(openedDialogData().options.map((option) => option.id)).toEqual([
+      'usage-csv',
+      'usage-json',
+      'emote-list',
+    ]);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].filename).toMatch(
+      /^emotepurge_a_usage_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/,
+    );
+    expect(downloads[0].mimeType).toBe(CSV_MIME);
+  });
+
+  it('choosing usage-json downloads a JSON usage export', () => {
+    mountWithActiveSet([emote('a', 'PeepoA')]);
+    openSpy.mockReturnValue({ closed: of({ optionId: 'usage-json', scope: 'visible' }) });
+
+    component['openExport']();
+
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].filename).toMatch(
+      /^emotepurge_a_usage_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.json$/,
+    );
+    expect(downloads[0].mimeType).toBe(JSON_MIME);
+  });
+
+  it('choosing emote-list downloads the reimportable emote list', () => {
+    mountWithActiveSet([emote('a', 'PeepoA')]);
+    openSpy.mockReturnValue({ closed: of({ optionId: 'emote-list', scope: 'visible' }) });
+
+    component['openExport']();
+
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].filename).toMatch(/^emotepurge_a_emote-list_\d{4}-\d{2}-\d{2}\.json$/);
+    expect(downloads[0].mimeType).toBe(JSON_MIME);
+  });
+
+  it('cancelling (the dialog closes with nothing) triggers no download', () => {
+    mountWithActiveSet([emote('a', 'PeepoA')]);
+    openSpy.mockReturnValue({ closed: of(undefined) });
+
+    component['openExport']();
+
+    expect(downloads).toHaveLength(0);
+  });
+
+  it('does not offer the emote-list purpose without an active 7TV set (E3), and still handles a choice among the other two', () => {
+    mountWithoutActiveSet([emote('a', 'PeepoA')]);
+    openSpy.mockReturnValue({ closed: of({ optionId: 'usage-csv', scope: 'visible' }) });
+
+    component['openExport']();
+
+    expect(openedDialogData().options.map((option) => option.id)).toEqual([
+      'usage-csv',
+      'usage-json',
+    ]);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0].mimeType).toBe(CSV_MIME);
+  });
+
+  it('exports the range that produced the loaded rows, not a range signal that has since moved on (Codex #143 P2)', () => {
+    mountWithActiveSet([emote('a', 'PeepoA')]);
+    const loadedFrom = component['from']();
+    const loadedTo = component['to']();
+
+    // A range-menu change fires load() again — same as the constructor effect's own trigger — but
+    // nothing here flushes the resulting /usage-stats/totals request, so emotes()/totalsChannel()/
+    // totalsRange() all still describe the range loaded above. This is the same in-flight window a
+    // live usageFlushed reload or a channel switch opens (see totalsRange's declaration).
+    component['rangePreset'].set('custom');
+    component['from'].set('2026-03-01');
+    component['to'].set('2026-03-31');
+    fixture.detectChanges();
+
+    openSpy.mockReturnValue({ closed: of({ optionId: 'usage-csv', scope: 'visible' }) });
+    component['openExport']();
+
+    expect(downloads).toHaveLength(1);
+    // The filename embeds from/to verbatim (usageExportFilename) — proves the download describes
+    // the range the rows actually came from, not '2026-03-01'/'2026-03-31' set above.
+    expect(downloads[0].filename).toBe(`emotepurge_a_usage_${loadedFrom}_${loadedTo}.csv`);
   });
 });

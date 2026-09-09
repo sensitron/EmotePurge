@@ -203,12 +203,13 @@ test.describe('push flow: picker to confirmation dialog', () => {
     // Scope defaults to the selection (R12), not to the visible list.
     await expect(picker.getByRole('radio', { name: 'Auswahl (2)' })).toBeChecked();
 
-    // Exactly the three expected rows, in alphabetical order, and nothing else.
+    // Exactly the two expected channel rows, in alphabetical order, and nothing else — the picker
+    // no longer offers a file destination (#141, moved to the export dialog, see the
+    // 'export dialog: purpose-sorted options' describe block below).
     await expect(picker.getByRole('radio', { name: '#aatrociity' })).toBeEnabled();
     await expect(
       picker.getByRole('radio', { name: /^#untrackedbuddy \(Kanal muss erst beitreten\)$/ }),
     ).toBeDisabled();
-    await expect(picker.getByRole('radio', { name: /Als Datei speichern/ })).toBeVisible();
     await expect(picker.getByText('#modonly')).toHaveCount(0);
     await expect(picker.getByText('#sensitron', { exact: true })).toHaveCount(0);
 
@@ -367,6 +368,58 @@ test.describe('push flow: picker to confirmation dialog', () => {
     // gone, rather than sitting there relocked at "(0)".
     await expect(dockCopyButton(page, 2)).toHaveCount(0);
     await expect(page.getByRole('button', { name: /^Übertragen \(\d+\)$/ })).toHaveCount(0);
+  });
+});
+
+/**
+ * #141: the export dialog sorts by purpose, not by format. Its third row, "Emotes später wieder
+ * einlesen", is the file destination the target picker used to offer directly ("Als Datei
+ * speichern") — moved here rather than removed, and only offered when an active 7TV set makes it
+ * fulfillable (E3, `activeEmoteSetId() !== null && importScopeCurrent()`), both of which
+ * `mockWorkspace`'s default `activeEmoteSetId` ('set-1') already satisfies. The written file is
+ * unchanged from before the move (same envelope, same filename), so the one thing worth pinning
+ * down here is that picking this row still produces a real download.
+ */
+test.describe('export dialog: purpose-sorted options (#141)', () => {
+  const exportButton = (page: Page) => page.getByRole('button', { name: 'Ergebnisse exportieren' });
+
+  test('the emote-list row downloads a re-importable file', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    await exportButton(page).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.locator('#app-dialog-title')).toHaveText('Export');
+
+    // The two usage purposes are always offered; the row names are asserted as substrings because
+    // Playwright computes the accessible name from the whole `<label>`, hint line included.
+    await expect(dialog.getByRole('radio', { name: /Zahlen auswerten/ })).toBeVisible();
+    await expect(dialog.getByRole('radio', { name: /Zahlen weiterverarbeiten/ })).toBeVisible();
+
+    // The row this test exists for: the file destination's new home. Same reasoning applies to the
+    // accessible name — it also carries the hint line ("Emote-Liste als JSON").
+    const emoteListRow = dialog.getByRole('radio', { name: /Emotes später wieder einlesen/ });
+    await expect(emoteListRow).toBeVisible();
+
+    const downloadPromise = page.waitForEvent('download');
+    await emoteListRow.check();
+    await dialog.getByRole('button', { name: 'Exportieren' }).click();
+    const download = await downloadPromise;
+
+    // Same filename scheme `startImportFromChoice`'s file branch used before #141 moved this here
+    // (`emoteListFilename`): `emotepurge_<channel>_emote-list_<yyyy-mm-dd>.json`. The date is not
+    // pinned to keep this test stable across midnight runs.
+    expect(download.suggestedFilename()).toMatch(
+      /^emotepurge_sensitron_emote-list_\d{4}-\d{2}-\d{2}\.json$/,
+    );
   });
 });
 
