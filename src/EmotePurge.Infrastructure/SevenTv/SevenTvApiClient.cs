@@ -39,6 +39,16 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
 
+    // v4 schema, foreign-channel-import spec (F1 step 3): a set-agnostic, paginated preview of an
+    // arbitrary emote set's entries, including the set-local alias, the emote's global default name,
+    // and its network-wide scores — all three land in this one request per page (measured live
+    // 2026-09-09: 7734 bytes for a 45-emote set, extrapolating to ~164 KB for a 956-emote set, close
+    // to the 174 547 bytes the design doc measured for HandOfBlood's set with a near-identical
+    // shape). Deliberately omits Emote.images — see the comment on SevenTvGqlEmoteSetPreviewResponseDto
+    // for why, and BuildForeignImageUrl for how the image url is built instead.
+    private const string GqlEmoteSetPreviewQuery =
+        "query($id: Id!, $page: Int!, $perPage: Int!) { emote_sets: emoteSets { emote_set: emoteSet(id: $id) { emotes(page: $page, perPage: $perPage) { total_count: totalCount page_count: pageCount items { alias emote { id default_name: defaultName scores { top_all_time: topAllTime trending_day: trendingDay } } } } } } }";
+
     // Latches the fallback-set-load path (issue #43) from Information down to Debug after its first
     // occurrence in this process. Once 7TV finishes rolling out the null embedded emote_set, this
     // fallback becomes the permanent path for every channel on every 60s resync tick — an
@@ -301,6 +311,79 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         }
     }
 
+    public async Task<SevenTvEmoteSetPreviewResult> GetEmoteSetPreviewAsync(string emoteSetId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var items = new List<SevenTvEmoteSetPreviewItem>();
+            var totalCount = 0;
+
+            for (var page = 1; page <= MaxSetEntryPages; page++)
+            {
+                var payload = new
+                {
+                    query = GqlEmoteSetPreviewQuery,
+                    variables = new { id = emoteSetId, page, perPage = SetEntriesPerPage }
+                };
+                var response = await httpClient.PostAsJsonAsync(V4GqlPath, payload, cancellationToken);
+                response.EnsureSuccessStatusCode();
+
+                var dto = await response.Content.ReadFromJsonAsync<SevenTvGqlEmoteSetPreviewResponseDto>(
+                    SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
+
+                // The single most expensive mistake in the whole spec (section 5/AK7): 7TV answers an overload
+                // with HTTP 200 and a GraphQL error carrying extensions.status == 429, which — without
+                // this check — is indistinguishable from a set that genuinely has zero entries. The
+                // second is explicitly not an error (see the state table), so this has to be checked
+                // before the "no usable data" branch below, not folded into it.
+                if (IsRateLimited(dto?.Errors))
+                {
+                    logger.LogWarning(
+                        "7TV meldet Überlast (extensions.status: 429) beim Vorschau-Abruf für Set {SetId}, Seite {Page}.",
+                        emoteSetId, page);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.RateLimited);
+                }
+
+                var pageDto = dto?.Data?.EmoteSets?.EmoteSet?.Emotes;
+                if (pageDto is null)
+                {
+                    logger.LogWarning(
+                        "7TV-Vorschau-Abruf für Set {SetId} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?), Seite {Page}.",
+                        emoteSetId, page);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.Unavailable);
+                }
+
+                totalCount = pageDto.TotalCount;
+                items.AddRange(pageDto.Items.Select(MapPreviewItem));
+
+                if (page >= pageDto.PageCount)
+                {
+                    break;
+                }
+
+                // F3: the guard is a runaway stop, not an expected limit (see the comment on
+                // MaxSetEntryPages) — but unlike the addedAt overlay this reads back to a user as a
+                // preview list, and a silently short one is exactly what the spec forbids. Truncated
+                // is derived once more, robustly, right after the loop from items.Count < totalCount;
+                // this log line exists only to say *why*, while the reason is still known.
+                if (page == MaxSetEntryPages)
+                {
+                    logger.LogWarning(
+                        "7TV-Set {SetId} überschreitet die Seitendecke ({MaxPages} Seiten à {PerPage}) — Vorschau wird als unvollständig (truncated) markiert, angesagte Gesamtzahl {TotalCount}.",
+                        emoteSetId, MaxSetEntryPages, SetEntriesPerPage, totalCount);
+                }
+            }
+
+            var truncated = items.Count < totalCount;
+            return SevenTvEmoteSetPreviewResult.Ok(new SevenTvEmoteSetPreview(totalCount, truncated, items));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            logger.LogWarning(ex, "7TV-Vorschau-Abruf für Set {SetId} fehlgeschlagen, wird übersprungen.", emoteSetId);
+            return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.Unavailable);
+        }
+    }
+
     // Common continuation for both branches of GetChannelStateForTwitchUserAsync: whether emoteSetDto
     // came straight off the primary response or was reloaded via the issue #43 fallback, everything
     // from here on (emote mapping, the v4 AddedToSetAt overlay, the account id, capacity handling)
@@ -466,4 +549,33 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     // measured one.
     private static bool IsUsableSevenTvId(string? id) =>
         !string.IsNullOrWhiteSpace(id) && id.Any(c => c != '0');
+
+    // 7TV wraps a GraphQL-level failure as HTTP 200 (see GqlEmoteSetPreviewQuery's comment and
+    // SevenTvGqlEmoteSetPreviewResponseDto); a rate limit is one specific `errors[].extensions.status`
+    // value among those failures, matching the shape already captured live for a different query
+    // (SevenTvApiClientResolveIdentityTests' GraphQlErrorPayload: `extensions: { code, status }`).
+    private static bool IsRateLimited(List<SevenTvGqlErrorDto>? errors) =>
+        errors?.Any(error => error.Extensions?.Status == 429) ?? false;
+
+    private static SevenTvEmoteSetPreviewItem MapPreviewItem(SevenTvGqlEmoteSetPreviewItemDto dto)
+    {
+        var emoteId = dto.Emote?.Id ?? string.Empty;
+        return new SevenTvEmoteSetPreviewItem(
+            emoteId,
+            dto.Alias,
+            dto.Emote?.DefaultName ?? string.Empty,
+            BuildForeignImageUrl(emoteId),
+            dto.Emote?.Scores?.TopAllTime,
+            dto.Emote?.Scores?.TrendingDay);
+    }
+
+    // 7TV's emote CDN url is fixed and keyed only by the emote id — confirmed live 2026-09-09 against
+    // two v4 Emote.images responses (BOOBA, RainTime): every variant sits under
+    // https://cdn.7tv.app/emote/{id}/{scale}{_static?}.{ext}. Building the 4x still directly from the
+    // id avoids requesting the images list at all (see GqlEmoteSetPreviewQuery's comment for the
+    // measured payload cost of doing so), and keeps the same "4x_static.webp" convention
+    // SevenTvEmoteJsonMapper.BuildImageUrl and the frontend's STILL_SUFFIX already use for the
+    // tracked-channel path — one visual language for both.
+    private static string BuildForeignImageUrl(string emoteId) =>
+        emoteId.Length == 0 ? string.Empty : $"https://cdn.7tv.app/emote/{emoteId}/4x_static.webp";
 }

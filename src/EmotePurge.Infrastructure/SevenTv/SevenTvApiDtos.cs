@@ -212,3 +212,80 @@ internal sealed class SevenTvGqlSetEntryEmoteDto
 {
     public string Id { get; set; } = string.Empty;
 }
+
+// GQL v4 (host-absolute /v4/gql), foreign-channel-import spec: emoteSets { emoteSet(id) {
+// emotes(page, perPage) { totalCount pageCount items { alias emote { id defaultName scores {
+// topAllTime trendingDay } } } } } — deliberately does NOT request Emote.images: measured live
+// 2026-09-09 that including it multiplies the payload roughly 13x (101541 bytes for 45 emotes with
+// images vs. 7734 bytes without, both against 7TV's own "global" set). The image url is instead
+// built from the emote id directly (SevenTvApiClient.BuildForeignImageUrl) — 7TV's CDN url shape is
+// fixed and keyed only by that id, confirmed live against the same measurement.
+internal sealed class SevenTvGqlEmoteSetPreviewResponseDto
+{
+    public SevenTvGqlEmoteSetPreviewDataDto? Data { get; set; }
+
+    // Present alongside `data` (which is then null) on a GraphQL-level failure — the same envelope
+    // shape already captured for userByConnection (SevenTvApiClientResolveIdentityTests). 7TV signals
+    // overload as HTTP 200 with one of these entries carrying extensions.status == 429; that is the
+    // one detail this DTO exists to expose, since every other query on this client infers failure
+    // from `data` being empty and never needed to read `errors` itself.
+    public List<SevenTvGqlErrorDto>? Errors { get; set; }
+}
+
+internal sealed class SevenTvGqlErrorDto
+{
+    public SevenTvGqlErrorExtensionsDto? Extensions { get; set; }
+}
+
+internal sealed class SevenTvGqlErrorExtensionsDto
+{
+    public int? Status { get; set; }
+}
+
+internal sealed class SevenTvGqlEmoteSetPreviewDataDto
+{
+    public SevenTvGqlEmoteSetPreviewRootDto? EmoteSets { get; set; }
+}
+
+internal sealed class SevenTvGqlEmoteSetPreviewRootDto
+{
+    public SevenTvGqlEmoteSetPreviewSetDto? EmoteSet { get; set; }
+}
+
+internal sealed class SevenTvGqlEmoteSetPreviewSetDto
+{
+    public SevenTvGqlEmoteSetPreviewPageDto? Emotes { get; set; }
+}
+
+internal sealed class SevenTvGqlEmoteSetPreviewPageDto
+{
+    // What 7TV reports the set holds in total — can exceed Items.Count on the last page fetched; see
+    // MaxSetEntryPages and the truncated handling in SevenTvApiClient.GetEmoteSetPreviewAsync.
+    public int TotalCount { get; set; }
+    public int PageCount { get; set; }
+    public List<SevenTvGqlEmoteSetPreviewItemDto> Items { get; set; } = [];
+}
+
+internal sealed class SevenTvGqlEmoteSetPreviewItemDto
+{
+    // The name as used within this specific set — not the emote's global default name, which sits
+    // one level down on the embedded Emote (issue #37-style: two different "name" fields with two
+    // different meanings, kept apart on purpose).
+    public string Alias { get; set; } = string.Empty;
+    public SevenTvGqlEmoteSetPreviewEmoteDto? Emote { get; set; }
+}
+
+internal sealed class SevenTvGqlEmoteSetPreviewEmoteDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string DefaultName { get; set; } = string.Empty;
+    public SevenTvGqlEmoteSetPreviewScoresDto? Scores { get; set; }
+}
+
+// Only the two fields the response contract (spec section 4) exposes — EmoteScores carries five more
+// (trendingWeek/Month, topDaily/Weekly/Monthly) that nothing on this path reads.
+internal sealed class SevenTvGqlEmoteSetPreviewScoresDto
+{
+    public int TopAllTime { get; set; }
+    public int TrendingDay { get; set; }
+}

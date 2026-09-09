@@ -418,3 +418,80 @@ public sealed class SevenTvEditorGrantsResult
         return new SevenTvEditorGrantsResult(status, null);
     }
 }
+
+/// <summary>
+/// Why <see cref="ISevenTvApiClient.GetEmoteSetPreviewAsync"/> produced no usable answer. A separate,
+/// narrower enum from <see cref="SevenTvLookupStatus"/> rather than a third value bolted onto it: that
+/// enum is a shared success/failure vocabulary consumed by several switches across the codebase, and
+/// this call's one genuinely new distinction — a confirmed 7TV rate limit versus every other upstream
+/// failure (foreign-channel-import spec, section 3 "F429") — has no meaning for any of those existing
+/// call sites.
+/// </summary>
+public enum SevenTvPreviewLookupStatus
+{
+    Ok,
+    RateLimited,
+    Unavailable
+}
+
+/// <summary>
+/// <see cref="Preview"/> is non-null if and only if <see cref="Status"/> is
+/// <see cref="SevenTvPreviewLookupStatus.Ok"/>. Same invariant-by-construction shape as the other
+/// result types in this file, for the same reason.
+/// </summary>
+public sealed class SevenTvEmoteSetPreviewResult
+{
+    private SevenTvEmoteSetPreviewResult(SevenTvPreviewLookupStatus status, SevenTvEmoteSetPreview? preview)
+    {
+        Status = status;
+        Preview = preview;
+    }
+
+    public SevenTvPreviewLookupStatus Status { get; }
+
+    /// <summary>Non-null if and only if <see cref="Status"/> is <see cref="SevenTvPreviewLookupStatus.Ok"/>.</summary>
+    public SevenTvEmoteSetPreview? Preview { get; }
+
+    public static SevenTvEmoteSetPreviewResult Ok(SevenTvEmoteSetPreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        return new SevenTvEmoteSetPreviewResult(SevenTvPreviewLookupStatus.Ok, preview);
+    }
+
+    public static SevenTvEmoteSetPreviewResult Failed(SevenTvPreviewLookupStatus status)
+    {
+        if (status == SevenTvPreviewLookupStatus.Ok)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status), status, "Failed() kann keinen Erfolgsstatus tragen — für Ok ist Ok(preview) zuständig.");
+        }
+
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status), status, "Unbekannter SevenTvPreviewLookupStatus.");
+        }
+
+        return new SevenTvEmoteSetPreviewResult(status, null);
+    }
+}
+
+/// <summary>
+/// One page-spanning read of an arbitrary 7TV emote set (foreign-channel-import spec, F3):
+/// <see cref="TotalCount"/> is what 7TV itself reports, which can exceed <see cref="Items"/>.Count —
+/// <see cref="Truncated"/> says so explicitly rather than letting a caller find out by subtracting.
+/// </summary>
+public sealed record SevenTvEmoteSetPreview(int TotalCount, bool Truncated, IReadOnlyList<SevenTvEmoteSetPreviewItem> Items);
+
+/// <summary>
+/// One emote as it appears in a specific foreign set: <see cref="Alias"/> is the name used within
+/// that set, <see cref="DefaultName"/> the emote's global base name (the two can differ).
+/// <see cref="TopAllTime"/>/<see cref="Trending"/> are network-wide 7TV scores, never a per-channel
+/// usage figure — <c>EmoteSetEmote</c> carries no such data (spec P5').
+/// </summary>
+public record SevenTvEmoteSetPreviewItem(
+    string SevenTvEmoteId,
+    string Alias,
+    string DefaultName,
+    string ImageUrl,
+    int? TopAllTime,
+    int? Trending);
