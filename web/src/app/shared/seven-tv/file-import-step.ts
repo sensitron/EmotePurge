@@ -1,0 +1,136 @@
+import { Component, ElementRef, input, output, signal, viewChild } from '@angular/core';
+import { TranslocoPipe } from '@jsverse/transloco';
+
+import { ImportSource } from '../../core/seven-tv/import-source';
+import { parseImportSource } from '../export/import-source-parser';
+import { PurgeRunRow, parsePurgeRunProtocol } from '../export/purge-run-export';
+import { readEnvelope } from '../export/read-envelope';
+import { Button } from '../ui/button';
+import { NoticeBanner } from '../ui/notice-banner';
+
+/**
+ * What the file step reports once a file has been read and understood. The discriminant tells the
+ * caller which chain to run next — `startRestoreFlow` for `'restore'`, `startImportFlow` for
+ * `'import'`; this step starts neither itself and picks no import target.
+ */
+export type FileImportResult =
+  { kind: 'restore'; rows: PurgeRunRow[] } | { kind: 'import'; source: ImportSource };
+
+/**
+ * The read-and-validate step of the file-based restore/import path (#91). Until #147 this was a
+ * dialog of its own (`FileImportDialog`); it is now the "Aus einer Datei" branch of the one import
+ * dialog (`ImportSourceDialog`, design language §7.3). **Only its housing changed** — the reading,
+ * the envelope dispatch, the two-pass purge-run validation and the error handling below are the
+ * same code they were, moved.
+ *
+ * Body order is a contract (plan §1.1, design language §7.3): the three acceptable file sorts — so
+ * the explanation sits *above* the control it explains — then the file control, then the error
+ * banner (only on failure). There is no "weiter" step, the file pick itself is the action; the
+ * dialog around this step therefore renders a cancel-only action row for it.
+ *
+ * The file control is deliberately the first focusable element the step renders — not
+ * `cdkFocusInitial` — so the CDK's `first-tabbable` default lands there on its own. A hidden
+ * `<input type="file">` cannot be that element itself, so the visible button in front of it is.
+ *
+ * The file input has to live inside the open dialog rather than behind it: a programmatic click on
+ * an `<input type="file">` *after* a CDK dialog's `closed` runs outside the user gesture and the
+ * browser silently declines to open the file window.
+ */
+@Component({
+  selector: 'app-file-import-step',
+  imports: [Button, NoticeBanner, TranslocoPipe],
+  template: `
+    <ul class="list-disc space-y-1 pl-5 text-sm text-fg-secondary">
+      <li>{{ 'restore.import.sorts.purgeRun' | transloco }}</li>
+      <li>{{ 'restore.import.sorts.emoteList' | transloco }}</li>
+      <li>{{ 'restore.import.sorts.usageExport' | transloco }}</li>
+    </ul>
+
+    <div>
+      <button type="button" appButton="outline" (click)="openFilePicker()">
+        {{ 'restore.import.fileLabel' | transloco }}
+      </button>
+      <input
+        #fileInput
+        type="file"
+        accept="application/json"
+        class="hidden"
+        (change)="onFileSelected($event)"
+      />
+    </div>
+
+    @if (errorKey(); as error) {
+      <app-notice-banner variant="error">{{ error | transloco }}</app-notice-banner>
+    }
+  `,
+  // The step is a plain block in the dialog shell's flex column; without this it would be an inline
+  // host and its three children would collapse into one line box.
+  host: { class: 'flex flex-col gap-3' },
+})
+export class FileImportStep {
+  /**
+   * Frozen by the caller at the moment of the triggering click (#91) — never a live page signal, so
+   * a channel switch or a set change while the dialog is open cannot retarget what a purge-run
+   * protocol is validated against. Read at file-pick time, never in a constructor (Regel 13).
+   */
+  readonly channelName = input.required<string>();
+  /** The channel's *current* active set — a purge-run protocol is validated against it. */
+  readonly setId = input.required<string>();
+
+  readonly picked = output<FileImportResult>();
+
+  // Named apart from the #fileInput template reference, same reasoning as the panel this was split
+  // out of: inside the template the bare name resolves to the reference (the raw element), which is
+  // not callable — AOT rejects it.
+  private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
+  protected readonly errorKey = signal<string | null>(null);
+
+  protected openFilePicker(): void {
+    this.fileInputRef().nativeElement.click();
+  }
+
+  protected async onFileSelected(event: Event): Promise<void> {
+    const inputElement = event.target as HTMLInputElement;
+    const file = inputElement.files?.[0];
+    // Clear the input either way, so re-selecting the same (corrected) file fires change again.
+    inputElement.value = '';
+    if (!file) {
+      return;
+    }
+
+    this.errorKey.set(null);
+    const text = await file.text();
+    const read = readEnvelope(text);
+    if (!read.ok) {
+      this.errorKey.set(read.errorKey);
+      return;
+    }
+
+    if (read.envelope.kind === 'purge-run') {
+      // parsePurgeRunProtocol deliberately re-reads the very same text: it does its own envelope
+      // check and keeps enforcing the channel *and* the active-set match (`wrongChannel`/`wrongSet`)
+      // itself, which readEnvelope knows nothing about. The second pass is the contract, not a slip.
+      this.handlePurgeRunProtocol(text);
+      return;
+    }
+
+    const parsedSource = parseImportSource(read.envelope, file.name);
+    if (!parsedSource.ok) {
+      this.errorKey.set(parsedSource.errorKey);
+      return;
+    }
+    this.picked.emit({ kind: 'import', source: parsedSource.source });
+  }
+
+  private handlePurgeRunProtocol(text: string): void {
+    const parsed = parsePurgeRunProtocol(text, {
+      channelName: this.channelName(),
+      emoteSetId: this.setId(),
+    });
+    if (!parsed.ok) {
+      this.errorKey.set(parsed.errorKey);
+      return;
+    }
+    this.picked.emit({ kind: 'restore', rows: parsed.rows });
+  }
+}

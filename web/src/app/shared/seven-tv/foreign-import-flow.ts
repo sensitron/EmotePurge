@@ -1,31 +1,27 @@
 import { ImportRow, ImportSource, dedupeImportRows } from '../../core/seven-tv/import-source';
 import { ForeignEmoteRow } from '../../core/seven-tv/foreign-emote-set.model';
-import {
-  ForeignChannelImportResult,
-  openForeignChannelImportDialog,
-} from './foreign-channel-import-dialog';
+import { ForeignChannelImportResult } from './foreign-channel-step';
 import { ImportFlowDeps, startImportFlow } from './import-flow';
-import { openImportTargetDialog } from './import-target-dialog';
 
 /**
- * The third import source, wired to the chain the other two already use (spec T4): pick a foreign
- * channel and its emotes → pick the target channel → the ordinary confirm/token/run flow.
+ * The third import source, wired to the chain the other two already use: pick a foreign channel and
+ * its emotes → the ordinary confirm/token/run flow.
  *
- * Dialogs run one after another, never nested — each `closed` fires after its dialog is gone, which
- * is what keeps the app's one-dialog-at-a-time rule (`shared/ui/dialog.ts`) intact and lets
- * `startImportFlow` keep its own ordering (confirm first, 7TV token only afterwards).
+ * **There is no target picker in between (#147).** It used to open `ImportTargetDialog` with
+ * `forcedScope: 'selection'`, which suppressed the scope radiogroup and left exactly one question:
+ * into which channel. That question is already answered — the flow starts from the header of *this*
+ * channel's usage-stats page, and the file path has always taken its target from that same page
+ * context without asking. Both paths now behave the same way.
  *
- * Fremd ist die Quelle, nie das Ziel: the target still comes from `listMine()` inside
- * `ImportTargetDialog`, so an untracked channel can be read here but never written into. That is
- * existing behaviour of that dialog, not something this flow adds or could opt out of.
+ * Fremd ist die Quelle, nie das Ziel: the target is the page's own channel, so an untracked channel
+ * can be read here but never written into.
  */
-export function startForeignChannelImportFlow(deps: ImportFlowDeps): void {
-  openForeignChannelImportDialog(deps.dialog).closed.subscribe((picked) => {
-    if (!picked) {
-      return;
-    }
-    startTargetPick(deps, buildForeignImportSource(picked), picked.channelName);
-  });
+export function startForeignChannelImportFlow(
+  deps: ImportFlowDeps,
+  picked: ForeignChannelImportResult,
+  targetChannelName: string,
+): void {
+  startImportFlow(deps, buildForeignImportSource(picked), targetChannelName);
 }
 
 /**
@@ -51,31 +47,4 @@ export function buildForeignImportSource(picked: ForeignChannelImportResult): Im
 
 function toImportRow(row: ForeignEmoteRow): ImportRow {
   return { sevenTvEmoteId: row.sevenTvEmoteId, name: row.name };
-}
-
-/**
- * `forcedScope: 'selection'` is the point of this step (spec §7): the user has just marked emotes
- * one by one in the picker, so offering "the selection or everything visible" would ask the same
- * question twice and let the second answer overrule the first. With the scope forced there is no
- * radiogroup at all, and the counts below are only carried for completeness — nothing renders them.
- *
- * `currentChannelName` is the *source* channel, which is what excludes it from the target list: a
- * copy of a set into itself is the one target that can never make sense.
- */
-function startTargetPick(
-  deps: ImportFlowDeps,
-  source: ImportSource,
-  sourceChannelName: string,
-): void {
-  openImportTargetDialog(deps.dialog, {
-    currentChannelName: sourceChannelName,
-    visibleCount: source.rows.length,
-    selectionCount: source.rows.length,
-    forcedScope: 'selection',
-  }).closed.subscribe((choice) => {
-    if (!choice) {
-      return;
-    }
-    startImportFlow(deps, source, choice.channelName);
-  });
 }

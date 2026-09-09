@@ -912,6 +912,19 @@
   },
   "import": {
     "copyButton": "Übertragen",
+    "source": {
+      "title": "Emotes importieren",
+      "legend": "Woher kommen die Emotes?",
+      "back": "Zurück",
+      "file": {
+        "label": "Aus einer Datei",
+        "hint": "Purge-Protokoll, Emote-Liste oder Nutzungs-Export als JSON"
+      },
+      "channel": {
+        "label": "Aus einem Kanal",
+        "hint": "Das aktive 7TV-Set eines beliebigen Twitch-Kanals"
+      }
+    },
     "dockCopyButton": "Übertragen ({{ count }})",
     "target": {
       "title": "Emotes übertragen",
@@ -925,8 +938,7 @@
       "submit": "Weiter"
     },
     "foreignChannel": {
-      "title": "Fremden Kanal importieren",
-      "trigger": "Fremder Kanal",
+      "title": "Aus einem Kanal importieren",
       "channelLabel": "Kanalname",
       "placeholder": "z. B. handofblood",
       "invalidChannelName": "Kein gültiger Twitch-Kanalname.",
@@ -941,10 +953,11 @@
         "ariaLabel": "Emote-Auswahl"
       },
       "sort": {
-        "ariaLabel": "Sortierung",
+        "label": "Sortieren nach",
         "none": "Set-Reihenfolge",
-        "topAllTime": "7TV global · Top aller Zeiten",
-        "trending": "7TV global · Trend"
+        "topAllTime": "7TV-Verbreitung (gesamt)",
+        "trending": "7TV-Verbreitung (Trend)",
+        "scoreHint": "Die Zahl auf jeder Kachel sagt, in wie vielen 7TV-Sets das Emote steckt — nicht, wie oft es in diesem Kanal benutzt wird."
       }
     },
     "confirm": {

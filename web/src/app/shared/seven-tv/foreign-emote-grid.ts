@@ -18,23 +18,48 @@ import { toLocale } from '../../core/i18n/locale';
 import { ListSelection } from '../selection/list-selection';
 import { EmoteSprite } from '../emotes/emote-sprite';
 import { NoticeBanner } from '../ui/notice-banner';
-import { SegmentedControl, SegmentedControlOption } from '../ui/segmented-control';
 
-/** Cell edge and gutter in px — same numbers as the usage atlas (`ATLAS_CELL_PX`/`ATLAS_GAP_PX` in
+/** Sprite edge and gutter in px — same numbers as the usage atlas (`ATLAS_CELL_PX`/`ATLAS_GAP_PX` in
  *  `shared/grid/atlas-grid.ts`), kept as local constants rather than imported: that file's row type
  *  and `packAtlasRows` are coupled to `UsageBandKey` and `EmoteUsageTotal`, neither of which this
  *  grid has (spec Falle F4 — this grid is built fresh, not layered onto the atlas). */
 const CELL_PX = 64;
 const GAP_PX = 4;
-const ROW_PX = CELL_PX + GAP_PX;
+/** The name line under each sprite. Picking emotes one by one is a decision about *which* emote,
+ *  and the name is what that decision is made on — it is what lands in the target set and what the
+ *  collision hint in the confirmation is about. */
+const LABEL_PX = 16;
+const TILE_PX = CELL_PX + LABEL_PX;
+const ROW_PX = TILE_PX + GAP_PX;
 
 /**
- * Which 7TV-global score field the grid is currently sorted by, or `'none'` for the set's own
- * order. `'none'` is the required default (spec P5'/AK16) — a score column must never be the
- * pre-selected sort, since it reads as "popular in this channel" the moment it visually leads,
- * and there is no such thing for a channel this account has no role in.
+ * Which 7TV score field the grid is currently sorted by, or `'none'` for the set's own order.
+ * `'none'` is the required default (spec P5'/AK16) — a score must never be the pre-selected sort,
+ * since it reads as "popular in this channel" the moment it visually leads, and there is no such
+ * thing for a channel this account has no role in.
  */
 export type ForeignEmoteSortMode = 'none' | 'topAllTime' | 'trending';
+
+interface SortOption {
+  value: ForeignEmoteSortMode;
+  labelKey: string;
+}
+
+/**
+ * The sort options, in menu order. The wording is load-bearing and was changed after the operator
+ * read the old labels ("7TV global · Top aller Zeiten") as a statement about the *list* and
+ * concluded the grid was showing 7TV's global emotes rather than this channel's set. Two things
+ * follow, and both are contracts rather than copy:
+ *  - the option names the property of a **single emote** ("wie verbreitet es auf 7TV ist"), never a
+ *    source of the list;
+ *  - and never plain "Beliebtheit" — a channel-relative popularity does not exist for a channel
+ *    nobody here has a role in, and the word would promise one (spec P5').
+ */
+const SORT_OPTIONS: SortOption[] = [
+  { value: 'none', labelKey: 'import.foreignChannel.sort.none' },
+  { value: 'topAllTime', labelKey: 'import.foreignChannel.sort.topAllTime' },
+  { value: 'trending', labelKey: 'import.foreignChannel.sort.trending' },
+];
 
 function columnsForWidth(width: number): number {
   if (!Number.isFinite(width) || width <= 0) {
@@ -53,7 +78,7 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
 }
 
 /**
- * The T3 selection grid for a foreign channel's 7TV set (spec Falle F4). Deliberately not the
+ * The selection grid for a foreign channel's 7TV set (spec Falle F4). Deliberately not the
  * `usage-stats-page.html` atlas reused: that one is keyed on our internal `emoteId` Guid and reads
  * `EmoteUsageTotal` for its bands/sparkline/fill-bar, none of which exists for a channel this
  * account has no role in. This grid owns its own `ListSelection<ForeignEmoteRow>` keyed on
@@ -67,10 +92,17 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
  * `app-emote-sprite`, which starts `visibility: hidden` again until it reloads, i.e. the atlas's
  * known flicker (see `usage-stats-page.ts`'s `trackRow`; this repo has hit that bug once already
  * on a virtualized grid without a stable trackBy).
+ *
+ * **This viewport is the only scroll container in the dialog.** The pane around it scrolls too by
+ * default (`.app-dialog-panel`), and two nested scrollbars over the same list was the reported
+ * defect: the viewport is therefore sized against `dvh` with a ceiling, so the dialog's own content
+ * stays shorter than the pane and the pane never grows a bar of its own. The ceiling is what keeps
+ * a tall desktop screen from turning the sheet into a wall of emotes; the floor keeps a short one
+ * usable.
  */
 @Component({
   selector: 'app-foreign-emote-grid',
-  imports: [EmoteSprite, NoticeBanner, ScrollingModule, SegmentedControl, TranslocoPipe],
+  imports: [EmoteSprite, NoticeBanner, ScrollingModule, TranslocoPipe],
   template: `
     @if (truncated()) {
       <app-notice-banner variant="warning">
@@ -85,12 +117,21 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
       <p class="text-sm text-fg-muted">{{ 'import.foreignChannel.empty' | transloco }}</p>
     } @else {
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <app-segmented-control
-          [options]="sortOptions"
-          [ariaLabel]="'import.foreignChannel.sort.ariaLabel' | transloco"
-          [value]="sortMode()"
-          (valueChange)="setSortMode($event)"
-        />
+        <!-- A labelled select, not a segmented control: the old segmented control read as a tab bar
+             announcing what the list *was*, which is exactly the misreading this whole rewording
+             fixes. "Sortieren nach" in front of it says what the choice does. -->
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-fg-secondary" [for]="sortSelectId">
+            {{ 'import.foreignChannel.sort.label' | transloco }}
+          </label>
+          <select [id]="sortSelectId" class="app-input-sm" (change)="onSortChange($event)">
+            @for (option of sortOptions; track option.value) {
+              <option [value]="option.value" [selected]="option.value === sortMode()">
+                {{ option.labelKey | transloco }}
+              </option>
+            }
+          </select>
+        </div>
         <span class="text-xs text-fg-muted">
           {{
             'import.foreignChannel.selectedCount'
@@ -99,26 +140,41 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
         </span>
       </div>
 
+      <!-- Only while a score sort is active: it explains the number that just appeared on every
+           tile, and says in so many words what the number is NOT about. Nothing to read while the
+           set order is showing, so nothing is shown. -->
+      @if (sortMode() !== 'none') {
+        <p class="text-xs text-fg-muted">
+          {{ 'import.foreignChannel.sort.scoreHint' | transloco }}
+        </p>
+      }
+
       <div
         #gridContainer
         role="group"
         [attr.aria-label]="'import.foreignChannel.grid.ariaLabel' | transloco"
       >
-        <cdk-virtual-scroll-viewport [itemSize]="rowPx" class="h-96">
+        <cdk-virtual-scroll-viewport
+          [itemSize]="rowPx"
+          class="h-[clamp(16rem,calc(100dvh-26rem),34rem)]"
+        >
           <div *cdkVirtualFor="let row of rows(); trackBy: trackRowIndex" [style.height.px]="rowPx">
             <div
               class="grid gap-1"
               [style.grid-template-columns]="'repeat(' + columns() + ', ' + cellPx + 'px)'"
             >
               @for (emote of row; track emote.sevenTvEmoteId) {
-                <div class="relative h-16 w-16">
-                  <button
-                    type="button"
-                    class="app-sprite-cell relative block h-full w-full transition-shadow hover:inset-ring-1 hover:inset-ring-border-strong"
-                    [attr.aria-pressed]="selection.isSelected(emote)"
-                    [attr.aria-label]="cellLabel(emote)"
-                    (click)="onCellClick(emote, $event)"
-                    (mousedown)="$event.shiftKey && $event.preventDefault()"
+                <button
+                  type="button"
+                  class="flex w-16 flex-col items-stretch"
+                  [attr.aria-pressed]="selection.isSelected(emote)"
+                  [attr.aria-label]="cellLabel(emote)"
+                  [title]="cellLabel(emote)"
+                  (click)="onCellClick(emote, $event)"
+                  (mousedown)="$event.shiftKey && $event.preventDefault()"
+                >
+                  <span
+                    class="app-sprite-cell relative block h-16 w-16 transition-shadow hover:inset-ring-1 hover:inset-ring-border-strong"
                   >
                     <app-emote-sprite [url]="emote.imageUrl" [size]="cellPx" />
                     @if (sortMode() !== 'none') {
@@ -135,8 +191,19 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
                         aria-hidden="true"
                       ></span>
                     }
-                  </button>
-                </div>
+                  </span>
+                  <!-- aria-hidden: the accessible name of the tile already carries the alias and,
+                       where it differs, the global default name — announcing the visible line as
+                       well would read the alias twice. -->
+                  <span
+                    [class]="
+                      'block truncate text-center text-[10px] leading-4 ' +
+                      (selection.isSelected(emote) ? 'font-medium text-fg' : 'text-fg-muted')
+                    "
+                    aria-hidden="true"
+                    >{{ emote.name }}</span
+                  >
+                </button>
               }
             </div>
           </div>
@@ -153,8 +220,8 @@ export class ForeignEmoteGrid {
   /** What 7TV reports as the set's total entry count — only meaningful together with `truncated`. */
   readonly totalCount = input<number | null>(null);
 
-  /** The current selection, emitted on every change so a host (the picker dialog) can gate its
-   *  "weiter" button and build the eventual `ImportRow[]` — wiring that stays T4's job. */
+  /** The current selection, emitted on every change so a host (the picker step) can gate the
+   *  dialog's "weiter" button and build the eventual `ImportRow[]`. */
   readonly selectionChange = output<ForeignEmoteRow[]>();
 
   private readonly languageService = inject(LanguageService);
@@ -165,11 +232,8 @@ export class ForeignEmoteGrid {
   /** Never pre-selected (spec P5'/AK16) — see {@link ForeignEmoteSortMode}. */
   protected readonly sortMode = signal<ForeignEmoteSortMode>('none');
 
-  protected readonly sortOptions: SegmentedControlOption[] = [
-    { value: 'none', labelKey: 'import.foreignChannel.sort.none' },
-    { value: 'topAllTime', labelKey: 'import.foreignChannel.sort.topAllTime' },
-    { value: 'trending', labelKey: 'import.foreignChannel.sort.trending' },
-  ];
+  protected readonly sortOptions = SORT_OPTIONS;
+  protected readonly sortSelectId = 'foreign-emote-sort';
 
   /**
    * Sorting rearranges display order only — it never touches `ListSelection`'s `selectedKeySet`,
@@ -228,10 +292,8 @@ export class ForeignEmoteGrid {
     });
   }
 
-  /** Signature takes `string` because `SegmentedControl` is untyped by design (see
-   *  `usage-stats-page.ts`'s `setSortKey` for the same reasoning) — cast happens here, once. */
-  protected setSortMode(mode: string): void {
-    this.sortMode.set(mode as ForeignEmoteSortMode);
+  protected onSortChange(event: Event): void {
+    this.sortMode.set((event.target as HTMLSelectElement).value as ForeignEmoteSortMode);
   }
 
   protected onCellClick(emote: ForeignEmoteRow, event: MouseEvent): void {
@@ -243,6 +305,12 @@ export class ForeignEmoteGrid {
     return index;
   }
 
+  /**
+   * The tile's accessible name — and its mouse tooltip, since the visible line under the sprite is
+   * truncated at 64 px. The alias comes first because that is the name being copied; the global
+   * default name follows in brackets only where the two differ, which they do in 296 of
+   * HandOfBlood's 956 entries.
+   */
   protected cellLabel(emote: ForeignEmoteRow): string {
     return emote.name === emote.defaultName ? emote.name : `${emote.name} (${emote.defaultName})`;
   }

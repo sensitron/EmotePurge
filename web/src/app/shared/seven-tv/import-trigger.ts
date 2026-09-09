@@ -8,34 +8,41 @@ import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.serv
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { Button } from '../ui/button';
-import { fileImportTriggerDisabled } from './file-import-trigger-gate';
-import { openFileImportDialog } from './file-import-dialog';
+import { startForeignChannelImportFlow } from './foreign-import-flow';
+import { importTriggerDisabled } from './import-trigger-gate';
+import { openImportSourceDialog } from './import-source-dialog';
 import { startImportFlow } from './import-flow';
 import { startRestoreFlow } from './restore-flow';
 
 /**
- * The header button that opens the file-based restore/import path (#91, plan §1.1): freezes
- * `channelName`/`setId` at the moment of the click, opens `FileImportDialog` to read and validate
- * the chosen file, then hands the result to whichever chain fits — `startRestoreFlow` for a
- * purge-run protocol, `startImportFlow` (targeting the frozen channel) for an emote-list or usage
- * export. Neither chain runs from inside the still-open file-import dialog: that dialog always
- * closes first (its own contract, see `FileImportResult`), so the app's one-dialog-at-a-time rule
- * (`shared/ui/dialog.ts`) holds and each chain keeps its own dialog ordering — Restore asks for the
- * 7TV token before the confirmation, Import only after it (`startImportFlow`'s doc explains why;
- * this trigger must not prompt for a token itself on top of either).
+ * The header button that opens the import path — **all of it** (#91, #147). It freezes
+ * `channelName`/`setId` at the moment of the click, opens `ImportSourceDialog`, and hands whatever
+ * comes back to the chain that fits: `startRestoreFlow` for a purge-run protocol,
+ * `startImportFlow` for an emote list or usage export read from a file, and
+ * `startForeignChannelImportFlow` for emotes picked out of another channel's 7TV set.
+ *
+ * There used to be a second header button for the foreign-channel source. It is gone: a source with
+ * a front door of its own contradicted the spec's E1, and the choice now lives in the dialog's first
+ * step where a third source is a third row rather than a third button (#147).
+ *
+ * No chain runs from inside the still-open dialog: it always closes first (its own contract, see
+ * `ImportSourceDialogResult`), so the app's one-dialog-at-a-time rule (`shared/ui/dialog.ts`) holds
+ * and each chain keeps its own dialog ordering — Restore asks for the 7TV token before the
+ * confirmation, Import only after it (`startImportFlow`'s doc explains why; this trigger must not
+ * prompt for a token itself on top of either).
  *
  * Injects its own services (#70/#91) — the page it sits in gets no new method of its own, which
  * keeps the page's own coverage surface small (see plan 2.4).
  *
  * `importScopeCurrent` is an input rather than something computed here from page state, so the
- * lock this button carries stays a pure function of two booleans (`fileImportTriggerDisabled`,
+ * lock this button carries stays a pure function of two booleans (`importTriggerDisabled`,
  * testable without a TestBed) — the page computes the boolean itself, the same way it already does
  * for the neighbouring "Übertragen" button (`importScopeIsCurrent`). `atlasOrder().length === 0`
  * and `!isCoarse()` deliberately do NOT appear here: both are already enforced by the `@if` block
  * this trigger is placed inside on the page, alongside "Übertragen" (plan §1.2 point 3).
  */
 @Component({
-  selector: 'app-file-import-trigger',
+  selector: 'app-import-trigger',
   imports: [Button, TranslocoPipe],
   template: `
     <button
@@ -49,7 +56,7 @@ import { startRestoreFlow } from './restore-flow';
     </button>
   `,
 })
-export class FileImportTrigger {
+export class ImportTrigger {
   readonly channelName = input.required<string>();
   /** The channel's *current* active set — a purge-run protocol is validated against it. */
   readonly setId = input.required<string>();
@@ -65,7 +72,7 @@ export class FileImportTrigger {
   private readonly importService = inject(SevenTvImportService);
 
   protected readonly disabled = computed(() =>
-    fileImportTriggerDisabled({
+    importTriggerDisabled({
       hasActiveRun: this.arbiter.activeRun() !== null,
       importScopeCurrent: this.importScopeCurrent(),
     }),
@@ -78,7 +85,7 @@ export class FileImportTrigger {
     const channelName = this.channelName();
     const setId = this.setId();
 
-    openFileImportDialog(this.dialog, { channelName, setId }).closed.subscribe((result) => {
+    openImportSourceDialog(this.dialog, { channelName, setId }).closed.subscribe((result) => {
       if (!result) {
         return;
       }
@@ -97,17 +104,20 @@ export class FileImportTrigger {
         );
         return;
       }
-      startImportFlow(
-        {
-          dialog: this.dialog,
-          emoteAdminService: this.emoteAdminService,
-          tokenService: this.tokenService,
-          importService: this.importService,
-          arbiter: this.arbiter,
-        },
-        result.source,
-        channelName,
-      );
+      const importDeps = {
+        dialog: this.dialog,
+        emoteAdminService: this.emoteAdminService,
+        tokenService: this.tokenService,
+        importService: this.importService,
+        arbiter: this.arbiter,
+      };
+      if (result.kind === 'foreign') {
+        // The target is this page's channel, exactly as it is for the file path — no target picker
+        // in between any more (#147).
+        startForeignChannelImportFlow(importDeps, result.picked, channelName);
+        return;
+      }
+      startImportFlow(importDeps, result.source, channelName);
     });
   }
 }

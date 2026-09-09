@@ -61,7 +61,7 @@ function captureDownloads(): CapturedDownload[] {
  * action, a neutral exit after it, and no leftover gap when the host page has nothing to project —
  * checked through accessible button names/order, never through the Tailwind classes that produce
  * the spacing (Regel 12). The delete/restore *flows* this panel also drives are exercised in the
- * specs of the pieces that own them (`restore-flow.spec.ts`, `file-import-trigger.spec.ts`), not
+ * specs of the pieces that own them (`restore-flow.spec.ts`, `import-trigger.spec.ts`), not
  * here.
  */
 

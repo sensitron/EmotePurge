@@ -10,6 +10,69 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-10 — Die Quellenwahl ist der erste Schritt des einen Import-Dialogs (#147)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-source-dialog.ts` ·
+`web/src/app/shared/seven-tv/file-import-step.ts` (war `file-import-dialog.ts`) ·
+`web/src/app/shared/seven-tv/foreign-channel-step.ts` (war `foreign-channel-import-dialog.ts`) ·
+`web/src/app/shared/seven-tv/import-trigger.ts` + `import-trigger-gate.ts` (waren
+`file-import-trigger*.ts`) · `web/src/app/shared/seven-tv/foreign-import-flow.ts` ·
+`web/src/app/shared/seven-tv/foreign-emote-grid.ts` · `web/src/app/shared/ui/dialog.ts` ·
+`web/src/styles.css` · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` ·
+`web/public/i18n/de.json` · `web/public/i18n/en.json` · `docs/UI-Designsprache.md` (§7.3)
+
+Sechs Befunde des Betreibers an der laufenden Anwendung, alle auf denselben Fehler zurückführbar:
+der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebaut.
+
+1. **Der eigene Kopfknopf ist weg.** Im Seitenkopf standen „Importieren" (Datei) und „Fremder
+   Kanal" nebeneinander — gegen E1 der Spec („eine Quelle unter anderen im Import-Dialog, keine
+   eigene Seite"). „Importieren" öffnet jetzt **einen** Dialog, dessen erster Schritt fragt, woher
+   die Emotes kommen. Eine dritte Quelle (#148) ist eine dritte Zeile dort; ein ausgegrauter
+   Platzhalter dafür wird ausdrücklich **nicht** ausgeliefert. Die beiden bisherigen Dialoge sind
+   dabei zu Schritten geworden — bei unverändertem Verhalten, insbesondere behält der Datei-Weg
+   seine Zwei-Pass-Prüfung des Purge-Protokolls und sein Sperrgatter.
+2. **Eigene Panel-Klasse `app-dialog-panel-wide`.** Die Basisregel kappt auf `min(28rem, …)`; das
+   Raster über 956 Emotes bekam damit fünf Spalten und ~190 Zeilen Scrollweg, während links und
+   rechts je 700 px brachlagen. Die neue Klasse liegt **unlayered und mit verdoppelter Pane-Klasse**
+   (`.cdk-overlay-pane.app-dialog-panel-wide`), weil CDK seine Overlay-Styles zur Laufzeit hinter
+   allen Bundle-Stylesheets injiziert, und sie spiegelt die Bottom-Sheet-Regeln **in beiden Hälften**
+   — Andockung auf dem Wrapper mit `!important`, Geometrie auf der Pane. Wer nur die Pane-Hälfte
+   kopiert, bekommt einen zentrierten Dialog.
+3. **Die Pane-Breite ist über alle Schritte konstant.** Die erste Fassung schaltete die Klasse je
+   Schritt per `overlayRef.addPanelClass` — technisch sauber, aber ein Layout-Sprung beim
+   Schrittwechsel. Nutzer-Wertung am 2026-09-10: lieber eine suboptimal breite Fläche als ein
+   Rahmen, der unter dem Leser springt. Die Klasse wird deshalb **einmal beim Öffnen** gewählt;
+   `openAppDialog` hat dafür eine `panelClass`-Option bekommen, die **zusätzlich** zu
+   `app-dialog-panel` gesetzt wird, nie an ihrer Stelle. Was ein schmaler Schritt stattdessen tut,
+   ist seinen Inhalt zu begrenzen: das Kanalfeld trägt `max-w-sm`.
+4. **Genau ein Scroll-Container.** Pane **und** virtualisiertes Raster scrollten übereinander. Eine
+   Prozent-Höhenkette überlebt die beiden `display: inline`-Component-Hosts zwischen Pane und Inhalt
+   nicht (steht so schon in §7); das Viewport ist deshalb gegen `dvh` bemessen
+   (`clamp(16rem, calc(100dvh - 26rem), 34rem)`), womit der Dialoginhalt kürzer bleibt als die Pane
+   und diese keinen eigenen Balken bekommt.
+5. **Die Sortierung benennt eine Eigenschaft des Emotes, nicht die Herkunft der Liste.** „7TV global
+   · Top aller Zeiten" in einer Reiterleiste hatte den Betreiber schließen lassen, das Raster zeige
+   7TVs globale Emotes statt des Sets des eingegebenen Kanals. Er hat die Fehldeutung
+   zurückgenommen — sie bleibt trotzdem der Beleg, dass das Label die *Liste* zu beschreiben schien.
+   Neu: ein beschriftetes `<select>` („Sortieren nach"), keine Reiterleiste; Optionen
+   „7TV-Verbreitung (gesamt)"/„(Trend)"; und, solange eine Score-Sortierung aktiv ist, ein stiller
+   Satz, der sagt, was die Zahl auf der Kachel **nicht** ist. Die beiden Auflagen aus dem Konzept
+   (P5') gelten unverändert: nie die Vorbelegung, nie bloß „Beliebtheit".
+6. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
+   einzelner Emotes ist der Name die Entscheidungsgrundlage — er landet im Zielset und der
+   Kollisionshinweis handelt von ihm. Sichtbar steht der **Alias** des Quellsets; der globale
+   Basisname kommt dort dazu, wo er abweicht (296 von 956 bei HandOfBlood), und zwar im zugänglichen
+   Namen und im Tooltip der Kachel, weil 64 px die meisten Namen abschneiden.
+
+**Und ein Schritt ist ersatzlos gestrichen:** der Fremdkanal-Weg öffnete nach der Auswahl noch
+`ImportTargetDialog` mit `forcedScope: 'selection'`. Mit unterdrückter Bereichs-Radiogruppe blieb
+dort genau eine Frage übrig — in welchen Kanal —, und die war schon beantwortet: der Fluss startet
+im Kopf der Seite genau dieses Kanals, und der Datei-Weg fragt dort seit jeher nicht. Beide Wege
+verhalten sich jetzt gleich. `forcedScope` selbst bleibt, der Dock-Einstieg (§8.7) benutzt es
+weiter.
+
+---
+
 ### 2026-09-09 — Ohne Auswahl steht ein Hinweis statt der Bereichswahl, nicht eine tote Option (#144)
 
 **Betrifft:** `web/src/app/shared/export/export-dialog.ts` ·

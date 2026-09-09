@@ -2,7 +2,7 @@
  * One row copied by the import flow (#72, K3): the minimal identity a 7TV ADD mutation needs.
  * Shared shape across the origins — a tracked channel's active set (via the emote grid), a
  * downloaded file (emote-list export or usage export, parsed by `shared/export/import-source-parser`)
- * and a foreign channel's set read straight from 7TV (`shared/seven-tv/foreign-channel-import-dialog`).
+ * and a foreign channel's set read straight from 7TV (`shared/seven-tv/foreign-channel-step`).
  */
 export interface ImportRow {
   sevenTvEmoteId: string;

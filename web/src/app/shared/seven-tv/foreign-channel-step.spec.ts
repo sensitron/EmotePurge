@@ -1,4 +1,3 @@
-import { DialogRef } from '@angular/cdk/dialog';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -9,32 +8,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LanguageService } from '../../core/i18n/language.service';
 import { ForeignEmoteSetResponse } from '../../core/seven-tv/foreign-emote-set.model';
-import {
-  ForeignChannelImportDialog,
-  ForeignChannelImportResult,
-} from './foreign-channel-import-dialog';
+import { ForeignChannelStep } from './foreign-channel-step';
 
 const DE_TRANSLATIONS = {
-  common: { cancel: 'Abbrechen' },
   import: {
     foreignChannel: {
-      title: 'Fremden Kanal importieren',
       channelLabel: 'Kanalname',
       placeholder: 'z. B. handofblood',
       invalidChannelName: 'Kein gültiger Twitch-Kanalname.',
       load: 'Set laden',
       reload: 'Neu laden',
       retry: 'Erneut versuchen',
-      continue: 'Weiter',
       empty: 'Das aktive 7TV-Set dieses Kanals hat keine Emotes.',
       truncated: 'Nur ein Teil des Sets konnte geladen werden ({{ loaded }} von {{ totalCount }}).',
       selectedCount: '{{ count }} ausgewählt',
       grid: { ariaLabel: 'Emote-Auswahl' },
       sort: {
-        ariaLabel: 'Sortierung',
+        label: 'Sortieren nach',
         none: 'Set-Reihenfolge',
         topAllTime: 'Top',
         trending: 'Trend',
+        scoreHint: 'Die Zahl sagt, in wie vielen 7TV-Sets das Emote steckt.',
       },
     },
   },
@@ -76,20 +70,18 @@ function response(overrides: Partial<ForeignEmoteSetResponse> = {}): ForeignEmot
   };
 }
 
-describe('ForeignChannelImportDialog', () => {
-  let fixture: ComponentFixture<ForeignChannelImportDialog>;
-  let component: ForeignChannelImportDialog;
+describe('ForeignChannelStep', () => {
+  let fixture: ComponentFixture<ForeignChannelStep>;
+  let component: ForeignChannelStep;
   let host: HTMLElement;
   let httpMock: HttpTestingController;
-  let closed: (ForeignChannelImportResult | undefined)[];
 
   beforeEach(async () => {
     vi.stubGlobal('ResizeObserver', FakeResizeObserver);
-    closed = [];
 
     await TestBed.configureTestingModule({
       imports: [
-        ForeignChannelImportDialog,
+        ForeignChannelStep,
         TranslocoTestingModule.forRoot({
           langs: { de: DE_TRANSLATIONS },
           translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
@@ -99,10 +91,6 @@ describe('ForeignChannelImportDialog', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         {
-          provide: DialogRef,
-          useValue: { close: (result?: ForeignChannelImportResult) => closed.push(result) },
-        },
-        {
           provide: LanguageService,
           useValue: { lang: signal('de') } as unknown as LanguageService,
         },
@@ -111,7 +99,7 @@ describe('ForeignChannelImportDialog', () => {
     await firstValueFrom(TestBed.inject(TranslocoService).load('de'));
 
     httpMock = TestBed.inject(HttpTestingController);
-    fixture = TestBed.createComponent(ForeignChannelImportDialog);
+    fixture = TestBed.createComponent(ForeignChannelStep);
     component = fixture.componentInstance;
     host = fixture.nativeElement;
     fixture.detectChanges();
@@ -182,28 +170,64 @@ describe('ForeignChannelImportDialog', () => {
     refreshReq.flush(response());
   });
 
-  it('keeps "Weiter" disabled until a selection exists, then closes with the picked rows', () => {
+  it('reports no result until a loaded set has a selection, then the picked rows', () => {
+    expect(component.result()).toBeNull();
+
     component['channelNameControl'].setValue('handofblood');
     component['submit']();
     httpMock.expectOne('/api/seventv/channels/handofblood/emotes').flush(response());
     fixture.detectChanges();
 
-    expect(button('Weiter').disabled).toBe(true);
+    // Loaded but nothing marked — still nothing to carry forward.
+    expect(component.result()).toBeNull();
 
     const picked = response().emotes;
     component['onSelectionChange'](picked);
     fixture.detectChanges();
-    expect(button('Weiter').disabled).toBe(false);
 
-    button('Weiter').click();
-
-    expect(closed).toEqual([
-      { channelName: 'handofblood', sevenTvUserId: 'user-1', emoteSetId: 'set-1', rows: picked },
-    ]);
+    expect(component.result()).toEqual({
+      channelName: 'handofblood',
+      sevenTvUserId: 'user-1',
+      emoteSetId: 'set-1',
+      rows: picked,
+    });
   });
 
-  it('cancel closes the dialog with no result', () => {
-    button('Abbrechen').click();
-    expect(closed).toEqual([undefined]);
+  it('drops a selection made against the previous channel when a new query starts', () => {
+    component['channelNameControl'].setValue('handofblood');
+    component['submit']();
+    httpMock.expectOne('/api/seventv/channels/handofblood/emotes').flush(response());
+    component['onSelectionChange'](response().emotes);
+    expect(component.result()).not.toBeNull();
+
+    component['channelNameControl'].setValue('otherchannel');
+    component['submit']();
+
+    // A selection of one channel's 7TV ids has no honest meaning in another channel's set.
+    expect(component.result()).toBeNull();
+    httpMock.expectOne('/api/seventv/channels/otherchannel/emotes').flush(response());
+  });
+
+  it('labels the channel field visibly, not only through the placeholder (Codex P3)', () => {
+    const input = host.querySelector('input[type="text"]');
+    const label = host.querySelector('label');
+
+    expect(input?.getAttribute('id')).toBeTruthy();
+    expect(label?.getAttribute('for')).toBe(input?.getAttribute('id'));
+    expect(label?.textContent?.trim()).toBe('Kanalname');
+  });
+
+  it('wires the field-error text to the input while it is showing', () => {
+    component['channelNameControl'].setValue('ab');
+    component['submit']();
+    fixture.detectChanges();
+
+    const input = host.querySelector('input[type="text"]');
+    const describedBy = input?.getAttribute('aria-describedby');
+    expect(input?.getAttribute('aria-invalid')).toBe('true');
+    expect(describedBy).not.toBeNull();
+    expect(host.querySelector(`#${describedBy}`)?.textContent).toContain(
+      'Kein gültiger Twitch-Kanalname.',
+    );
   });
 });

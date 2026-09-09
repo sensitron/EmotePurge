@@ -130,16 +130,20 @@ const dockCopyButton = (page: Page, count: number) =>
   page.getByRole('button', { name: `Übertragen (${count})`, exact: true });
 
 /**
- * Opens the file-import dialog (#91) via the header trigger and returns the file input sitting
- * inside it. Locale-independent by position, same reasoning as `ui-audit.audit.ts:858-864` for its
- * neighbour: the trigger's label is translated and shares no word with the other header buttons, so
- * this goes by position instead — `main header button` `.nth(2)`, after `.nth(0)` (Exportieren) and
- * `.nth(1)` (Übertragen). Scoped to `main` because the app shell has its own top-level `<header>`
- * (the account menu) that an unscoped `header button` would count first.
+ * Opens the one import dialog (#91, #147) via the header trigger, walks its first step to the file
+ * source, and returns the file input sitting inside it. Locale-independent by position, same
+ * reasoning as `ui-audit.audit.ts` for its neighbour: the trigger's label is translated and shares
+ * no word with the other header buttons, so this goes by position instead — `main header button`
+ * `.nth(2)`, after `.nth(0)` (Exportieren) and `.nth(1)` (Übertragen). Scoped to `main` because the
+ * app shell has its own top-level `<header>` (the account menu) that an unscoped `header button`
+ * would count first. The source row itself is picked by its label: it is the dialog's own content,
+ * not a header button, and there is no position rule to lean on there.
  */
 async function openFileImportDialog(page: Page): Promise<Locator> {
   const dialog = page.getByRole('dialog');
   await page.locator('main header button').nth(2).click();
+  await expect(dialog.locator('#app-dialog-title')).toHaveText('Emotes importieren');
+  await dialog.getByRole('button', { name: /^Aus einer Datei/ }).click();
   await expect(dialog.locator('#app-dialog-title')).toHaveText('Datei importieren');
   return dialog.locator('input[type="file"]');
 }
@@ -560,9 +564,9 @@ test.describe('silent reload: selection reconciliation feedback (#94)', () => {
 test.describe('push flow: the file path', () => {
   // Both an emote-list and a usage export lead into the same confirmation dialog, uploaded through
   // the file-import dialog opened from the header trigger (not the picker's "save as file" option)
-  // — the dialog dispatches on the envelope's `kind` (FileImportDialog.onFileSelected) and, on
+  // — the dialog dispatches on the envelope's `kind` (FileImportStep.onFileSelected) and, on
   // success, closes and hands the result to the trigger. The target here is always the CURRENT
-  // channel: FileImportTrigger.openDialog always imports into the `channelName` it was opened with.
+  // channel: ImportTrigger.openDialog always imports into the `channelName` it was opened with.
   test('an emote-list file and a usage-export file both reach the confirm dialog', async ({
     page,
   }) => {

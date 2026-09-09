@@ -19,12 +19,13 @@
         {{ 'export.button' | transloco }}
       </button>
       <!-- Two 7TV write entry points behind ONE gate, because both act on this channel's active
-           set: the push (#72, K3) copies this channel's emotes into another channel's set, the file
-           path (#91) reads a file and either restores a purge protocol into this set or copies an
-           emote list / usage export into it. Both are desktop-only like every other 7TV write path
-           (isCoarse — no write token off a phone) and both are gone entirely without an active set:
-           the push would have nothing to copy from, the file path no set to validate a purge
-           protocol against.
+           set: the push (#72, K3) copies this channel's emotes into another channel's set, the
+           import (#91, #147) brings emotes INTO this set — from a file (purge protocol to restore,
+           emote list or usage export to copy) or from another channel's 7TV set, the source being
+           the first step of the one dialog it opens. Both are desktop-only like every other 7TV
+           write path (isCoarse — no write token off a phone) and both are gone entirely without an
+           active set: the push would have nothing to copy from, the import no set to write into and
+           none to validate a purge protocol against.
            Both also carry the same two locks. ANY of the three 7TV-writing runs being active
            (arbiter.activeRun(), not just the button's own kind) — the same rule the delete trigger
            already follows, and the running progress in the dock is the only reason given for it
@@ -35,10 +36,10 @@
            7TV write. `importScopeCurrent()`, not `isLoading()`: the new totals can answer before the
            new set status does, and loading is over by then. See importScopeIsCurrent. The trigger
            takes that boolean as an input rather than recomputing it, so its lock stays a pure
-           function (file-import-trigger-gate.ts).
+           function (import-trigger-gate.ts).
            NOT shared is `atlasOrder().length === 0`: the push sends what the grid holds and has
-           nothing to send while it is empty, whereas the file path brings its own rows and needs no
-           row in the grid at all. -->
+           nothing to send while it is empty, whereas every import source brings its own rows and
+           needs no row in the grid at all. -->
       @if (!isCoarse() && activeEmoteSetId(); as activeSetId) {
         <button
           type="button"
@@ -51,20 +52,11 @@
         >
           {{ 'import.copyButton' | transloco }}
         </button>
-        <app-file-import-trigger
+        <app-import-trigger
           [channelName]="channelName()"
           [setId]="activeSetId"
           [importScopeCurrent]="importScopeCurrent()"
         />
-      }
-      <!-- Sibling of the block above rather than part of it, because the two gates differ.
-           !isCoarse() applies: this ends in a 7TV write, and the write token is not something
-           anyone carries on a phone. activeEmoteSetId() deliberately does NOT: a foreign import
-           needs neither this channel's set nor a single row in the grid, so gating on it would
-           hide the source on exactly the channels that have not synced yet — the ones whose
-           owner is most likely to be filling a set from somewhere else. -->
-      @if (!isCoarse()) {
-        <app-foreign-channel-import-trigger />
       }
       <button
         type="button"

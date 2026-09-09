@@ -8,15 +8,14 @@ import { ForeignEmoteRow } from '../../core/seven-tv/foreign-emote-set.model';
 import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { SevenTvRunArbiter, SevenTvRunKind } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
-import { ForeignChannelImportResult } from './foreign-channel-import-dialog';
+import { ForeignChannelImportResult } from './foreign-channel-step';
 import { buildForeignImportSource, startForeignChannelImportFlow } from './foreign-import-flow';
 import { ImportFlowDeps } from './import-flow';
-import { ImportTargetDialogData } from './import-target-dialog';
 
 /**
  * Like `import-flow.spec.ts`, this runs without a `TestBed`: the flow opens dialogs through the
- * plain `Dialog` it is handed, so `dialog.open` is a `vi.fn()` standing in for all three dialogs of
- * the chain, distinguished by call order — picker, target, confirm.
+ * plain `Dialog` it is handed, so `dialog.open` is a `vi.fn()` standing in for every dialog of the
+ * chain, distinguished by call order.
  */
 
 function foreignRow(
@@ -111,64 +110,21 @@ describe('buildForeignImportSource', () => {
 });
 
 describe('startForeignChannelImportFlow', () => {
-  it('opens the picker first and nothing else until it answers', () => {
+  it('opens the import confirmation directly — no target picker in between (#147)', () => {
     const { deps, dialogOpen } = setup();
 
-    startForeignChannelImportFlow(deps);
+    startForeignChannelImportFlow(deps, picked([foreignRow('e1', 'Kappa')]), 'my_channel');
 
+    // Exactly one dialog, and it is the confirmation: where the emotes go was decided by the page
+    // the flow was started from, exactly as it is for the file path.
     expect(dialogOpen).toHaveBeenCalledTimes(1);
-  });
-
-  it('opens no target picker when the source dialog is cancelled', () => {
-    const { deps, dialogOpen } = setup();
-    startForeignChannelImportFlow(deps);
-
-    closedSubject<ForeignChannelImportResult | undefined>(dialogOpen, 0).next(undefined);
-
-    expect(dialogOpen).toHaveBeenCalledTimes(1);
-  });
-
-  it('forces the selection scope on the target picker and excludes the source channel', () => {
-    // The scope radiogroup would ask a question the picker just answered emote by emote, and let
-    // the second answer overrule the first (spec §7). `currentChannelName` is the source channel,
-    // which is what keeps it out of the target list.
-    const { deps, dialogOpen } = setup();
-    startForeignChannelImportFlow(deps);
-
-    closedSubject<ForeignChannelImportResult | undefined>(dialogOpen, 0).next(
-      picked([foreignRow('e1', 'Kappa'), foreignRow('e2', 'PogU')]),
-    );
-
-    expect(dialogOpen).toHaveBeenCalledTimes(2);
-    const data = dialogOpen.mock.calls[1][1].data as ImportTargetDialogData;
-    expect(data.forcedScope).toBe('selection');
-    expect(data.currentChannelName).toBe('handofblood');
-    expect(data.selectionCount).toBe(2);
-  });
-
-  it('starts no run when the target picker is cancelled', () => {
-    const { deps, dialogOpen, startImport } = setup();
-    startForeignChannelImportFlow(deps);
-    closedSubject<ForeignChannelImportResult | undefined>(dialogOpen, 0).next(
-      picked([foreignRow('e1', 'Kappa')]),
-    );
-
-    closedSubject<unknown>(dialogOpen, 1).next(undefined);
-
-    expect(dialogOpen).toHaveBeenCalledTimes(2);
-    expect(startImport).not.toHaveBeenCalled();
   });
 
   it('hands the picked rows and the foreign origin to the ordinary import run', () => {
     const { deps, dialogOpen, startImport } = setup();
-    startForeignChannelImportFlow(deps);
-    closedSubject<ForeignChannelImportResult | undefined>(dialogOpen, 0).next(
-      picked([foreignRow('e1', 'Kappa')]),
-    );
 
-    closedSubject<unknown>(dialogOpen, 1).next({ scope: 'selection', channelName: 'my_channel' });
-    // Call #2 is the confirm dialog `startImportFlow` opened; it decides the final row list.
-    closedSubject<unknown>(dialogOpen, 2).next({
+    startForeignChannelImportFlow(deps, picked([foreignRow('e1', 'Kappa')]), 'my_channel');
+    closedSubject<unknown>(dialogOpen, 0).next({
       targetSetId: 'set-target',
       rows: [{ sevenTvEmoteId: 'e1', name: 'Kappa' }],
     });
@@ -178,5 +134,14 @@ describe('startForeignChannelImportFlow', () => {
       { kind: 'seventv-channel', channelName: 'handofblood' },
       [{ sevenTvEmoteId: 'e1', name: 'Kappa' }],
     );
+  });
+
+  it('starts no run when the confirmation is dismissed', () => {
+    const { deps, dialogOpen, startImport } = setup();
+
+    startForeignChannelImportFlow(deps, picked([foreignRow('e1', 'Kappa')]), 'my_channel');
+    closedSubject<unknown>(dialogOpen, 0).next(undefined);
+
+    expect(startImport).not.toHaveBeenCalled();
   });
 });
