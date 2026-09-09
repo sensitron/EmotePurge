@@ -251,14 +251,19 @@ ihre Abwesenheit), Änderungen am Umschlag oder Dateinamen der Emote-Liste.
 - Am Gerät angesehen: die dreizeilige Zweckgruppe als Bottom-Sheet auf grobem Zeiger.
 - Codex-Zweitmeinung (`--scope branch --base origin/main`) eingeholt und dem Nutzer **vorgelegt**.
 
-## Offene Fragen
+## Beantwortete Fragen
 
-1. **Scope-Vorbelegung für die Emote-Liste.** Der Datei-Weg erbt mit dem Umzug `visible` (312) statt
-   wie heute `selection` (7). Das ist die dokumentierte Asymmetrie aus §7.2, und sie trägt hier: die
-   Gefahr, gegen die `selection` schützt, ist das unbemerkte **Verbreitern eines Schreibvorgangs in
-   ein fremdes 7TV-Set** — eine Datei schreibt nirgendwo hin, und der spätere Import hat seine eigene
-   Vorschau mit Zahlen. Ich halte das Erben deshalb für richtig. **Es ist trotzdem eine sichtbare
-   Verhaltensänderung** für den heutigen Weg „7 markieren → Übertragen → Als Datei speichern", und
-   die Übergabe verlangt ausdrücklich eine Rückfrage statt eines stillen Drehens.
-2. **Sackgasse ohne wählbaren Kanal (E5).** Bestätigung erbeten, dass der Ziel-Dialog ohne
-   Kanaloption nur noch Meldung plus gesperrtes „Weiter" zeigt, statt gar nicht erst zu öffnen.
+Beide am 2026-09-09 vom Nutzer entschieden, bevor gebaut wurde:
+
+1. **Scope-Vorbelegung für die Emote-Liste: `visible` wird geerbt.** Der Datei-Weg verhält sich damit
+   wie die zwei Zahlen-Zeilen, obwohl er heute im Ziel-Dialog auf `selection` steht. Tragend ist die
+   Begründung aus §7.2 selbst: `selection` schützt dort gegen das unbemerkte **Verbreitern eines
+   Schreibvorgangs in ein fremdes 7TV-Set** — eine Datei schreibt nirgendwo hin, und der spätere
+   Import hat seine eigene Vorschau mit Zahlen. Verworfen wurde, den Scope-Default beim Wählen der
+   dritten Zeile umspringen zu lassen: das änderte unter der Hand eine Antwort, die der Nutzer schon
+   gegeben hat. **Der Weg „7 markieren → Übertragen → Als Datei speichern" belegt danach `visible`
+   statt `selection`** — bekannte, gewollte Verhaltensänderung.
+2. **Der Ziel-Dialog ohne wählbaren Kanal bleibt ein Sackgassen-Dialog** (E5): `none`-Meldung, leere
+   Gruppe, „Weiter" gesperrt. Verworfen wurde, „Übertragen…" im Seitenkopf vorab zu sperren — das
+   bräuchte die Kanalliste schon vor dem Öffnen, die der Dialog heute selbst und bewusst ungecacht
+   lädt.
