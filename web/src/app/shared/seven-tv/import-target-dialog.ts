@@ -25,19 +25,18 @@ export interface ImportTargetDialogData {
   forcedScope?: ExportScope;
 }
 
-/** What was chosen: a scope over the source rows, plus where they should go. */
+/** What was chosen: a scope over the source rows, plus the channel they should go into. */
 export interface ImportTargetChoice {
   scope: ExportScope;
-  target: { kind: 'channel'; channelName: string } | { kind: 'file' };
+  channelName: string;
 }
 
-type TargetSelection = { kind: 'channel'; channelName: string } | { kind: 'file' } | null;
+type TargetSelection = { channelName: string } | null;
 
 /**
- * First step of the copy flow (#72, K3): choose *what* (scope) and *where* (target channel, or a
- * file to save for later). Loads `listMine()` itself on open — the same call the overview page
- * makes, deliberately uncached (`ChannelService.listMine` docstring) so a role granted a moment ago
- * already shows up.
+ * First step of the copy flow (#72, K3): choose *what* (scope) and *where* (target channel).
+ * Loads `listMine()` itself on open — the same call the overview page makes, deliberately
+ * uncached (`ChannelService.listMine` docstring) so a role granted a moment ago already shows up.
  *
  * Scope defaults to `selection` when a selection exists (R12) — the opposite of the export dialog,
  * which defaults to `visible`. Export's risk is silently *narrowing* an export; this dialog's risk
@@ -135,16 +134,6 @@ type TargetSelection = { kind: 'channel'; channelName: string } | { kind: 'file'
               }
             </label>
           }
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="import-target"
-              [checked]="target()?.kind === 'file'"
-              (change)="selectFile()"
-            />
-            {{ 'import.target.saveAsFile' | transloco }}
-          </label>
         </div>
       }
 
@@ -222,15 +211,11 @@ export class ImportTargetDialog {
 
   protected isChannelChecked(channelName: string): boolean {
     const current = this.target();
-    return current !== null && current.kind === 'channel' && current.channelName === channelName;
+    return current !== null && current.channelName === channelName;
   }
 
   protected selectChannel(channelName: string): void {
-    this.target.set({ kind: 'channel', channelName });
-  }
-
-  protected selectFile(): void {
-    this.target.set({ kind: 'file' });
+    this.target.set({ channelName });
   }
 
   protected submit(): void {
@@ -238,7 +223,7 @@ export class ImportTargetDialog {
     if (target === null) {
       return;
     }
-    this.dialogRef.close({ scope: this.scope(), target });
+    this.dialogRef.close({ scope: this.scope(), channelName: target.channelName });
   }
 }
 

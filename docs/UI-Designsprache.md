@@ -329,14 +329,18 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
      höchstens **eine** Meldung (exklusiv) — `reauthRequired` (warning), sonst `loadFailed` (error +
      „Erneut laden"), sonst `listIncomplete` (info).
   3. Ziel-Radiogruppe: ein Radio je Kanal, in dem der Nutzer Broadcaster oder 7TV-Editor ist
-     (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle,
-     zuletzt ein Radio „Als Datei speichern".
+     (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle.
+     Gibt es keinen solchen Kanal, bleibt die Gruppe leer und die `import.target.none`-Meldung
+     erscheint an ihrer Stelle (E5) — der Dialog öffnet sich trotzdem, er hat nur nichts zur Wahl.
   4. Abbrechen / Weiter.
 - **Scope-Default `selection` bricht bewusst mit dem Export-Dialog** (der dort `visible` vorbelegt):
   ein Export läuft Gefahr, unbemerkt zu **verengen**; ein Kopieren in ein fremdes 7TV-Set läuft
   Gefahr, unbemerkt auf mehrere hundert sichtbare Emotes zu **verbreitern** — der Wedge des Features
   ist „auswählen, dann kopieren". Ohne Grid-Auswahl gibt es keine Radiogruppe, Scope ist dann
-  `visible`. Nicht angleichen.
+  `visible`. Nicht angleichen. Der Datei-Weg, der früher als Radio in dieser Gruppe stand, liegt
+  seit #141 im Export-Dialog (§7.4) und erbt dessen Scope-Vorbelegung `visible` — der Ziel-Dialog
+  bleibt bei seinem `selection`-Default, weil die beiden jetzt getrennte Kommandos mit getrennten
+  Risiken sind, nicht mehr zwei Ausgänge desselben Dialogs.
 - **Bestätigungsdialog, Zeilenreihenfolge:** Titel (Anzahl + Zielkanal) → Herkunftszeile (Kanal,
   oder Datei mit Export-Datum/-Kanal) → Zielzeile „Ziel: Kanal · Set …", sobald die Zieldaten da
   sind → genau **einer** von drei Ladezuständen (handgerolltes Skeleton nach §6.1-Muster /
@@ -557,7 +561,7 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
 ### 8.7 Aktionsflächen: welche Fläche welches Kommando trägt
 
 - **Geltungsbereich:** Seiten mit Mehrfachauswahl auf einem Bogen — heute die Usage-Stats-Seite und die Voting-Detail-Seite.
-- **Seitenkopf** (der Kopf *der Seite*, nicht der Shell-Header) trägt Kommandos, die ohne Auswahl vollständig sind. Jedes hat genau eine Absicht; überlappen sich zwei, wird eine umbenannt oder fallengelassen — nicht verschoben. **Überlappung heißt: zwei Kommandos mit verschiedenem Namen für dieselbe Absicht.** Dieselbe Aktion unter demselben Verb an zwei Orten ist ein zweiter Einstieg, keine Überlappung — die Gleichheit des Verbs ist dabei Bedingung, nicht Beiwerk.
+- **Seitenkopf** (der Kopf *der Seite*, nicht der Shell-Header) trägt Kommandos, die ohne Auswahl vollständig sind. Jedes hat genau eine Absicht; überlappen sich zwei, wird eine umbenannt oder fallengelassen — nicht verschoben. **Überlappung heißt: zwei Kommandos mit verschiedenem Namen für dieselbe Absicht.** Dieselbe Aktion unter demselben Verb an zwei Orten ist ein zweiter Einstieg, keine Überlappung — die Gleichheit des Verbs ist dabei Bedingung, nicht Beiwerk. **Bestätigt seit #141:** „Übertragen…" und „Exportieren" waren genau dieser Grenzfall, solange „Übertragen…" auch als Datei-Ausgang taugte — seit der Ziel-Dialog sein Datei-Ziel verloren hat, sind es zwei echte Absichten (Kanal vs. Datei) statt zweier Namen für eine überlappende. Keine Regeländerung, nur der Fall, an dem sie sich jetzt sauber entscheidet.
 - **Auswahlgebundene Kommandos** — solche, die ohne Auswahl gar nicht ausführbar sind (Löschen, Zur Abstimmung stellen) — stehen **nicht** im Seitenkopf. Wo es ein Dock gibt, stehen sie dort; wo keins ist, im Fluss unter dem Bogen, wie auf der Voting-Detail-Seite (`vote-session-detail-page.html:149-157`). Das Dock ist eine Zugabe, kein Erfordernis.
 - **Das Dock trägt außerdem den Laufzustand** — Fortschritt, Protokoll, Wiederherstellen nach einem Lauf. Das kann keine andere Fläche, weil es einen *abgeschlossenen* Lauf überdauern muss.
 - **Erlaubnis, keine Pflicht:** ein Kommando, dessen Ergebnis von der Auswahl abhängt, **darf** zusätzlich als Kurzform im Dock stehen — gleiches Verb, ohne Bereichsfrage, mit der Anzahl im Text. Begründung ist Auffindbarkeit im Moment des Markierens, nicht Klick-Ersparnis: der Seitenkopf scrollt weg, das Dock nicht. **Diese Begründung ist bislang unbelegt** (n = 1); sie ist deshalb als „darf" formuliert und zwingt keine künftige Aktion in zwei Einstiege.

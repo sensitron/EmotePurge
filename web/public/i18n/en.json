@@ -916,7 +916,6 @@
       "title": "Transfer emotes",
       "label": "Target channel",
       "notTracked": "Channel has to join first",
-      "saveAsFile": "Save as a file",
       "none": "No other channel where you are broadcaster or 7TV editor.",
       "listIncomplete": "The channel list is incomplete right now — missing channels appear after a reload.",
       "reauthRequired": "Your Twitch login has expired or was revoked — target channels appear after a fresh login.",

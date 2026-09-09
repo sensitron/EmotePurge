@@ -1397,9 +1397,8 @@ export class UsageStatsPage {
 
   /**
    * `openImportTarget`'s continuation once a target has been chosen. Works exclusively off the
-   * scope captured before the dialog opened (see there) — both destinations read the very same
-   * rows, so the file a user saves and the run they start describe the identical moment — and
-   * only branches on where those rows are going.
+   * scope captured before the dialog opened (see there) — the run started here reads the very
+   * same rows the dialog counted, not whatever the grid holds by the time this fires.
    */
   private startImportFromChoice(captured: CapturedImportScope, choice: ImportTargetChoice): void {
     const rows = choice.scope === 'selection' ? captured.selection : captured.visible;
@@ -1413,21 +1412,6 @@ export class UsageStatsPage {
       discardedRows: 0,
     };
 
-    if (choice.target.kind === 'file') {
-      const envelope = buildEmoteListEnvelope({
-        channelName: captured.channelName,
-        emoteSetId: captured.emoteSetId,
-        scope: choice.scope,
-        rows: source.rows,
-      });
-      downloadFile(
-        emoteListFilename(captured.channelName, envelope.exportedAt),
-        emoteListJson(envelope),
-        JSON_MIME,
-      );
-      return;
-    }
-
     const deps: ImportFlowDeps = {
       dialog: this.dialog,
       emoteAdminService: this.emoteAdminService,
@@ -1435,7 +1419,7 @@ export class UsageStatsPage {
       importService: this.importService,
       arbiter: this.arbiter,
     };
-    startImportFlow(deps, source, choice.target.channelName);
+    startImportFlow(deps, source, choice.channelName);
   }
 
   // Quiet counterpart to the set-status fetch in load(): no sync-poll, and a failed refetch keeps
