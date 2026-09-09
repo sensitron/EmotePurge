@@ -1285,8 +1285,8 @@ export class UsageStatsPage {
             // if the offer rule and this branch ever drift apart, nothing is written.
             return;
           }
-          // Mirrors startImportFromChoice's file branch exactly: same dedupe, same envelope,
-          // same filename.
+          // Same dedupe, envelope and filename the target dialog's file destination used before
+          // #141 moved it here — the written file is unchanged, only the way in.
           const deduped = dedupeImportRows(rows.map(toImportRow));
           const envelope = buildEmoteListEnvelope({
             channelName: captured.channelName,
