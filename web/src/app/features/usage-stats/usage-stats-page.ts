@@ -90,6 +90,7 @@ import { downloadFile } from '../../shared/export/file-download';
 import {
   ExportPurposeId,
   buildUsageExportPurposeDownload,
+  toImportRow,
   usageExportPurposeOptions,
 } from '../../shared/export/usage-export-purposes';
 import {
@@ -149,11 +150,6 @@ interface CapturedExportScope {
   readonly selection: readonly EmoteUsageTotal[];
   readonly visible: readonly EmoteUsageTotal[];
 }
-
-const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
-  sevenTvEmoteId: emote.sevenTvEmoteId,
-  name: emote.emoteName,
-});
 
 // Sorting a never-used emote needs a position, not a crash. It is the deadest thing in the list, so
 // it sorts as older than any real date: descending (most recent first) puts them at the very end,

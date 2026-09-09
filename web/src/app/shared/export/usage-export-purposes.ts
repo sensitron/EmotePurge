@@ -38,7 +38,12 @@ export interface UsageExportPurposeScope {
   readonly trendFor: (row: EmoteUsageTotal) => UsageTrend;
 }
 
-const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
+/**
+ * The one mapping from a usage row to the shape a 7TV import wants. Exported because the push flow
+ * in `usage-stats-page.ts` needs the identical mapping — two private copies would drift silently
+ * the first time `ImportRow` gains a field.
+ */
+export const toImportRow = (emote: EmoteUsageTotal): ImportRow => ({
   sevenTvEmoteId: emote.sevenTvEmoteId,
   name: emote.emoteName,
 });
