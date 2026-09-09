@@ -158,6 +158,15 @@ builder.Services.AddRateLimiter(options =>
     // and its legitimate callers are machines on fixed cadences: the container HEALTHCHECK
     // (every 30 s, from localhost) and the external uptime monitor (every 60 s).
     AddFixedWindowPolicy(RateLimitPolicyNames.PublicHealth, rateLimits.PublicHealth);
+
+    // GET /api/seventv/channels/{channelName}/emotes (foreign-channel-import spec, E5a): any
+    // logged-in user, any Twitch channel, no role required — see the group's own comment for why that
+    // is deliberate. Stricter than InteractiveRead because unlike an ordinary navigation read this
+    // call always costs 7TV a real round trip (up to ten paginated pages), closer in shape to
+    // ChannelResync. This is only the per-user half of the guard (E5a); the provider-wide budget
+    // across all users (E5b) is a separate, in-process concern the hardening decorator around
+    // IForeignEmoteSetService owns, not a policy here.
+    AddFixedWindowPolicy(RateLimitPolicyNames.ForeignEmoteLookup, rateLimits.ForeignEmoteLookup);
 });
 
 var app = builder.Build();
@@ -277,6 +286,7 @@ app.MapAuthEndpoints();
 app.MapWorkerHealthEndpoints();
 app.MapAdminEndpoints();
 app.MapLiveEndpoints();
+app.MapSevenTvEndpoints();
 
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
 // Needs the options passed separately: the SPA fallback serves index.html through its own endpoint,

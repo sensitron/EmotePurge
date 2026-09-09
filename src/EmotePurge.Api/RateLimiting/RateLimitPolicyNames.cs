@@ -27,4 +27,12 @@ internal static class RateLimitPolicyNames
 
     /// <summary>The anonymous <c>GET /api/health</c>, partitioned by remote IP.</summary>
     internal const string PublicHealth = "PublicHealth";
+
+    /// <summary>
+    /// <c>GET /api/seventv/channels/{channelName}/emotes</c> (foreign-channel-import spec, E5a).
+    /// Per-user only — the provider-wide budget across all users (E5b) is a separate, in-process
+    /// concern the hardening decorator around <c>IForeignEmoteSetService</c> owns, not an ASP.NET
+    /// Core rate-limit policy.
+    /// </summary>
+    internal const string ForeignEmoteLookup = "ForeignEmoteLookup";
 }

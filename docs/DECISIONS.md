@@ -252,6 +252,65 @@ auf einer alten Testrunner-Linie fest.
 
 ---
 
+### 2026-09-09 — Fremde Kanäle sind eine Lesequelle: eigene `/api/seventv`-MapGroup ohne Kanalrolle (#147)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/SevenTvEndpoints.cs` ·
+`src/EmotePurge.Core/Services/IForeignEmoteSetService.cs` ·
+`src/EmotePurge.Infrastructure/Services/ForeignEmoteSetService.cs` ·
+`src/EmotePurge.Core/SevenTv/ISevenTvApiClient.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiClient.cs` ·
+`src/EmotePurge.Api/Validation/ApiErrorCodes.cs` ·
+`src/EmotePurge.Api/RateLimiting/RateLimitPolicyNames.cs` ·
+`tests/EmotePurge.Api.Tests/SevenTvForeignEmoteSetEndpointTests.cs` ·
+`docs/superpowers/specs/2026-09-09-fremde-kanaele-import-quelle-spec.md`
+
+**Bis heute war „die Emote-Liste eines Kanals lesen" an eine Rolle in diesem Kanal gebunden.** Jeder
+Weg zur Liste lief über `LoadChannelReadOnlyAsync` und damit über einen *getrackten* Kanal; für alles
+andere gab es 404. Wer Emotes aus einem fremden Set übernehmen wollte, musste den Kanal erst joinen —
+ein Admin-Umweg, der einen Worker-Join, eine Channel-Zeile und einen Platz unter Twitchs
+100-Chatroom-Decke kostet, nur um eine Liste zu lesen.
+
+**Die neue `MapGroup` `/api/seventv/channels/{name}/emotes` trägt ausschließlich
+`RequireAuthorization()`** — kein `UsageStatsAccessAuthorizationFilter`, keine Rollenprüfung im
+Quellkanal. Das ist nicht die Aufweichung einer Zugriffsregel, sondern ihre richtige Verortung: die
+Daten liegen auf `7tv.app` öffentlich und sind dort kopierbar; unsere Rollenprüfung schützte nie das
+Set, sondern die *Chat-Statistik* daneben. Genau die wird hier nicht geliefert — die Antwort trägt
+Alias, Basisname, Bild und 7TV-weite Scores, aber keine Nutzungszahl. Nächstliegendes Bestandsmuster
+ist `LiveEndpoints` (jeder Eingeloggte, kanalübergreifend).
+
+**Fremd ist die Quelle, nie das Ziel.** Geschrieben wird weiterhin nur in ein Set, in dem der Nutzer
+7TV-Rechte hat, und das Zielset bleibt ein getrackter Kanal aus `listMine()`. Die Mutationen laufen
+unverändert im Browser über den 7TV-Token; das Backend sieht ihn nie. Dieser Eintrag fügt eine
+**Lese**fähigkeit hinzu, keine Schreibfähigkeit.
+
+**Die Auflösungskette meidet 7TVs Suchendpunkt.** `LookupByLoginAsync` (Helix) →
+`ResolveSevenTvIdentityAsync` (`userByConnection`) → v4-Set-Abfrage. `GqlUsersQuery` /
+`ResolveTwitchUserIdAsync` bleiben dem periodischen Sync vorbehalten: das ist 7TVs *Suche*, sie hängt
+an einem eigenen Eimer von 100, ihre Überziehung sperrt rund eine Stunde, und sie tarnt die Ablehnung
+als **HTTP 200 mit `extensions.status: 429`**. Ein Feature, das diesen Endpunkt pro Nutzereingabe
+anspräche, würde die Sperre auslösen, die es zu meiden gilt. Ein Test hält das Verbot fest.
+
+**Ein erkanntes 429 sieht ohne Sonderbehandlung wie ein leeres Set aus** — und ein leeres Set ist
+laut Zustandstabelle ausdrücklich kein Fehler, sondern 200. Diese Verwechslung wäre der teuerste
+Einzelfehler des Features: der Nutzer bekäme „dieser Kanal hat keine Emotes" statt „7TV drosselt
+gerade". Die Erkennung sitzt deshalb im Parser, nicht im HTTP-Handler.
+
+**Die Seitendecke schneidet nicht mehr still ab.** Der bestehende `addedAt`-Pfad bricht bei
+`MaxSetEntryPages` kommentarlos ab; für eine Anreicherung ist das tolerabel, für eine Vorschau nicht —
+eine zu kurze Liste, die sich nicht als zu kurz zu erkennen gibt, ist schlimmer als ein Fehler. Die
+Antwort trägt darum `truncated` samt `totalCount`, und die Oberfläche sagt es.
+
+**Die Bild-URL wird aus der Emote-Id gebaut, nicht abgefragt.** `Emote.images` mitzuholen verteuerte
+die Antwort live gemessen um das Dreizehnfache (101.541 gegen 7.734 Bytes für 45 Emotes). Die
+CDN-Form ist fest und allein durch die Id bestimmt; sie entspricht der Konvention, die
+`SevenTvEmoteJsonMapper.BuildImageUrl` bereits ausliefert.
+
+**Kein Worker, kein Join, keine Migration.** Der Endpunkt schreibt nichts in unsere Datenbank. Das
+Messfenster aus Epic #118 (bis 2026-10-07) bleibt dadurch unberührt — eine ausdrückliche Auflage
+dieser Runde, keine glückliche Nebenwirkung.
+
+---
+
 ### 2026-09-08 — Der Publish-Job baut je Image, nicht mehr pauschal beide (#129)
 
 **Betrifft:** [`../.github/workflows/publish.yml`](../.github/workflows/publish.yml) (`changes`-Job,

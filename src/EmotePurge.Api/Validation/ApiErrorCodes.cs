@@ -33,6 +33,17 @@ internal static class ApiErrorCodes
     // track this channel", this one means Twitch itself knows no account under that login. Only a
     // definite Helix answer produces it — an unreachable Helix lets the join through unchanged.
     public const string ChannelNotOnTwitch = "channel_not_on_twitch";
+    // Four codes for GET /api/seventv/channels/{channelName}/emotes (foreign-channel-import spec,
+    // section 5) — ChannelNotOnTwitch above covers the fifth state that row shares with the join
+    // endpoint. All four carry a 503/404 body with no further detail: the caller cannot act on more
+    // than "not now" or "nothing there".
+    public const string ForeignChannelTwitchUnavailable = "foreign_channel_twitch_unavailable";
+    public const string ForeignChannelNoSevenTvAccount = "foreign_channel_no_seventv_account";
+    public const string ForeignChannelNoActiveEmoteSet = "foreign_channel_no_active_emote_set";
+    // Covers both a generic 7TV outage and a confirmed 429 (HTTP 429, or HTTP 200 with
+    // extensions.status: 429) — one code for both, because the caller cannot act on the two any
+    // differently (spec section 5: "7TV nicht erreichbar / 429" is a single table row).
+    public const string ForeignChannelSevenTvUnavailable = "foreign_channel_seventv_unavailable";
     // 429 with a body, unlike the rate limiter's bare 429: the client can tell the two apart and
     // say "already running, try again shortly" instead of a generic throttling message.
     public const string ResyncCooldownActive = "resync_cooldown_active";

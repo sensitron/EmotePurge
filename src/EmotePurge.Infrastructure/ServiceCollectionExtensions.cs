@@ -78,6 +78,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ChannelSyncGate>();
         services.AddScoped<ISevenTvSyncService, SevenTvSyncService>();
 
+        // Foreign-channel-import read path (spec 2026-09-09, T1). Scoped like the other stateless
+        // services above — it holds no state of its own, only the two collaborators it composes.
+        // Hardening (cache/breaker/coalescing/provider budget, T2) is a separate decorator this
+        // registration is left free to wrap around later.
+        services.AddScoped<IForeignEmoteSetService, ForeignEmoteSetService>();
+
         services.AddHttpClient<ITwitchAuthClient, TwitchAuthClient>(client =>
         {
             client.BaseAddress = new Uri("https://id.twitch.tv/");

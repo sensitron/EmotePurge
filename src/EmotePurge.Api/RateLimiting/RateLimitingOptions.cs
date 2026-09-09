@@ -47,6 +47,15 @@ internal sealed class RateLimitingOptions
     public FixedWindowPolicy PublicHealth { get; set; } = new() { PermitLimit = 30 };
 
     /// <summary>
+    /// Foreign-channel-import preview (spec E5a): per user, between <see cref="ChannelResync"/> (5/min,
+    /// the one call that always costs an unconditional 7TV round trip) and <see cref="Bookkeeping"/>
+    /// (120/min, writes against our own database only). This call costs 7TV a Helix lookup, a
+    /// userByConnection lookup, and up to ten paginated set-preview requests — closer to ChannelResync
+    /// in shape than to ordinary navigation, hence a fixed window rather than InteractiveRead's bucket.
+    /// </summary>
+    public FixedWindowPolicy ForeignEmoteLookup { get; set; } = new() { PermitLimit = 10 };
+
+    /// <summary>
     /// Throws unless every budget is usable. Called during startup, so a typo in an environment
     /// variable stops the container with a readable message instead of silently handing some policy
     /// a capacity of zero — which is not a lax limiter but a total outage of every route it guards,
@@ -59,6 +68,7 @@ internal sealed class RateLimitingOptions
         Bookkeeping.Validate(nameof(Bookkeeping));
         ChannelResync.Validate(nameof(ChannelResync));
         PublicHealth.Validate(nameof(PublicHealth));
+        ForeignEmoteLookup.Validate(nameof(ForeignEmoteLookup));
     }
 
     private static void RequirePositive(string policyName, string valueName, int value)
