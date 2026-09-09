@@ -50,33 +50,37 @@ type TargetSelection = { channelName: string } | null;
   imports: [Button, DialogShell, NoticeBanner, SkeletonRows, TranslocoPipe],
   template: `
     <app-dialog-shell [dialogTitle]="'import.target.title' | transloco">
-      @if (data.forcedScope === undefined && data.selectionCount > 0) {
-        <div
-          class="flex flex-wrap gap-4 text-sm text-fg-secondary"
-          role="radiogroup"
-          [attr.aria-label]="'export.scopeLabel' | transloco"
-        >
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="import-scope"
-              [checked]="scope() === 'visible'"
-              (change)="scope.set('visible')"
-            />
-            {{ 'export.scopeVisible' | transloco: { count: data.visibleCount } }}
-          </label>
-          <label class="flex items-center gap-2 py-1">
-            <input
-              type="radio"
-              class="h-4 w-4 accent-accent-solid"
-              name="import-scope"
-              [checked]="scope() === 'selection'"
-              (change)="scope.set('selection')"
-            />
-            {{ 'export.scopeSelection' | transloco: { count: data.selectionCount } }}
-          </label>
-        </div>
+      @if (data.forcedScope === undefined) {
+        @if (data.selectionCount > 0) {
+          <div
+            class="flex flex-wrap gap-4 text-sm text-fg-secondary"
+            role="radiogroup"
+            [attr.aria-label]="'export.scopeLabel' | transloco"
+          >
+            <label class="flex items-center gap-2 py-1">
+              <input
+                type="radio"
+                class="h-4 w-4 accent-accent-solid"
+                name="import-scope"
+                [checked]="scope() === 'visible'"
+                (change)="scope.set('visible')"
+              />
+              {{ 'export.scopeVisible' | transloco: { count: data.visibleCount } }}
+            </label>
+            <label class="flex items-center gap-2 py-1">
+              <input
+                type="radio"
+                class="h-4 w-4 accent-accent-solid"
+                name="import-scope"
+                [checked]="scope() === 'selection'"
+                (change)="scope.set('selection')"
+              />
+              {{ 'export.scopeSelection' | transloco: { count: data.selectionCount } }}
+            </label>
+          </div>
+        } @else {
+          <p class="text-xs text-fg-muted">{{ 'export.scopeNoSelectionHint' | transloco }}</p>
+        }
       }
 
       @if (channelsResource.isLoading()) {

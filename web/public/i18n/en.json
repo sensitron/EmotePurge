@@ -859,6 +859,7 @@
     "scopeLabel": "Export scope",
     "scopeVisible": "Filtered list ({{count}})",
     "scopeSelection": "Selection ({{count}})",
+    "scopeNoSelectionHint": "With nothing selected in the grid, the whole visible list applies.",
     "formatCsv": "CSV (spreadsheet)",
     "formatJson": "JSON (data extract)",
     "purposeLabel": "What do you need the file for?",

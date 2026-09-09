@@ -102,6 +102,8 @@ export const FORMAT_EXPORT_OPTIONS: readonly ExportDialogOption[] = [
             {{ 'export.scopeSelection' | transloco: { count: data.selectionCount } }}
           </label>
         </div>
+      } @else {
+        <p class="text-xs text-fg-muted">{{ 'export.scopeNoSelectionHint' | transloco }}</p>
       }
 
       <div

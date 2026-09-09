@@ -21,6 +21,7 @@ const DE_TRANSLATIONS = {
     scopeLabel: 'Exportumfang',
     scopeVisible: 'Gefilterte Liste ({{count}})',
     scopeSelection: 'Auswahl ({{count}})',
+    scopeNoSelectionHint: 'Ohne Auswahl im Raster gilt die ganze sichtbare Liste.',
   },
   import: {
     target: {
@@ -247,6 +248,32 @@ describe('ImportTargetDialog', () => {
       await resolve(dialog, 0, channelsResult());
 
       expect(dialog.scopeInputs()).toHaveLength(0);
+    });
+
+    // #144: the target dialog names no quantity at all once the radiogroup is hidden, so the
+    // "auswählen, dann kopieren" wedge (§7.2) is otherwise invisible to a viewer who never selects.
+    it('shows the no-selection hint in place of the radiogroup when selectionCount is 0', async () => {
+      const dialog = render(defaultData({ selectionCount: 0 }));
+      await resolve(dialog, 0, channelsResult());
+
+      expect(dialog.text()).toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
+      expect(dialog.scopeInputs()).toHaveLength(0);
+    });
+
+    it('does not show the no-selection hint once a selection exists', async () => {
+      const dialog = render(defaultData({ selectionCount: 3 }));
+      await resolve(dialog, 0, channelsResult());
+
+      expect(dialog.text()).not.toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
+    });
+
+    // A forced scope is not an absent choice (design doc §8.7): the dock shortcut already decided
+    // for the user, so neither the radiogroup nor the hint that explains its absence belongs here.
+    it('does not show the no-selection hint when a caller forces the scope with no selection', async () => {
+      const dialog = render(defaultData({ selectionCount: 0, forcedScope: 'selection' }));
+      await resolve(dialog, 0, channelsResult());
+
+      expect(dialog.text()).not.toContain('Ohne Auswahl im Raster gilt die ganze sichtbare Liste.');
     });
 
     it('submits exactly the forced scope, not whatever selectionCount would otherwise default to', async () => {

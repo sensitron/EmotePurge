@@ -324,7 +324,11 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   Layout-Frage — wer sie ändert, ändert einen Vertrag. Welche Flächen diesen Fluss auslösen
   dürfen, regelt §8.7.
 - **Ziel-Picker, Zeilenreihenfolge:**
-  1. Bereichs-Radiogruppe `visible`/`selection` — nur, wenn eine Grid-Auswahl existiert.
+  1. Bereichs-Radiogruppe `visible`/`selection` — nur, wenn eine Grid-Auswahl existiert; ohne
+     Auswahl steht an derselben Stelle stattdessen der gedämpfte Hinweis
+     `export.scopeNoSelectionHint` (#144) — außer ein Aufrufer erzwingt den Scope
+     (`forcedScope`, §8.7): dann fehlt an dieser Stelle beides, Radiogruppe wie Hinweis, weil ein
+     erzwungener Scope keine offene Wahl ist, die eine Erklärung bräuchte.
   2. Kanalliste-Zustand: `<app-skeleton-rows [count]="3">`, während `listMine()` lädt, danach
      höchstens **eine** Meldung (exklusiv) — `reauthRequired` (warning), sonst `loadFailed` (error +
      „Erneut laden"), sonst `listIncomplete` (info).
@@ -427,7 +431,9 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   jede `id` als undurchsichtig und schaltet nirgends selbst darauf.
 - **Zeilenreihenfolge im Body:**
   1. Bereichs-Radiogruppe `visible`/`selection` (`export.scopeLabel`) — nur, wenn eine Grid-Auswahl
-     existiert (`selectionCount > 0`).
+     existiert (`selectionCount > 0`); ohne Auswahl steht an derselben Stelle stattdessen der
+     gedämpfte Hinweis `export.scopeNoSelectionHint` (#144), der die Abwesenheit erklärt statt sie
+     kommentarlos zu lassen.
   2. Optionsgruppe — Legende ist `optionsLegendKey`, je Option `labelKey` auf der ersten Zeile,
      darunter `hintKey`, falls gesetzt.
   3. Zeilenzahl (`export.rowCount`, folgt dem gewählten Bereich) plus `filteredHint`, wenn die
