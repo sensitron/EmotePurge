@@ -5,7 +5,7 @@ import { retry, throwError, timer } from 'rxjs';
 
 import { ChannelService } from '../channels/channel.service';
 import { EmoteAdminService } from '../emotes/emote-admin.service';
-import { ImportOrigin, ImportRow } from './import-source';
+import { ImportOrigin, ImportRow, importOriginSourceChannelName } from './import-source';
 import {
   MAX_AUTOMATIC_SYNC_RETRIES,
   SYNC_RETRY_DELAY_MS,
@@ -234,9 +234,11 @@ export class SevenTvImportService {
     this.emoteAdminService
       .syncImported(run.targetChannelName, {
         sevenTvEmoteIds: doneKeys,
-        // A file import sends no source channel even when the file names one: the server rejects
-        // `file` *with* a name as `invalid_source_kind` (R3, K2 contract).
-        sourceChannelName: run.origin.kind === 'channel' ? run.origin.channelName : null,
+        // Through the exhaustive helper, never through a `=== 'channel'` test: this call runs after
+        // the 7TV mutations, so a kind that silently loses its source name here is answered with a
+        // 400 when the emotes are already copied and the provenance is unrecoverable (spec F6). A
+        // file still sends `null` even when it names a channel — that rule lives in the helper.
+        sourceChannelName: importOriginSourceChannelName(run.origin),
         sourceKind: run.origin.kind,
       })
       .pipe(

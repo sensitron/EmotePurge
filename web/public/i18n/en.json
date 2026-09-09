@@ -926,6 +926,7 @@
     },
     "foreignChannel": {
       "title": "Import from a foreign channel",
+      "trigger": "Foreign channel",
       "channelLabel": "Channel name",
       "placeholder": "e.g. handofblood",
       "invalidChannelName": "Not a valid Twitch channel name.",

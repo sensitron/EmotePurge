@@ -926,6 +926,7 @@
     },
     "foreignChannel": {
       "title": "Fremden Kanal importieren",
+      "trigger": "Fremder Kanal",
       "channelLabel": "Kanalname",
       "placeholder": "z. B. handofblood",
       "invalidChannelName": "Kein gültiger Twitch-Kanalname.",

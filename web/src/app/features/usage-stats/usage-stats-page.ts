@@ -105,6 +105,7 @@ import {
 } from '../../shared/grid/atlas-grid';
 import { actionDockHasContent } from '../../shared/seven-tv/action-dock';
 import { FileImportTrigger } from '../../shared/seven-tv/file-import-trigger';
+import { ForeignChannelImportTrigger } from '../../shared/seven-tv/foreign-channel-import-trigger';
 import { ImportFlowDeps, startImportFlow } from '../../shared/seven-tv/import-flow';
 import { ImportProgressSection } from '../../shared/seven-tv/import-progress-section';
 import { importScopeIsCurrent } from '../../shared/seven-tv/import-scope';
@@ -224,6 +225,7 @@ function sortableLastUsed(lastUsedDate: string | null): number {
     ImportProgressSection,
     MassDeletePanel,
     FileImportTrigger,
+    ForeignChannelImportTrigger,
     SlotBudgetBar,
     DateRangeMenu,
     SegmentedControl,

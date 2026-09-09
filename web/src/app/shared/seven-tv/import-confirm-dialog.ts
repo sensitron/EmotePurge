@@ -8,7 +8,12 @@ import { ImportTargetLoadState } from '../../core/emotes/import-target-loader';
 import { LanguageService } from '../../core/i18n/language.service';
 import { toLocale } from '../../core/i18n/locale';
 import { pluralKey } from '../../core/i18n/plural';
-import { ImportRow, ImportSource } from '../../core/seven-tv/import-source';
+import {
+  ImportOrigin,
+  ImportRow,
+  ImportSource,
+  importOriginSourceChannelName,
+} from '../../core/seven-tv/import-source';
 import { Button } from '../ui/button';
 import { openAppDialog } from '../ui/dialog';
 import { DialogShell } from '../ui/dialog-shell';
@@ -68,21 +73,22 @@ type BlockReason = string | null;
         titleKey() | transloco: { count: titleCount(), channel: data.targetChannelName }
       "
     >
-      @if (data.source.origin; as origin) {
-        @if (origin.kind === 'channel') {
+      <!-- Branches on the two computeds below, never on origin.kind: with a third origin
+           "not a channel" and "is a file" stopped being the same question, and a template test is
+           exactly where that goes unnoticed (spec F6). -->
+      @if (originChannelName(); as channel) {
+        <p class="text-sm text-fg-secondary">
+          {{ 'import.confirm.originChannel' | transloco: { channel } }}
+        </p>
+      } @else if (fileOrigin(); as file) {
+        <div class="flex flex-col gap-1">
           <p class="text-sm text-fg-secondary">
-            {{ 'import.confirm.originChannel' | transloco: { channel: origin.channelName } }}
+            {{ 'import.confirm.originFile' | transloco: { fileName: file.fileName } }}
           </p>
-        } @else {
-          <div class="flex flex-col gap-1">
-            <p class="text-sm text-fg-secondary">
-              {{ 'import.confirm.originFile' | transloco: { fileName: origin.fileName } }}
-            </p>
-            <p class="text-xs text-fg-muted">
-              {{ 'import.confirm.originFileDetails' | transloco: fileDetails() }}
-            </p>
-          </div>
-        }
+          <p class="text-xs text-fg-muted">
+            {{ 'import.confirm.originFileDetails' | transloco: fileDetails() }}
+          </p>
+        </div>
       }
 
       @if (ready(); as target) {
@@ -275,6 +281,23 @@ export class ImportConfirmDialog {
   private readonly languageService = inject(LanguageService);
   private readonly translocoService = inject(TranslocoService);
 
+  /**
+   * The source channel this copy came from, for both channel-shaped origins — a tracked channel and
+   * a foreign 7TV one read the same way here on purpose: the sentence "aus Kanal X" is equally true
+   * for both, and giving the foreign one its own wording would claim a difference this flow
+   * deliberately does not make (spec E1/E2, "nüchtern gerahmt"). `null` for a file.
+   */
+  protected readonly originChannelName = computed(() =>
+    importOriginSourceChannelName(this.data.source.origin),
+  );
+
+  /** The file origin itself, or `null` — the one narrowing the file block and `fileDetails` need,
+   *  and the reason neither has to ask for a `kind` any more. */
+  protected readonly fileOrigin = computed<Extract<ImportOrigin, { kind: 'file' }> | null>(() => {
+    const origin = this.data.source.origin;
+    return origin.kind === 'file' ? origin : null;
+  });
+
   protected readonly ready = computed(() => {
     const state = this.data.target();
     return state.status === 'ready' ? state : null;
@@ -329,8 +352,11 @@ export class ImportConfirmDialog {
   // `translate()` and `toLocaleDateString` are plain calls and would otherwise never be redone.
   protected readonly fileDetails = computed<{ channel: string; date: string }>(() => {
     const locale = toLocale(this.languageService.lang());
-    const origin = this.data.source.origin;
-    if (origin.kind !== 'file') {
+    // Off `fileOrigin()` rather than a `!== 'file'` test: that test would have swept the foreign
+    // channel origin in here as "not a file" and then read `exportedAt` off something that has no
+    // such field (spec F6). The template only renders this next to the file block anyway.
+    const origin = this.fileOrigin();
+    if (origin === null) {
       return { channel: '', date: '' };
     }
     return {
@@ -370,10 +396,14 @@ export class ImportConfirmDialog {
 
   protected readonly nothingToAdd = computed(() => this.preview()?.toAdd.length === 0);
 
+  // Stays file-only, deliberately: it warns that a *downloaded list* came from the very channel it
+  // is about to be copied back into, which a picker cannot produce — the target list excludes the
+  // source channel it was opened for (`importTargetOptions`), so the same finding is impossible for
+  // either channel origin rather than merely unlikely.
   protected readonly sameChannelFile = computed(() => {
-    const origin = this.data.source.origin;
+    const origin = this.fileOrigin();
     return (
-      origin.kind === 'file' &&
+      origin !== null &&
       origin.channelName !== null &&
       normalizeChannelName(origin.channelName) === normalizeChannelName(this.data.targetChannelName)
     );

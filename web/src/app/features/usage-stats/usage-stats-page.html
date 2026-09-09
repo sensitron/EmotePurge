@@ -57,6 +57,15 @@
           [importScopeCurrent]="importScopeCurrent()"
         />
       }
+      <!-- Sibling of the block above rather than part of it, because the two gates differ.
+           !isCoarse() applies: this ends in a 7TV write, and the write token is not something
+           anyone carries on a phone. activeEmoteSetId() deliberately does NOT: a foreign import
+           needs neither this channel's set nor a single row in the grid, so gating on it would
+           hide the source on exactly the channels that have not synced yet — the ones whose
+           owner is most likely to be filling a set from somewhere else. -->
+      @if (!isCoarse()) {
+        <app-foreign-channel-import-trigger />
+      }
       <button
         type="button"
         appButton="neutral"
