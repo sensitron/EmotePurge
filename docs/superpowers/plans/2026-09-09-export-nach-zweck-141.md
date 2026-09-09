@@ -44,7 +44,7 @@ argumentiert aus ihr; **beide zusammen lesen.** Die Entscheidungen heißen dort 
 |---|---|---|
 | A | T1 | Alle Specs und E2E-Fälle danach brauchen die Schlüssel |
 | B | T2 | Definiert den Vertrag, auf den T3 und T4 schalten |
-| C | T3 ‖ T4 | Verschiedene Dateien, beide nur von T2 abhängig |
+| C | ~~T3~~ · T4 | T3 in T2 aufgegangen (s. Korrektur dort), T4 baut auf T2 auf |
 | D | T5 | Entfernt den alten Weg, erst nachdem der neue steht |
 | E | T6 | Gates und E2E gegen den fertigen Stand |
 
@@ -139,13 +139,21 @@ aus #80: §8.6 durfte nicht umgewidmet werden, weil sechs Stellen darauf zeigen)
       **das ist erwartet**, sie kommen in Welle C; den Build erst nach T4 als Ganzes bewerten)
 - [ ] Commit: `feat(export): let callers supply the export dialog's option list`
 
-> **Hinweis an den Ausführenden:** T2 allein lässt `voting`, `mass-delete-panel` und `usage-stats`
-> typfehlerhaft zurück. Das ist beabsichtigt und wird in T3/T4 aufgelöst. Nicht „nebenbei"
-> mitfixen — sonst kollidieren die parallelen Tasks der Welle C.
+> **Korrektur vom 2026-09-09, nach T1:** Die erste Fassung wollte die drei Aufrufer erst in Welle C
+> nachziehen. Das geht nicht — `ng test` typprüft den ganzen Workspace, ein Commit mit `choice.format`
+> an drei Stellen kompiliert also gar nicht, und die Suite liefe nicht einmal an. **T2 zieht die drei
+> Aufrufer deshalb mechanisch mit** (`FORMAT_EXPORT_OPTIONS`, `optionsLegendKey: 'export.formatLabel'`,
+> Verzweigung auf `optionId`) — bei der Nutzungsstatistik ausdrücklich nur als Zwischenstand mit
+> unveränderten CSV/JSON-Optionen. **T3 entfällt damit**, T4 baut den Zwischenstand zur Zweck-Liste um.
 
 ---
 
-### Task 3: Die zwei unveränderten Aufrufer auf die neue Signatur
+### Task 3 — entfallen, in T2 aufgegangen
+
+**Grund:** siehe die Korrektur in T2 — der Workspace kompiliert sonst zwischen T2 und T3 nicht.
+Der ursprüngliche Inhalt steht unten und ist als Prüfliste für T2 weiter gültig.
+
+#### Ursprünglicher Task 3: Die zwei unveränderten Aufrufer auf die neue Signatur
 
 **Dateien:** `web/src/app/features/voting/vote-session-detail-page.ts` (~Z. 574–590) ·
 `web/src/app/shared/seven-tv/mass-delete-panel.ts` (~Z. 305–320)
