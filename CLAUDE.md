@@ -194,14 +194,39 @@ Orchestrierung, Modellwahl, Fable-Einsatz, Pläne ohne fertigen Code, Plan-Tasks
 
 ## Sprache
 
-Die Sprachmischung im Bestand ist historisch gewachsen und uneinheitlich. Ab sofort gilt für **neuen** Code:
+Die Sprachmischung im Bestand ist historisch gewachsen. Seit dem 2026-09-10 (#152) verläuft die
+Grenze nicht mehr zwischen Code und Dokumentation, sondern zwischen **Außenwirkung und
+Denkwerkzeug**: Was ein fremder Contributor liest, ist englisch; was der Betreiber zum Denken
+schreibt, bleibt deutsch. Begründung im Entscheidungslog.
 
-- Bezeichner, Typen und öffentliche APIs: englisch.
-- Kommentare in neuem Code: englisch. Auch der Worker ist inzwischen überwiegend englisch (Messung 2026-08-01: 291 zu 31 von 420 Kommentarzeilen) — die frühere Aussage „Bestand im Worker ist überwiegend deutsch" stammt aus Welle A und ist durch die Umbauten seither überholt. Verbliebene deutsche Kommentare bleiben stehen, werden aber nicht fortgeführt; gemischtsprachige Dateien wie `ITwitchChatManager.cs` sind Altlast, kein Muster.
-- Log- und `throw`-Messages: deutsch.
-- Projektdokumentation deutsch, Commit-Messages englisch.
+**Englisch:**
 
-Kein Bestandscode wird rückwirkend umgeschrieben.
+- Bezeichner, Typen und öffentliche APIs.
+- Kommentare in neuem Code. Die Regel gilt seit Welle A und hat faktisch durchgegriffen (Messung
+  2026-09-10: noch 48 von 7.984 C#-Kommentarzeilen und 6 von 2.017 in TypeScript sind deutsch).
+  Verbliebene deutsche Kommentare bleiben stehen, werden aber nicht fortgeführt; gemischtsprachige
+  Dateien wie `ITwitchChatManager.cs` sind Altlast, kein Muster.
+- Log- und `throw`-Messages. **Das ist seit #152 umgedreht**, vorher galt hier deutsch. Wer einen
+  Worker-Fehler debuggt, liest genau diese Zeilen — ein Fremder so oft wie der Betreiber.
+- Commit-Messages, PR-Titel und -Beschreibungen, Issue-Titel und -Bodies, Release Notes.
+- `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, die GitHub-Templates, die Kommentare in
+  `.github/workflows/`, Repo-Beschreibung und Topics.
+- **Neue** Einträge in `docs/DECISIONS.md`.
+- Noch offen, aber vorgesehen (s. #152): `docs/Architectur.md`, `docs/UI-Designsprache.md`,
+  `DESIGN.md` und die drei Betriebsanleitungen (`Backup-und-Restore.md`, `VPS-Reverse-Proxy.md`,
+  `Testumgebung-Mobile-2026-08-07.md`).
+
+**Deutsch:**
+
+- Diese Datei und `PRODUCT.md`.
+- Pläne, Konzepte, Specs, Design- und Untersuchungsberichte unter `docs/`. Das sind Denkwerkzeuge
+  des Betreibers, kein Außenauftritt — sie in einer Fremdsprache zu schreiben kostet Genauigkeit,
+  ohne jemandem zu nützen.
+- Die **bestehenden** Einträge in `docs/DECISIONS.md`. Das Dokument wird dadurch dauerhaft
+  zweisprachig; die Alternative wären 6.106 Zeilen Übersetzung gewesen.
+
+Kein Bestandscode und keine Bestandsdokumentation wird rückwirkend umgeschrieben, und die offenen
+deutschen Issues bleiben, wie sie sind.
 
 ## Bekannte offene Grenzen
 

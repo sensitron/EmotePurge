@@ -1,89 +1,89 @@
 # Emote Purge
 
-Plattformübergreifende Webanwendung, mit der Twitch-Communities ihre 7TV-Emote-Sets analysieren, bewerten und aufräumen. Der Chat wird live mitgelesen und pro Emote gezählt, die Community stimmt in Vote-Sessions über Behalten/Löschen ab, und am Ende löscht eine Mass-Delete-Engine die Verlierer direkt über die 7TV-API.
+Cross-platform web application that lets Twitch communities analyse, rate and clean up their 7TV emote sets. Chat is read live and tallied per emote, the community votes on keep/delete in vote sessions, and in the end a mass-delete engine removes the losers directly via the 7TV API.
 
-Produktion: **[emotepurge.app](https://emotepurge.app)**
+Production: **[emotepurge.app](https://emotepurge.app)**
 
 **Stack:** .NET 10 (Minimal API + Worker Service) · PostgreSQL via EF Core · Redis Pub/Sub · Angular 22 (Standalone + Signals, Tailwind) · Docker.
 
 ---
 
-## Wo was steht
+## Where things live
 
-| Dokument | Wofür |
+| Document | What for |
 |---|---|
-| **diese README** | Einmal-Setup und tägliche Kommandos |
-| [`CLAUDE.md`](CLAUDE.md) | Die geltenden Regeln und Konventionen, kompakt. Lies das vor dem ersten PR. |
-| [`docs/Architectur.md`](docs/Architectur.md) | Die Spezifikation: Module, Kommunikationsfluss, DB-Modell, Docker-Topologie |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | **„Warum ist X so gebaut?"** — chronologisches Entscheidungslog. Durchsuchbar per `grep <dateiname> docs/DECISIONS.md`. |
-| [`docs/UI-Designsprache.md`](docs/UI-Designsprache.md) | Verbindlich für jede UI-Änderung unter `web/` |
-| [`web/.claude/CLAUDE.md`](web/.claude/CLAUDE.md) | Frontend-spezifische Konventionen |
+| **this README** | One-time setup and everyday commands |
+| [`CLAUDE.md`](CLAUDE.md) (in German) | The applicable rules and conventions, condensed. Read this before your first PR. |
+| [`docs/Architectur.md`](docs/Architectur.md) (in German) | The specification: modules, communication flow, DB model, Docker topology |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) (in German) | **"Why is X built this way?"** — chronological decision log. Searchable via `grep <filename> docs/DECISIONS.md`. |
+| [`docs/UI-Designsprache.md`](docs/UI-Designsprache.md) (in German) | Binding for every UI change under `web/` |
+| [`web/.claude/CLAUDE.md`](web/.claude/CLAUDE.md) | Frontend-specific conventions |
 
-Die Doku ist deutsch, Bezeichner und Commit-Messages sind englisch — die genaue Regel steht in `CLAUDE.md` unter „Sprache".
+Anything with an outward effect is written in English: this README, `CONTRIBUTING.md`, issues and pull requests, code comments, commit messages, and log and error messages. Plans, concepts and the existing entries of the decision log stay German by design — they are the maintainer's working notes, not a public surface. The exact rule is in `CLAUDE.md` (in German) under "Sprache", and the reasoning is in `docs/DECISIONS.md` (2026-09-10).
 
 ---
 
-## Voraussetzungen
+## Prerequisites
 
-| | Version | Anmerkung |
+| | Version | Note |
 |---|---|---|
-| .NET SDK | 10.0.300+ | gepinnt in [`global.json`](global.json) |
-| Node.js | 22+ | [`web/.nvmrc`](web/.nvmrc); CI und das Docker-Image bauen auf 22 |
-| Docker | aktuell | Pflicht — auch für `dotnet test` (Testcontainers startet echte Postgres-/Redis-Container) |
-| `dotnet-ef` | passend zu EF 10 | `dotnet tool install --global dotnet-ef` |
+| .NET SDK | 10.0.300+ | pinned in [`global.json`](global.json) |
+| Node.js | 22+ | [`web/.nvmrc`](web/.nvmrc); CI and the Docker image build on 22 |
+| Docker | current | Required — also for `dotnet test` (Testcontainers starts real Postgres/Redis containers) |
+| `dotnet-ef` | matching EF 10 | `dotnet tool install --global dotnet-ef` |
 
 ---
 
-## Einmal-Setup
+## One-time setup
 
-Die Schritte bauen aufeinander auf. **Ohne Twitch-Login funktioniert nichts** — `join`/`leave` und praktisch jede Seite verlangen eine authentifizierte Session.
+The steps build on each other. **Nothing works without Twitch login** — `join`/`leave` and practically every page require an authenticated session.
 
-### 1. Twitch-Anwendung registrieren
+### 1. Register a Twitch application
 
-Auf [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps) eine Anwendung anlegen. Als OAuth-Redirect-URL **beide** eintragen, sonst funktioniert jeweils nur eine Betriebsart:
+Create an application at [dev.twitch.tv/console/apps](https://dev.twitch.tv/console/apps). Enter **both** as the OAuth redirect URL, otherwise only one mode of operation will work:
 
 ```
 http://localhost:5151/api/auth/twitch/callback     # lokal via dotnet run
 http://localhost:8080/api/auth/twitch/callback     # via docker compose
 ```
 
-Client-ID und Client-Secret merken. **Das Secret gehört nie ins Repo** (Regel 17) — es geht gleich in die `.env` bzw. in `dotnet user-secrets`.
+Note the client ID and client secret. **The secret never belongs in the repo** (Rule 17) — it goes straight into `.env` or `dotnet user-secrets`.
 
-### 2. `.env` anlegen
+### 2. Create `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Dann ausfüllen:
+Then fill in:
 
-- `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` aus Schritt 1
-- `AUTH_TWITCH_TOKEN_ENCRYPTION_KEY` — 32-Byte-Schlüssel, mit dem die Twitch-Tokens in Postgres verschlüsselt werden:
+- `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` from step 1
+- `AUTH_TWITCH_TOKEN_ENCRYPTION_KEY` — 32-byte key used to encrypt the Twitch tokens in Postgres:
   ```bash
   openssl rand -base64 32
   ```
-- **`ADMIN_TWITCH_LOGINS` — dein eigener Twitch-Login.** Ohne das liefert der komplette Admin-Bereich (`/admin/*`) ein blankes 403, ohne Hinweis worauf.
-- Postgres-/Redis-Passwörter kannst du für lokal so lassen.
+- **`ADMIN_TWITCH_LOGINS` — your own Twitch login.** Without it, the entire admin area (`/admin/*`) returns a blank 403, with no hint as to why.
+- You can leave the Postgres/Redis passwords as they are for local use.
 
-### 3. Datenbank migrieren
+### 3. Migrate the database
 
-**Migrationen laufen nicht automatisch beim Start** — in keiner Umgebung. Vor dem ersten Start also:
+**Migrations do not run automatically on startup** — in any environment. So before the first start:
 
 ```bash
 docker compose up -d postgres redis
 dotnet ef database update --project src/EmotePurge.Infrastructure --startup-project src/EmotePurge.Api
 ```
 
-### 4. Starten
+### 4. Start
 
-**Variante A — alles in Docker** (nächster an Produktion; Angular wird ins Api-Image gebaut und von dort ausgeliefert):
+**Option A — everything in Docker** (closest to production; Angular is built into the Api image and served from there):
 
 ```bash
 docker compose up -d --build
 # → http://localhost:8080
 ```
 
-**Variante B — lokal mit Hot Reload** (für Frontend-Arbeit):
+**Option B — local with hot reload** (for frontend work):
 
 ```bash
 docker compose up -d postgres redis
@@ -93,40 +93,40 @@ npm --prefix web install                       # einmalig
 npm --prefix web start                         # Terminal 3 → http://localhost:4200
 ```
 
-`ng serve` proxied `/api` auf `:5151` ([`web/proxy.conf.json`](web/proxy.conf.json)), damit alles same-origin bleibt und die Session-Cookies ohne CORS-Konfiguration fließen.
+`ng serve` proxies `/api` to `:5151` ([`web/proxy.conf.json`](web/proxy.conf.json)), so everything stays same-origin and the session cookies flow without CORS configuration.
 
-> **Nicht** die VS-Code-Launch-Config `Api` für Frontend-Arbeit benutzen: die bindet hart auf `:8080` und bricht damit den lokal registrierten Redirect auf `:5151`.
+> **Do not** use the VS Code launch config `Api` for frontend work: it binds hard to `:8080` and thereby breaks the locally registered redirect to `:5151`.
 
-### 5. Einloggen und einen Channel tracken
+### 5. Log in and track a channel
 
-Im Browser einloggen, dann einen Twitch-Channel joinen. **Erst danach gibt es überhaupt Daten** — Emotes kommen aus dem 7TV-Sync, Nutzungszahlen erst aus mitgelesenem Chat. Es gibt bewusst keine Seed-Daten: die Anwendung lebt von echtem Chat-Verkehr, und ein Fixture würde das nur vortäuschen.
+Log in in the browser, then join a Twitch channel. **Only after that is there any data at all** — emotes come from the 7TV sync, usage numbers only from chat that has been read live. There are deliberately no seed data: the application lives on real chat traffic, and a fixture would only fake that.
 
-Wer sich als Nicht-Admin ausprobieren will, kann `ADMIN_TWITCH_LOGINS` leeren und den Stack neu starten.
+Anyone who wants to try it as a non-admin can empty `ADMIN_TWITCH_LOGINS` and restart the stack.
 
 ---
 
-## Tägliche Kommandos
+## Everyday commands
 
 ```bash
-# Bauen
+# Build
 dotnet build EmotePurge.slnx
 
-# Tests (Backend braucht laufendes Docker — Testcontainers)
+# Tests (the backend suite needs Docker running — Testcontainers)
 dotnet test EmotePurge.slnx
 npm --prefix web test -- --watch=false      # Vitest
 npm --prefix web run e2e                    # Playwright, /api/** gemockt
 
-# Formatierung und Lint — dieselben Prüfungen wie in der CI
+# Formatting and lint — the same checks CI runs
 dotnet format EmotePurge.slnx
 npm --prefix web run format
 npm --prefix web run lint
 
-# Stack neu bauen (nach Backend-Änderungen zwingend mit --build, s. Regel 15)
+# Rebuild the stack (after backend changes --build is mandatory, see rule 15)
 docker compose up -d --build
 docker compose logs -f api
 ```
 
-Einmalig empfohlen, damit `git blame` die reinen Formatierungs-Commits überspringt:
+Recommended once, so that `git blame` skips the pure formatting commits:
 
 ```bash
 git config blame.ignoreRevsFile .git-blame-ignore-revs
@@ -134,23 +134,25 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 ---
 
-## Was beim ersten Beitrag überrascht
+## What surprises first-time contributors
 
-Vier Dinge, die bewusst so sind und trotzdem stolpern lassen:
+Four things that are deliberately this way and still trip people up:
 
-**Eine neue Backend-Fähigkeit kostet drei Stellen.** Interface in `EmotePurge.Core/Services/`, Implementierung in `EmotePurge.Infrastructure/Services/`, Registrierung in `AddEmotePurgeInfrastructure`. `AppDbContext` und `IConnectionMultiplexer` sind aus API-Handlern verboten (Regel 4). Die Interfaces werden nie gemockt — sie tragen die Schichtentrennung, nicht die Testbarkeit. Das ist Zeremonie mit Absicht, nicht aus Versehen.
+**A new backend capability costs three places.** Interface in `EmotePurge.Core/Services/`, implementation in `EmotePurge.Infrastructure/Services/`, registration in `AddEmotePurgeInfrastructure`. `AppDbContext` and `IConnectionMultiplexer` are forbidden from API handlers (Rule 4). The interfaces are never mocked — they carry the layer separation, not testability. This is ceremony by intent, not by accident.
 
-**Endpoints leben in `src/EmotePurge.Api/Endpoints/*.cs`, nie in `Program.cs`** (Regel 6), und Autorisierung läuft über `IEndpointFilter`-Klassen in `Auth/`, nicht über ASP.NET-Policies. Welcher Filter für welchen Endpoint gilt, steht als Matrix in `docs/Architectur.md`.
+**Endpoints live in `src/EmotePurge.Api/Endpoints/*.cs`, never in `Program.cs`** (Rule 6), and authorization runs via `IEndpointFilter` classes in `Auth/`, not ASP.NET policies. Which filter applies to which endpoint is documented as a matrix in `docs/Architectur.md` (in German).
 
-**Die API gibt bei Fehlern nur sprachneutrale Codes zurück** (`ApiErrorCodes`), nie fertigen Text. Ein neuer Code braucht denselben Schlüssel in `web/src/app/core/i18n/api-error.ts` **und** in beiden Locale-Dateien — `api-error.spec.ts` schlägt sonst fehl.
+**On errors, the API returns only language-neutral codes** (`ApiErrorCodes`), never finished text. A new code needs the same key in `web/src/app/core/i18n/api-error.ts` **and** in both locale files — otherwise `api-error.spec.ts` fails.
 
-**Fast nichts ist zur Laufzeit konfigurierbar.** Flush-Intervall, Join-Drosselung, Rate-Limits, Watchdog-Schwellen und das Delete-Pacing sind benannte Konstanten im Code, keine Settings. Das ist eine bewusste, durchgehaltene Entscheidung — aber sie bedeutet, dass ein Betriebsproblem eine Code-Änderung samt Deploy braucht.
+**Almost nothing is configurable at runtime.** Flush interval, join throttling, rate limits, watchdog thresholds and delete pacing are named constants in the code, not settings. This is a deliberate, consistently upheld decision — but it means an operational problem requires a code change plus a deploy.
 
 ---
 
-## Beitragen
+## Contributing
 
-- **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, …), lieber mehrere logisch getrennte Commits als ein Sammel-Commit.
-- Ein Commit, der eine Konvention, einen Vertrag oder eine Topologie ändert, **enthält seinen Eintrag in `docs/DECISIONS.md` im selben Commit**.
-- Backend-Änderungen vor dem Commit **live** gegen echte Postgres-/Redis-/Twitch-/7TV-Zugänge verifizieren, nicht nur `dotnet build` (Regel 16).
-- Die vollständige Regelliste steht in [`CLAUDE.md`](CLAUDE.md).
+- **Conventional Commits** (`feat:`, `fix:`, `chore:`, `docs:`, …), prefer several logically separate commits over one catch-all commit.
+- A commit that changes a convention, a contract or a topology **includes its entry in `docs/DECISIONS.md` (in German) in the same commit**.
+- Verify backend changes **live** against real Postgres/Redis/Twitch/7TV access before committing, not just `dotnet build` (Rule 16).
+- The full rule list is in [`CLAUDE.md`](CLAUDE.md) (in German).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) has the short English version: the test gates, the decision-log rule, formatting, and where to read on.
+- Report security issues privately, not as an issue — see [`SECURITY.md`](SECURITY.md).

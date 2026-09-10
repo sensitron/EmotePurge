@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a new capability or improvement for Emote Purge.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start from the problem, not the solution — a clear gap is easier to design around
+        than a specific implementation. If you already have a solution in mind, there's a
+        field for that below, but the problem statement is what matters most.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's missing, or what problem needs solving
+      description: Describe the gap or friction, ideally with a concrete situation where it bit you. Avoid jumping straight to "add a button that...".
+      placeholder: "e.g. After starting an export I have no way to tell whether it's still running or has stalled — I only find out it failed once I check back minutes later."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: If you have an idea of how this could work, sketch it here. Optional — it's fine to leave this to design.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you thought about, including "do nothing" if that was a real option, and why you didn't prefer them.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: affected-roles
+    attributes:
+      label: Who is affected
+      description: Roles as defined in ChannelAccessService / PRODUCT.md. Pick all that apply.
+      multiple: true
+      options:
+        - Broadcaster
+        - Moderator
+        - 7TV editor
+        - Global admin
+        - Any signed-in user
+    validations:
+      required: false
