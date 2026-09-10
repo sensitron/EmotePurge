@@ -194,11 +194,12 @@ three commands above; run it separately if you need chat counting or 7TV sync.
 Four failures worth recognising:
 
 - **"Blocked request" from the dev server.** The Vite-based dev server rejects `Host` headers
-  it was not told to accept, and by default only `localhost`/`.localhost`/IPs are allowed. Make
-  sure you started it through `npm --prefix web run start:lan`, not plain `npm start` — only the
-  former passes `--allowed-hosts` (see `web/package.json`), which for this one script accepts
-  any host. That is a deliberate trade against DNS-rebinding protection, acceptable only because
-  the dev server is never reachable outside your own network in the first place.
+  it was not told to accept, and by default only `localhost`/`.localhost`/IPs are allowed. The
+  host check stays on for `start:lan` as well, so this means your hostname did not reach it:
+  check that `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` is set in the environment you started the
+  command in, and that it matches the name the phone actually requests, character for
+  character. Note that the variable is read only when it is exported for that process — setting
+  it in another shell does nothing.
 - **Assets served stale, or a lazy chunk failing with `504`.** If the proxy caches assets, a
   moment where the dev server was down puts those errors into the cache with an expiry, and the
   affected chunk stays dead while others keep working. Asset caching is wrong in front of a dev
