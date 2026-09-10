@@ -1,27 +1,27 @@
 ---
 name: EmotePurge
-description: Ein Leuchttisch für fremdes Bildmaterial — Graphit oder Papier, eine Leitlinie, sonst nichts.
+description: A light table for other people's artwork — graphite or paper, one guide line, nothing else.
 colors:
-  leuchtlinie: "#00d3bc"
-  tiefes-teal: "#0a6f64"
-  tiefes-teal-tiefer: "#085a51"
-  markierung-flaeche: "#06231f"
-  markierung-schrift: "#57e8d8"
-  aufdruck: "#ffffff"
-  glasplatte: "#0d0f12"
-  auflage: "#15181c"
-  vertiefung: "#1f232a"
-  vertiefung-beruehrt: "#282d35"
-  eingelassenes-feld: "#0a0c0f"
-  kante: "#262b32"
-  kante-betont: "#353b43"
-  fassung: "#6b747e"
-  schrift: "#e9ecee"
-  schrift-fliesstext: "#d4d9dd"
-  schrift-zweitrangig: "#b2b9c0"
-  schrift-still: "#8b939b"
-  schrift-gesperrt: "#565d65"
-  bildtraeger: "#1f232a"
+  accent: "#00d3bc"
+  accent-solid: "#0a6f64"
+  accent-solid-hover: "#085a51"
+  accent-wash: "#06231f"
+  accent-wash-fg: "#57e8d8"
+  on-accent: "#ffffff"
+  page: "#0d0f12"
+  surface: "#15181c"
+  surface-inset: "#1f232a"
+  surface-inset-hover: "#282d35"
+  field: "#0a0c0f"
+  border: "#262b32"
+  border-strong: "#353b43"
+  border-field: "#6b747e"
+  fg: "#e9ecee"
+  fg-body: "#d4d9dd"
+  fg-secondary: "#b2b9c0"
+  fg-muted: "#8b939b"
+  fg-disabled: "#565d65"
+  emote-canvas: "#1f232a"
 typography:
   display:
     fontFamily: "Archivo, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
@@ -82,24 +82,24 @@ spacing:
   "8": "2rem"
 components:
   button-primary:
-    backgroundColor: "{colors.tiefes-teal}"
-    textColor: "{colors.aufdruck}"
+    backgroundColor: "{colors.accent-solid}"
+    textColor: "{colors.on-accent}"
     rounded: "{rounded.md}"
     padding: "0.375rem 0.75rem"
     typography: "{typography.body}"
   button-primary-hover:
-    backgroundColor: "{colors.tiefes-teal-tiefer}"
-    textColor: "{colors.aufdruck}"
+    backgroundColor: "{colors.accent-solid-hover}"
+    textColor: "{colors.on-accent}"
   button-neutral:
-    backgroundColor: "{colors.vertiefung}"
-    textColor: "{colors.schrift-fliesstext}"
+    backgroundColor: "{colors.surface-inset}"
+    textColor: "{colors.fg-body}"
     rounded: "{rounded.md}"
     padding: "0.375rem 0.75rem"
   button-neutral-hover:
-    backgroundColor: "{colors.vertiefung-beruehrt}"
-    textColor: "{colors.schrift-fliesstext}"
+    backgroundColor: "{colors.surface-inset-hover}"
+    textColor: "{colors.fg-body}"
   button-outline:
-    textColor: "{colors.schrift-zweitrangig}"
+    textColor: "{colors.fg-secondary}"
     rounded: "{rounded.md}"
     padding: "0.375rem 0.75rem"
   button-lg:
@@ -107,370 +107,367 @@ components:
     padding: "0.5rem 1rem"
     height: "2.75rem"
   input:
-    backgroundColor: "{colors.eingelassenes-feld}"
-    textColor: "{colors.schrift}"
+    backgroundColor: "{colors.field}"
+    textColor: "{colors.fg}"
     rounded: "{rounded.md}"
     padding: "0.5rem 0.75rem"
     typography: "{typography.body}"
   badge-accent:
-    backgroundColor: "{colors.markierung-flaeche}"
-    textColor: "{colors.markierung-schrift}"
+    backgroundColor: "{colors.accent-wash}"
+    textColor: "{colors.accent-wash-fg}"
     rounded: "{rounded.full}"
     padding: "0.125rem 0.5rem"
   segment-selected:
-    backgroundColor: "{colors.tiefes-teal}"
-    textColor: "{colors.aufdruck}"
+    backgroundColor: "{colors.accent-solid}"
+    textColor: "{colors.on-accent}"
     padding: "0.375rem 0.75rem"
   segment-idle:
-    backgroundColor: "{colors.vertiefung}"
-    textColor: "{colors.schrift-zweitrangig}"
+    backgroundColor: "{colors.surface-inset}"
+    textColor: "{colors.fg-secondary}"
     padding: "0.375rem 0.75rem"
   popover-panel:
-    backgroundColor: "{colors.auflage}"
+    backgroundColor: "{colors.surface}"
     rounded: "{rounded.md}"
     width: "16rem"
   emote-cell:
-    backgroundColor: "{colors.bildtraeger}"
+    backgroundColor: "{colors.emote-canvas}"
     rounded: "0"
 ---
 
 # Design System: EmotePurge
 
-> **Abgeleitetes Dokument.** Die normativen Werte stehen in `web/src/styles.css`; hier stehen sie
-> als Momentaufnahme, damit Werkzeuge sie maschinell lesen können. Wer den Tokenblock ändert,
-> erzeugt dieses Dokument neu (`$impeccable document`).
+> **Derived document.** The normative values live in `web/src/styles.css`; here they stand as a
+> snapshot so that tools can read them mechanically. Whoever changes the token block regenerates
+> this document (`$impeccable document`).
 >
-> **Verträge, Muster und die Bauen-Checkliste stehen nicht hier**, sondern in
-> [docs/UI-Designsprache.md](docs/UI-Designsprache.md) — Sticky-Ebenen und z-Leiter, der
-> `h-14`-Höhenvertrag, der Stretched-Link-Kontrakt, ARIA-Muster, i18n-Pflichten, die
-> Audit-Gates. Jenes Dokument ist verbindlich; dieses beschreibt die Farbwelt.
+> **Contracts, patterns and the build checklist are not here**, they are in
+> [docs/UI-Designsprache.md](docs/UI-Designsprache.md) — sticky layers and the z-ladder, the
+> `h-14` height contract, the stretched-link contract, ARIA patterns, i18n obligations, the
+> audit gates. That document is binding; this one describes the colour world.
 
 ## Overview
 
-**Creative North Star: „Der Leuchttisch"**
+**Creative North Star: "The Light Table"**
 
-Diese Oberfläche zeigt fremdes Material. Mehrere hundert 7TV-Emotes je Kanal, vollgesättigt, von
-anderen Leuten gezeichnet, für dunklen Chat gemacht — und dieses Werkzeug entscheidet, welche
-davon gelöscht werden. Daraus folgt alles Weitere: Der Grund hält sich raus. Er ist Graphit und
-nicht Slate, weil ein blaustichiger Grund jedes einzelne dieser Bilder einfärbt. Er ist im hellen
-Modus Papier auf einem Tisch statt reinem Weiß, weil Flächen die größte Fläche jeder Seite sind
-und reines Weiß auf hellen Displays geblendet hat.
+This interface shows other people's material. Several hundred 7TV emotes per channel, fully
+saturated, drawn by other people, made for dark chat — and this tool decides which of them get
+deleted. Everything else follows from that: the ground stays out of the way. It is graphite and
+not slate, because a blue-tinted ground tints every single one of these images. In light mode it
+is paper on a table rather than pure white, because surfaces are the largest area of every page
+and pure white glared on bright displays.
 
-Genau eine Farbe darf laut sein, und sie ist ein **Guide**, kein Leuchtmittel: das Türkis, das
-Auswahl, Fokus und Markierung trägt. Pack- und Layoutwerkzeuge reservieren eine solche Signalfarbe
-für Overlays, die nie mit dem Material verwechselt werden dürfen — hier tut sie dasselbe. Sie
-zieht Haarlinien. Sie glüht nicht, und sie liegt nie unter einem Bild.
+Exactly one colour is allowed to be loud, and it is a **guide**, not a light source: the
+turquoise that carries selection, focus and marking. Packing and layout tools reserve a signal
+colour like this for overlays that must never be confused with the material — here it does the
+same. It draws hairlines. It does not glow, and it never sits underneath an image.
 
-Der dritte Zug ist Zurückhaltung mit Ansage. Die Oberfläche schweigt im Normalbetrieb: keine
-Karten um jede Zeile, keine Pillen für Selbstverständlichkeiten, keine Bewegung ohne Zustand. Was
-gesund ist, ist still — damit das eine Ding, das gerade nicht in Ordnung ist, ohne Zutun das
-lauteste Element auf dem Schirm wird. Lautstärke gibt es, aber sie ist an Unwiderruflichkeit
-gekoppelt, nicht an Wichtigkeit.
+The third move is restraint by design. The interface keeps quiet in normal operation: no cards
+around every row, no pills for things that go without saying, no motion without a state. What is
+healthy is silent — so that the one thing that is currently not in order becomes the loudest
+element on screen with nobody doing anything. Loudness exists, but it is tied to irreversibility,
+not to importance.
 
 **Key Characteristics:**
 
-- Neutraler Graphit- bzw. Papiergrund, der fremdes Bildmaterial nicht einfärbt
-- Eine einzige Leitfarbe, eingesetzt als Guide — Auswahl, Fokus, Markierung, nie Dekoration
-- Zwei vollständige, gleichwertig gepflegte Modi; jede Farbrolle hat in beiden einen Wert
-- Flächen statt Rahmen: geriffelte Zeilen, randlose Abschnitte, getönte Blöcke
-- Dichte Listen bis ~900 Zeilen, Zahlen im Monospace
-- Bewegung nur als Antwort auf einen Zustand
+- A neutral graphite or paper ground that does not tint other people's artwork
+- A single lead colour, used as a guide — selection, focus, marking, never decoration
+- Two complete modes, maintained as equals; every colour role has a value in both
+- Surfaces instead of frames: ruled rows, borderless sections, tinted blocks
+- Dense lists up to ~900 rows, numbers in monospace
+- Motion only as a response to a state
 
 ## Colors
 
-Eine nahezu neutrale Rampe mit einer Spur Grün, dazu ein Türkis als einzige gesättigte Farbe. Die
-Rollen sind in beiden Modi identisch besetzt; nur die Werte kippen.
+A near-neutral ramp with a trace of green, plus one turquoise as the only saturated colour. The
+roles are filled identically in both modes; only the values flip.
 
 ### Primary
 
-- **Leuchtlinie** (`#00d3bc`): Das Guide-Türkis. Fokusring, Auswahlkante, aktiver Tab, Links.
-  Es markiert Stellen — es füllt keine Flächen und trägt nie Schrift, denn Weiß erreicht darauf
-  nur rund 2,5:1. Im hellen Modus kann es diese Rolle nicht spielen (1,7:1 auf Weiß); dort
-  übernimmt sie **Tiefes Teal**, das dieselbe Aufgabe dunkel statt hell erfüllt.
-- **Tiefes Teal** (`#0a6f64`): Dieselbe Farbe als *Fläche*, überall dort, wo Schrift darauf steht:
-  gefüllte Hauptaktionen, das gewählte Segment, der gedrückte Schalter. Im hellen Modus ist es
-  zusätzlich die Leitfarbe selbst.
-- **Tiefes Teal, tiefer** (`#085a51`): Der Hover-Schritt darunter. Siehe *Die Dunkler-Regel*.
-- **Markierungsfläche / Markierungsschrift** (`#06231f` / `#57e8d8`): Getönte Fläche plus ihre
-  Schrift, für hervorgehobene Eigenschaften in Badges. Zwei eigene Rollen, weil Schrift *auf* der
-  getönten Fläche einen anderen Grund hat als Schrift auf einer normalen Fläche.
+- **accent** (`#00d3bc`): The guide turquoise. Focus ring, selection edge, active tab, links.
+  It marks places — it fills no surfaces and never carries text, because white reaches only about
+  2.5:1 on it. In light mode it cannot play that role (1.7:1 on white); there
+  **accent-solid** takes over, which does the same job dark instead of light.
+- **accent-solid** (`#0a6f64`): The same colour as a *surface*, everywhere text sits on it:
+  filled primary actions, the selected segment, the pressed toggle. In light mode it is
+  additionally the lead colour itself.
+- **accent-solid-hover** (`#085a51`): The hover step below it. See *the Darker-on-hover rule*.
+- **accent-wash / accent-wash-fg** (`#06231f` / `#57e8d8`): Tinted surface plus its text, for
+  highlighted properties in badges. Two roles of their own, because text *on* the tinted surface
+  has a different ground than text on a normal surface.
 
 ### Neutral
 
-Die Rampe trägt die ganze Oberfläche. Dunkel ist sie Glas, hell ist sie Papier auf einem Tisch;
-die *Richtung* bleibt identisch — erhöht entfernt sich vom Grund, eingelassen geht zu ihm zurück.
+The ramp carries the whole interface. In dark it is glass, in light it is paper on a table; the
+*direction* stays identical — raised moves away from the ground, inset moves back towards it.
 
-- **Glasplatte** (`#0d0f12`, hell: `#eef0f2` „Tischplatte"): der Seitengrund, auf dem alles liegt.
-- **Auflage** (`#15181c`, hell: `#fafbfc` „Papierbogen"): die normale Fläche — Panels, Dialoge,
-  Overlays.
-- **Vertiefung** (`#1f232a`, hell: `#e5e8eb`): eingelassene Blöcke, neutrale Buttons, Skeletons.
-- **Vertiefung, berührt** (`#282d35`, hell: `#dadde1`): deren Hover.
-- **Eingelassenes Feld** (`#0a0c0f`, hell: `#fafbfc`): Eingabefelder. Dunkel gehen sie *unter* den
-  Seitengrund, weil ein Feld in die Fläche gedrückt wirkt.
-- **Kante** (`#262b32`, hell: `#d7dade`) und **Kante, betont** (`#353b43`, hell: `#bec3ca`):
-  Trennlinien und die kräftigere Variante für Outline-Buttons und Overlay-Ränder.
-- **Fassung** (`#6b747e`): der Rand, der ein Bedienelement als Bedienelement erkennbar macht.
-  **Das einzige Farbtoken mit identischem Wert in beiden Modi** — es muss gegen hellen wie dunklen
-  Grund funktionieren.
-- **Schrift** (`#e9ecee` → `#14171b`), **Fließtext** (`#d4d9dd` → `#23282e`), **Zweitrangig**
-  (`#b2b9c0` → `#3f464e`), **Still** (`#8b939b` → `#5d656e`), **Gesperrt** (`#565d65` →
-  `#a2a9b1`): fünf Stufen. *Still* ist die schwächste zulässige Textstufe; ihr engster Fall ist
-  still auf Vertiefung — hell 4,81:1, dunkel 5,06:1.
+- **page** (`#0d0f12`, light: `#eef0f2` "tabletop"): the page ground everything sits on.
+- **surface** (`#15181c`, light: `#fafbfc` "sheet of paper"): the normal surface — panels,
+  dialogs, overlays.
+- **surface-inset** (`#1f232a`, light: `#e5e8eb`): inset blocks, neutral buttons, skeletons.
+- **surface-inset-hover** (`#282d35`, light: `#dadde1`): their hover.
+- **field** (`#0a0c0f`, light: `#fafbfc`): input fields. In dark they go *below* the page
+  ground, because a field reads as pressed into the surface.
+- **border** (`#262b32`, light: `#d7dade`) and **border-strong** (`#353b43`, light: `#bec3ca`):
+  dividing lines and the stronger variant for outline buttons and overlay edges.
+- **border-field** (`#6b747e`): the border that makes a control recognisable as a control.
+  **The only colour token with an identical value in both modes** — it has to work against a
+  light ground as well as a dark one.
+- **fg** (`#e9ecee` → `#14171b`), **fg-body** (`#d4d9dd` → `#23282e`), **fg-secondary**
+  (`#b2b9c0` → `#3f464e`), **fg-muted** (`#8b939b` → `#5d656e`), **fg-disabled** (`#565d65` →
+  `#a2a9b1`): five steps. *fg-muted* is the weakest text step allowed; its tightest case is
+  fg-muted on surface-inset — light 4.81:1, dark 5.06:1.
 
 ### Tertiary
 
-- **Bildträger** (`#1f232a`, hell: `#e6e8eb`): die Platte, auf der ein Emote gezeichnet wird. Ein
-  **eigenes** Token, nicht die Vertiefung, weil das Material fremd ist. Sie folgt dem Modus statt
-  fest dunkel zu bleiben; bewusst in Kauf genommener Preis: ein weiß umrandetes Emote verliert im
-  Hellen seine Kontur.
+- **emote-canvas** (`#1f232a`, light: `#e6e8eb`): the plate an emote is drawn on. A token
+  **of its own**, not surface-inset, because the material is foreign. It follows the mode instead
+  of staying fixed dark; a deliberately accepted price: an emote with a white outline loses its
+  contour in light.
 
-### Semantische Töne
+### Semantic Tones
 
-`success`, `warning`, `danger` und `info` binden je Modus an Tailwinds Paletten (`emerald`,
-`amber`, `red`, `blue`) und stehen deshalb **nicht** im Frontmatter — dort stünden sonst
-Näherungswerte neben der echten Quelle. Jeder Ton hat bis zu fünf Rollen: `wash` (getönte Fläche),
-`fg` (Schrift darauf), `solid` (gefüllte Fläche), `solid-hover`, `dot` (bedeutungstragende
-Kleingrafik, die 3:1 schuldet statt 4,5:1). Der helle Modus setzt `warning-dot` als einzigen Ton
-zwei Stufen dunkler, weil Amber auf hellem Grund keine Reserve hat.
+`success`, `warning`, `danger` and `info` bind per mode to Tailwind's palettes (`emerald`,
+`amber`, `red`, `blue`) and therefore do **not** stand in the frontmatter — approximations would
+otherwise stand there next to the real source. Every tone has up to five roles: `wash` (tinted
+surface), `fg` (text on it), `solid` (filled surface), `solid-hover`, `dot` (meaning-bearing small
+graphic, which owes 3:1 rather than 4.5:1). Light mode sets `warning-dot` as the only tone two
+steps darker, because amber has no reserve on a light ground.
 
 ### Named Rules
 
-**Die Guide-Regel.** Die Leitfarbe markiert, sie leuchtet nicht. Sie erscheint als Haarlinie,
-Fokusring, Auswahlkante und Link — nie als Verlauf, nie als farbiger Schatten, nie als Fläche
-unter einem Emote. Genau eine Fläche der App trägt eine Linie in ihr: der Auswahl-Dock, und dort
-markiert sie die Grenze eines lebenden, umkehrbaren Zustands.
+**The Guide rule.** The lead colour marks, it does not glow. It appears as a hairline, focus
+ring, selection edge and link — never as a gradient, never as a coloured shadow, never as a
+surface underneath an emote. Exactly one surface of the app carries a line in it: the selection
+dock, and there it marks the boundary of a living, reversible state.
 
-**Die Dunkler-Regel.** Gefüllte Flächen werden im Hover **dunkler — in beiden Modi**. `*-solid-hover`
-liegt immer eine Stufe unter `*-solid`. Das ist keine Optik: der Aufdruck ist in beiden Modi weiß,
-ein hellerer Hover kann Kontrast also nur wegnehmen. Kein Werkzeug fängt einen Verstoß, weil ein
-Hover nie gerendert geprüft wird.
+**The Darker-on-hover rule.** Filled surfaces go **darker on hover — in both modes**.
+`*-solid-hover` always sits one step below `*-solid`. This is not an aesthetic: the print is white
+in both modes, so a lighter hover can only take contrast away. No tool catches a violation,
+because a hover is never checked rendered.
 
-**Die Rollen-Regel.** Tone-Namen sind Bedeutungen, keine Farben. Wer `red` verlangt, verlangt einen
-Wert — und den gibt es nicht, weil hinter `danger` je Modus ein anderer steht. Neue Farbe heißt
-neues Token mit Wert für **beide** Modi, nie ein Griff in die Palette.
+**The Role rule.** Tone names are meanings, not colours. Whoever asks for `red` is asking for a
+value — and there is none, because a different one sits behind `danger` per mode. A new colour
+means a new token with a value for **both** modes, never a reach into the palette.
 
 ## Typography
 
-**Display/Body Font:** Archivo (mit `ui-sans-serif`, `system-ui`, `Segoe UI`, Roboto)
-**Data Font:** Azeret Mono (mit `ui-monospace`, `Cascadia Code`, `Courier New`)
+**Display/Body Font:** Archivo (with `ui-sans-serif`, `system-ui`, `Segoe UI`, Roboto)
+**Data Font:** Azeret Mono (with `ui-monospace`, `Cascadia Code`, `Courier New`)
 
-Beide sind Variable Fonts und werden aus `/fonts/*.woff2` selbst ausgeliefert, nicht von einem
-CDN. Archivo ist eine grotesk mit engen Kurven und aufrechtem Charakter — sie trägt dichte Listen,
-ohne technisch zu posieren. Azeret Mono steht daneben für **Daten**, nie als Kostüm für
-„technisch".
+Both are variable fonts and are served from `/fonts/*.woff2` by us, not from a CDN. Archivo is a
+grotesque with tight curves and an upright character — it carries dense lists without posing as
+technical. Azeret Mono stands beside it for **data**, never as a costume for "technical".
 
-### Hierarchie
+### Hierarchy
 
-Vier Ebenen mit festen Klassenketten, plus zwei Sonderrollen.
+Four levels with fixed class chains, plus two special roles.
 
-- **Display** (800, 2,25rem, `sm:` 3rem, `tracking-tight`): ausschließlich der Landing-Hero. Die
-  öffentliche Fläche ist bewusst Marketing-skaliert und folgt der Tabelle unten nicht.
-- **Headline** (700, 1,5rem, Zeilenhöhe 2rem, `tracking-tight`): Seitentitel. `<h1>` in Layouts,
-  `<h2>` auf Seiten ohne eigenes Layout-`<h1>`.
-- **Title** (600, 1,125rem, 1,75rem): Sektionstitel, `<h2>`.
-- **Subtitle** (600, 1rem, 1,5rem): Blocktitel, `<h3>`.
-- **Body** (400, 0,875rem, 1,25rem): die Arbeitsgröße. Rund zwei Drittel aller Textklassen im
-  Projekt sind diese eine.
-- **Label** (600, 11px, `letter-spacing: 0.13em`, versal): Kleinüberschriften über Datenpaaren und
-  Bandtrennern. In der Mono-Variante zusätzlich als Stufen-Marker auf Landing und Login.
-- **Data** (Azeret Mono, 0,875rem): jede Zahl, die in einer Spalte steht.
+- **Display** (800, 2.25rem, `sm:` 3rem, `tracking-tight`): the landing hero only. The public
+  surface is deliberately marketing-scaled and does not follow the table below.
+- **Headline** (700, 1.5rem, line height 2rem, `tracking-tight`): page titles. `<h1>` in layouts,
+  `<h2>` on pages without a layout `<h1>` of their own.
+- **Title** (600, 1.125rem, 1.75rem): section titles, `<h2>`.
+- **Subtitle** (600, 1rem, 1.5rem): block titles, `<h3>`.
+- **Body** (400, 0.875rem, 1.25rem): the working size. Roughly two thirds of all text classes in
+  the project are this one.
+- **Label** (600, 11px, `letter-spacing: 0.13em`, uppercase): small headings above data pairs and
+  band separators. In the mono variant additionally as step markers on landing and login.
+- **Data** (Azeret Mono, 0.875rem): every number that stands in a column.
 
 ### Named Rules
 
-**Die Vier-Ebenen-Regel.** Ein `<h3>` trägt **nie** die Sektionsgröße. Zwei Ebenen, die gleich
-aussehen, sind eine Ebene. Das Heading-*Level* folgt der Dokumentstruktur, die *Optik* folgt der
-Tabelle — beides unabhängig einzuhalten.
+**The Four-levels rule.** An `<h3>` **never** carries the section size. Two levels that look the
+same are one level. The heading *level* follows the document structure, the *look* follows the
+table — both to be held to independently.
 
-**Die Mono-für-Daten-Regel.** Monospace steht für Zahlen, IDs und Marker, nie für Fließtext und
-nie, um etwas technisch aussehen zu lassen. Ausrichtung in Spalten läuft über die Schrift, nicht
-über `tabular-nums` — im Projekt existiert diese Utility bewusst nirgends.
+**The Mono-for-data rule.** Monospace stands for numbers, IDs and markers, never for body text
+and never to make something look technical. Alignment in columns runs through the typeface, not
+through `tabular-nums` — that utility deliberately exists nowhere in the project.
 
 ## Layout
 
-Die Seite scrollt als **ein Dokument**, nicht als App-Rahmen mit innerem Scroll-Container. Die
-Inhaltsspalte hat app-weit **eine** Breite: `max-w-7xl` (80rem), gesetzt an der Kopfzeile und an
-`<main>`, mit `px-4 py-8` als Seitenrahmen. Dieselbe Breite tragen das Aktions-Dock und die sechs
-Abschnitte der Landing-Page — sie ziehen gemeinsam um oder gar nicht.
+The page scrolls as **one document**, not as an app frame with an inner scroll container. The
+content column has **one** width app-wide: `max-w-7xl` (80rem), set on the header and on
+`<main>`, with `px-4 py-8` as the page frame. The action dock and the six sections of the landing
+page carry the same width — they move together or not at all.
 
-Drei Ebenen bleiben beim Scrollen stehen und haben feste Höhen, weil `sticky` für gestapelte
-Ebenen exakte Offsets braucht: Kopfzeile 3,5rem bei `top-0`, Tab-Leisten 2,5rem bei `top-14`,
-Filter-Toolbars variabel bei `top-24` (= 14 + 10). Diese Zahlen sind Berechnungsgrundlage, keine
-Optik.
+Three layers stay put while scrolling and have fixed heights, because `sticky` needs exact offsets
+for stacked layers: header 3.5rem at `top-0`, tab bars 2.5rem at `top-14`, filter toolbars
+variable at `top-24` (= 14 + 10). These numbers are a basis for calculation, not an aesthetic.
 
-Der Abstandsrhythmus ist knapp und wiederholt sich: Zeilen `px-3 py-3`, Abschnitte `gap-3` über
-einer Haarlinie mit `pt-4`, Seitenwurzeln `gap-4` bis `gap-8`, Dialoge `p-6`. Gruppen werden mit
-`gap` gesetzt, nicht mit Rändern an den Kindern.
+The spacing rhythm is tight and repeats: rows `px-3 py-3`, sections `gap-3` above a hairline with
+`pt-4`, page roots `gap-4` to `gap-8`, dialogs `p-6`. Groups are set with `gap`, not with margins
+on the children.
 
-Von den Breakpoints trägt `sm:` (640px) die Last — 62 Vorkommen gegenüber 11 für `md:` und 9 für
-`lg:`. Responsives Verhalten ist strukturell: aus einer Spalte werden zwei, aus einem
-Sidecar-Raster ein Stapel. Schriftgrößen bleiben fest, außer im Landing-Hero.
+Of the breakpoints, `sm:` (640px) carries the load — 62 occurrences against 11 for `md:` and 9 for
+`lg:`. Responsive behaviour is structural: one column becomes two, a sidecar grid becomes a stack.
+Font sizes stay fixed, except in the landing hero.
 
 ### Named Rules
 
-**Die Eine-Breite-Regel.** Keine Route setzt ihre eigene Inhaltsbreite. Beim Wechsel zwischen
-einer Blatt- und einer Listenseite spränge sonst der Rahmen, und ein Layout, das bei jeder
-Navigation seine Breite ändert, ist unruhiger als eine Blattseite, die Platz verschenkt. Braucht
-ein Blatt mehr Breite, holt es sie *innerhalb* der konstanten Spalte.
+**The One-width rule.** No route sets its own content width. Switching between a leaf page and a
+list page would otherwise make the frame jump, and a layout that changes its width on every
+navigation is more restless than a leaf page that gives away space. If a leaf needs more width,
+it takes it *inside* the constant column.
 
-**Die Höhenvertrag-Regel.** Wer 3,5rem oder 2,5rem ändert, zieht jeden `top`- und
-`scroll-mt`-Wert der App nach. Diese Höhen sind ein Vertrag.
+**The Height-contract rule.** Whoever changes 3.5rem or 2.5rem drags every `top` and
+`scroll-mt` value of the app along. These heights are a contract.
 
 ## Elevation & Depth
 
-**Das System ist flach.** Tiefe entsteht durch gestapelte Flächenhelligkeit, nicht durch
-Schatten — Glasplatte unter Auflage unter Vertiefung, in derselben Richtung in beiden Modi.
+**The system is flat.** Depth comes from stacked surface brightness, not from
+shadows — page below surface below surface-inset, in the same direction in both modes.
 
-Es gibt genau **ein** Schattentoken, und es gehört der einzigen wirklich erhöhten Fläche der App:
-dem Overlay. Alles andere — Panels, Zeilen, Abschnitte, Blöcke — liegt auf der Ebene, auf der es
-gezeichnet ist. Eine Kartenklasse mit Schatten existierte bis 2026-08-06 und wurde mitsamt ihrer
-beiden Schattentoken entfernt.
+There is exactly **one** shadow token, and it belongs to the only genuinely raised surface of the
+app: the overlay. Everything else — panels, rows, sections, blocks — lies on the layer it is
+drawn on. A card class with a shadow existed until 2026-08-06 and was removed together with both
+of its shadow tokens.
 
-Die Sticky-Ebenen lösen ihre Überlagerung nicht über Schatten, sondern über einen abgedunkelten
-Blur: `backdrop-filter: blur(8px)` über einer teiltransparenten Seitenfarbe. Die Deckung ist selbst
-ein Token — hell braucht 92 %, dunkel kommt mit 85 % aus, weil hell sonst den Text darunter
-durchscheinen lässt.
+The sticky layers solve their overlap not through shadows but through a darkened blur:
+`backdrop-filter: blur(8px)` over a partly transparent page colour. The opacity is itself a
+token — light needs 92 %, dark gets by with 85 %, because light would otherwise let the text
+underneath show through.
 
 ### Shadow Vocabulary
 
-- **Overlay** (`box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.6)` dunkel, `0 10px 30px -10px rgb(20 23 27 / 0.22)` hell):
-  Popover-Panels und Dialoge. Der einzige Schatten im System.
+- **Overlay** (`box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.6)` dark, `0 10px 30px -10px rgb(20 23 27 / 0.22)` light):
+  popover panels and dialogs. The only shadow in the system.
 
 ### Named Rules
 
-**Die Ein-Schatten-Regel.** Wer eine neue Fläche „absetzen" will, wählt eine andere Flächenfarbe,
-keinen Schatten. Es gibt nur den Overlay-Schatten, und er ist an das Überlagern gebunden.
+**The One-shadow rule.** Whoever wants to "set off" a new surface picks a different surface
+colour, not a shadow. There is only the overlay shadow, and it is tied to overlapping.
 
 ## Shapes
 
-Knappe Radien, keine weichen Formen. `0.375rem` ist der Arbeitsradius für praktisch alles —
-Buttons, Panels, Eingabefelder, getönte Blöcke, Skeletons. `0.5rem` bleibt dem Dialogfenster
-vorbehalten, `1rem` als Oberkante dem Sheet auf Touch-Geräten, `9999px` den Badges und
-Statuspunkten.
+Tight radii, no soft shapes. `0.375rem` is the working radius for practically everything —
+buttons, panels, input fields, tinted blocks, skeletons. `0.5rem` stays reserved for the dialog
+window, `1rem` as the top edge for the sheet on touch devices, `9999px` for badges and
+status dots.
 
-Abgrenzung entsteht bevorzugt durch Fläche und Haarlinie, nicht durch umlaufende Rahmen. Zeilen
-werden durch `divide-y` getrennt und atmen mit einem negativen Außenrand über den Text hinaus,
-damit der Hover-Wisch breiter ist als die Inhaltskante. Abschnitte tragen eine einzelne Linie
-oben, keinen Kasten.
+Separation preferably comes from surface and hairline, not from a border running all the way
+round. Rows are separated by `divide-y` and breathe past the text with a negative margin, so that
+the hover sweep is wider than the content edge. Sections carry a single line at the top, not
+a box.
 
-**Emote-Zellen haben bewusst keinen Radius.** Ein Sprite-Blatt hat keine abgerundeten Zellen; die
-gerade Kante ist das, was das Raster als Bogen lesbar macht statt als Sammlung von Kacheln.
+**Emote cells deliberately have no radius.** A sprite sheet has no rounded cells; the straight
+edge is what makes the grid legible as a sheet rather than as a collection of tiles.
 
 ### Named Rules
 
-**Die Keine-Karte-Regel.** Es gibt keine Kartenklasse, und es kommt keine zurück. Die Prüffrage
-vor jeder neuen Abgrenzung: Eine Karte ist eine Grenze gegen einen **andersartigen** Nachbarn. Ist
-jeder Nachbar dieselbe Sorte Ding, zeichnet ein Rand acht Rechtecke, wo eine Linie „Liste"
-deutlicher sagt — und konkurriert mit dem Einzigen, das auffallen muss.
+**The No-card rule.** There is no card class, and none is coming back. The test question before
+every new separation: a card is a boundary against a **different kind of** neighbour. If every
+neighbour is the same sort of thing, a border draws eight rectangles where one line says "list"
+more clearly — and competes with the one thing that has to stand out.
 
-**Die Quadratische-Zelle-Regel.** Was Bildmaterial trägt, bleibt eckig und flach: kein Radius,
-kein Alpha-Karo, kein Wash unter dem Bild. Auswahl malt als `inset-ring` **innerhalb** der
-Zellfläche, damit sie das Raster nicht aufbläht.
+**The Square-cell rule.** Whatever carries artwork stays square and flat: no radius, no alpha
+checkerboard, no wash under the image. Selection paints as an `inset-ring` **inside** the cell
+area, so that it does not inflate the grid.
 
 ## Components
 
-Der Charakter ist **zurückhaltend, bis es ernst wird**: Der Normalfall ist leise, und Lautstärke
-ist an Unwiderruflichkeit gekoppelt, nicht an Wichtigkeit.
+The character is **restrained until it gets serious**: the normal case is quiet, and loudness
+is tied to irreversibility, not to importance.
 
 ### Buttons
 
-- **Shape:** Arbeitsradius (0,375rem), zwei Größen — `md` (`0.375rem 0.75rem`) und `lg`
-  (Mindesthöhe 2,75rem, `0.5rem 1rem`) als Komfortziel für Primäraktionen und Touch.
-- **Primary:** Tiefes Teal mit weißem Aufdruck, halbfett. Die *eine* Hauptaktion eines Kontexts.
-- **Neutral:** Vertiefung mit Fließtext-Schrift. Sekundäraktionen mit Fläche.
-- **Outline:** nur betonte Kante plus zweitrangige Schrift, Hover füllt mit Vertiefung. Leise
-  Sekundäraktionen und Abbrechen in Dialogen.
-- **Hover / Focus:** Füllungen gehen eine Stufe dunkler (siehe *Die Dunkler-Regel*), der
-  Fokusring ist global und überall derselbe: 2px Leitfarbe mit 2px Versatz.
-- **Disabled:** Rahmen fällt weg, Fläche wird Vertiefung, Schrift gesperrt.
-- **Destruktiv, drei Stufen** — sie kodieren die **Position im Bestätigungs-Flow**, nicht die
-  Schwere: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie.
+- **Shape:** working radius (0.375rem), two sizes — `md` (`0.375rem 0.75rem`) and `lg`
+  (minimum height 2.75rem, `0.5rem 1rem`) as a comfort target for primary actions and touch.
+- **Primary:** accent-solid with a white print, semibold. The *one* primary action of a context.
+- **Neutral:** surface-inset with fg-body text. Secondary actions with a surface.
+- **Outline:** only a border-strong edge plus fg-secondary text, hover fills with surface-inset.
+  Quiet secondary actions and cancel in dialogs.
+- **Hover / Focus:** fills go one step darker (see *the Darker-on-hover rule*), the
+  focus ring is global and the same everywhere: 2px lead colour with a 2px offset.
+- **Disabled:** the border falls away, the surface becomes surface-inset, the text becomes
+  fg-disabled.
+- **Destructive, three levels** — they encode the **position in the confirmation flow**, not the
+  severity: outline triggers, solid executes, quiet is outline in series.
 
 ### Chips
 
-Badges sind vollrunde Pillen (`0.125rem 0.5rem`, 0,75rem Schrift) in sechs Tönen, jeweils getönte
-Fläche plus zugehörige Schrift. Zustände dagegen sind **keine** Pillen, sondern Punkt plus Wort:
-ein 6px-Kreis in Erfolgs- oder Kante-Farbe neben stiller Schrift.
+Badges are fully rounded pills (`0.125rem 0.5rem`, 0.75rem text) in six tones, each a tinted
+surface plus its matching text. States, by contrast, are **not** pills but a dot plus a word:
+a 6px circle in the success or border colour next to fg-muted text.
 
 ### Cards / Containers
 
-Es gibt keine. Flächen entstehen aus drei Formen: der geriffelten Zeilenliste (Haarlinien oben,
-unten und zwischen den Zeilen, negativer Außenrand), dem randlosen Abschnitt (eine Linie oben,
-`pt-4`, Titel links und Statusmarker rechts) und dem getönten Block (Vertiefung, Arbeitsradius,
-`0.75rem`) für das, was tatsächlich gegen Andersartiges grenzt.
+There are none. Surfaces come from three forms: the ruled row list (hairlines above, below and
+between the rows, negative margin), the borderless section (one line at the top, `pt-4`, title on
+the left and status marker on the right) and the tinted block (surface-inset, working radius,
+`0.75rem`) for what genuinely borders on something of a different kind.
 
 ### Inputs / Fields
 
-- **Style:** Eingelassenes Feld als Fläche, 1px Fassung als Rand, Arbeitsradius, `0.5rem 0.75rem`.
-  Eine kompakte Variante mit `0.375rem 0.5rem` für Filter-Toolbars.
-- **Focus:** Der Rand wechselt auf die Leitfarbe, zusätzlich zum globalen Fokusring.
-- **Error:** Der Rand ändert sich **nicht**. Fehler tragen einen eigenen Absatz in Danger-Schrift
-  unter dem Feld, verbunden über `aria-describedby`.
+- **Style:** field as the surface, 1px border-field as the border, working radius,
+  `0.5rem 0.75rem`. A compact variant with `0.375rem 0.5rem` for filter toolbars.
+- **Focus:** The border switches to the lead colour, in addition to the global focus ring.
+- **Error:** The border does **not** change. Errors carry a paragraph of their own in danger text
+  below the field, wired up via `aria-describedby`.
 
 ### Navigation
 
-Tab-Leisten sind Router-Links mit 2px Unterkante: aktiv in der Leitfarbe mit voller Schriftfarbe,
-inaktiv transparent mit stiller Schrift. Kein ARIA-Tabs-Muster — es sind echte Navigationen.
-Rücknavigation ist ein einzelner Up-Link auf den Elternknoten der *Informations*-Hierarchie, mit
-dem Eigennamen des Ziels als Label, nie „Zurück".
+Tab bars are router links with a 2px bottom edge: active in the lead colour with the full text
+colour, inactive transparent with fg-muted text. No ARIA tabs pattern — these are real
+navigations. Back-navigation is a single up-link to the parent node of the *information*
+hierarchy, with the proper name of the target as its label, never "Back".
 
-### Das Sprite-Blatt
+### The Sprite Sheet
 
-Die Signaturfläche. Nutzungsseite und Stimmzettel sind keine Listen, sondern ein Bogen
-gleichartiger Zellen, gruppiert in vier Bändern, die aus dem Set selbst geschnitten werden statt
-aus festen Schwellen: die Emotes, die zusammen die erste Hälfte der Nutzung ausmachen, dann bis
-80 %, dann der Rest mit mindestens einem Treffer, dann die toten. Bandüberschriften sind Haarlinie
-plus Label. Der Füllbalken einer Zelle misst gegen die Spitze ihres *Bandes*, nicht gegen die des
-Sets — sonst wäre in den unteren Bändern jeder Balken leer.
+The signature surface. The usage page and the ballot are not lists but a sheet of uniform cells,
+grouped into four bands that are cut from the set itself rather than from fixed thresholds: the
+emotes that together make up the first half of the usage, then up to 80 %, then the rest with at
+least one hit, then the dead ones. Band headings are a hairline plus a label. The fill bar of a
+cell measures against the peak of its *band*, not against that of the set — otherwise every bar
+in the lower bands would be empty.
 
 ### Named Rules
 
-**Die Bemerkenswert-wie-oft-Regel.** Eine Pille markiert eine *bemerkenswerte* Eigenschaft, nicht
-jede Eigenschaft. Was in jeder Zeile steht, markiert nichts mehr und wird stiller Text. Subsysteme,
-die ihre eigene Gesundheit melden, werden bei `ok` zum Punkt und erst bei Warnung zur Pille —
-damit trägt eine gesunde Übersicht **keine einzige farbige Pille**, und das erste auffällige
-Subsystem ist ohne Zutun das lauteste Element.
+**The Notable-how-often rule.** A pill marks a *notable* property, not every property. What
+stands in every row marks nothing any more and becomes fg-muted text. Subsystems that report
+their own health become a dot at `ok` and only become a pill at a warning — so that a healthy
+overview carries **not a single coloured pill**, and the first conspicuous subsystem is the
+loudest element with nobody doing anything.
 
-**Die Rahmen-schweigt-Regel.** Für die App-Kopfzeile gilt das eine Stufe strenger als für eine
-Seite: Was dort steht, steht auf jedem Bildschirm in jeder Sitzung. Und was der Rahmen sagt, sagt
-keine Seite ein zweites Mal.
+**The Chrome-stays-quiet rule.** For the app header this applies one step more strictly than for
+a page: what stands there stands on every screen in every session. And what the chrome says, no
+page says a second time.
 
-**Die Auslösen-Vollziehen-Regel.** Jede destruktive Aktion hat Auslöser **und** Vollzug: Outline
-oder Quiet öffnet einen Dialog, Solid bestätigt darin. Ein destruktiver Button ohne
-Bestätigungsdialog ist nicht vorgesehen. Wiederholt sich der Auslöser je Zeile, wird er still —
-zwanzig rot umrandete Knöpfe untereinander machen die seltenste Aktion einer Seite zu ihrem
-lautesten Element.
+**The Trigger-then-execute rule.** Every destructive action has a trigger **and** an execution:
+outline or quiet opens a dialog, solid confirms in it. A destructive button without a
+confirmation dialog is not provided for. If the trigger repeats per row, it becomes quiet —
+twenty red-outlined buttons stacked up make the rarest action of a page its loudest element.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** jede Farbe aus dem Tokensatz nehmen. Fehlt eine Rolle, wird das **Token** ergänzt — mit
-  Wert für beide Modi — statt in Tailwinds Palette zu greifen. `npm run lint` erzwingt das
-  unterhalb `web/src/app/`.
-- **Do** gefüllte Flächen im Hover **dunkler** machen, auch im Dunkelmodus.
-- **Do** Abgrenzung über Fläche und Haarlinie lösen: geriffelte Zeile, randloser Abschnitt,
-  getönter Block.
-- **Do** den globalen Fokusring stehen lassen. Wer ihn entfernt, schuldet gleichwertigen Ersatz.
-- **Do** Primäraktionen und Touch-Ziele auf `lg` (2,75rem Mindesthöhe) setzen — automatisch ist
-  daran nichts, der Default ist `md`.
-- **Do** Zahlen im Monospace setzen, wenn sie in einer Spalte stehen.
-- **Do** die vorhandenen Primitives benutzen statt Utility-Ketten nachzubauen; die vollständige
-  Liste steht in der Bauen-Checkliste der UI-Designsprache.
+- **Do** take every colour from the token set. If a role is missing, the **token** is added — with
+  a value for both modes — instead of reaching into Tailwind's palette. `npm run lint` enforces
+  this below `web/src/app/`.
+- **Do** make filled surfaces **darker** on hover, in dark mode too.
+- **Do** solve separation through surface and hairline: ruled row, borderless section,
+  tinted block.
+- **Do** leave the global focus ring alone. Whoever removes it owes an equivalent replacement.
+- **Do** put primary actions and touch targets on `lg` (2.75rem minimum height) — there is
+  nothing automatic about it, the default is `md`.
+- **Do** set numbers in monospace when they stand in a column.
+- **Do** use the existing primitives instead of rebuilding utility chains; the complete
+  list is in the build checklist of the UI design language.
 
 ### Don't:
 
-- **Don't** die Leitfarbe glühen lassen. Keine farbigen Schatten, keine Verläufe, keine
-  gesättigten Flächen als Effekt — Guides sind Haarlinien, keine Lichtquellen.
-- **Don't** den Grund blaustichig machen. Slate-getönte Flächen färben mehrere hundert fremde
-  Bilder mit; das ist der Grund für Graphit, und er gilt weiter.
-- **Don't** eine Kartenklasse einführen. Kein Rechteck um jede Zeile, kein `.app-card` unter
-  anderem Namen.
-- **Don't** Bewegung als Zierde einsetzen. Keine Eingangsanimationen, keine gestaffelten Reveals,
-  kein `behavior: 'smooth'` beim Seitenwechsel. Bewegung antwortet auf einen Zustand oder findet
-  nicht statt.
-- **Don't** einen Hover auf etwas legen, das nicht klickbar ist — er verspricht einen Klick, den
-  es nicht gibt.
-- **Don't** eine Pille für etwas vergeben, das auf den meisten Zeilen dasselbe Wort ist.
-- **Don't** ein Emoji als Icon verwenden. Der Leerzustand hat bewusst keinen Icon-Slot.
-- **Don't** eine Farbe fest verdrahten, weil sie „in beiden Modi geht". Es gibt genau eine
-  themefeste Farbrolle, und das ist die Fassung eines Bedienelements.
+- **Don't** let the lead colour glow. No coloured shadows, no gradients, no saturated surfaces as
+  an effect — guides are hairlines, not light sources.
+- **Don't** make the ground blue-tinted. Slate-tinted surfaces tint several hundred pieces of
+  foreign artwork along with them; that is the reason for graphite, and it still holds.
+- **Don't** introduce a card class. No rectangle around every row, no `.app-card` under
+  a different name.
+- **Don't** use motion as ornament. No entrance animations, no staggered reveals, no
+  `behavior: 'smooth'` on a page change. Motion answers a state or does not happen.
+- **Don't** put a hover on something that is not clickable — it promises a click that
+  does not exist.
+- **Don't** hand out a pill for something that is the same word on most rows.
+- **Don't** use an emoji as an icon. The empty state deliberately has no icon slot.
+- **Don't** hardwire a colour because it "works in both modes". There is exactly one theme-fixed
+  colour role, and that is the border-field of a control.
