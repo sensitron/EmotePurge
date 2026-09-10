@@ -75,21 +75,64 @@ describe('buildImportPreview', () => {
     expect(result.nameCollisions).toEqual([]);
   });
 
-  it('flags a non-ASCII name as invalid — 7TV rejects umlauts in the emote name itself', () => {
+  // 7TV v4's alias validator accepts Unicode — v3's did not, which is what the old version of this
+  // check (and this test) got wrong. See `isNameRejectedBySevenTv` for the evidence.
+  it('does not flag a Unicode alias — 7TV v4 accepts letters of any script in the alias', () => {
     const target: EmoteListItem[] = [];
 
     const result = buildImportPreview(
       source([
-        { sevenTvEmoteId: 'new-1', name: 'Hänno' },
-        { sevenTvEmoteId: 'new-2', name: 'HörMalZuBrudi' },
+        { sevenTvEmoteId: 'new-1', name: 'Gänsehosen' },
+        { sevenTvEmoteId: 'new-2', name: 'Привет' },
         { sevenTvEmoteId: 'new-3', name: 'Kappa' },
       ]),
       target,
     );
 
-    expect(result.invalidNames).toEqual(['Hänno', 'HörMalZuBrudi']);
-    // Informational only, like nameCollisions: the rows are not filtered out of toAdd.
+    expect(result.invalidNames).toEqual([]);
     expect(result.toAdd.map((row) => row.sevenTvEmoteId)).toEqual(['new-1', 'new-2', 'new-3']);
+  });
+
+  it('flags an alias containing a space as invalid — measured rejected by 7TV v4', () => {
+    const target: EmoteListItem[] = [];
+
+    const result = buildImportPreview(
+      source([
+        { sevenTvEmoteId: 'new-1', name: 'Two Words' },
+        { sevenTvEmoteId: 'new-2', name: 'Kappa' },
+      ]),
+      target,
+    );
+
+    expect(result.invalidNames).toEqual(['Two Words']);
+    // Informational only, like nameCollisions: the rows are not filtered out of toAdd.
+    expect(result.toAdd.map((row) => row.sevenTvEmoteId)).toEqual(['new-1', 'new-2']);
+  });
+
+  it('flags an alias containing a measured-rejected punctuation character', () => {
+    const target: EmoteListItem[] = [];
+
+    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: 'a/b' }]), target);
+
+    expect(result.invalidNames).toEqual(['a/b']);
+  });
+
+  it('flags an alias over 100 characters as invalid', () => {
+    const target: EmoteListItem[] = [];
+    const tooLong = 'a'.repeat(101);
+
+    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: tooLong }]), target);
+
+    expect(result.invalidNames).toEqual([tooLong]);
+  });
+
+  it('does not flag an alias at exactly the 100-character limit', () => {
+    const target: EmoteListItem[] = [];
+    const atLimit = 'a'.repeat(100);
+
+    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: atLimit }]), target);
+
+    expect(result.invalidNames).toEqual([]);
   });
 
   it('does not flag a name that is only an ASCII name collision', () => {
@@ -102,11 +145,11 @@ describe('buildImportPreview', () => {
   });
 
   it('reports a name that is both an invalid name and a collision in both lists', () => {
-    const target: EmoteListItem[] = [{ sevenTvEmoteId: 'existing-1', name: 'Hänno' }];
+    const target: EmoteListItem[] = [{ sevenTvEmoteId: 'existing-1', name: 'a/b' }];
 
-    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: 'Hänno' }]), target);
+    const result = buildImportPreview(source([{ sevenTvEmoteId: 'new-1', name: 'a/b' }]), target);
 
-    expect(result.nameCollisions).toEqual(['Hänno']);
-    expect(result.invalidNames).toEqual(['Hänno']);
+    expect(result.nameCollisions).toEqual(['a/b']);
+    expect(result.invalidNames).toEqual(['a/b']);
   });
 });

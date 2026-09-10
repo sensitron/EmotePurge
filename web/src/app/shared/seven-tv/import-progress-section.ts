@@ -2,6 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { TranslocoPipe } from '@jsverse/transloco';
 
+import { pluralKey } from '../../core/i18n/plural';
 import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { Button } from '../ui/button';
 import { NoticeBanner } from '../ui/notice-banner';
@@ -26,6 +27,24 @@ import { RunProgressPanel } from './run-progress-panel';
   selector: 'app-import-progress-section',
   imports: [Button, NoticeBanner, RouterLink, RunProgressPanel, TranslocoPipe],
   template: `
+    <!-- #149 P2 (independent review): gated on duplicateNoticePending, not just skippedDuplicates() >
+         0 — a transient notice (design doc §4.5), not a persistent one, so it never sits attached to
+         a *later*, unrelated run's details with nothing to clear it. See that signal's doc for why
+         it also has to be what keeps the dock (and this section) mounted for a fully-refused
+         (all-duplicates) run, which leaves no run/queue behind of its own. -->
+    @if (importService.duplicateNoticePending() && importService.skippedDuplicates() > 0) {
+      <p class="text-sm text-fg-secondary" role="status">
+        {{ skippedDuplicatesKey() | transloco: { count: importService.skippedDuplicates() } }}
+      </p>
+    }
+    <!-- The fresh pre-send duplicate check's fetch failed (already-present-filter.ts) — every row
+         still went through, so a duplicate may have slipped in undetected. A quiet notice, not an
+         alarm: the run is still expected to succeed, this only says the guard could not run. -->
+    @if (importService.duplicateNoticePending() && !importService.duplicateCheckAvailable()) {
+      <p class="text-sm text-fg-secondary" role="status">
+        {{ 'import.duplicateCheckUnavailable' | transloco }}
+      </p>
+    }
     @if (importService.isRunning() || importService.queue().length > 0) {
       @if (importService.run(); as run) {
         <div class="flex flex-col gap-2">
@@ -66,6 +85,15 @@ import { RunProgressPanel } from './run-progress-panel';
 })
 export class ImportProgressSection {
   protected readonly importService = inject(SevenTvImportService);
+
+  /** #149/T5: wording for how many rows the fresh pre-run duplicate check
+   *  (`already-present-filter.ts`, run from `import-flow.ts`) dropped — shown independently of the
+   *  run-progress panel below, because a run where the fresh check caught everything queues nothing
+   *  and would otherwise leave that panel hidden (its own gate is `isRunning() || queue().length
+   *  > 0`), silently swallowing the one thing the user needs to see in that case. */
+  protected readonly skippedDuplicatesKey = computed(() =>
+    pluralKey(this.importService.skippedDuplicates(), 'import.skippedDuplicates'),
+  );
 
   /** Same pattern as `MassDeletePanel.resyncNoticeKey` — only the key family differs. */
   protected readonly resyncNoticeKey = computed(() => {

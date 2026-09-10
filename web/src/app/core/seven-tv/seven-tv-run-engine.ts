@@ -21,7 +21,7 @@ import {
 
 import { SevenTvTokenService } from './seven-tv-token.service';
 
-const SEVEN_TV_GQL_ENDPOINT = 'https://7tv.io/v3/gql';
+const SEVEN_TV_GQL_ENDPOINT = 'https://7tv.io/v4/gql';
 // Starting pace only — the run re-paces itself from 7TV's own numbers the first time it is rate
 // limited (see onRateLimited). Deliberately kept aggressive: 7TV's actual quota for the
 // `emote_set_change` bucket lives in their database, not in their open-source tree, so the only way
@@ -92,6 +92,13 @@ export interface RunOperation {
    * failure — including Angular's `0` for a network error — and `null` for a GQL-level rejection or
    * a rate-limit give-up.
    *
+   * `errorCode` is 7TV's structured `extensions.code` from the GQL error — v4's `LACKING_PRIVILEGES`
+   * for a missing-permission mutation, for one, which is the reason this field exists: that rejection
+   * arrives over HTTP 200, so there is no `httpStatus` to match on. It is `null` whenever there is
+   * nothing to read a code from — a transport-layer failure (no GraphQL body at all), a GQL error
+   * without an `extensions.code`, or the rate-limit give-up (synthesised locally after the retry
+   * budget is spent, not read off a specific server error).
+   *
    * Not called for a successful row, for a rate-limited attempt that is still being retried (only
    * the retry's final outcome reaches this hook), or for a row that is `cancelled`. A hook that
    * throws is treated as `false` (the run continues) and the exception is reported via
@@ -100,7 +107,11 @@ export interface RunOperation {
    * Delete and restore leave this unset, which reproduces today's behaviour exactly: every failure
    * is recorded and the run keeps going.
    */
-  abortOn?(failure: { message: string; httpStatus: number | null }): boolean;
+  abortOn?(failure: {
+    message: string;
+    httpStatus: number | null;
+    errorCode: string | null;
+  }): boolean;
 }
 
 export interface RunResult {
@@ -116,7 +127,8 @@ export interface RunResult {
 }
 
 type RunOneResult =
-  { success: true } | { success: false; errorMessage: string; httpStatus: number | null };
+  | { success: true }
+  | { success: false; errorMessage: string; httpStatus: number | null; errorCode: string | null };
 
 /** The rate-limit numbers 7TV mirrors into a rejected mutation's `extensions.headers`. All values
  *  arrive as strings; `reset` is in seconds. Any of them can be missing. */
@@ -329,11 +341,13 @@ export class SevenTvRunEngine {
       }),
       catchError(() =>
         // Only a RateLimitHit can get here — runOne turns everything else into a result value.
-        // httpStatus is null: this is a give-up after retries, not a single transport failure.
+        // httpStatus and errorCode are both null: this is a give-up after retries, synthesised
+        // locally, not a single server response to read either off.
         of({
           success: false as const,
           errorMessage: this.translocoService.translate('massDelete.errors.rateLimitedGaveUp'),
           httpStatus: null,
+          errorCode: null,
         }),
       ),
     );
@@ -370,11 +384,14 @@ export class SevenTvRunEngine {
               throw new RateLimitHit(readRateLimitInfo(gqlError));
             }
             // httpStatus is null: 7TV rejected the mutation itself over HTTP 200, there is no
-            // transport status to report.
+            // transport status to report. errorCode carries extensions.code verbatim — v4's
+            // structured rejection reason (e.g. LACKING_PRIVILEGES) — or null when the error has
+            // none.
             return {
               success: false,
               errorMessage: gqlError.message ?? '',
               httpStatus: null,
+              errorCode: gqlError.extensions?.code ?? null,
             };
           }),
           catchError((error) => {
@@ -391,10 +408,13 @@ export class SevenTvRunEngine {
             }
             // httpStatus carries Angular's real status here, including 0 for a network error —
             // describeHttpError has already consumed it for the message, this just passes it along.
+            // errorCode is null: a transport failure never reaches 7TV's GraphQL layer, so there is
+            // no extensions.code to read.
             return of<RunOneResult>({
               success: false,
               errorMessage: this.describeHttpError(httpError),
               httpStatus: httpError.status,
+              errorCode: null,
             });
           }),
         );
@@ -556,7 +576,12 @@ export class SevenTvRunEngine {
    *  is logged and treated as `false`: a broken hook must not corrupt the run, only be visible. */
   private evaluateAbort(
     operation: RunOperation,
-    result: { success: false; errorMessage: string; httpStatus: number | null },
+    result: {
+      success: false;
+      errorMessage: string;
+      httpStatus: number | null;
+      errorCode: string | null;
+    },
   ): void {
     if (!operation.abortOn) {
       return;
@@ -566,6 +591,7 @@ export class SevenTvRunEngine {
       shouldAbort = operation.abortOn({
         message: result.errorMessage,
         httpStatus: result.httpStatus,
+        errorCode: result.errorCode,
       });
     } catch (error) {
       console.error('[EmotePurge] 7TV run abortOn hook threw — continuing the run', error);

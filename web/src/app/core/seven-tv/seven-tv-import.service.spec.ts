@@ -23,7 +23,7 @@ const DE_TRANSLATIONS = {
   },
 };
 
-const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
+const GQL_ENDPOINT = 'https://7tv.io/v4/gql';
 const TARGET_B = { setId: 'set-b', channelName: 'kanal_b' };
 const TARGET_C = { setId: 'set-c', channelName: 'kanal_c' };
 const SYNC_IMPORTED_B = '/api/channels/kanal_b/emotes/sync-imported';
@@ -97,15 +97,39 @@ describe('SevenTvImportService', () => {
 
     const req = httpMock.expectOne(GQL_ENDPOINT);
     expect(req.request.headers.get('Authorization')).toBe('Bearer write-token');
-    expect(req.request.body.query).toContain('action: ADD');
+    // v4 dropped the ADD action in favour of a dedicated field, and the alias travels *inside* the
+    // input object — pin both, not the vanished enum.
+    expect(req.request.body.query).toContain('addEmote(id: { emoteId: $emoteId, alias: $alias })');
     expect(req.request.body.variables).toEqual({
       setId: 'set-b',
       emoteId: '7tv-1',
-      name: 'PogU',
+      alias: 'PogU',
     });
     req.flush({});
     vi.advanceTimersByTime(RUN_DELAY_MS);
     httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+    httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+    httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+  });
+
+  // Regression guard for #149: v3 rejected any alias outside ASCII+emoji, umlauts included. v4
+  // fixed that server-side, but only if the alias actually reaches the wire unmangled — this is
+  // the case that would have caught the old `name`-as-sibling-argument shape just as well as a
+  // stray transliteration.
+  it('sends an alias containing an umlaut unmangled in the mutation variables', () => {
+    service.startImport(TARGET_B, CHANNEL_ORIGIN, [
+      { sevenTvEmoteId: '7tv-1', name: 'Sitzgemüse' },
+    ]);
+
+    const req = httpMock.expectOne(GQL_ENDPOINT);
+    expect(req.request.body.variables).toEqual({
+      setId: 'set-b',
+      emoteId: '7tv-1',
+      alias: 'Sitzgemüse',
+    });
+
+    req.flush({});
     vi.advanceTimersByTime(RUN_DELAY_MS);
     httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
     httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
@@ -173,9 +197,16 @@ describe('SevenTvImportService', () => {
     const threeRows = [...ROWS, { sevenTvEmoteId: '7tv-3', name: 'Sadge' }];
     service.startImport(TARGET_B, CHANNEL_ORIGIN, threeRows);
 
-    httpMock
-      .expectOne(GQL_ENDPOINT)
-      .flush({ errors: [{ message: 'Insufficient Privileges for emote set' }] });
+    // v4's shape: HTTP 200, the rejection lives in `extensions.code` — there is no transport-level
+    // status to catch this on.
+    httpMock.expectOne(GQL_ENDPOINT).flush({
+      errors: [
+        {
+          message: 'LACKING_PRIVILEGES you are not an editor for this user',
+          extensions: { code: 'LACKING_PRIVILEGES', status: 403 },
+        },
+      ],
+    });
 
     expect(service.queue().map((item) => item.status)).toEqual([
       'failed',
@@ -262,6 +293,144 @@ describe('SevenTvImportService', () => {
     expect(service.syncReport()).toBe('idle');
     expect(service.resyncTrigger()).toBe('idle');
     expect(service.abortedForPrivileges()).toBe(false);
+  });
+
+  // #149/T5: this service does no filtering of its own — `import-flow.ts` runs the fresh pre-send
+  // duplicate check (already-present-filter.ts) before ever calling startImport. What this service
+  // owns is surfacing that caller-supplied count to the user, including the case a caller could
+  // otherwise leave silent: every row was a duplicate, so nothing gets queued at all.
+  describe('skippedDuplicates (#149/T5)', () => {
+    it('defaults to 0 when the caller omits it', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS);
+
+      expect(service.skippedDuplicates()).toBe(0);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reports the caller-supplied skip count even when every row was a duplicate and nothing queues', () => {
+      // The fresh check filtered every row out, leaving an empty list — the engine refuses to
+      // start on an empty queue, but the skip count must still reach the user.
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+
+      expect(service.isRunning()).toBe(false);
+      expect(service.queue()).toEqual([]);
+      expect(service.skippedDuplicates()).toBe(2);
+    });
+
+    it('reset() clears it back to 0', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      expect(service.skippedDuplicates()).toBe(2);
+
+      service.reset();
+
+      expect(service.skippedDuplicates()).toBe(0);
+    });
+  });
+
+  // #149: whether the caller's fresh pre-send check (already-present-filter.ts) actually ran —
+  // distinct from skippedDuplicates above, which alone cannot tell "nothing to skip" apart from
+  // "could not check". A caller that never passes the fifth argument (every pre-fix test above, and
+  // every caller that predates this fix) must keep reading as "checked".
+  describe('duplicateCheckAvailable (#149)', () => {
+    it('defaults to true when the caller omits it', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS);
+
+      expect(service.duplicateCheckAvailable()).toBe(true);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reports false when the caller says its check could not run, even though the run itself still starts', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS, 0, false);
+
+      expect(service.duplicateCheckAvailable()).toBe(false);
+      // Fails open, same as always — an unverifiable check does not block the confirmed run.
+      expect(service.isRunning()).toBe(true);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reset() clears it back to true', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2, false);
+      expect(service.duplicateCheckAvailable()).toBe(false);
+
+      service.reset();
+
+      expect(service.duplicateCheckAvailable()).toBe(true);
+    });
+  });
+
+  // #149 P2 (independent review): a fully-refused (all-duplicates) startImport leaves no run/queue
+  // behind, so this transient flag is what lets `dockVisible()` (`usage-stats-page.ts`, via
+  // `action-dock.ts`) mount the notice at all — and what lets it clear on its own afterwards rather
+  // than requiring a dismiss control that, in that refused case, has nothing to attach to.
+  describe('duplicateNoticePending (#149 P2)', () => {
+    it('defaults to false when the caller omits skip info entirely', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS);
+
+      expect(service.duplicateNoticePending()).toBe(false);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('becomes true when the call reports a skip count, even for a refused (all-duplicates) run', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+
+      expect(service.duplicateNoticePending()).toBe(true);
+    });
+
+    it('becomes true when the call reports the check unavailable, even with nothing skipped', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS, 0, false);
+
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('clears itself after DUPLICATE_NOTICE_MS without any dismiss call', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(3999);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(1);
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+
+    it("a second call within the window restarts it, rather than the first call's timer cutting the new notice short", () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      vi.advanceTimersByTime(3000);
+
+      service.startImport(TARGET_C, CHANNEL_ORIGIN, [], 3);
+      vi.advanceTimersByTime(2000);
+
+      // 5000 ms after the first call, but only 2000 ms after the second — still pending.
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(2000);
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+
+    it('reset() clears it immediately, without waiting out the timer', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      service.reset();
+
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
   });
 
   // R15: the engine sets isRunning false *before* the closing calls go out, so a second run can be

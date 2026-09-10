@@ -16,6 +16,12 @@ import { ImportProgressSection } from './import-progress-section';
 const DE_TRANSLATIONS = {
   common: { cancel: 'Abbrechen', close: 'Schließen' },
   import: {
+    duplicateCheckUnavailable:
+      'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
+    skippedDuplicates: {
+      one: '{{ count }} Emote war beim Start bereits im Zielset und wurde übersprungen.',
+      other: '{{ count }} Emotes waren beim Start bereits im Zielset und wurden übersprungen.',
+    },
     progress: '{{ finished }} / {{ total }} kopiert',
     deleteFailedFallback: 'Kopieren fehlgeschlagen',
     rateLimitPaused: '7TV-Rate-Limit erreicht.',
@@ -59,6 +65,9 @@ interface FakeImportService {
   syncReport: WritableSignal<SyncReportState>;
   resyncTrigger: WritableSignal<ResyncTriggerState>;
   abortedForPrivileges: WritableSignal<boolean>;
+  skippedDuplicates: WritableSignal<number>;
+  duplicateCheckAvailable: WritableSignal<boolean>;
+  duplicateNoticePending: WritableSignal<boolean>;
   cancel: ReturnType<typeof vi.fn>;
   reset: ReturnType<typeof vi.fn>;
   retrySyncReport: ReturnType<typeof vi.fn>;
@@ -73,6 +82,9 @@ function createFakeImportService(): FakeImportService {
     syncReport: signal<SyncReportState>('idle'),
     resyncTrigger: signal<ResyncTriggerState>('idle'),
     abortedForPrivileges: signal(false),
+    skippedDuplicates: signal(0),
+    duplicateCheckAvailable: signal(true),
+    duplicateNoticePending: signal(false),
     cancel: vi.fn(),
     reset: vi.fn(),
     retrySyncReport: vi.fn(),
@@ -203,5 +215,73 @@ describe('ImportProgressSection', () => {
     expect(withBanner.nativeElement.textContent).toContain(
       'Das 7TV-Token hat im Zielset kein Schreibrecht.',
     );
+  });
+
+  // #149: the fresh pre-send duplicate check's own fetch can fail — this notice is what tells the
+  // user a duplicate may have slipped in undetected, independent of the run-progress panel (shown
+  // even while idle, same reasoning as skippedDuplicatesKey above it). Since the #149 P2 fix these
+  // are gated on `duplicateNoticePending` too (design doc §4.5's transient-notice convention), so
+  // every case below sets it alongside `duplicateCheckAvailable`, matching how the real service
+  // always sets both together (`startImport` calls `showDuplicateNotice` right after setting
+  // `duplicateCheckAvailable`).
+  it('shows nothing while the duplicate check is available (the default)', () => {
+    importService.duplicateCheckAvailable.set(true);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Wir konnten gerade nicht prüfen');
+  });
+
+  it('shows the quiet notice once the duplicate check is reported unavailable, stating the consequence', () => {
+    importService.duplicateCheckAvailable.set(false);
+    importService.duplicateNoticePending.set(true);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
+    );
+  });
+
+  // #149 P2 (independent review): a P1 fix moved the duplicate check onto 7TV directly, and an
+  // independent P2 finding on the same branch was that this notice, and the skipped-count one next
+  // to it, were unreachable for the exact case they exist to report — a fully-refused (all-
+  // duplicates) run leaves `run()` null and `queue()` empty, so nothing here ever mounted at the
+  // page level (`usage-stats-page.ts`'s `dockVisible`, fixed via `action-dock.ts`). Pinned here at
+  // the component's own level: the notice must render on its own merits, without any run object at
+  // all — `run()` stays null throughout both cases below.
+  it('shows the skipped-count notice even with no run at all — a fully refused import', () => {
+    importService.run.set(null);
+    importService.skippedDuplicates.set(3);
+    importService.duplicateNoticePending.set(true);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      '3 Emotes waren beim Start bereits im Zielset und wurden übersprungen.',
+    );
+  });
+
+  it('shows the check-unavailable notice even with no run at all — a fully refused import', () => {
+    importService.run.set(null);
+    importService.duplicateCheckAvailable.set(false);
+    importService.duplicateNoticePending.set(true);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
+    );
+  });
+
+  // The other half of the P2 fix: the notice is transient (design doc §4.5), not a persistent flag
+  // that would otherwise be able to sit next to a *later*, unrelated run's stale details forever.
+  it('hides the check-unavailable notice once its pending window has elapsed, even while duplicateCheckAvailable still reads false', () => {
+    importService.duplicateCheckAvailable.set(false);
+    importService.duplicateNoticePending.set(false);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Wir konnten gerade nicht prüfen');
   });
 });

@@ -22,7 +22,7 @@ const EXPECTED_401_PATHS = ['/api/auth/me', '/api/auth/logout', '/api/live/statu
  * (channel-workspace-layout) was missing it entirely.
  *
  * The `/api/` restriction is the load-bearing part: the 7TV mass-delete engine talks straight to
- * `7tv.io/v3/gql` with a completely different credential (the user's 7TV write token from
+ * `7tv.io/v4/gql` with a completely different credential (the user's 7TV write token from
  * sessionStorage). A 401 from there means "that token expired" and is handled by
  * SevenTvDeleteService — it must never log the user out of EmotePurge. That distinction used to
  * exist only implicitly, in the fact that nobody had copied the 401 block into the 7TV service.

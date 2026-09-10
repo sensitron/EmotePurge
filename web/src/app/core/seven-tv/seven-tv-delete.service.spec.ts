@@ -44,7 +44,7 @@ function rateLimitResponse(resetSeconds: number, limit: number | null = 100) {
   };
 }
 
-const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
+const GQL_ENDPOINT = 'https://7tv.io/v4/gql';
 const SYNC_ENDPOINT = '/api/channels/sensitron/emotes/sync-deleted';
 
 const EMOTES: DeleteQueueEmote[] = [

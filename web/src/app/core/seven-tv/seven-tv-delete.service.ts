@@ -24,11 +24,16 @@ export const MAX_AUTOMATIC_SYNC_RETRIES = 2;
 // manual retry button covers the cases a short backoff cannot.
 export const SYNC_RETRY_DELAY_MS = 2000;
 
+/** v4 dropped the `action` enum in favour of one field per operation; the emote travels inside the
+ *  `EmoteSetEmoteId` input object rather than as a sibling argument, and variable types are `Id!`
+ *  instead of `ObjectID!`. Removal has no alias, unlike `addEmote` in the import/restore services. */
 const REMOVE_EMOTE_MUTATION = `
-  mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
-    emoteSet(id: $setId) {
-      emotes(id: $emoteId, action: REMOVE) {
-        id
+  mutation RemoveEmote($setId: Id!, $emoteId: Id!) {
+    emoteSets {
+      emoteSet(id: $setId) {
+        removeEmote(id: { emoteId: $emoteId }) {
+          id
+        }
       }
     }
   }

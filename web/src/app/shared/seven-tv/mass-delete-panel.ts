@@ -1,8 +1,10 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { HttpClient } from '@angular/common/http';
 import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
+import { pluralKey } from '../../core/i18n/plural';
 import {
   DeleteQueueEmote,
   SevenTvDeleteService,
@@ -22,6 +24,7 @@ import {
   purgeRunJson,
 } from '../export/purge-run-export';
 import { Button } from '../ui/button';
+import { filterAlreadyPresent } from './already-present-filter';
 import { DeleteConfirmDialogData, openDeleteConfirmDialog } from './delete-confirm-dialog';
 import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
 import { RunProgressPanel } from './run-progress-panel';
@@ -124,6 +127,28 @@ export interface DeletableEmote {
         </app-run-progress-panel>
       }
 
+      <!-- #149 P2 (independent review): gated on duplicateNoticePending, not just
+           skippedDuplicates() > 0 — a transient notice (design doc §4.5), not a persistent one, so
+           it never sits attached to a *later*, unrelated run's details with nothing to clear it.
+           See that signal's doc for why it also has to be what keeps the dock (and this panel)
+           mounted for a fully-refused (all-duplicates) restore, which leaves no run/queue behind of
+           its own — including the file-based restore reached via ImportTrigger, which has nothing
+           marked in this channel's grid to keep the dock open otherwise. -->
+      @if (restoreService.duplicateNoticePending() && restoreService.skippedDuplicates() > 0) {
+        <p class="text-sm text-fg-secondary" role="status">
+          {{
+            restoreSkippedDuplicatesKey() | transloco: { count: restoreService.skippedDuplicates() }
+          }}
+        </p>
+      }
+      <!-- The pre-run duplicate check's fetch failed (already-present-filter.ts) — every row still
+           went through, so a duplicate may have slipped in undetected. A quiet notice, not an
+           alarm: the run is still expected to succeed, this only says the guard could not run. -->
+      @if (restoreService.duplicateNoticePending() && !restoreService.duplicateCheckAvailable()) {
+        <p class="text-sm text-fg-secondary" role="status">
+          {{ 'restore.duplicateCheckUnavailable' | transloco }}
+        </p>
+      }
       @if (restoreService.isRunning() || restoreService.queue().length > 0) {
         <app-run-progress-panel
           [items]="restoreService.queue()"
@@ -182,6 +207,9 @@ export class MassDeletePanel {
    *  `protected` rather than `private` (#70, Task 4; see docs/DECISIONS.md). */
   protected readonly arbiter = inject(SevenTvRunArbiter);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  /** Only for `filterAlreadyPresent`'s direct read against 7TV (#149 P1 fix) — every other read in
+   *  this component goes through `emoteAdminService`. */
+  private readonly httpClient = inject(HttpClient);
   private readonly dialog = inject(Dialog);
 
   private readonly setWarning = signal<EmoteSetWarning | null>(null);
@@ -211,6 +239,15 @@ export class MassDeletePanel {
         return null;
     }
   });
+
+  /** #149/T5: wording for how many rows the pre-run duplicate check (`already-present-filter.ts`)
+   *  dropped — shown independently of the run-progress panel below, because a run where *every*
+   *  row was already present queues nothing and would otherwise leave that panel hidden (its own
+   *  gate is `isRunning() || queue().length > 0`), silently swallowing the one thing the user needs
+   *  to see in that case. */
+  protected readonly restoreSkippedDuplicatesKey = computed(() =>
+    pluralKey(this.restoreService.skippedDuplicates(), 'restore.skippedDuplicates'),
+  );
 
   constructor() {
     // The queue settling is not on its own a reason to tell the host page anything: the backend only
@@ -378,17 +415,40 @@ export class MassDeletePanel {
       slots: this.restoreSlots.asReadonly(),
     };
     openRestoreConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
-      if (confirmed) {
-        this.restoreService.startRestore(
-          this.setId(),
-          this.channelName(),
-          doneItems.map((item) => ({
-            emoteId: item.emoteId,
-            sevenTvEmoteId: item.sevenTvEmoteId,
-            name: item.name,
-          })),
-        );
+      if (!confirmed) {
+        return;
       }
+      const emotes: DeleteQueueEmote[] = doneItems.map((item) => ({
+        emoteId: item.emoteId,
+        sevenTvEmoteId: item.sevenTvEmoteId,
+        name: item.name,
+      }));
+      // #149/T5: a restore never had any duplicate protection at all — filter it fresh, right here,
+      // against the target set's current contents, read from 7TV itself rather than our database
+      // (see `filterAlreadyPresent`'s doc — asking our own mirror is exactly wrong for restore,
+      // which runs *because* something already went wrong and our mirror may still be stale) for
+      // why this sits at confirm-time rather than dialog-open-time and for the residual race it
+      // does not close.
+      filterAlreadyPresent(this.httpClient, this.setId(), emotes).subscribe(
+        ({ rows: toRestore, skipped, available }) => {
+          // #149 P2 review fix: openRestoreConfirm()'s own arbiter check ran before this dialog
+          // even opened — well outside the mutual-exclusion contract (design doc §4.3) it exists
+          // to enforce, since a delete or import can start while the confirm dialog is open and
+          // this fetch is in flight. Re-checked here, right before the only remaining call that
+          // actually starts anything; silent on a block, same reasoning as elsewhere in this
+          // file — the run that got there first is already visible in the dock.
+          if (this.arbiter.activeRun() !== null) {
+            return;
+          }
+          this.restoreService.startRestore(
+            this.setId(),
+            this.channelName(),
+            toRestore,
+            skipped,
+            available,
+          );
+        },
+      );
     });
   }
 

@@ -9,6 +9,8 @@ function state(overrides: Partial<ActionDockState> = {}): ActionDockState {
     deleteShown: false,
     restoreShown: false,
     importShown: false,
+    importNoticePending: false,
+    restoreNoticePending: false,
     ...overrides,
   };
 }
@@ -35,5 +37,17 @@ describe('actionDockHasContent', () => {
 
   it('shows an import run without an active set — the import half has no set gate (R9)', () => {
     expect(actionDockHasContent(state({ hasActiveSet: false, importShown: true }))).toBe(true);
+  });
+
+  // #149 P2: a fully-refused (all-duplicates) import or restore leaves no run/queue behind — the
+  // pending notice is the only thing there is to show, so it has to keep the dock open on its own,
+  // without an active set either (same reasoning as importShown, R9).
+  it('shows a pending duplicate notice without an active set and without anything else shown', () => {
+    expect(actionDockHasContent(state({ hasActiveSet: false, importNoticePending: true }))).toBe(
+      true,
+    );
+    expect(actionDockHasContent(state({ hasActiveSet: false, restoreNoticePending: true }))).toBe(
+      true,
+    );
   });
 });

@@ -1,4 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { HttpClient } from '@angular/common/http';
 import { computed, signal } from '@angular/core';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
@@ -7,6 +8,7 @@ import { ImportSource } from '../../core/seven-tv/import-source';
 import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { filterAlreadyPresent } from './already-present-filter';
 import { ImportConfirmOutcome, openImportConfirmDialog } from './import-confirm-dialog';
 import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
@@ -21,6 +23,9 @@ import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 export interface ImportFlowDeps {
   dialog: Dialog;
   emoteAdminService: EmoteAdminService;
+  /** Only for `filterAlreadyPresent`'s direct read against 7TV (#149 P1 fix) — every other read in
+   *  this flow goes through `emoteAdminService`. */
+  httpClient: HttpClient;
   tokenService: SevenTvTokenService;
   importService: SevenTvImportService;
   arbiter: SevenTvRunArbiter;
@@ -67,10 +72,32 @@ export function startImportFlow(
     if (deps.arbiter.activeRun() !== null) {
       return;
     }
-    deps.importService.startImport(
-      { setId: outcome.targetSetId, channelName: targetChannelName },
-      source.origin,
-      outcome.rows,
+    // #149/T5: `outcome.rows` already passed `buildImportPreview`'s filter against the target set's
+    // contents as of when the confirm dialog opened — that snapshot can be stale by the time the
+    // user actually confirms (another editor, another tab, a long-open dialog). Re-check fresh,
+    // right here, immediately before anything is sent, against 7TV itself rather than our database
+    // (see `filterAlreadyPresent`'s doc for why that distinction matters and for the residual race
+    // this does not close).
+    filterAlreadyPresent(deps.httpClient, outcome.targetSetId, outcome.rows).subscribe(
+      ({ rows, skipped, available }) => {
+        // #149 P2 review fix: the arbiter check above ran *before* this fetch, which the mutual
+        // exclusion contract (design doc §4.3, the SevenTvRunArbiter paragraph) does not actually
+        // cover — a delete or restore can start in that window and this would otherwise start a
+        // second, overlapping run against the same set. Re-checked here, right before the only
+        // remaining call that actually starts anything. Silent on a block, same reasoning as the
+        // pre-fetch check above: whichever run got there first is already visible in the dock, so
+        // there is something on screen explaining what happened — just not from this confirmation.
+        if (deps.arbiter.activeRun() !== null) {
+          return;
+        }
+        deps.importService.startImport(
+          { setId: outcome.targetSetId, channelName: targetChannelName },
+          source.origin,
+          rows,
+          skipped,
+          available,
+        );
+      },
     );
   };
 

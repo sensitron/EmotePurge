@@ -664,7 +664,11 @@ describe('ImportConfirmDialog', () => {
     it('renders every finding in the documented order', () => {
       const dialog = render({
         source: fileSource(
-          [row('existing-1', 'AlreadyThere'), row('new-1', 'Collides'), row('new-2', 'Hänno')],
+          [
+            row('existing-1', 'AlreadyThere'),
+            row('new-1', 'Collides'),
+            row('new-2', 'Weird/Emote'),
+          ],
           { fileName: 'emotes.json', channelName: 'HandOfBlood' },
           { discardedRows: 2, duplicatesCollapsed: 3 },
         ),
@@ -710,7 +714,10 @@ describe('ImportConfirmDialog', () => {
 
       expect(inRenderedOrder(dialog.text(), contract)).toEqual(contract);
       // The name lists belong to the two rejection lines above them, in the same order.
-      expect(inRenderedOrder(dialog.text(), ['Collides', 'Hänno'])).toEqual(['Collides', 'Hänno']);
+      expect(inRenderedOrder(dialog.text(), ['Collides', 'Weird/Emote'])).toEqual([
+        'Collides',
+        'Weird/Emote',
+      ]);
       // No loading hint once the target has answered.
       expect(dialog.text()).not.toContain('Zieldaten werden geladen…');
     });

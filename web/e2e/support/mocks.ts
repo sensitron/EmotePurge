@@ -1026,7 +1026,22 @@ export interface SevenTvGqlRequest {
 }
 
 /**
- * Routes `https://7tv.io/v3/gql` — the run engine's one write endpoint (ADD/DELETE mutations for
+ * One GQL error as 7TV's v4 actually shapes it — `extensions.code`/`extensions.status` alongside the
+ * message, not just the message. Mirrors `SevenTvGqlError` in `seven-tv-run-engine.ts`, which is what
+ * `abortsForMissingPrivileges` and the rate-limit detection both read. A handler that only needs a
+ * plain-text failure can still omit `extensions`.
+ */
+export interface SevenTvGqlErrorFixture {
+  message: string;
+  extensions?: {
+    code?: string;
+    status?: number;
+    headers?: Record<string, string>;
+  };
+}
+
+/**
+ * Routes `https://7tv.io/v4/gql` — the run engine's one write endpoint (ADD/REMOVE mutations for
  * import, delete and restore alike). The handler sees each call's parsed body plus a zero-based
  * call index (the run engine issues one request per queued row, in order), and returns the GQL
  * response body to answer with; always a 200 with either `data` or `errors` — 7TV's own contract,
@@ -1040,13 +1055,13 @@ export async function mockSevenTvGql(
   handler: (
     request: SevenTvGqlRequest,
     callIndex: number,
-  ) => { data?: unknown; errors?: { message: string }[] },
+  ) => { data?: unknown; errors?: SevenTvGqlErrorFixture[] },
 ): Promise<void> {
   await page.addInitScript(() => {
     window.sessionStorage.setItem('ep_7tv_write_token', 'e2e-fake-write-token');
   });
   let callIndex = 0;
-  await page.route('https://7tv.io/v3/gql', (route) => {
+  await page.route('https://7tv.io/v4/gql', (route) => {
     const request = route.request().postDataJSON() as SevenTvGqlRequest;
     const body = handler(request, callIndex);
     callIndex += 1;

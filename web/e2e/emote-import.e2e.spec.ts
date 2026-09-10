@@ -273,7 +273,9 @@ test.describe('push flow: picker to confirmation dialog', () => {
     const addedEmoteIds: unknown[] = [];
     await mockSevenTvGql(page, (request) => {
       addedEmoteIds.push(request.variables['emoteId']);
-      return { data: { emoteSet: { emotes: [{ id: request.variables['emoteId'] }] } } };
+      return {
+        data: { emoteSets: { emoteSet: { addEmote: { id: request.variables['emoteId'] } } } },
+      };
     });
     // Frozen for the same reason as the other run-completion tests: the engine's trailing pacing
     // delay would otherwise race a real wait.
@@ -951,7 +953,9 @@ test.describe('running import: channel switch', () => {
 
     // R14: seeds the write token via addInitScript and routes 7tv.io's GQL endpoint — must be
     // registered, like installLiveStub, before the first goto.
-    await mockSevenTvGql(page, () => ({ data: { emoteSet: { emotes: [{ id: '7tv-1' }] } } }));
+    await mockSevenTvGql(page, () => ({
+      data: { emoteSets: { emoteSet: { addEmote: { id: '7tv-1' } } } },
+    }));
     // Frozen from the start: the run engine paces every row with a trailing RUN_DELAY_MS timer
     // (seven-tv-run-engine.ts), and a real wait would race it. runFor() below drives it explicitly.
     await page.clock.install();
@@ -1034,7 +1038,9 @@ test.describe('running import: channel switch', () => {
     await mockSyncImported(page, TARGET_CHANNEL);
     await mockChannelScopedResync(page, TARGET_CHANNEL);
 
-    await mockSevenTvGql(page, () => ({ data: { emoteSet: { emotes: [{ id: '7tv-1' }] } } }));
+    await mockSevenTvGql(page, () => ({
+      data: { emoteSets: { emoteSet: { addEmote: { id: '7tv-1' } } } },
+    }));
     await page.clock.install();
 
     await gotoUsageStats(page, SOURCE_CHANNEL);
@@ -1142,12 +1148,33 @@ test.describe('running import: a token without write rights', () => {
       return route.fulfill({ status: 202 });
     });
 
-    // 7TV's own wording for a token that may not write the set (PRIVILEGE_ERROR_FRAGMENTS), sent
-    // as a GQL error inside a 200 — which is how 7TV actually reports it.
+    // 7TV v4's real shape for a token that may not write the set: a GQL error inside a 200, with
+    // `extensions.code` carrying the structured reason `abortsForMissingPrivileges` actually reads —
+    // not a message substring.
+    //
+    // #149 P1: the fresh pre-run duplicate check (`already-present-filter.ts`) now reads 7TV
+    // directly too, over this same endpoint, right before the run starts — so this handler must
+    // tell that read apart from the real `addEmote` attempt it exists to count. A read the token
+    // *can* make even without write rights (reading a set is public, no token at all is even sent —
+    // see that file's doc), so it gets a clean empty-set answer here rather than the same
+    // privilege error, keeping `mutationCount` exactly what its name says: attempts at the actual
+    // mutation, not at the read in front of it.
     let mutationCount = 0;
-    await mockSevenTvGql(page, () => {
+    await mockSevenTvGql(page, (request) => {
+      if (!request.query.includes('addEmote')) {
+        return {
+          data: { emoteSets: { emoteSet: { emotes: { totalCount: 0, pageCount: 1, items: [] } } } },
+        };
+      }
       mutationCount += 1;
-      return { errors: [{ message: 'insufficient privileges for this emote set' }] };
+      return {
+        errors: [
+          {
+            message: 'LACKING_PRIVILEGES you are not an editor for this user',
+            extensions: { code: 'LACKING_PRIVILEGES', status: 403 },
+          },
+        ],
+      };
     });
     await page.clock.install();
 
@@ -1216,7 +1243,9 @@ test.describe('running import: leaving the page', () => {
     await mockChannelScopedResync(page, TARGET_CHANNEL);
     await mockVoteSessionList(page, SOURCE_CHANNEL, []);
 
-    await mockSevenTvGql(page, () => ({ data: { emoteSet: { emotes: [{ id: '7tv-1' }] } } }));
+    await mockSevenTvGql(page, () => ({
+      data: { emoteSets: { emoteSet: { addEmote: { id: '7tv-1' } } } },
+    }));
     // Frozen and never advanced in this test: the engine's trailing pacing delay is what keeps the
     // run in flight, so `isRunning()` stays true for as long as the clock does not move — which is
     // exactly the state the guard is written for.

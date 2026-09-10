@@ -1,4 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { HttpClient } from '@angular/common/http';
 import { signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
@@ -57,6 +58,17 @@ function setup(): Harness {
     ),
   } as unknown as EmoteAdminService;
 
+  // The fresh #149/T5 duplicate check (`already-present-filter.ts`) — since the P1 fix this is a
+  // raw `HttpClient.post` straight to 7TV, not `emoteAdminService`/`listEmotes`. Defaults to an
+  // empty target set, matching every expectation below (skip count 0, available true).
+  const httpClient = {
+    post: vi.fn(() =>
+      of({
+        data: { emoteSets: { emoteSet: { emotes: { totalCount: 0, pageCount: 1, items: [] } } } },
+      }),
+    ),
+  } as unknown as HttpClient;
+
   const startImport = vi.fn();
   const dialogOpen = vi.fn(() => ({ closed: new Subject<unknown>() }));
 
@@ -64,6 +76,7 @@ function setup(): Harness {
     deps: {
       dialog: { open: dialogOpen } as unknown as Dialog,
       emoteAdminService,
+      httpClient,
       tokenService: { hasToken: signal(true) } as unknown as SevenTvTokenService,
       importService: { startImport } as unknown as SevenTvImportService,
       arbiter: { activeRun: signal<SevenTvRunKind | null>(null) } as unknown as SevenTvRunArbiter,
@@ -129,10 +142,15 @@ describe('startForeignChannelImportFlow', () => {
       rows: [{ sevenTvEmoteId: 'e1', name: 'Kappa' }],
     });
 
+    // Fourth argument is the #149/T5 fresh duplicate-check skip count — 0 because the fresh 7TV
+    // read (`httpClient.post`) defaults to an empty target set. Fifth is whether that check
+    // actually ran — true, since the fetch succeeded (#149).
     expect(startImport).toHaveBeenCalledWith(
       { setId: 'set-target', channelName: 'my_channel' },
       { kind: 'seventv-channel', channelName: 'handofblood' },
       [{ sevenTvEmoteId: 'e1', name: 'Kappa' }],
+      0,
+      true,
     );
   });
 
