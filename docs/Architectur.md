@@ -1,43 +1,43 @@
 # ARCHITECTURE & SPECIFICATION: Emote Purge
 
-> **Projektname:** Emote Purge  
+> **Project name:** Emote Purge  
 > **Repository:** `emote-purge`  
 > **Backend API:** `EmotePurge.Api` (.NET 10)  
 > **Worker Bot:** `EmotePurge.Worker` (.NET 10)  
 > **Message Broker / Cache:** Redis 7.2  
-> **Datenbank:** PostgreSQL (EF Core)
+> **Database:** PostgreSQL (EF Core)
 
 ---
 
-## 1. Systemübersicht & Leitprinzipien
+## 1. System overview & guiding principles
 
-**Emote Purge** ist eine plattformübergreifende Webanwendung zur Analyse, Community-Bewertung und Bereinigung von 7TV-Emote-Sets auf Twitch.
+**Emote Purge** is a cross-platform web application for analysing, community-rating and cleaning up 7TV emote sets on Twitch.
 
-### Architektur-Grundsätze:
+### Architecture principles:
 
-1. **Single Source of Truth (PostgreSQL):** Die PostgreSQL-Datenbank speichert dauerhaft, welche Kanäle aktiv sind (`IsBotActive = true`), welche Emotes existieren und wie die Chat-Statistiken aussehen.
-2. **Entkoppelte Echtzeit-Steuerung (Redis Pub/Sub):** Web API und Worker Service sind strikt getrennt. Betritt ein Streamer den Bot im Dashboard, schreibt die API dies in PostgreSQL und publisht ein Event via Redis (`channel:bot:commands`). Der Worker empfängt dieses Event in Echtzeit (< 5ms) und join den Chat.
-3. **Automatisches Recovery bei Neustarts:** Beim Start liest der Worker-Service alle aktiven Kanäle aus PostgreSQL aus, stellt die Twitch-IRC-Chat-Verbindungen automatisch wieder her und synct 7TV für jeden Kanal einmalig voll. Danach übernimmt der hybride 7TV-Sync den laufenden Betrieb (s. A.3): EventAPI-WebSocket für Live-Deltas (hinter Feature-Flag) plus der periodische `SevenTvPeriodicResyncWorker` als Reconciliation.
-4. **Zero-Knowledge für Schreib-Tokens:** 7TV-Access-Tokens mit Schreibrechten verbleiben _ausschließlich_ im Browser des Admins. Das Backend speichert oder verarbeitet zu keinem Zeitpunkt 7TV-Tokens.
-5. **Dynamisches Rollen-Caching:** Rollen (Sub, VIP, Mod) werden nicht fest in der Datenbank abgelegt, sondern live über die Twitch API abgefragt und kurzzeitig in Redis / MemoryCache gecacht.
-6. **High-Performance Analytics:** Der Chat-Bot verarbeitet hohe Chat-Volumen ressourcenschonend durch In-Memory-Pufferung (`ConcurrentDictionary`) und führt alle 30 Sekunden einen Batch-Flush in PostgreSQL aus.
+1. **Single Source of Truth (PostgreSQL):** The PostgreSQL database permanently stores which channels are active (`IsBotActive = true`), which emotes exist and what the chat statistics look like.
+2. **Decoupled real-time control (Redis Pub/Sub):** Web API and worker service are strictly separated. When a streamer has the bot join from the dashboard, the API writes this to PostgreSQL and publishes an event via Redis (`channel:bot:commands`). The worker receives that event in real time (< 5ms) and joins the chat.
+3. **Automatic recovery on restarts:** On startup the worker service reads all active channels from PostgreSQL, automatically re-establishes the Twitch IRC chat connections and runs one full 7TV sync for every channel. After that the hybrid 7TV sync takes over ongoing operation (see A.3): EventAPI WebSocket for live deltas (behind a feature flag) plus the periodic `SevenTvPeriodicResyncWorker` as reconciliation.
+4. **Zero-knowledge for write tokens:** 7TV access tokens with write permissions remain _exclusively_ in the admin's browser. The backend never stores or processes 7TV tokens at any point.
+5. **Dynamic role caching:** Roles (sub, VIP, mod) are not stored permanently in the database; they are queried live via the Twitch API and cached briefly in Redis / MemoryCache.
+6. **High-performance analytics:** The chat bot processes high chat volumes economically through in-memory buffering (`ConcurrentDictionary`) and performs a batch flush into PostgreSQL every 30 seconds.
 
 ---
 
-## 2. Tech-Stack & Infrastructure
+## 2. Tech stack & infrastructure
 
-| Schicht            | Technologie            | Beschreibung & Zweck                                                                          |
+| Layer              | Technology             | Description & purpose                                                                          |
 | :----------------- | :--------------------- | :-------------------------------------------------------------------------------------------- |
-| **Backend API**    | .NET 10 (ASP.NET Core) | REST API für Auth, Dashboard, Voting-Engine und Redis-Publisher.                              |
-| **Worker Service** | .NET 10 Worker Service | Hintergrund-Bot für Twitch IRC Chat Listener & hybriden 7TV-Sync: EventAPI-WebSocket (Live-Deltas, Feature-Flag) + periodischer REST-Resync als Reconciliation (s. A.3). |
-| **Message Broker** | Redis 7.2 (Alpine)     | Entkopplung von API & Worker via Pub/Sub; Caching für Twitch-Rollen. Pin auf 7.2, der letzten BSD-lizenzierten Redis-Version vor dem Lizenzwechsel auf RSALv2/SSPL ab 7.4. |
-| **Datenbank**      | PostgreSQL 16+         | Relationale Persistenz für Channel, Emotes, Stats und VoteSessions via EF Core (Npgsql).      |
-| **Frontend**       | Angular + Tailwind CSS | Single Page Application mit Virtual Scrolling (`CdkVirtualScrollViewport`) für 1.000+ Emotes. |
-| **Deployment**     | Docker Compose         | Containerisierung von API, Worker Service und Redis mit persistenten Volumes.                 |
+| **Backend API**    | .NET 10 (ASP.NET Core) | REST API for auth, dashboard, voting engine and the Redis publisher.                          |
+| **Worker Service** | .NET 10 Worker Service | Background bot for the Twitch IRC chat listener & the hybrid 7TV sync: EventAPI WebSocket (live deltas, feature flag) + periodic REST resync as reconciliation (see A.3). |
+| **Message Broker** | Redis 7.2 (Alpine)     | Decouples API & worker via Pub/Sub; caching for Twitch roles. Pinned to 7.2, the last BSD-licensed Redis version before the licence change to RSALv2/SSPL from 7.4 onwards. |
+| **Database**       | PostgreSQL 16+         | Relational persistence for channels, emotes, stats and vote sessions via EF Core (Npgsql).    |
+| **Frontend**       | Angular + Tailwind CSS | Single page application with virtual scrolling (`CdkVirtualScrollViewport`) for 1,000+ emotes. |
+| **Deployment**     | Docker Compose         | Containerisation of API, worker service and Redis with persistent volumes.                    |
 
 ---
 
-## 3. Inter-Service Kommunikation (Pub/Sub + Recovery)
+## 3. Inter-service communication (Pub/Sub + recovery)
 
 [ Angular Dashboard ]
 │
@@ -54,137 +54,137 @@
 [ .NET Worker Service ] ──────────────────────────────────────┘
 │
 ├─► Twitch IRC: Join Channel
-├─► 7TV EventAPI (WSS): Live-Dispatches (Feature-Flag, s. A.3)
-└─► 7TV REST: Voll-Sync (initial + periodische Reconciliation, s. A.3)
+├─► 7TV EventAPI (WSS): live dispatches (feature flag, see A.3)
+└─► 7TV REST: full sync (initial + periodic reconciliation, see A.3)
 
-**Rückkanal (Live-Updates, seit 2026-07-31):** Worker und Api publizieren dünne Benachrichtigungs-Events (`{type, channel, sessionId?}` — nie Daten) auf den Redis-Kanal `live:events` (Vertrag: `Core/Messaging/LiveEvents.cs`). Die Api ist dafür erstmals selbst Redis-Subscriber: `RedisLiveEventStream` (Infrastructure, Singleton, Lazy-Subscribe beim ersten Client) fächert die Events an offene **Server-Sent-Events**-Verbindungen auf (`GET /api/channels/{name}/live`, `GET /api/admin/live` — natives `TypedResults.ServerSentEvents`, kein SignalR). Der Browser refetcht daraufhin über die normalen REST-Endpoints (Notify-and-Refetch). Da jede Api-Replica selbst subscribed, funktioniert der Mechanismus ohne Backplane und ohne Sticky Sessions auch mit mehreren Replicas. Begründungen und Betriebsvertrag (Heartbeat 15 s, 10-min-Verbindungscap, Verbindungs-Limits statt Rate-Limit, Proxy-Anforderungen) im DECISIONS-Eintrag vom 2026-07-31.
+**Return channel (live updates, since 2026-07-31):** Worker and Api publish thin notification events (`{type, channel, sessionId?}` — never data) to the Redis channel `live:events` (contract: `Core/Messaging/LiveEvents.cs`). For this the Api is itself a Redis subscriber for the first time: `RedisLiveEventStream` (Infrastructure, singleton, lazy subscribe on the first client) fans the events out to open **Server-Sent Events** connections (`GET /api/channels/{name}/live`, `GET /api/admin/live` — native `TypedResults.ServerSentEvents`, no SignalR). The browser then refetches through the normal REST endpoints (notify-and-refetch). Because every Api replica subscribes itself, the mechanism works without a backplane and without sticky sessions even with several replicas. Rationale and operating contract (heartbeat 15 s, 10-minute connection cap, connection limits instead of a rate limit, proxy requirements) are in the DECISIONS entry of 2026-07-31.
 
-Publizierende Stellen je Event-Typ (Stand 2026-08-01):
+Publishing sites per event type (as of 2026-08-01):
 
 | Event | Publisher |
 |---|---|
-| `usage.flushed` | Worker: `UsageFlushWorker` nach erfolgreichem Flush |
-| `vote.changed` | Api: `VoteSessionEndpoints` (Success-Arme von Vote-POST/DELETE) |
-| `channel.synced` | Worker: `Worker` (JOIN-/RESYNC-Kommando **unconditional**, Boot-Recovery nur bei Änderung), `SevenTvPeriodicResyncWorker` und `SevenTvEventClient` (Delta + Follow-up-/Gap-Fill-Resyncs) **nur bei Änderung** · Api: `EmoteEndpoints` `POST .../emotes/sync-deleted` bzw. `.../sync-restored`, wenn ≥1 Emote neu archiviert bzw. neu entarchiviert wurde |
+| `usage.flushed` | Worker: `UsageFlushWorker` after a successful flush |
+| `vote.changed` | Api: `VoteSessionEndpoints` (success arms of the vote POST/DELETE) |
+| `channel.synced` | Worker: `Worker` (JOIN/RESYNC command **unconditional**, boot recovery only on change), `SevenTvPeriodicResyncWorker` and `SevenTvEventClient` (delta plus follow-up/gap-fill resyncs) **only on change** · Api: `EmoteEndpoints` `POST .../emotes/sync-deleted` and `.../sync-restored` respectively, when ≥1 emote was newly archived or newly un-archived |
 | `worker.health` | Worker: `WorkerHealthPublisher` |
-| `worker.roster` | Worker: `WorkerRosterPublisher` (60-s-Takt, ein Drittel der Health-Frequenz) |
+| `worker.roster` | Worker: `WorkerRosterPublisher` (60 s cadence, one third of the health frequency) |
 
-„Nur bei Änderung" heißt: `SevenTvSyncResult.HasChanges` bzw. `SevenTvDeltaOutcome.Applied` — s. DECISIONS-Eintrag vom 2026-08-01.
+"Only on change" means: `SevenTvSyncResult.HasChanges` or `SevenTvDeltaOutcome.Applied` — see the DECISIONS entry of 2026-08-01.
 
 ---
 
-## 4. Modul-Spezifikationen
+## 4. Module specifications
 
-### Modul A: Twitch Chat Bot & Analytics Engine (Worker Service)
+### Module A: Twitch chat bot & analytics engine (Worker Service)
 
-> **Umsetzungsstand:** A.1 (Grundfluss + Spam-Schutz/Emote-Matching), A.2 (In-Memory-Aggregator + Batch-Flush) und A.3 (7TV-Sync, hybrid: EventAPI-WebSocket + REST-Reconciliation — s. u.) sind vollständig implementiert. `EmotePurge.Worker` verbindet sich anonym/read-only per `TwitchLib.Client` (kein Bot-Account, kein OAuth-Token), joint/verlässt Channels auf Zuruf per Redis (`channel:bot:commands`, Messages `JOIN:<name>`/`LEAVE:<name>`) und beim Start automatisch alle `IsBotActive=true`-Channels aus Postgres (Boot-Recovery, Grundsatz 3). Jede empfangene Chat-Nachricht wird gegen die aktiven 7TV-Emotes des jeweiligen Channels gematcht (`IEmoteMatchCache`, `channelName → {EmoteName → Emote.Id}`) und Treffer max. 1x pro Nachricht in `IEmoteUsageCounter` gezählt (Spam-Schutz gegen Copypasta), getrennt nach Mensch und Bot im eigenen Raum sowie einer dritten Kategorie für alles aus fremden Räumen einer Twitch-Shared-Chat-Session (`UseCount`/`BotUseCount`/`SharedChatUseCount`, s. DECISIONS 2026-09-01 bzw. 2026-09-06); ein separater `UsageFlushWorker`-Hosted-Service draint diesen Zähler alle 30 Sekunden und upserted die Counts über `IUsageStatFlushService` in `UsageStat`. Gesteuert über Minimal-API-Endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upsertet den `Channel` in Postgres (Grundsatz 1) und published `JOIN:<name>`; `DELETE /api/channels/{channelName}` löscht die Zeile hart (kein reines Deaktivieren — siehe CLAUDE.md-Entscheidungslog) und published `LEAVE:<name>`; `GET /api/channels/{channelName}/usage-stats` liefert die aktuellen `UsageStat`-Zeilen zum Debuggen; `GET /api/channels/{channelName}/usage-stats/totals?from=&to=` liefert pro Emote die über einen frei wählbaren Zeitraum aufsummierte `UseCount` (Basis für das Usage-Stats-Dashboard sowie die Manager-Kontextspalte in den Voting-Ergebnissen von Modul C — seit 2026-08-01 nicht mehr Bestandteil des Scores, siehe docs/DECISIONS.md). Bei jedem Join wird das aktive 7TV-Emote-Set aufgelöst und vollständig nach Postgres synchronisiert (`ISevenTvSyncService`, refresht dabei auch `IEmoteMatchCache` — und wärmt ihn seit 2026-09-08 **vor** dem ersten 7TV-Abruf aus den aktiven Postgres-Zeilen vor, wenn er für den Channel leer ist, damit ein Channel auch dann ab dem Join zählt, wenn 7TV gerade nicht antwortet; s. DECISIONS-Eintrag vom 2026-09-08); danach hält der hybride 7TV-Sync den Bestand aktuell — Live-Deltas über die EventAPI-WebSocket (`SevenTvEventWorker`/`SevenTvEventClient`, Feature-Flag `SevenTv:EventApi:Enabled`) plus ein `SevenTvPeriodicResyncWorker`, der denselben Voll-Sync für alle aktiven Channels periodisch als Reconciliation wiederholt (Takt `SevenTv:ResyncIntervalSeconds`, Default 60 s — s. A.3). Seit 2026-08-03 pollt zusätzlich ein `TwitchLivePollWorker` `GET /helix/streams` für alle aktiven Channels (100er-Batches über `user_login`, App-Access-Token per Client-Credentials über `ITwitchAppTokenProvider`, Takt `Twitch:LivePollIntervalSeconds`, Default 300 s) und schreibt Live-Abdeckung pro Channel/UTC-Tag nach `ChannelLiveDay` — Datengrundlage für die Stream-Tage-Markierung im Emote-Drilldown und für A10 Stufe 2 (s. DECISIONS-Eintrag vom 2026-08-03).
+> **Implementation status:** A.1 (basic flow + spam protection/emote matching), A.2 (in-memory aggregator + batch flush) and A.3 (7TV sync, hybrid: EventAPI WebSocket + REST reconciliation — see below) are fully implemented. `EmotePurge.Worker` connects anonymously/read-only via `TwitchLib.Client` (no bot account, no OAuth token), joins/leaves channels on demand via Redis (`channel:bot:commands`, messages `JOIN:<name>`/`LEAVE:<name>`) and on startup automatically joins all `IsBotActive=true` channels from Postgres (boot recovery, principle 3). Every chat message received is matched against the active 7TV emotes of the respective channel (`IEmoteMatchCache`, `channelName → {EmoteName → Emote.Id}`) and hits are counted at most once per message in `IEmoteUsageCounter` (spam protection against copypasta), separated into human and bot in the channel's own room plus a third category for everything from foreign rooms of a Twitch shared-chat session (`UseCount`/`BotUseCount`/`SharedChatUseCount`, see DECISIONS 2026-09-01 and 2026-09-06 respectively); a separate `UsageFlushWorker` hosted service drains this counter every 30 seconds and upserts the counts into `UsageStat` via `IUsageStatFlushService`. Controlled through Minimal API endpoints in `EmotePurge.Api`: `POST /api/channels/{channelName}/join` upserts the `Channel` in Postgres (principle 1) and publishes `JOIN:<name>`; `DELETE /api/channels/{channelName}` hard-deletes the row (not merely deactivating it — see the decision log in CLAUDE.md) and publishes `LEAVE:<name>`; `GET /api/channels/{channelName}/usage-stats` returns the current `UsageStat` rows for debugging; `GET /api/channels/{channelName}/usage-stats/totals?from=&to=` returns, per emote, the `UseCount` summed over a freely chosen time range (the basis for the usage-stats dashboard as well as for the manager context column in Module C's voting results — no longer part of the score since 2026-08-01, see docs/DECISIONS.md). On every join the active 7TV emote set is resolved and fully synchronised into Postgres (`ISevenTvSyncService`, which also refreshes `IEmoteMatchCache` — and, since 2026-09-08, pre-warms it from the active Postgres rows **before** the first 7TV call whenever it is empty for that channel, so that a channel counts from the join onwards even when 7TV happens not to answer; see the DECISIONS entry of 2026-09-08); after that the hybrid 7TV sync keeps the inventory current — live deltas over the EventAPI WebSocket (`SevenTvEventWorker`/`SevenTvEventClient`, feature flag `SevenTv:EventApi:Enabled`) plus a `SevenTvPeriodicResyncWorker` that periodically repeats the same full sync for all active channels as reconciliation (cadence `SevenTv:ResyncIntervalSeconds`, default 60 s — see A.3). Since 2026-08-03 a `TwitchLivePollWorker` additionally polls `GET /helix/streams` for all active channels (batches of 100 via `user_login`, app access token by client credentials through `ITwitchAppTokenProvider`, cadence `Twitch:LivePollIntervalSeconds`, default 300 s) and writes live coverage per channel/UTC day to `ChannelLiveDay` — the data basis for marking stream days in the emote drilldown and for A10 stage 2 (see the DECISIONS entry of 2026-08-03).
 
-#### A.1 IRC Chat Listener & Spam-Schutz
+#### A.1 IRC chat listener & spam protection
 
-- Verbindet sich via `TwitchLib.Client` mit allen aktiven Twitch-Kanälen.
-- Nachrichten werden am Leerzeichen gespalten (`string.Split(' ')`) und gegen ein `HashSet<string>` abgeglichen.
-- **Spam-Schutz:** Jedes vorkommende Emote wird **maximal 1-mal pro Chat-Nachricht** gezählt (verhindert Verzerrung durch Spam-Copypastas).
-- **Verbindungsaufbau und Wiederaufbau.** Drei Rollen sind sauber getrennt: der Transport (`TwitchChatManager`) hält genau einen `TwitchClient`, führt Joins gedrosselt aus und trifft selbst keine Timing-Entscheidung. TwitchLib-Ereignisse und ein periodischer Tick liefern nur ein Signal, wenn die Verbindung weg oder verdächtig ist — mehrere Signale kurz hintereinander koaleszieren zu einem einzigen Wiederaufbau. Eine eigene Wiederaufbau-Schleife (`TwitchConnectionWatchdog`) wartet auf dieses Signal oder den Tick, ersetzt bei Bedarf den Client statt ihn zu reparieren und rejoint danach gedrosselt außerhalb der Lese-Schleife; TwitchLib rekonnektiert selbst nicht mehr. Ein Watchdog-Netz erkennt daneben eine still gewordene Verbindung, wenn länger kein IRC-Frame mehr ankam, auch wenn TwitchLib nichts meldet — Zahlen dazu (Backoff-Kurve, Schwellen) stehen in `docs/DECISIONS.md`, nicht hier.
+- Connects via `TwitchLib.Client` to all active Twitch channels.
+- Messages are split on spaces (`string.Split(' ')`) and matched against a `HashSet<string>`.
+- **Spam protection:** Every emote that occurs is counted **at most once per chat message** (prevents distortion by spam copypastas).
+- **Connecting and reconnecting.** Three roles are cleanly separated: the transport (`TwitchChatManager`) holds exactly one `TwitchClient`, performs joins under a throttle and makes no timing decision of its own. TwitchLib events and a periodic tick only deliver a signal when the connection is gone or suspect — several signals in quick succession coalesce into a single rebuild. A dedicated rebuild loop (`TwitchConnectionWatchdog`) waits for that signal or the tick, replaces the client where needed instead of repairing it and afterwards rejoins under a throttle outside the read loop; TwitchLib no longer reconnects by itself. Alongside that, a watchdog net detects a connection that has gone quiet when no IRC frame has arrived for a while, even when TwitchLib reports nothing — the numbers behind this (backoff curve, thresholds) are in `docs/DECISIONS.md`, not here.
 
 #### A.2 In-Memory Aggregator & Batch Flush
 
-- Counts werden in einem `ConcurrentDictionary<string, int>` (Key: `EmoteId`) hochgezählt.
-- Ein Timer führt alle **30 Sekunden** einen Batch-Flush in die PostgreSQL-Datenbank aus.
+- Counts are incremented in a `ConcurrentDictionary<string, int>` (key: `EmoteId`).
+- A timer performs a batch flush into the PostgreSQL database every **30 seconds**.
 
-#### A.3 7TV Sync Engine (hybrid: EventAPI-WebSocket-Live-Deltas + periodische REST-Reconciliation)
+#### A.3 7TV sync engine (hybrid: EventAPI WebSocket live deltas + periodic REST reconciliation)
 
-> **Abweichung von der urspr. Spezifikation — Historie:** Ursprünglich implementiert als **eine gemeinsame** WebSocket-Verbindung zu `wss://events.7tv.io/v3` (`ISevenTvEventClient`/`SevenTvEventClient`) mit `emote_set.update`-Subscriptions je Kanal auf einer Connection. Am 2026-07-24/25 über mehrere Live-Tests (Channels `vassilly`, `sensitron`, u. a.) systematisch untersucht: Dispatches kamen nachweislich **nicht zuverlässig** an — teils mehrminütige Verzögerung, teils gar nicht (z. B. ein live hinzugefügtes Emote "REITEN", das nie per Dispatch ankam, obwohl ein anderer 7TV-Client (DankChat) das Update korrekt erhielt). Die Subscriptions selbst waren serverseitig korrekt registriert (per `Ack`-Frame bestätigt, `subscription_limit` weit unausgeschöpft). Eine Analyse des offiziellen 7TV-Browser-Extension-Quellcodes (github.com/SevenTV/Extension, `src/worker/worker.http.ts`) ergab zwei Abweichungen — Wildcard-Subscription-Typ `emote_set.*` statt `emote_set.update`, plus eine zusätzliche channel-scoped Subscription (`condition: {ctx: "channel", platform: "TWITCH", id: <TwitchChannelId>}`, überlebt Set-Wechsel) — beide testweise nachgerüstet, ohne die Zuverlässigkeit messbar zu verbessern. Da der REST-Vollsync (`ISevenTvSyncService.SyncChannelAsync`) in jedem Test zuverlässig war, wurde die komplette WebSocket-Logik entfernt und durch einen periodischen REST-Resync ersetzt (**Entscheidung**, s. docs/DECISIONS.md für den vollständigen Verlauf).
+> **Deviation from the original specification — history:** Originally implemented as **one shared** WebSocket connection to `wss://events.7tv.io/v3` (`ISevenTvEventClient`/`SevenTvEventClient`) with `emote_set.update` subscriptions per channel on a single connection. Investigated systematically on 2026-07-24/25 across several live tests (channels `vassilly`, `sensitron`, among others): dispatches demonstrably did **not** arrive reliably — sometimes delayed by several minutes, sometimes not at all (e.g. an emote "REITEN" added live that never arrived by dispatch, although another 7TV client (DankChat) received the update correctly). The subscriptions themselves were registered correctly on the server side (confirmed by `Ack` frame, `subscription_limit` far from exhausted). An analysis of the official 7TV browser extension source code (github.com/SevenTV/Extension, `src/worker/worker.http.ts`) revealed two differences — wildcard subscription type `emote_set.*` instead of `emote_set.update`, plus an additional channel-scoped subscription (`condition: {ctx: "channel", platform: "TWITCH", id: <TwitchChannelId>}`, survives set changes) — both retrofitted on a trial basis without measurably improving reliability. Since the REST full sync (`ISevenTvSyncService.SyncChannelAsync`) was reliable in every test, the entire WebSocket logic was removed and replaced by a periodic REST resync (**decision**, see docs/DECISIONS.md for the full course of events).
 >
-> **Nachtrag 2026-07-30:** Die Re-Untersuchung [Untersuchung-7TV-WebSocket-2026-07-30.md](Untersuchung-7TV-WebSocket-2026-07-30.md) hat die Attribution „nachweislich nicht zuverlässig seitens 7TV" **widerlegt**: Ursache waren zwei eigene Implementierungsfehler (Resubscribe vor dem Verbindungsaufbau; Parser las `added`/`removed` statt des echten Wire-Formats `pushed`/`pulled`), und die channel-scoped Subscription ist serverseitig ein Presence-Scope, der Channel-Set-Updates strukturell nicht liefert. Der WebSocket wurde daraufhin als **Ergänzung** wieder eingeführt (Eintrag „7TV-EventAPI-WebSocket wieder eingeführt" in docs/DECISIONS.md): `SevenTvEventWorker`/`SevenTvEventClient` liefern Live-Deltas (`emote_set.*` + `user.*`, jeweils `{object_id}`), der periodische REST-Resync bleibt als zwingende Reconciliation bestehen — die EventAPI hat kein Resume/Replay und trennt jede Verbindung nach ~1 h TTL. Feature-Flag `SevenTv:EventApi:Enabled` (Default aus), Resync-Takt `SevenTv:ResyncIntervalSeconds` (Default 60 s, bei bewährtem WS-Betrieb manuell streckbar).
+> **Addendum 2026-07-30:** The re-investigation [Untersuchung-7TV-WebSocket-2026-07-30.md](Untersuchung-7TV-WebSocket-2026-07-30.md) **refuted** the attribution "demonstrably unreliable on 7TV's side": the cause was two implementation errors of our own (resubscribe before the connection was established; the parser read `added`/`removed` instead of the actual wire format `pushed`/`pulled`), and the channel-scoped subscription is a presence scope on the server side that structurally does not deliver channel set updates. The WebSocket was thereupon reintroduced as a **supplement** (entry "7TV-EventAPI-WebSocket wieder eingeführt" in docs/DECISIONS.md): `SevenTvEventWorker`/`SevenTvEventClient` deliver live deltas (`emote_set.*` + `user.*`, each `{object_id}`), the periodic REST resync stays in place as mandatory reconciliation — the EventAPI has no resume/replay and drops every connection after a TTL of about 1 h. Feature flag `SevenTv:EventApi:Enabled` (default off), resync cadence `SevenTv:ResyncIntervalSeconds` (default 60 s, manually stretchable once WS operation has proven itself).
 >
-> **API-Version:** Backend (REST + lesendes GQL für die Twitch→7TV-Nutzerauflösung + EventAPI) bleibt auf 7TV v3, nicht v4. v4 existiert als GraphQL-API, hat aber keinen Event-Kanal (kein `events.7tv.io/v4`, GQL-Schema ohne Subscriptions) — die v3-EventAPI ist der einzige Live-Weg und nicht deprecated (Stand 2026-07-30). **Ausnahme seit 2026-09-10 (#149):** die Schreibfläche des Frontends (Modul D, Mass-Delete-Engine: Import, Restore, Delete) spricht `https://7tv.io/v4/gql`, weil `v3`s Alias-Validator Umlaute ablehnt und `v4` das repariert hat — s. Abschnitt „Modul D" und DECISIONS.md.
+> **API version:** the backend (REST + read-only GQL for the Twitch→7TV user resolution + EventAPI) stays on 7TV v3, not v4. v4 exists as a GraphQL API but has no event channel (no `events.7tv.io/v4`, GQL schema without subscriptions) — the v3 EventAPI is the only live path and is not deprecated (as of 2026-07-30). **Exception since 2026-09-10 (#149):** the frontend's write surface (module D, mass-delete engine: import, restore, delete) talks to `https://7tv.io/v4/gql`, because `v3`'s alias validator rejects umlauts and `v4` fixed that — see section "Module D" and DECISIONS.md.
 >
-> **Auflösung Channel → Emote-Set:** 7TVs REST-Endpoint (`/v3/users/twitch/{twitchUserId}`) akzeptiert nur die numerische Twitch-User-ID, nicht den Usernamen. Da bewusst keine Twitch-Helix-API/App-Registrierung genutzt wird, löst `ISevenTvApiClient` den Twitch-Usernamen stattdessen über 7TVs eigene GraphQL-Nutzersuche (`/v3/gql`, `users(query: ...)`, gefiltert auf exakten Treffer in `connections[]` mit `platform=="TWITCH"`) auf. Das befüllt `Channel.TwitchChannelId` damit bereits jetzt (nicht erst durch das künftige Modul B) — semantisch dieselbe numerische ID, nur ein anderer Befüllungsweg.
+> **Resolving channel → emote set:** 7TV's REST endpoint (`/v3/users/twitch/{twitchUserId}`) accepts only the numeric Twitch user ID, not the username. Since no Twitch Helix API/app registration is used by design, `ISevenTvApiClient` resolves the Twitch username through 7TV's own GraphQL user search instead (`/v3/gql`, `users(query: ...)`, filtered to an exact hit in `connections[]` with `platform=="TWITCH"`). That already populates `Channel.TwitchChannelId` today (not only through the future Module B) — semantically the same numeric ID, only populated by a different route.
 
-- Bei jedem Join: einmaliger Voll-Sync (`SyncChannelAsync`) — löst Twitch-Username → 7TV-Emote-Set auf, reconciled alle `Emote`-Zeilen (Add/Update/Archive) gegen Postgres, refresht `IEmoteMatchCache` und meldet Set + 7TV-User-ID als gewünschte EventAPI-Subscriptions an (`SevenTvSubscriptionRegistry`, Desired-State-first).
-- **Live-Pfad (Feature-Flag):** `SevenTvEventWorker` hält genau eine EventAPI-Verbindung (`SevenTvEventClient`); Subscriptions werden nach **jedem** Hello aus der Registry neu aufgebaut (dedupliziert je `(type, object_id)` — geteilte Sets ergeben eine Subscription), Dispatches streng sequenziell verarbeitet und als Deltas per `ApplyEmoteSetUpdateAsync` unter dem `ChannelSyncGate` angewendet (danach voller `IEmoteMatchCache`-Reload, kein inkrementelles Cache-Patchen). `user.update` erkennt Set-Wechsel; Heartbeat-Watchdog (3× Intervall), op-4/7-Reconnects und die ~1-h-Server-TTL sind Normalfälle mit Gap-Filling-Vollsync nach jedem Reconnect.
-- `SevenTvPeriodicResyncWorker` (eigener `BackgroundService`) wiederholt denselben Voll-Sync für **alle** `IsBotActive=true`-Channels periodisch (Default 60 s) — als Reconciliation zwingend neben dem WebSocket (kein Resume/Replay bei 7TV), fängt Set-/Account-Wechsel und verpasste Dispatches ab und konvergiert die Subscriptions (`EnsureSubscribed` je Tick). Ein fehlschlagender Sync für einen Channel wird geloggt und übersprungen, ohne die anderen Channels oder den Worker-Host zu beeinträchtigen.
-- Kosten: ein 7TV-REST-Request pro aktivem Channel und Resync-Tick plus eine stehende WebSocket-Verbindung — bei der aktuellen/absehbaren Channel-Zahl vernachlässigbar, kein beobachtetes Rate-Limiting. Health: `GET /api/worker/health` liefert den EventAPI-Zustand als `sevenTv`-Unterobjekt (`disabled/disconnected/stale/connected`, Staleness an Heartbeat-Frames gemessen).
+- On every join: a one-off full sync (`SyncChannelAsync`) — resolves Twitch username → 7TV emote set, reconciles all `Emote` rows (add/update/archive) against Postgres, refreshes `IEmoteMatchCache` and registers the set plus the 7TV user ID as the desired EventAPI subscriptions (`SevenTvSubscriptionRegistry`, desired-state-first).
+- **Live path (feature flag):** `SevenTvEventWorker` holds exactly one EventAPI connection (`SevenTvEventClient`); subscriptions are rebuilt from the registry after **every** hello (deduplicated per `(type, object_id)` — shared sets yield one subscription), dispatches are processed strictly sequentially and applied as deltas via `ApplyEmoteSetUpdateAsync` under the `ChannelSyncGate` (followed by a full `IEmoteMatchCache` reload, no incremental cache patching). `user.update` detects set changes; heartbeat watchdog (3× the interval), op-4/7 reconnects and the ~1 h server TTL are normal cases with a gap-filling full sync after every reconnect.
+- `SevenTvPeriodicResyncWorker` (its own `BackgroundService`) periodically repeats the same full sync for **all** `IsBotActive=true` channels (default 60 s) — mandatory as reconciliation alongside the WebSocket (no resume/replay at 7TV), catches set/account changes and missed dispatches and converges the subscriptions (`EnsureSubscribed` on every tick). A sync that fails for one channel is logged and skipped without affecting the other channels or the worker host.
+- Cost: one 7TV REST request per active channel and resync tick plus one standing WebSocket connection — negligible at the current/foreseeable channel count, no rate limiting observed. Health: `GET /api/worker/health` returns the EventAPI state as a `sevenTv` sub-object (`disabled/disconnected/stale/connected`, staleness measured on heartbeat frames).
 
-### Modul B: Auth & Dynamisches Rollen-System
+### Module B: Auth & dynamic role system
 
 #### B.1 Authentication
 
-- Twitch OAuth2 Flow via Web API: `/api/auth/twitch/login` und `/api/auth/twitch/callback`.
-- Fragt nur die Grund-Identität ab (`user:read:email` oder Basis-Profil).
+- Twitch OAuth2 flow via the web API: `/api/auth/twitch/login` and `/api/auth/twitch/callback`.
+- Requests only the basic identity (`user:read:email` or basic profile).
 
-#### B.2 Live-Rollenprüfung
+#### B.2 Live role check
 
-- Twitch-Rollen werden nicht persistent in PostgreSQL gespeichert.
-- Beim Vote-Request prüft das Backend die Rollen des Users live via Twitch Helix API.
-- Ergebnisse werden in Redis gecacht (`Auth:ModCheckCacheTtlMinutes`, Default **10 Minuten**), um Rate-Limits zu schonen.
+- Twitch roles are not stored persistently in PostgreSQL.
+- On a vote request the backend checks the user's roles live via the Twitch Helix API.
+- Results are cached in Redis (`Auth:ModCheckCacheTtlMinutes`, default **10 minutes**) to conserve rate limits.
 
-#### B.3 Rollen und Autorisierungsfilter — die verbindliche Übersicht
+#### B.3 Roles and authorization filters — the binding overview
 
-Es gibt **keine** `Role`-Spalte und kein Rollen-Enum. „Rolle" heißt hier: eine von vier Prüfmethoden schlägt an. Autorisierung läuft ausschließlich über `IEndpointFilter`-Klassen in `src/EmotePurge.Api/Auth/`, nie über ASP.NET-Core-Policies (Regel 6).
+There is **no** `Role` column and no role enum. "Role" here means: one of four check methods fires. Authorization runs exclusively through `IEndpointFilter` classes in `src/EmotePurge.Api/Auth/`, never through ASP.NET Core policies (rule 6).
 
-**Die vier Rollenquellen** (`Infrastructure/Services/ChannelAccessService.cs`):
+**The four role sources** (`Infrastructure/Services/ChannelAccessService.cs`):
 
-| Rolle | Woher | Besonderheit |
+| Role | Where from | Particularity |
 |---|---|---|
-| **Global Admin** | Config `Auth:AdminTwitchLogins` (kommagetrennter Skalar aus Env/User-Secret **schlägt** das JSON-Array aus `appsettings.json`) | channel-unabhängig |
-| **Broadcaster** | `Channel.TwitchChannelId` gegen `principal.TwitchUserId` | Login-Vergleich nur als Fallback, solange die ID nie aufgelöst wurde. Stimmt der Login, aber nicht die ID → **abgelehnt plus Warnung im Log**: Twitch gibt Namen nach einem Rename wieder frei |
-| **Moderator** | Helix `GetModeratedChannelLogins`, über `IModRoleCache` | positiv wie negativ gecacht; ein `/unmod` wirkt bis zu 10 Minuten verzögert |
-| **7TV-Editor** | 7TVs `editor_of`-Beziehung | **nur** Lesezugriff auf Usage-Stats plus `sync-deleted`, nie Channel-Management |
+| **Global Admin** | Config `Auth:AdminTwitchLogins` (a comma-separated scalar from env/user secret **beats** the JSON array from `appsettings.json`) | channel-independent |
+| **Broadcaster** | `Channel.TwitchChannelId` against `principal.TwitchUserId` | Login comparison only as a fallback, as long as the ID has never been resolved. If the login matches but the ID does not → **rejected plus a warning in the log**: Twitch releases names again after a rename |
+| **Moderator** | Helix `GetModeratedChannelLogins`, via `IModRoleCache` | cached positively as well as negatively; an `/unmod` takes up to 10 minutes to take effect |
+| **7TV editor** | 7TV's `editor_of` relation | **only** read access to usage stats plus `sync-deleted`, never channel management |
 
-**Präzedenz:** `CanManageChannelAsync` = Admin → Broadcaster → Moderator. `CanViewUsageStatsAsync` = *genau das* plus 7TV-Editor. Damit gilt strikt `CanManageChannelAsync ⊂ CanViewUsageStatsAsync`; der einzige Unterschied ist der Editor.
+**Precedence:** `CanManageChannelAsync` = admin → broadcaster → moderator. `CanViewUsageStatsAsync` = *exactly that* plus 7TV editor. Thus `CanManageChannelAsync ⊂ CanViewUsageStatsAsync` holds strictly; the only difference is the editor.
 
-**Die fünf Filter:**
+**The five filters:**
 
-| Filter | Lässt durch | Ablehnung |
+| Filter | Lets through | Rejection |
 |---|---|---|
-| `GlobalAdminAuthorizationFilter` | nur Admin | 401 ohne Principal, sonst 403 |
-| `ChannelManagementAuthorizationFilter` | Admin, Broadcaster, Moderator | 400 `invalid_channel_name` · 401 · 403 |
-| `UsageStatsAccessAuthorizationFilter` | + 7TV-Editor | wie oben |
-| `VoteEligibilityFilter` (Stimmabgabe) | Admin/Broadcaster/Mod **immer**, sonst nach `AllowedRoles` | 404 `vote_session_not_found` · **409 `vote_session_ended`** · 403 |
-| `VoteAudienceFilter` (Ergebnisse ansehen) | dieselbe Rollenlogik | 404 · 403 — **kein 409**: beendete Sessions bleiben für ihre Zielgruppe sichtbar |
+| `GlobalAdminAuthorizationFilter` | admin only | 401 without a principal, otherwise 403 |
+| `ChannelManagementAuthorizationFilter` | admin, broadcaster, moderator | 400 `invalid_channel_name` · 401 · 403 |
+| `UsageStatsAccessAuthorizationFilter` | + 7TV editor | as above |
+| `VoteEligibilityFilter` (casting a vote) | admin/broadcaster/mod **always**, otherwise per `AllowedRoles` | 404 `vote_session_not_found` · **409 `vote_session_ended`** · 403 |
+| `VoteAudienceFilter` (viewing results) | the same role logic | 404 · 403 — **no 409**: ended sessions stay visible to their target audience |
 
-`ChannelNameValidationFilter` liegt in `Validation/`, nicht `Auth/`: er prüft nur das Format (`^[a-z0-9_]{4,25}$` nach `ChannelName.Normalize`) und greift ausschließlich, wenn die Route überhaupt ein `channelName` trägt.
+`ChannelNameValidationFilter` lives in `Validation/`, not `Auth/`: it only checks the format (`^[a-z0-9_]{4,25}$` after `ChannelName.Normalize`) and applies only where the route actually carries a `channelName`.
 
-**Zuordnung Endpoint → Filter** (37 Endpoints; Gruppenfilter sind aufgelöst):
+**Endpoint → filter mapping** (37 endpoints; group filters resolved):
 
-| Gruppe | Filter der Gruppe | Abweichungen einzelner Endpoints |
+| Group | Filter of the group | Deviations of individual endpoints |
 |---|---|---|
-| `/api/channels` | Auth + ChannelNameValidation | `GET /{name}`, `GET /{name}/audit-log`, `POST /{name}/join`, `DELETE /{name}` → zusätzlich ChannelManagement · **`POST /{name}/resync` → UsageStatsAccess** (bewusst der weitere Filter, s. Entscheidungslog) mit eigener Policy `ChannelResync` **plus** Per-Channel-Cooldown · **`DELETE /{name}/purge` → GlobalAdmin** (einziger Admin-Endpoint außerhalb `/api/admin`) · `GET /{name}/permissions` und `GET /mine` → **bewusst ohne** Autorisierungsfilter |
-| `/api/channels/{name}/emotes` | Auth + ChannelNameValidation + **UsageStatsAccess** + `ExternalApi` | `POST /sync-deleted` und `POST /sync-restored` nutzen `Bookkeeping` statt `ExternalApi` — zusammen mit `GET /{name}/audit-log` die drei Endpoints mit dieser Policy |
+| `/api/channels` | Auth + ChannelNameValidation | `GET /{name}`, `GET /{name}/audit-log`, `POST /{name}/join`, `DELETE /{name}` → additionally ChannelManagement · **`POST /{name}/resync` → UsageStatsAccess** (deliberately the wider filter, see the decision log) with its own policy `ChannelResync` **plus** a per-channel cooldown · **`DELETE /{name}/purge` → GlobalAdmin** (the only admin endpoint outside `/api/admin`) · `GET /{name}/permissions` and `GET /mine` → **deliberately without** an authorization filter |
+| `/api/channels/{name}/emotes` | Auth + ChannelNameValidation + **UsageStatsAccess** + `ExternalApi` | `POST /sync-deleted` and `POST /sync-restored` use `Bookkeeping` instead of `ExternalApi` — together with `GET /{name}/audit-log` the three endpoints with that policy |
 | `/api/channels/{name}/usage-stats` | Auth + ChannelNameValidation + UsageStatsAccess + `ExternalApi` | — |
-| `/api/channels/{name}/vote-sessions` | Auth + ChannelNameValidation | `POST`, `POST /{id}/end`, `DELETE /{id}` → ChannelManagement · `GET /{id}/results` → VoteAudience · `POST`/`DELETE .../votes` → VoteEligibility · `GET` (Liste) → **kein Filter**, gefiltert pro Session im Handler |
-| `/api/admin` | Auth + **GlobalAdmin** | kein Rate-Limit (bewusst) und **kein `ChannelNameValidationFilter`** — `POST /channels/{name}/resync` liefert deshalb kein 400 bei ungültigem Namen |
-| `/api/auth` | keine | `login`, `callback`, `logout` sind öffentlich; `logout` bewusst, damit eine abgelaufene Session ihr Cookie noch löschen kann |
+| `/api/channels/{name}/vote-sessions` | Auth + ChannelNameValidation | `POST`, `POST /{id}/end`, `DELETE /{id}` → ChannelManagement · `GET /{id}/results` → VoteAudience · `POST`/`DELETE .../votes` → VoteEligibility · `GET` (list) → **no filter**, filtered per session in the handler |
+| `/api/admin` | Auth + **GlobalAdmin** | no rate limit (deliberately) and **no `ChannelNameValidationFilter`** — `POST /channels/{name}/resync` therefore returns no 400 for an invalid name |
+| `/api/auth` | none | `login`, `callback`, `logout` are public; `logout` deliberately so, so that an expired session can still delete its cookie |
 
-**Authentifiziert, aber für jeden Eingeloggten offen** — das ist Absicht, nicht Lücke: `GET /{name}/permissions` (meldet selbst, was der Aufrufer dürfte), `GET /channels/mine`, `GET /vote-sessions/mine`, `GET /auth/me`, die Vote-Session-Liste (pro Zeile im Handler gefiltert) und `GET /{name}/live` (SSE-Events sind reine „etwas hat sich geändert"-Pings ohne Nutzdaten).
+**Authenticated, but open to everyone logged in** — that is intent, not a gap: `GET /{name}/permissions` (reports itself what the caller would be allowed to do), `GET /channels/mine`, `GET /vote-sessions/mine`, `GET /auth/me`, the vote-session list (filtered per row in the handler) and `GET /{name}/live` (SSE events are pure "something has changed" pings without payload).
 
-**Öffentlich ohne Login:** `GET /api/worker/health` (minimaler Payload, füttert das Header-Badge) und seit 2026-08-05 `GET /api/health` (payloadfrei, nur Statuscode: 200 bei `connected`, sonst 503 — Ziel der Container-HEALTHCHECKs und des externen Uptime-Monitors, Rate-Limit-Policy `PublicHealth`). Damit ist Befund **Z1** aus Welle E vollständig abgeschlossen: Admin-Detail hinter `GET /api/admin/health` (seit 2026-07-31), Badge-Payload minimal, Maschinen-Endpoint payloadfrei.
+**Public without login:** `GET /api/worker/health` (minimal payload, feeds the header badge) and, since 2026-08-05, `GET /api/health` (payload-free, status code only: 200 on `connected`, otherwise 503 — the target of the container HEALTHCHECKs and of the external uptime monitor, rate-limit policy `PublicHealth`). This completes finding **Z1** from wave E in full: admin detail behind `GET /api/admin/health` (since 2026-07-31), badge payload minimal, machine endpoint payload-free.
 
-**`AllowedRoles` in der Praxis:** `Everyone` (1) kurzschließt sofort. `Subs` (2) löst einen Helix-Sub-Check aus. `Mods` (8) und `Broadcaster` (16) werden **nie explizit ausgewertet** — sie sind bereits durch den `CanManageChannelAsync`-Kurzschluss abgedeckt, der Managern unabhängig von den Flags Stimmrecht gibt. **`VIPs` (4) ist definiert, aber unbenutzbar**: die Session-Erstellung lehnt es mit `vips_not_supported` ab, weil Twitch keinen Endpoint hat, über den ein Nutzer den eigenen VIP-Status melden kann.
+**`AllowedRoles` in practice:** `Everyone` (1) short-circuits immediately. `Subs` (2) triggers a Helix sub check. `Mods` (8) and `Broadcaster` (16) are **never evaluated explicitly** — they are already covered by the `CanManageChannelAsync` short circuit, which gives managers voting rights independently of the flags. **`VIPs` (4) is defined but unusable**: session creation rejects it with `vips_not_supported`, because Twitch has no endpoint through which a user can report their own VIP status.
 
-### Modul C: Voting Engine & Netto-Vote-Score
+### Module C: Voting engine & net vote score
 
-- Voting-Ort: Das Voting findet ausschließlich im Web-Dashboard statt (nicht im Chat).
-- Parallele Sessions: Erlaubt flexible Votings (z. B. "Monats-Aufräumaktion Juli").
-- Zielgruppen-Einschränkung (`AllowedRoles`, `[Flags]`): Festlegbar, wer abstimmen darf — `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
-- **Emote-Subset pro Session (seit 2026-08-01):** Der Ersteller kann der Session einen expliziten Wahlzettel mitgeben (`VoteSessionEmote`-Join-Tabelle, `emoteIds` beim Erstellen). Ohne Auswahl deckt die Session dynamisch alle nicht-archivierten Channel-Emotes ab (Bestandsverhalten, keine Join-Rows). Ein kuratierter Wahlzettel ist ab Erstellung fix; fliegt ein Mitglied mid-session aus dem 7TV-Set, bleibt es mit Badge sichtbar (Votes erhalten), weitere Votes darauf sind gesperrt.
-- Der Score (seit 2026-08-01, vorher `f(Chat-Nutzung) + (Keep − Delete)`):
+- Voting venue: voting takes place exclusively in the web dashboard (not in chat).
+- Parallel sessions: allow flexible votes (e.g. "July monthly clean-up").
+- Target-audience restriction (`AllowedRoles`, `[Flags]`): who may vote can be specified — `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
+- **Emote subset per session (since 2026-08-01):** The creator can give the session an explicit ballot (`VoteSessionEmote` join table, `emoteIds` at creation time). Without a selection the session dynamically covers all non-archived channel emotes (the pre-existing behaviour, no join rows). A curated ballot is fixed from creation onwards; if a member drops out of the 7TV set mid-session it stays visible with a badge (votes preserved), further votes on it are blocked.
+- The score (since 2026-08-01, previously `f(Chat-Nutzung) + (Keep − Delete)`):
 
 $$\text{Score} = \text{Keep-Votes} - \text{Delete-Votes}$$
 
-  Chat-Nutzung fließt **nicht** mehr ein — die Mods verbrauchen die Usage-Daten bereits beim Kuratieren des Wahlzettels, und normalisierte 0–100-Usage-Punkte dominierten rohe ±N-Votes. Usage bleibt Managern als Kontextspalte erhalten (`TotalUseCount`, für Nicht-Manager `null`). Ergebnisse sortieren aufsteigend (Delete-Kandidaten zuerst), Tiebreaker: mehr Gesamtstimmen. `VoterCount` (distinct Voter) qualifiziert dünne Beteiligung in der UI.
+  Chat usage **no longer** enters into it — the mods already consume the usage data while curating the ballot, and normalised 0–100 usage points dominated raw ±N votes. Usage stays available to managers as a context column (`TotalUseCount`, `null` for non-managers). Results sort ascending (delete candidates first), tiebreaker: more total votes. `VoterCount` (distinct voters) qualifies thin participation in the UI.
 
-### Modul D: Angular Dashboard (Übersicht, Usage-Stats, Voting-UI, Mass Delete Engine)
+### Module D: Angular dashboard (overview, usage stats, voting UI, mass-delete engine)
 
-> **Umsetzungsstand:** Vollständig implementiert (2026-07-26) — vollständige Details/Gotchas im CLAUDE.md-Entscheidungslog, hier nur die konkretisierte Spezifikation.
+> **Implementation status:** Fully implemented (2026-07-26) — full details/gotchas in the decision log in CLAUDE.md, only the concretised specification here.
 
-- **Seiten/Routen (`web/src/app/app.routes.ts`):** `/welcome` (öffentliche, guard-lose Landing-Page — Einstieg für anonyme Besucher, z. B. über einen geteilten Link), `/login`, `/` (Übersicht, `homeGuard` — anonyme Besucher landen auf `/welcome` statt dem Login-Formular; eingeloggt: die eigenen getrackten **und** ungetrackten moderierten Channels, `GET /api/channels/mine` — die frühere Admin-Sektion „alle getrackten Channels + Join-Formular" auf derselben Seite wurde am 2026-07-31 zugunsten des `/admin`-Bereichs entfernt), `/admin/*` (globaler Admin-Bereich, `adminGuard`: Monitoring, Channel-Liste, Audit-Log), `/my-votings` (kanalübergreifende eigene Stimmhistorie, `authGuard` — bewusst Geschwister-Route der Channel-Workspace-Routen, nicht darunter verschachtelt, da sie an keinen einzelnen `channelName`-Routenwert gebunden ist), `/channels/:channelName/usage-stats` (`usageStatsAccessGuard` — echte Berechtigung fürs Channel, nicht nur Login: Admin/Broadcaster/Live-Moderator oder 7TV-Editor), `/channels/:channelName/vote-sessions` (Liste, `authGuard` — nur Login-Pflicht, die Liste selbst hat keine sitzungsspezifische Rolleneinschränkung), `/channels/:channelName/vote-sessions/:sessionId` (Detail, `voteSessionAccessGuard` — Login **und** echte Zugehörigkeit zur Zielgruppe dieser konkreten Session). **Anonyme Share-Links wurden am 2026-07-27 entfernt** (explizite Nutzerentscheidung, reversiert eine frühere Design-Entscheidung): Voting-Seiten waren ursprünglich bewusst ohne Login-Zwang erreichbar, verlangen jetzt aber durchgängig Login — s. CLAUDE.md-Entscheidungslog für den vollständigen Verlauf.
-- **Grid statt Liste:** Bei bis zu ~1.000 Emoten pro Channel wäre eine Ein-Spalten-Liste unpraktikabel lang zum Scrollen. Usage-Stats und Voting-Ergebnisse rendern die Emotes daher als responsives Grid (2–8 Spalten je Fensterbreite) — `CdkVirtualScrollViewport` virtualisiert dabei **Zeilen** von je mehreren Karten (Row-Chunking), nicht einzelne Emotes; Spaltenzahl reagiert live auf Resize.
-- Mehrfachauswahl (Checkbox + Shift-Klick-Bereichsauswahl) auf beiden Grid-Seiten identisch.
-- Virtual Scrolling: Nutzung von Angular CDK `CdkVirtualScrollViewport` für flüssiges Rendering.
-- Direct GraphQL Execution: Schreib-Tokens verbleiben lokal im Browser (`sessionStorage`).
-- Batch Delete Queue: Das Frontend schickt beim Löschbefehl die Mutation direkt vom Browser an `https://7tv.io/v4/gql` (bis 2026-09-10 `v3`, s. #149 und DECISIONS.md — `v4` hat das `action`-Enum abgeschafft und je Operation ein eigenes Feld unter `emoteSets { emoteSet(id:) { … } }`):
+- **Pages/routes (`web/src/app/app.routes.ts`):** `/welcome` (public, guard-less landing page — the entry point for anonymous visitors, e.g. via a shared link), `/login`, `/` (overview, `homeGuard` — anonymous visitors end up on `/welcome` instead of the login form; when logged in: one's own tracked **and** untracked moderated channels, `GET /api/channels/mine` — the former admin section "all tracked channels + join form" on the same page was removed on 2026-07-31 in favour of the `/admin` area), `/admin/*` (global admin area, `adminGuard`: monitoring, channel list, audit log), `/my-votings` (one's own cross-channel voting history, `authGuard` — deliberately a sibling route of the channel workspace routes, not nested underneath them, since it is not bound to any single `channelName` route value), `/channels/:channelName/usage-stats` (`usageStatsAccessGuard` — a real permission for the channel, not just a login: admin/broadcaster/live moderator or 7TV editor), `/channels/:channelName/vote-sessions` (list, `authGuard` — login required only, the list itself has no session-specific role restriction), `/channels/:channelName/vote-sessions/:sessionId` (detail, `voteSessionAccessGuard` — login **and** genuine membership of the target audience of this particular session). **Anonymous share links were removed on 2026-07-27** (an explicit user decision, reversing an earlier design decision): voting pages were originally reachable without a login requirement by design, but now require a login throughout — see the decision log in CLAUDE.md for the full course of events.
+- **Grid instead of list:** With up to ~1,000 emotes per channel a single-column list would be impractically long to scroll. Usage stats and voting results therefore render the emotes as a responsive grid (2–8 columns depending on window width) — `CdkVirtualScrollViewport` virtualises **rows** of several cards each (row chunking), not individual emotes; the column count reacts to resizing live.
+- Multi-selection (checkbox + shift-click range selection) identical on both grid pages.
+- Virtual scrolling: use of the Angular CDK `CdkVirtualScrollViewport` for smooth rendering.
+- Direct GraphQL execution: write tokens stay locally in the browser (`sessionStorage`).
+- Batch delete queue: on the delete command the frontend sends the mutation directly from the browser to `https://7tv.io/v4/gql` (`v3` until 2026-09-10, see #149 and DECISIONS.md — `v4` dropped the `action` enum and gives each operation its own field under `emoteSets { emoteSet(id:) { … } }`):
 
 ```graphql
 mutation RemoveEmote($setId: Id!, $emoteId: Id!) {
@@ -198,74 +198,74 @@ mutation RemoveEmote($setId: Id!, $emoteId: Id!) {
 }
 ```
 
-- **Rate-Limiting: sequenziell, selbstregelnd (seit 2026-08-01).** Start bei ~275 ms Verzögerung zwischen Requests; 7TVs tatsächliche Quote für den `emote_set_change`-Bucket ist nicht öffentlich (sie liegt in 7TVs Datenbank, nicht im Open-Source-Baum), deshalb wird sie zur Laufzeit aus der ersten Ablehnung gelernt. Eine rate-limitierte Mutation gilt **nicht** als fehlgeschlagen: 7TV antwortet mit HTTP 200 und den Details in `errors[0].extensions` (`code: "RATE_LIMIT_EXCEEDED"`, `headers["x-ratelimit-emote_set_change-*"]`), das Emote wird nach dem gemeldeten `reset` erneut versucht (max. 5 Wartezyklen) und die Taktung des restlichen Laufs auf `Fenster / Quote × 1,1` gesetzt. Die gleichnamigen Response-Header sind per CORS **nicht** lesbar (`Access-Control-Expose-Headers` listet nur `x-access-token`, `x-request-id`, `x-auth-failure`), proaktives Pacing ist im Browser also unmöglich — Details und Quellen in [DECISIONS.md](DECISIONS.md).
-- **Backend-Sync — Abweichung von der urspr. Spezifikation:** Das Frontend meldet gelöschte IDs an die C#-API über `POST /api/channels/{channelName}/emotes/sync-deleted` (channel-scoped), nicht den ursprünglich skizzierten globalen Pfad `POST /api/emotes/sync-deleted` — konsistent mit jedem anderen channel-bezogenen Endpoint. Route-Gruppe hängt hinter `UsageStatsAccessAuthorizationFilter` (nicht `ChannelManagementAuthorizationFilter` — 7TV-Editoren des Channels dürfen ebenfalls archivieren, s. dessen Klassenkommentar für die aktuelle Endpoint-Liste). Markiert die betroffenen `Emote`-Zeilen als `IsArchived = true` (Soft-Archive, kein Hard-Delete — s. CLAUDE.md-Entscheidungslog), der 1-Minuten-`SevenTvPeriodicResyncWorker` bleibt das eigentliche Sicherheitsnetz.
-- **Voting-UI:** Daumen-hoch/-runter pro Emote (Keep/Delete), eigener Vote wird hervorgehoben (`MyVote`, in den Ergebnissen mitgeliefert — seit der Login-Pflicht vom 2026-07-27 immer ein echter Nutzer, kein anonymer `null`-Fall mehr); Session-Erstellung/-Beendigung/-Löschung nur für Manager sichtbar (`ChannelManagementAuthorizationFilter`), Ergebnis-Ansicht hinter `VoteAudienceFilter` (Login + Zugehörigkeit zur Zielgruppe der Session, auch nach Session-Ende weiterhin sichtbar für das ursprüngliche Zielpublikum). **Zwei Erstell-Einstiege (seit 2026-08-01):** das Inline-Formular auf der Voting-Liste (erzeugt „ganzes Set"-Sessions) und „Zur Abstimmung stellen" aus der Mehrfachauswahl des Usage-Stats-Grids (`CreateVoteSessionDialog`, übergibt die Auswahl als festen Wahlzettel).
-- **Internationalisierung (i18n):** Transloco (`@jsverse/transloco`), zwei Sprachen (`de`/`en`), Locale-Dateien unter `web/public/i18n/{de,en}.json`. `web/src/app/core/i18n/language.service.ts` (`LanguageService`) hält die aktive Sprache als Signal, persistiert die Wahl in `localStorage` und fällt ohne gespeicherte Präferenz auf die Browsersprache bzw. Deutsch zurück (primäre Zielgruppe). Umschaltung zur Laufzeit ohne Reload.
-- **Stabiler Fehlercode-Vertrag:** Die Api liefert bei Fehlern ausschließlich sprachneutrale Codes (`{ errorCode = "..." }`), nie fertigen Text — übersetzt wird genau einmal im Frontend. Kette: `src/EmotePurge.Api/Validation/ApiErrorCodes.cs` (Konstanten) → `web/src/app/core/i18n/api-error.ts` (`apiErrorTranslationKey`, mappt `errorCode` auf einen `errors.api.<code>`-Übersetzungsschlüssel, mit Status-Code-Fallback für Antworten ohne Body, z. B. ein blankes `Forbid()`) → `errors.api.*`-Einträge in beiden Locale-Dateien. Der Vertrag lebt bewusst manuell synchron in diesen drei Stellen (kein Generator); `web/src/app/core/i18n/api-error.spec.ts` gleicht die bekannten Codes gegen beide Locale-Dateien ab.
-- **Pagination:** `PagedResult<T>` (`src/EmotePurge.Core/Services/PagedResult.cs`, `record` mit `Items`/`Page`/`PageSize`/`TotalCount`/berechnetem `TotalPages`) als generisches Paging-Envelope für Listen-Endpoints (u. a. Vote-Session-Listen). `web/src/app/shared/pagination/pager.ts` (`Pager`-Komponente) rendert Vor/Zurück + „Seite X von Y" darüber, wiederverwendet auf allen paginierten Listenseiten.
+- **Rate limiting: sequential, self-regulating (since 2026-08-01).** Starts at a delay of ~275 ms between requests; 7TV's actual quota for the `emote_set_change` bucket is not public (it lives in 7TV's database, not in the open-source tree), so it is learned at runtime from the first rejection. A rate-limited mutation does **not** count as failed: 7TV answers with HTTP 200 and the details in `errors[0].extensions` (`code: "RATE_LIMIT_EXCEEDED"`, `headers["x-ratelimit-emote_set_change-*"]`), the emote is retried after the reported `reset` (max. 5 wait cycles) and the pacing of the rest of the run is set to `window / quota × 1.1`. The identically named response headers are **not** readable via CORS (`Access-Control-Expose-Headers` lists only `x-access-token`, `x-request-id`, `x-auth-failure`), so proactive pacing is impossible in the browser — details and sources in [DECISIONS.md](DECISIONS.md).
+- **Backend sync — deviation from the original specification:** The frontend reports deleted IDs to the C# API via `POST /api/channels/{channelName}/emotes/sync-deleted` (channel-scoped), not via the originally sketched global path `POST /api/emotes/sync-deleted` — consistent with every other channel-related endpoint. The route group sits behind `UsageStatsAccessAuthorizationFilter` (not `ChannelManagementAuthorizationFilter` — 7TV editors of the channel may archive as well, see that class's comment for the current endpoint list). It marks the affected `Emote` rows as `IsArchived = true` (soft archive, no hard delete — see the decision log in CLAUDE.md); the 1-minute `SevenTvPeriodicResyncWorker` remains the actual safety net.
+- **Voting UI:** Thumbs up/down per emote (keep/delete), one's own vote is highlighted (`MyVote`, delivered along with the results — since the login requirement of 2026-07-27 always a real user, no anonymous `null` case any more); session creation/ending/deletion is visible only to managers (`ChannelManagementAuthorizationFilter`), the results view sits behind `VoteAudienceFilter` (login + membership of the session's target audience, still visible to the original target audience after the session has ended). **Two creation entry points (since 2026-08-01):** the inline form on the voting list (produces "whole set" sessions) and "Put up for vote" from the multi-selection of the usage-stats grid (`CreateVoteSessionDialog`, which passes the selection on as a fixed ballot).
+- **Internationalisation (i18n):** Transloco (`@jsverse/transloco`), two languages (`de`/`en`), locale files under `web/public/i18n/{de,en}.json`. `web/src/app/core/i18n/language.service.ts` (`LanguageService`) holds the active language as a signal, persists the choice in `localStorage` and, without a stored preference, falls back to the browser language or German (the primary target audience). Switching at runtime without a reload.
+- **Stable error-code contract:** On errors the Api returns exclusively language-neutral codes (`{ errorCode = "..." }`), never finished text — translation happens exactly once, in the frontend. The chain: `src/EmotePurge.Api/Validation/ApiErrorCodes.cs` (constants) → `web/src/app/core/i18n/api-error.ts` (`apiErrorTranslationKey`, maps `errorCode` to an `errors.api.<code>` translation key, with a status-code fallback for responses without a body, e.g. a bare `Forbid()`) → `errors.api.*` entries in both locale files. The contract is kept in sync manually across these three places by design (no generator); `web/src/app/core/i18n/api-error.spec.ts` reconciles the known codes against both locale files.
+- **Pagination:** `PagedResult<T>` (`src/EmotePurge.Core/Services/PagedResult.cs`, a `record` with `Items`/`Page`/`PageSize`/`TotalCount`/computed `TotalPages`) as the generic paging envelope for list endpoints (among others the vote-session lists). `web/src/app/shared/pagination/pager.ts` (the `Pager` component) renders next/previous + "page X of Y" on top of it, reused on all paginated list pages.
 
-### Modul Admin: Globaler Admin-Bereich
+### Module Admin: Global admin area
 
-Kein Teil der ursprünglichen Spezifikation, aber umfangsmäßig ein eigenes Modul: ein vertikaler Schnitt von der Entität bis zur Seite, erreichbar unter `/admin/*` hinter dem `adminGuard`. Zugang regelt ausschließlich die Allowlist `Auth:AdminTwitchLogins` — channel-unabhängig, keine Twitch-Rolle.
+Not part of the original specification, but in scope a module of its own: a vertical slice from the entity through to the page, reachable under `/admin/*` behind the `adminGuard`. Access is governed exclusively by the allowlist `Auth:AdminTwitchLogins` — channel-independent, no Twitch role.
 
-**Acht Endpoints**, alle in der Gruppe `/api/admin` hinter `GlobalAdminAuthorizationFilter`:
+**Eight endpoints**, all in the `/api/admin` group behind `GlobalAdminAuthorizationFilter`:
 
-| Endpoint | Zweck |
+| Endpoint | Purpose |
 |---|---|
-| `GET /health` | Worker-Health-Snapshot, die authentifizierte Schwester des öffentlichen `/api/worker/health` |
-| `GET /live` | eigener SSE-Stream (implementiert in `LiveEndpoints.OpenAdminAsync`, registriert in `AdminEndpoints` — nur so erbt er den Admin-Filter der Gruppe) |
-| `GET /channels` | alle getrackten Channels samt Aggregaten (Emote-, Vote-Session-Zahlen) |
-| `POST /channels/{name}/resync` | 7TV-Vollsync für einen Channel anstoßen |
-| `GET /users` | alle Nutzer mit abgeleitetem Token-Status |
-| `POST /users/{id}/revoke-sessions` | setzt `User.SessionsValidFromUtc` — invalidiert bestehende Cookies serverseitig |
-| `POST /users/{id}/invalidate-role-cache` | löscht die `modcheck:`/`subcheck:`/`7tveditor:`-Keys des Nutzers aus Redis, ohne die 10-Minuten-TTL abzuwarten |
-| `GET /audit-log` | paginierte Historie privilegierter Aktionen |
+| `GET /health` | Worker health snapshot, the authenticated sister of the public `/api/worker/health` |
+| `GET /live` | its own SSE stream (implemented in `LiveEndpoints.OpenAdminAsync`, registered in `AdminEndpoints` — only that way does it inherit the group's admin filter) |
+| `GET /channels` | all tracked channels together with aggregates (emote and vote-session counts) |
+| `POST /channels/{name}/resync` | trigger a 7TV full sync for one channel |
+| `GET /users` | all users with a derived token status |
+| `POST /users/{id}/revoke-sessions` | sets `User.SessionsValidFromUtc` — invalidates existing cookies on the server side |
+| `POST /users/{id}/invalidate-role-cache` | deletes the user's `modcheck:`/`subcheck:`/`7tveditor:` keys from Redis without waiting out the 10-minute TTL |
+| `GET /audit-log` | paginated history of privileged actions |
 
-**Audit-Log.** Jede privilegierte Aktion schreibt eine `AuditLogEntry`-Zeile mit Akteur, `Action` (eine der zehn `AuditActions`-Konstanten), optionalem Channel-Bezug, Ziel und freiem `DetailsJson`. Protokolliert werden Channel-Join/-Leave/-Purge, Vote-Session-Erstellung/-Beendigung/-Löschung, `emotes.syncDeleted`, Session-Revoke, Channel-Resync und Rollen-Cache-Invalidierung.
+**Audit log.** Every privileged action writes an `AuditLogEntry` row with the actor, `Action` (one of the ten `AuditActions` constants), an optional channel reference, a target and free-form `DetailsJson`. Logged are channel join/leave/purge, vote-session creation/ending/deletion, `emotes.syncDeleted`, session revoke, channel resync and role-cache invalidation.
 
-**`DELETE /api/channels/{name}/purge` ist der einzige Admin-Endpoint außerhalb der Gruppe** und trägt seinen `GlobalAdminAuthorizationFilter` einzeln. Er löscht den Channel samt Kaskade (Emotes, Usage-Stats, Vote-Sessions) und liegt bewusst **nicht** hinter `ChannelManagementAuthorizationFilter`: dessen Moderator-Zweig hängt an einem bis zu 10 Minuten alten Cache, und ein frisch entmoderierter Nutzer dürfte damit noch einen ganzen Channel vernichten.
+**`DELETE /api/channels/{name}/purge` is the only admin endpoint outside the group** and carries its `GlobalAdminAuthorizationFilter` individually. It deletes the channel along with the cascade (emotes, usage stats, vote sessions) and deliberately does **not** sit behind `ChannelManagementAuthorizationFilter`: that filter's moderator branch depends on a cache up to 10 minutes old, and a freshly de-modded user could thereby still destroy an entire channel.
 
-**Zwei bekannte Abweichungen:** Die `/api/admin`-Gruppe registriert **kein** `RequireRateLimiting` (bewusst — Admins sind eine geschlossene, kleine Menge) und **keinen** `ChannelNameValidationFilter`. Letzteres heißt: `POST /channels/{name}/resync` antwortet bei einem formal ungültigen Channel-Namen nicht mit `400 invalid_channel_name` wie überall sonst, sondern läuft in den normalen Nicht-gefunden-Pfad.
+**Two known deviations:** The `/api/admin` group registers **no** `RequireRateLimiting` (deliberately — admins are a closed, small set) and **no** `ChannelNameValidationFilter`. The latter means: for a formally invalid channel name `POST /channels/{name}/resync` does not answer with `400 invalid_channel_name` as everywhere else, but runs into the normal not-found path.
 
-## 5. Datenbankmodell (Entity Framework Core Schema)
+## 5. Database model (Entity Framework Core schema)
 
-> **Abweichung von der urspr. Spezifikation (`Emote`):** Die 7TV-ObjectID ist **nicht** mehr der Primary Key, sondern liegt in `SevenTvEmoteId`. Grund: Ein 7TV-Emote kann gleichzeitig in mehreren Channels aktiv sein; da `Emote` aber pro Channel eine eigene Zeile ist (`ChannelId`-Spalte), hätte die 7TV-ID als globaler PK bei geteilten Emotes zu einer Primary-Key-Kollision geführt. Stattdessen ist `Id` ein interner Guid-PK, und ein Unique-Index auf `(ChannelId, SevenTvEmoteId)` stellt die Eindeutigkeit pro Channel sicher. `UsageStat.EmoteId` referenziert diesen internen PK.
+> **Deviation from the original specification (`Emote`):** The 7TV ObjectID is **no longer** the primary key; it lives in `SevenTvEmoteId`. Reason: one 7TV emote can be active in several channels at the same time; since `Emote` is a row per channel (`ChannelId` column), the 7TV ID as a global PK would have caused a primary-key collision for shared emotes. Instead `Id` is an internal Guid PK, and a unique index on `(ChannelId, SevenTvEmoteId)` ensures uniqueness per channel. `UsageStat.EmoteId` references this internal PK.
 >
-> Zusätzlich hat `UsageStat` einen Unique-Index auf `(EmoteId, Date)`, damit der 30-Sekunden-Batch-Flush pro Emote und Tag genau eine aggregierte Zeile pflegt statt vieler Einzelzeilen. `Date` ist als `DateOnly`/Postgres `date` typisiert (nicht `DateTime`/`timestamptz`) — macht den "UTC-Kalendertag"-Charakter der Spalte typsicher statt nur per Kommentar, und der Index trägt `UseCount` als Include-Spalte, damit Zeitraum-Summenabfragen (`SUM(UseCount) WHERE Date BETWEEN from AND to`) grundsätzlich als Index-Only-Scan laufen können — `BotUseCount` (s. DECISIONS 2026-09-01) steht bewusst **nicht** im Include, weil ihn keine Aggregat-Query liest. `SharedChatUseCount` (s. DECISIONS 2026-09-06) steht aus demselben Grund **nicht** im Include. Seit Zug 2 von #73 (DECISIONS 2026-09-08) summieren und filtern die produktiven Lesequeries in `UsageStatQueryService` wieder ausschließlich über `UseCount`, sodass der Index-Only-Scan von selbst wieder greift; die Übergangszeit, in der über `UseCount + SharedChatUseCount` summiert wurde, ist damit beendet, und der Index musste dafür weder erweitert noch zurückgebaut werden. Diese Tages-Granularität ist bewusst die Grundlage für flexible Dashboard-Zeiträume (Tag/Woche/Monat/Custom) — ein Zeitraum ist einfach eine Summe über die passenden Tages-Zeilen, keine feinere Granularität oder Rollup-Tabelle nötig (siehe CLAUDE.md-Entscheidungslog).
+> In addition, `UsageStat` has a unique index on `(EmoteId, Date)`, so that the 30-second batch flush maintains exactly one aggregated row per emote and day instead of many individual rows. `Date` is typed as `DateOnly`/Postgres `date` (not `DateTime`/`timestamptz`) — that makes the "UTC calendar day" character of the column type-safe instead of merely a comment, and the index carries `UseCount` as an include column so that time-range sum queries (`SUM(UseCount) WHERE Date BETWEEN from AND to`) can in principle run as an index-only scan — `BotUseCount` (see DECISIONS 2026-09-01) is deliberately **not** in the include, because no aggregate query reads it. `SharedChatUseCount` (see DECISIONS 2026-09-06) is **not** in the include for the same reason. Since move 2 of #73 (DECISIONS 2026-09-08) the productive read queries in `UsageStatQueryService` again sum and filter exclusively over `UseCount`, so that the index-only scan takes effect again by itself; the transitional period in which the sum ran over `UseCount + SharedChatUseCount` is thereby over, and the index had to be neither extended nor rolled back for it. This daily granularity is deliberately the basis for flexible dashboard time ranges (day/week/month/custom) — a time range is simply a sum over the matching daily rows, no finer granularity or rollup table needed (see the decision log in CLAUDE.md).
 >
-> **Alle acht Entitäten sind implementiert:** `Channel`, `Emote`, `UsageStat`, `User`, `VoteSession`, `VoteSessionEmote`, `Vote`, `AuditLogEntry` (plus `AllowedRoles`/`VoteType` als Enums und `AuditActions` als Konstantenklasse) liegen vollständig unter `src/EmotePurge.Core/Entities/` und sind über Migrationen angewendet — der bis 2026-07-25 gültige Stand ("nur Modul 1 implementiert") ist überholt. Zusätzlich liegt dort `ChannelName.cs` — keine Entität, sondern eine statische Normalisierungs-Hilfsklasse (`Normalize(string) => value.Trim().ToLowerInvariant()`), die die stille Invariante "`Channel.ChannelName` ist in der DB immer lowercase/getrimmt" an einer Stelle festhält.
+> **All eight entities are implemented:** `Channel`, `Emote`, `UsageStat`, `User`, `VoteSession`, `VoteSessionEmote`, `Vote`, `AuditLogEntry` (plus `AllowedRoles`/`VoteType` as enums and `AuditActions` as a constants class) live completely under `src/EmotePurge.Core/Entities/` and have been applied through migrations — the state that held until 2026-07-25 ("only module 1 implemented") is obsolete. In addition, `ChannelName.cs` lives there — not an entity but a static normalisation helper class (`Normalize(string) => value.Trim().ToLowerInvariant()`) that pins the silent invariant "`Channel.ChannelName` is always lowercase/trimmed in the DB" down in one place.
 >
-> **`VoteSessionEmote`** (Migration `20260801005055`) ist die Membership-Zeile des expliziten Stimmzettels: `(VoteSessionId, EmoteId)` als zusammengesetzter Schlüssel. Die Semantik ist bewusst asymmetrisch — eine Session **ohne** solche Zeilen deckt dynamisch alle nicht-archivierten Channel-Emotes ab (das Verhalten vor dem Subset-Redesign und zugleich der „ganzes Set"-Modus), eine Session **mit** Zeilen hat einen bei der Erstellung festgelegten Stimmzettel, der danach nie mehr bearbeitet wird. `EmoteId` ist wie bei `Vote` der interne `Emote`-Guid, nicht die 7TV-ID.
+> **`VoteSessionEmote`** (migration `20260801005055`) is the membership row of the explicit ballot: `(VoteSessionId, EmoteId)` as a composite key. The semantics are deliberately asymmetric — a session **without** such rows dynamically covers all non-archived channel emotes (the behaviour before the subset redesign and at the same time the "whole set" mode), a session **with** rows has a ballot fixed at creation time that is never edited afterwards. As with `Vote`, `EmoteId` is the internal `Emote` Guid, not the 7TV ID.
 >
-> **`AuditLogEntry`** (Migrationen `20260731101655` und `20260731134345` für den `ChannelName`-Index) protokolliert privilegierte Aktionen: `OccurredAtUtc`, `ActorTwitchUserId`/`ActorLogin`, `Action` (einer der zehn Werte aus `AuditActions`, z. B. `channel.purge`, `voteSession.delete`, `user.revokeSessions`), optional `ChannelName`, `TargetType`/`TargetId` und ein freies `DetailsJson`.
+> **`AuditLogEntry`** (migrations `20260731101655` and `20260731134345` for the `ChannelName` index) logs privileged actions: `OccurredAtUtc`, `ActorTwitchUserId`/`ActorLogin`, `Action` (one of the ten values from `AuditActions`, e.g. `channel.purge`, `voteSession.delete`, `user.revokeSessions`), optionally `ChannelName`, `TargetType`/`TargetId` and a free-form `DetailsJson`.
 >
-> **Spalten, die später dazukamen und leicht übersehen werden:**
+> **Columns that were added later and are easily overlooked:**
 >
-> | Entität | Spalte | Migration | Zweck |
+> | Entity | Column | Migration | Purpose |
 > |---|---|---|---|
-> | `VoteSession` | `HideResultsUntilEnd` | `20260801120155` | Secret Ballot — Tallies werden bis zum Sitzungsende serverseitig zurückgehalten, nicht nur im Frontend ausgeblendet |
-> | `User` | `TwitchRefreshToken`, `TwitchAccessToken`, `TwitchAccessTokenExpiresAtUtc`, `TwitchTokenScopes` | `20260730160215` | serverseitiger Token-Refresh; die beiden Token-Spalten liegen **verschlüsselt** (`AesGcmTokenCipher`, Schlüssel aus `Auth:Twitch:TokenEncryptionKey`) |
-> | `User` | `SessionsValidFromUtc` | `20260729222651` | serverseitig wirksames Logout / Session-Revoke: ältere Cookies gelten als ungültig |
-> | `Channel` | `ActiveEmoteSetCapacity` | `20260801183949` | Slot-Limit des aktiven 7TV-Sets, `null` = 7TV hat keins gemeldet (nie 1000 annehmen — Abonnenten haben größere Sets). Nur zusammen mit `ActiveEmoteSetId` im REST-Vollsync geschrieben, nie im EventAPI-Delta |
-> | `Channel` | `TrackingResumedAt` | `20260801183949` | Zeitpunkt des letzten Joins, der den Channel **reaktiviert** hat. `CreatedAt` überschätzt die Abdeckung, weil `LeaveAsync` die Zeile behält — „wir zählen seit" ist `TrackingResumedAt ?? CreatedAt` |
-> | `Channel` | `LastSyncedAtUtc` | `20260801195038` | Wann zuletzt ein REST-Vollsync **erfolgreich durchlief**, unabhängig davon, ob er etwas geändert hat. Bewusst getrennt von `MAX(Emote.LastSyncedAt)` (= letzte Inventaränderung): Emote-Zeilen werden nur bei echter Änderung gestempelt, ein minütlich erfolgreich syncender Channel mit statischem Set las sich sonst als „zuletzt vor drei Tagen synchronisiert". Nur im REST-Pfad geschrieben, nie im Delta-Pfad, und nie Teil der Änderungserkennung |
-> | `Emote` | `FirstSeenAt` | `20260801191203` | Wann das Emote ins 7TV-Set kam, seit 2026-08-03 aus `EmoteSetEmote.addedAt` der v4-GraphQL-API (das v3-`timestamp` erwies sich als Upload-Datum des Emotes) — dadurch auch für Bestandszeilen rückwirkend korrekt, anders als ein „zuerst gesichtet"-Stempel. `null` = unbekannt, **nie** „neu". Nur der REST-Sync schreibt (Korrektur-bei-Abweichung, `null` überschreibt nie; der Dispatch-Pfad entscheidet über den ChangeTracker und stempelt nur bei `push` `UtcNow`), und die Korrektur zählt nicht als Inventaränderung |
+> | `VoteSession` | `HideResultsUntilEnd` | `20260801120155` | Secret ballot — tallies are withheld on the server side until the session ends, not merely hidden in the frontend |
+> | `User` | `TwitchRefreshToken`, `TwitchAccessToken`, `TwitchAccessTokenExpiresAtUtc`, `TwitchTokenScopes` | `20260730160215` | server-side token refresh; the two token columns are stored **encrypted** (`AesGcmTokenCipher`, key from `Auth:Twitch:TokenEncryptionKey`) |
+> | `User` | `SessionsValidFromUtc` | `20260729222651` | logout / session revoke that takes effect on the server side: older cookies count as invalid |
+> | `Channel` | `ActiveEmoteSetCapacity` | `20260801183949` | slot limit of the active 7TV set, `null` = 7TV reported none (never assume 1000 — subscribers have larger sets). Written only together with `ActiveEmoteSetId` in the REST full sync, never in the EventAPI delta |
+> | `Channel` | `TrackingResumedAt` | `20260801183949` | point in time of the last join that **reactivated** the channel. `CreatedAt` overstates the coverage because `LeaveAsync` keeps the row — "we have been counting since" is `TrackingResumedAt ?? CreatedAt` |
+> | `Channel` | `LastSyncedAtUtc` | `20260801195038` | when a REST full sync last **ran through successfully**, regardless of whether it changed anything. Deliberately separate from `MAX(Emote.LastSyncedAt)` (= last inventory change): emote rows are stamped only on a real change, so a channel syncing successfully every minute with a static set would otherwise read as "last synchronised three days ago". Written only in the REST path, never in the delta path, and never part of change detection |
+> | `Emote` | `FirstSeenAt` | `20260801191203` | when the emote entered the 7TV set, since 2026-08-03 taken from `EmoteSetEmote.addedAt` of the v4 GraphQL API (the v3 `timestamp` turned out to be the emote's upload date) — which also makes it retroactively correct for pre-existing rows, unlike a "first seen" stamp. `null` = unknown, **never** "new". Only the REST sync writes it (correct-on-deviation, `null` never overwrites; the dispatch path decides via the ChangeTracker and stamps `UtcNow` only on `push`), and the correction does not count as an inventory change |
 >
-> `AllowedRoles` ist ein `[Flags]`-Enum mit **fünf** Werten: `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
+> `AllowedRoles` is a `[Flags]` enum with **five** values: `Everyone = 1`, `Subs = 2`, `VIPs = 4`, `Mods = 8`, `Broadcaster = 16`.
 >
-> **Zweite Abweichung (`Channel.TwitchChannelId`):** ist `string?` (nullable) statt non-nullable — da die Spalte einen Unique-Index hat, hätte ein non-nullable Default (`""`) beim zweiten angelegten Channel einen Unique-Constraint-Verstoß ausgelöst (leerer String zählt für Unique-Indizes, NULL nicht). Bleibt `null`, bis sie aufgelöst werden kann. Wird inzwischen (Modul A.3) beim Channel-Join über 7TVs GraphQL-Nutzersuche befüllt, nicht erst durch das künftige Modul B (Twitch-OAuth) — siehe Modul-A.3-Abschnitt.
+> **Second deviation (`Channel.TwitchChannelId`):** it is `string?` (nullable) instead of non-nullable — since the column has a unique index, a non-nullable default (`""`) would have triggered a unique-constraint violation on the second channel created (an empty string counts for unique indexes, NULL does not). It stays `null` until it can be resolved. It is meanwhile (module A.3) populated at channel join through 7TV's GraphQL user search, not only through the future module B (Twitch OAuth) — see the module A.3 section.
 
-Die vollständigen Feldlisten für alle Entitäten stehen direkt in `src/EmotePurge.Core/Entities/` (`Channel.cs`, `Emote.cs`, `UsageStat.cs`, `ChannelLiveDay.cs` — Live-Abdeckung pro Channel pro UTC-Tag, seit 2026-08-03, s. DECISIONS —, `User.cs`, `VoteSession.cs`, `Vote.cs`) — bewusst nicht hier gespiegelt, das war genau der Grund, warum dieser Abschnitt zuletzt veraltete. Was man beim Lesen der Datenbank kennen muss, sind die beiden oben beschriebenen Invarianten:
+The complete field lists for all entities are directly in `src/EmotePurge.Core/Entities/` (`Channel.cs`, `Emote.cs`, `UsageStat.cs`, `ChannelLiveDay.cs` — live coverage per channel per UTC day, since 2026-08-03, see DECISIONS —, `User.cs`, `VoteSession.cs`, `Vote.cs`) — deliberately not mirrored here, since that was exactly the reason this section went stale last time. What you have to know when reading the database are the two invariants described above:
 
 ```csharp
 public class Emote
 {
-    public string Id { get; set; } = Guid.NewGuid().ToString(); // interner PK, NICHT die 7TV-ObjectID
+    public string Id { get; set; } = Guid.NewGuid().ToString(); // internal PK, NOT the 7TV ObjectID
 
-    // 7TV ObjectID (24-hex string). Eindeutig nur pro Channel via Unique-Index
-    // auf (ChannelId, SevenTvEmoteId) — dasselbe 7TV-Emote kann in mehreren
-    // Channels gleichzeitig aktiv sein.
+    // 7TV ObjectID (24-hex string). Unique only per channel via the unique index
+    // on (ChannelId, SevenTvEmoteId) — the same 7TV emote can be active in
+    // several channels at the same time.
     public string SevenTvEmoteId { get; set; } = string.Empty;
     // ... ChannelId, Name, ImageUrl, IsArchived, LastSyncedAt, Channel, UsageStats
 }
@@ -273,55 +273,55 @@ public class Emote
 public class UsageStat
 {
     public long Id { get; set; }
-    public string EmoteId { get; set; } = string.Empty; // FK auf Emote.Id (interner PK)
+    public string EmoteId { get; set; } = string.Empty; // FK to Emote.Id (internal PK)
 
-    // UTC-Kalendertag, Postgres `date` (nicht `timestamptz`) — Unique-Index (Include UseCount)
-    // zusammen mit EmoteId.
+    // UTC calendar day, Postgres `date` (not `timestamptz`) — unique index (include UseCount)
+    // together with EmoteId.
     public DateOnly Date { get; set; }
     public int UseCount { get; set; }
-    public int BotUseCount { get; set; } // Bots im eigenen Raum, s. DECISIONS 2026-09-01
-    public int SharedChatUseCount { get; set; } // fremde Räume einer Shared-Chat-Session, s. DECISIONS 2026-09-06
+    public int BotUseCount { get; set; } // bots in the channel's own room, see DECISIONS 2026-09-01
+    public int SharedChatUseCount { get; set; } // foreign rooms of a shared-chat session, see DECISIONS 2026-09-06
     // ... Emote
 }
 ```
 
-## 6. Docker-Topologie
+## 6. Docker topology
 
-> **Abweichungen von der urspr. Spezifikation:** `redis:7-alpine` → `redis:7.2-alpine` (Lizenz-Grund, siehe Abschnitt 2). `depends_on` nutzt `condition: service_healthy` statt einer einfachen Liste, dazu Healthchecks für `postgres`/`redis` — ohne das starten `api`/`worker` sonst, bevor die Datenbank überhaupt Verbindungen annimmt, und crashen beim ersten Zugriff. Die konkreten Dockerfiles liegen unter `src/EmotePurge.Api/Dockerfile` und `src/EmotePurge.Worker/Dockerfile` (Multi-Stage-Build: SDK-Image für Build/Publish, schlankes Runtime-Image für `final`, bei der Api zusätzlich eine `web-build`-Node-Stage für den Angular-Build, s. Modul D).
+> **Deviations from the original specification:** `redis:7-alpine` → `redis:7.2-alpine` (licence reason, see section 2). `depends_on` uses `condition: service_healthy` instead of a plain list, along with healthchecks for `postgres`/`redis` — without that, `api`/`worker` would start before the database accepts connections at all and crash on the first access. The concrete Dockerfiles live under `src/EmotePurge.Api/Dockerfile` and `src/EmotePurge.Worker/Dockerfile` (multi-stage build: SDK image for build/publish, slim runtime image for `final`, for the Api additionally a `web-build` Node stage for the Angular build, see module D).
 
-Es gibt zwei Compose-Dateien, kein YAML mehr hier gespiegelt — die eingebettete Kopie war genau deshalb veraltet, weil sie eine Kopie war. Für den vollständigen, aktuellen Inhalt gilt jeweils die Datei selbst als Quelle der Wahrheit.
+There are two compose files, and no YAML is mirrored here any more — the embedded copy went stale for exactly the reason that it was a copy. For the complete, current content the file itself is the source of truth in each case.
 
-### 6a. Lokal (`docker-compose.yml`)
+### 6a. Local (`docker-compose.yml`)
 
-Für lokale Entwicklung/Tests: `docker compose up -d --build` baut `api`/`worker` aus dem Repo-Stand (`build:`-Sektion, kein vorgebautes Image). Gestartet mit `redis`, `postgres`, `api`, `worker` im gemeinsamen `emotepurge-network`-Bridge-Netz. Ein fünfter Dienst, `harness` (#69), trägt `profiles: ["harness"]` und startet dadurch nie mit `up` — nur gezielt per `docker compose --profile harness run --rm harness <kanal>` (s. DECISIONS).
+For local development/tests: `docker compose up -d --build` builds `api`/`worker` from the repo state (`build:` section, no prebuilt image). Started with `redis`, `postgres`, `api`, `worker` in the shared `emotepurge-network` bridge network. A fifth service, `harness` (#69), carries `profiles: ["harness"]` and therefore never starts with `up` — only deliberately via `docker compose --profile harness run --rm harness <kanal>` (see DECISIONS).
 
-### 6b. Produktion (`docker-compose.prod.yml` + `.github/workflows/publish.yml`)
+### 6b. Production (`docker-compose.prod.yml` + `.github/workflows/publish.yml`)
 
-Läuft auf einem VPS neben einer bestehenden, unabhängigen App, als Portainer-Stack importiert (`docker-compose.prod.yml` ist die Datei, die dafür auf GitHub liegt). `.github/workflows/publish.yml` baut bei jedem Push auf `main` (nach grünem `test`- und `test-web`-Job) beide Images und pusht sie nach `ghcr.io/sensitron/emotepurge-{api,worker}:latest` (zusätzlich mit dem Commit-SHA getaggt); ein Redeploy des Portainer-Stacks zieht `:latest` neu.
+Runs on a VPS next to an existing, independent app, imported as a Portainer stack (`docker-compose.prod.yml` is the file that lives on GitHub for that purpose). On every push to `main` (after a green `test` and `test-web` job) `.github/workflows/publish.yml` builds both images and pushes them to `ghcr.io/sensitron/emotepurge-{api,worker}:latest` (additionally tagged with the commit SHA); a redeploy of the Portainer stack pulls `:latest` again.
 
-**Unterschiede lokal vs. Produktion:**
+**Differences local vs. production:**
 
-| Aspekt | Lokal (`docker-compose.yml`) | Produktion (`docker-compose.prod.yml`) |
+| Aspect | Local (`docker-compose.yml`) | Production (`docker-compose.prod.yml`) |
 | :--- | :--- | :--- |
-| `api`/`worker`-Images | `build:` aus dem lokalen Repo-Stand | `image: ghcr.io/sensitron/emotepurge-{api,worker}:latest`, per CI gebaut |
-| Host-Port `api` | `127.0.0.1:8080:8080` | `127.0.0.1:4300:8080` — Port 8080 ist auf dem VPS bereits von der anderen App belegt |
-| Host-Port `postgres` | `127.0.0.1:5432:5432` | `127.0.0.1:5433:5432` — analog, eigene isolierte Postgres-Instanz statt Mitnutzung der anderen App |
-| Host-Port `redis` | `127.0.0.1:6379:6379` | `127.0.0.1:6380:6379` |
-| TLS/Reverse Proxy | keiner, direkter HTTP-Zugriff auf `localhost:8080` | Ein host-nativer (nicht containerisierter) Reverse Proxy vor dem Loopback-Port terminiert TLS für `emotepurge.app` und setzt `X-Forwarded-Proto`/`-For`; `ForwardedHeadersMiddleware` in `Program.cs` vertraut dem mit leerem `KnownIPNetworks`/`KnownProxies`, da der Container ausschließlich über den lokal gebundenen Port erreichbar ist |
+| `api`/`worker` images | `build:` from the local repo state | `image: ghcr.io/sensitron/emotepurge-{api,worker}:latest`, built by CI |
+| Host port `api` | `127.0.0.1:8080:8080` | `127.0.0.1:4300:8080` — port 8080 on the VPS is already taken by the other app |
+| Host port `postgres` | `127.0.0.1:5432:5432` | `127.0.0.1:5433:5432` — likewise, its own isolated Postgres instance instead of sharing the other app's |
+| Host port `redis` | `127.0.0.1:6379:6379` | `127.0.0.1:6380:6379` |
+| TLS/reverse proxy | none, direct HTTP access to `localhost:8080` | A host-native (not containerised) reverse proxy in front of the loopback port terminates TLS for `emotepurge.app` and sets `X-Forwarded-Proto`/`-For`; `ForwardedHeadersMiddleware` in `Program.cs` trusts it with empty `KnownIPNetworks`/`KnownProxies`, since the container is reachable exclusively through the locally bound port |
 | `Auth:Twitch:RedirectUri` | `http://localhost:8080/api/auth/twitch/callback` | `https://emotepurge.app/api/auth/twitch/callback` |
-| `dataprotection-keys`-Volume | vorhanden — bewusste Parität zu Prod, damit dieser Pfad lokal überhaupt getestet wird | vorhanden — ohne persistierten Schlüsselring würde jeder Container-Neustart alle eingeloggten Nutzer aus der Cookie-Session werfen |
+| `dataprotection-keys` volume | present — deliberate parity with prod, so that this path is tested locally at all | present — without a persisted key ring every container restart would throw all logged-in users out of the cookie session |
 
-Bewusst **nicht** unterschiedlich: `redis` läuft in beiden Dateien mit `--maxmemory 256mb --maxmemory-policy allkeys-lru`. Redis trägt hier neben dem Rollen-/Health-Cache auch `channel:bot:commands`; ein unkontrolliert wachsender Redis würde also die Bot-Steuerung mitreißen, und ein lokal unlimitierter Redis hätte genau den Pfad ungetestet gelassen, auf den es ankommt.
+Deliberately **not** different: `redis` runs in both files with `--maxmemory 256mb --maxmemory-policy allkeys-lru`. Besides the role/health cache, Redis here also carries `channel:bot:commands`; an uncontrollably growing Redis would therefore take the bot control down with it, and a locally unlimited Redis would have left exactly the path that matters untested.
 
-Konfiguration erfolgt in beiden Fällen über eine `.env`-Datei am Repo-Root (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`) — Vorlage in `.env.example`, `.env` selbst ist git-ignored.
+Configuration is done in both cases through a `.env` file at the repo root (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`) — template in `.env.example`, `.env` itself is git-ignored.
 
-Auch `docker-compose.prod.yml` trägt den `harness`-Dienst aus 6a, hier auf demselben Worker-Image (`ghcr.io/sensitron/emotepurge-worker:latest`) statt eines zweiten Images, ebenfalls nur per `--profile harness run --rm harness <kanal>` erreichbar — nie über den normalen Stack-Redeploy.
+`docker-compose.prod.yml` also carries the `harness` service from 6a, here on the same worker image (`ghcr.io/sensitron/emotepurge-worker:latest`) instead of a second image, likewise reachable only via `--profile harness run --rm harness <kanal>` — never through the normal stack redeploy.
 
-## 7. Lokale Entwicklung & Debugging (Dev Containers)
+## 7. Local development & debugging (Dev Containers)
 
-Für das Debuggen von `EmotePurge.Api`/`EmotePurge.Worker` direkt in VS Code (Breakpoints, F5) wird das offizielle **Dev Containers**-Modell verwendet, nicht das Attachen an ein produktionsnahes, vorgebautes Image:
+For debugging `EmotePurge.Api`/`EmotePurge.Worker` directly in VS Code (breakpoints, F5), the official **Dev Containers** model is used, not attaching to a production-like, prebuilt image:
 
-- `.devcontainer/devcontainer.json` + `.devcontainer/docker-compose.yml` definieren einen eigenen `devcontainer`-Service (SDK-Image, Repo als Volume gemountet) im selben Compose-Netzwerk wie `postgres`/`redis`. Die `api`/`worker`-Services aus dem Root-`docker-compose.yml` werden dabei bewusst **nicht** gestartet (`runServices: ["postgres", "redis"]`) — im Dev Container läuft die App direkt über den .NET-Debugger, nicht als vorgebautes Docker-Image.
-- Verbindungsstrings (`ConnectionStrings__DefaultConnection`, `Redis__ConnectionString`) zeigen im Dev Container automatisch auf die Compose-Hostnamen `postgres`/`redis`; außerhalb des Containers (normaler Host-Debug) greifen dieselben `.vscode/launch.json`-Konfigurationen stattdessen auf `localhost` aus `appsettings.json` zurück (sofern `docker compose up postgres redis` lokal läuft).
-- `.vscode/launch.json` enthält `coreclr`-Launch-Configs `Api` und `Worker` sowie eine Compound-Config `Api + Worker` zum gemeinsamen Debuggen beider Prozesse; `.vscode/tasks.json` baut jeweils vorher (`build-api`/`build-worker`).
-- Die Api bindet dabei explizit auf `http://0.0.0.0:8080` (`ASPNETCORE_URLS`), passend zum Port, den auch der produktive `api`-Container exponiert — HTTPS-Dev-Zertifikate werden im Linux-Container bewusst nicht eingerichtet.
+- `.devcontainer/devcontainer.json` + `.devcontainer/docker-compose.yml` define a dedicated `devcontainer` service (SDK image, repo mounted as a volume) in the same compose network as `postgres`/`redis`. The `api`/`worker` services from the root `docker-compose.yml` are deliberately **not** started (`runServices: ["postgres", "redis"]`) — inside the dev container the app runs directly through the .NET debugger, not as a prebuilt Docker image.
+- Connection strings (`ConnectionStrings__DefaultConnection`, `Redis__ConnectionString`) point automatically to the compose hostnames `postgres`/`redis` inside the dev container; outside the container (normal host debugging) the same `.vscode/launch.json` configurations fall back to `localhost` from `appsettings.json` instead (provided `docker compose up postgres redis` is running locally).
+- `.vscode/launch.json` contains the `coreclr` launch configs `Api` and `Worker` as well as a compound config `Api + Worker` for debugging both processes together; `.vscode/tasks.json` builds beforehand in each case (`build-api`/`build-worker`).
+- The Api explicitly binds to `http://0.0.0.0:8080` (`ASPNETCORE_URLS`), matching the port that the productive `api` container exposes as well — HTTPS dev certificates are deliberately not set up inside the Linux container.
