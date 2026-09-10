@@ -145,8 +145,28 @@ data, hot reload and a real Twitch login.
 ```
 docker compose up -d postgres redis
 dotnet run --project src/EmotePurge.Api --launch-profile lan
-npm --prefix web run start:lan
+__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=your.host.example npm --prefix web run start:lan
 ```
+
+**Two things carry your hostname, and neither of them is a tracked file.** The repository is
+public, so it holds no hostname at all.
+
+- **API:** the `lan` profile sets only the flag `EMOTEPURGE_LAN`. The hostname itself lives in
+  `src/EmotePurge.Api/appsettings.Lan.json`, which is gitignored. Create it once with
+  `cp src/EmotePurge.Api/appsettings.Lan.json.example src/EmotePurge.Api/appsettings.Lan.json`
+  and put your hostname in both values. Without the file the profile still starts and falls
+  back to the `localhost` redirect URI, so login fails visibly rather than silently doing
+  something else. The file is excluded from `dotnet publish` and from the Docker build context,
+  so it cannot be baked into an image.
+- **Dev server:** pass your hostname in `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`, as above.
+  The `lan` configuration deliberately does **not** set `allowedHosts`, which leaves it as the
+  empty array Vite needs before it will read that variable. Do not reach for
+  `ng serve --allowed-hosts` instead: the Angular CLI exposes that option only as a boolean, so
+  it turns host checking off altogether and disables Vite's protection against DNS rebinding —
+  a page you open in any browser could then resolve its own name to your machine and talk to
+  the dev server. The variable is Vite-internal (hence the two underscores) and could disappear
+  on a major upgrade; if it does, the fallback is a local, uncommitted `allowedHosts` entry in
+  `angular.json`.
 
 Both `lan` variants are purely additive — plain `dotnet run` and `npm --prefix web start`
 behave exactly as before, and `appsettings.Development.json` is untouched. They differ from the

@@ -59,7 +59,7 @@ Erwartet die Api parallel laufend per `dotnet run --project src/EmotePurge.Api` 
 ```
 docker compose up -d postgres redis
 dotnet run --project src/EmotePurge.Api --launch-profile lan
-npm --prefix web run start:lan
+__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<eigener-hostname> npm --prefix web run start:lan
 ```
 
 Das Handy ruft im heimischen WLAN einen eigenen Hostnamen auf, hinter dem ein Reverse Proxy TLS terminiert und an den Dev-Server auf `:4200` durchreicht. Gleiche Datenbank, gleiche Testdaten, Hot Reload, echter Twitch-Login. Die beiden `lan`-Varianten unterscheiden sich vom Alltagsstart nur darin, dass der Dev-Server auf allen Schnittstellen lauscht und die Twitch-Redirect-URI auf den Hostnamen umgestellt ist — **weder `appsettings.Development.json` noch `npm start` sind davon berührt**.
@@ -70,7 +70,7 @@ Das Handy ruft im heimischen WLAN einen eigenen Hostnamen auf, hinter dem ein Re
 cp src/EmotePurge.Api/appsettings.Lan.json.example src/EmotePurge.Api/appsettings.Lan.json
 ```
 
-und darin die beiden Platzhalter durch den echten Hostnamen ersetzen. Fehlt die Datei, startet `--launch-profile lan` trotzdem und fällt auf die `localhost`-Redirect-URI zurück — der Login schlägt dann sichtbar fehl, statt still etwas Falsches zu tun. Der projektöffentliche Teil steht in [docs/Operations.md](docs/Operations.md); die eigene Netz-Topologie (Proxy-Manager, DNS-Rewrite, Zertifikat) liegt in `infra-docs`.
+und darin die beiden Platzhalter durch den echten Hostnamen ersetzen. Fehlt die Datei, startet `--launch-profile lan` trotzdem und fällt auf die `localhost`-Redirect-URI zurück — der Login schlägt dann sichtbar fehl, statt still etwas Falsches zu tun. Die Datei ist zusätzlich aus `dotnet publish` und aus dem Docker-Build-Kontext ausgeschlossen, kann also nicht in ein Image geraten. **Der Dev-Server braucht denselben Hostnamen getrennt**, über `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`; `ng serve --allowed-hosts` ist ausdrücklich **nicht** der Weg, weil die Angular-CLI die Option nur als Boolean kennt und damit Vites Schutz gegen DNS-Rebinding ganz abschaltet. Der projektöffentliche Teil steht in [docs/Operations.md](docs/Operations.md); die eigene Netz-Topologie (Proxy-Manager, DNS-Rewrite, Zertifikat) liegt in `infra-docs`.
 
 Es gibt keine Staging-Stage; die Umgebung *ist* die lokale, nur unter anderem Namen erreichbar. Von außen (Mobilfunk) ist sie bewusst nicht erreichbar.
 

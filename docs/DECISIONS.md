@@ -59,7 +59,8 @@ to hide a rename is worse than a reader occasionally finding a file that has mov
 
 **Betrifft:** `src/EmotePurge.Api/Program.cs` ·
 `src/EmotePurge.Api/Properties/launchSettings.json` ·
-`src/EmotePurge.Api/appsettings.Lan.json.example` (new) · `.gitignore` · `web/angular.json` ·
+`src/EmotePurge.Api/appsettings.Lan.json.example` (new) · `src/EmotePurge.Api/EmotePurge.Api.csproj` ·
+`.gitignore` · `.dockerignore` · `web/angular.json` ·
 `web/package.json` · `CLAUDE.md` · `docs/DECISIONS.md` ·
 `docs/superpowers/plans/2026-08-08-account-menu.md`
 
@@ -84,15 +85,33 @@ Missing file means visible failure, not silent wrongness: `--launch-profile lan`
 falls back to the `localhost` redirect URI, so Twitch rejects the callback instead of the app
 quietly serving something half-configured.
 
-**Angular side, and this one is a trade.** The Angular CLI derives its flags from the option schema,
-and because `allowedHosts` is declared as `oneOf(boolean, array)` the CLI exposes only the boolean
-form — a specific hostname cannot be passed on the command line at all. The value therefore left
-`angular.json` entirely, and `start:lan` now passes the bare `--allowed-hosts` flag, which means
-allow-all. **That disables the dev server's protection against DNS-rebinding**, which is why it is
-scoped to this one npm script: plain `npm start` and `ng serve` keep the safe default. The exposure
-is a development server on a home network that is deliberately reachable by hostname to begin with;
-the alternative was keeping a private hostname in a public repository. If that trade ever stops
-looking right, the fix is a local, untracked `angular.json` edit, not a different flag.
+**Angular side.** The CLI derives its flags from the option schema, and because `allowedHosts` is
+declared as `oneOf(boolean, array)` it exposes only the boolean form — a specific hostname cannot be
+passed on the command line at all. The first attempt therefore dropped the value from `angular.json`
+and had `start:lan` pass a bare `--allowed-hosts`, accepting allow-all as the price of privacy.
+**That was wrong, and the Codex review caught it:** allow-all turns off Vite's protection against
+DNS rebinding, and "it is only reachable on a home LAN" is no mitigation — a page opened in any
+browser can resolve its own hostname to the LAN address and then talk to the dev server.
+
+The working answer is `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS`, which Vite appends to the allowed
+list, so the hostname comes from the developer's environment and host checking stays on. It has one
+precondition that makes the two halves fit together: Vite reads the variable only when
+`server.allowedHosts` is an **array** (`Array.isArray`), and `@angular/build` maps an absent option
+to `[]` while `--allowed-hosts` maps it to `true` — so the flag would not merely have been worse, it
+would have silently disabled the variable as well. The `lan` configuration therefore sets no
+`allowedHosts` at all. The variable is Vite-internal, hence the two underscores; if a major upgrade
+removes it, the fallback is a local, uncommitted `allowedHosts` entry in `angular.json`.
+
+**Gitignored is not enough, and that was the second thing the review caught.** `.gitignore` keeps
+the file out of commits, but it does nothing about the Docker build context: the root
+`.dockerignore` had no matching entry, `src/EmotePurge.Api/Dockerfile` does `COPY src/ src/`, and
+the Web SDK publishes `appsettings*.json` into the final image. A developer who followed the
+documented copy step and then ran `docker compose up --build` would have baked their own hostname
+into a local image — the exact leak this change exists to prevent, reintroduced one layer down. It
+is now excluded twice: in `.dockerignore`, and in the csproj via `CopyToPublishDirectory="Never"`,
+so no publish output carries it either. It still lands in the *build* output, which is what
+`dotnet run` reads, so the profile keeps working. Verified by publishing with the file in place and
+checking what came out.
 
 **One redaction, and it is an exception to a stated convention.** This log's existing entries are
 kept verbatim on purpose. The hostname and two internal IPs in the 2026-08-07 entry and in one plan

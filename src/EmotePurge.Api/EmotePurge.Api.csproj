@@ -29,4 +29,11 @@
     <ProjectReference Include="..\EmotePurge.Core\EmotePurge.Core.csproj" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!-- Local-only LAN override (docs/Operations.md). Stays in the build output so the
+         lan launch profile finds it, but never goes into a publish output or a container
+         image, where the operator's hostname would be baked in. -->
+    <Content Update="appsettings.Lan.json" CopyToPublishDirectory="Never" Condition="Exists('appsettings.Lan.json')" />
+  </ItemGroup>
 </Project>
