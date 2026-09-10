@@ -10,6 +10,54 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-10 — The LAN hostname leaves the public repository: `EMOTEPURGE_LAN` plus a gitignored `appsettings.Lan.json` (#152)
+
+**Betrifft:** `src/EmotePurge.Api/Program.cs` ·
+`src/EmotePurge.Api/Properties/launchSettings.json` ·
+`src/EmotePurge.Api/appsettings.Lan.json.example` (new) · `.gitignore` · `web/angular.json` ·
+`web/package.json` · `CLAUDE.md` · `docs/DECISIONS.md` ·
+`docs/superpowers/plans/2026-08-08-account-menu.md`
+
+The repository is public, and the maintainer's private LAN hostname was hardwired into two tracked
+files: the `lan` launch profile carried it in two `Auth__Twitch__*` values, and `web/angular.json`
+carried it in `allowedHosts`. Removing the documents that mentioned it would not have helped — the
+hostname was in the code, not only in the prose.
+
+**Api side.** `launchSettings.json` does not expand `%VAR%` or `$(VAR)` in `environmentVariables`;
+the values are literal. The `lan` profile therefore sets a single flag, `EMOTEPURGE_LAN`, and
+`Program.cs` loads an optional `appsettings.Lan.json` when it is set — last in the chain, so it
+beats `appsettings.Development.json`. That file is gitignored; `appsettings.Lan.json.example` is
+the tracked template.
+
+The obvious alternative — a separate `ASPNETCORE_ENVIRONMENT` such as `Lan` with its own
+`appsettings.Lan.json` loaded by convention — was **rejected**, and the reason is worth recording
+because it is easy to walk into: user secrets load only in the `Development` environment. Renaming
+the environment would have silently stopped `dotnet user-secrets` from supplying the Twitch
+`ClientId` and `ClientSecret`, so the profile that exists to test login would have broken login.
+
+Missing file means visible failure, not silent wrongness: `--launch-profile lan` still starts and
+falls back to the `localhost` redirect URI, so Twitch rejects the callback instead of the app
+quietly serving something half-configured.
+
+**Angular side, and this one is a trade.** The Angular CLI derives its flags from the option schema,
+and because `allowedHosts` is declared as `oneOf(boolean, array)` the CLI exposes only the boolean
+form — a specific hostname cannot be passed on the command line at all. The value therefore left
+`angular.json` entirely, and `start:lan` now passes the bare `--allowed-hosts` flag, which means
+allow-all. **That disables the dev server's protection against DNS-rebinding**, which is why it is
+scoped to this one npm script: plain `npm start` and `ng serve` keep the safe default. The exposure
+is a development server on a home network that is deliberately reachable by hostname to begin with;
+the alternative was keeping a private hostname in a public repository. If that trade ever stops
+looking right, the fix is a local, untracked `angular.json` edit, not a different flag.
+
+**One redaction, and it is an exception to a stated convention.** This log's existing entries are
+kept verbatim on purpose. The hostname and two internal IPs in the 2026-08-07 entry and in one plan
+document were nevertheless replaced with `dev.lan.example` and `<LAN-IP>`. Redacting an identifier
+is not the same as editing reasoning: not one argument in those entries changed, and leaving them
+would have defeated the point of the change while the documents around them were being cleaned. The
+values remain in git history, which no edit to `HEAD` can undo.
+
+---
+
 ### 2026-09-10 — Anything with an outward effect becomes English; thinking tools stay German (#152)
 
 **Betrifft:** `README.md` · `CONTRIBUTING.md` (new) · `SECURITY.md` (new) ·
@@ -4253,13 +4301,13 @@ Zwei Nebenentscheidungen: Die URL wird beim Setzen des Claims von `-300x300` auf
 
 **Warum keine Staging-Stage.** Naheliegend wäre ein zweiter Stack aus GHCR-Images gewesen, auf dem VPS oder auf dem NAS. Beides ist verworfen: die CI veröffentlicht Images ausschließlich von `main` (`.github/workflows/publish.yml`), ein Branch wie `feat/mobile-ansicht` erzeugt also gar kein Image — Staging hätte entweder einen zweiten Veröffentlichungspfad gebraucht oder lokale Builds mit der Hand geschoben. Dazu kommt die Schleifenlänge: eine Ansicht auf dem Handy zurechtzurücken heißt, dieselbe Datei zwanzigmal zu speichern; jedes `docker compose up -d --build` dazwischen kostet Minuten. Und der vermutete Hauptgewinn einer Stage — „dort liegen meine Testdaten" — existiert nicht: `appsettings.json` zeigt auf `Host=localhost`, `docker-compose.yml` veröffentlicht Postgres auf `127.0.0.1:5432`. Der lokal gestartete Api und der Container-Api reden längst mit **derselben** Datenbank und demselben Volume.
 
-**Gebaut wurde deshalb: derselbe Dev-Server, ein zweiter Hostname davor.** Das Handy ruft `https://dev.home.sensitron.me` auf, AdGuards bestehender Wildcard-Rewrite (`*.home.sensitron.me → 192.168.178.5`) zeigt auf den Nginx Proxy Manager, der mit dem vorhandenen Let's-Encrypt-Wildcard TLS terminiert und an `:4200` durchreicht. Kein neuer Dienst, kein DNS-Eintrag, kein geöffneter Port, nichts von außen erreichbar. Der Preis ist, dass es nur im heimischen WLAN funktioniert — bewusst akzeptiert, ein Tunnel oder Tailscale wäre eine dauerhafte Komponente für einen seltenen Fall.
+**Gebaut wurde deshalb: derselbe Dev-Server, ein zweiter Hostname davor.** Das Handy ruft `https://dev.lan.example` auf, AdGuards bestehender Wildcard-Rewrite (`*.lan.example → <LAN-IP>`) zeigt auf den Nginx Proxy Manager, der mit dem vorhandenen Let's-Encrypt-Wildcard TLS terminiert und an `:4200` durchreicht. Kein neuer Dienst, kein DNS-Eintrag, kein geöffneter Port, nichts von außen erreichbar. Der Preis ist, dass es nur im heimischen WLAN funktioniert — bewusst akzeptiert, ein Tunnel oder Tailscale wäre eine dauerhafte Komponente für einen seltenen Fall.
 
-**Warum `/api` weiterhin über den Angular-Dev-Proxy läuft und nicht über eine zweite NPM-Location.** Zwei Proxy-Hops sind unschöner als einer, aber die Alternative hätte Kestrel auf `0.0.0.0` gebunden, eine zweite Firewall-Regel gebraucht und eine Topologie geprüft, die weder der Entwicklungs- noch der Produktionsumgebung entspricht (in Produktion liefert die Api das Frontend selbst aus `wwwroot/` aus). Der vermutete Bruchpunkt der gewählten Fassung war `X-Forwarded-Proto`: `AuthEndpoints.cs` setzt das `Secure`-Flag des State-Cookies aus `Request.IsHttps`, das in dieser Kette allein aus dem weitergereichten Header stammt. **Gemessen am Tag der Einrichtung hält die Kette das aus** — die Login-Antwort über `https://dev.home.sensitron.me` trägt `Set-Cookie: ep_oauth_state=…; secure`, und ein Callback mit diesem Cookie kommt an der State-Prüfung vorbei (er scheitert erst am Token-Tausch). Beide Hops reichen den Header also durch. Der Ausweg (NPM splittet `/` und `/api`) ist in der Doku beschrieben, aber weder gebaut noch nötig.
+**Warum `/api` weiterhin über den Angular-Dev-Proxy läuft und nicht über eine zweite NPM-Location.** Zwei Proxy-Hops sind unschöner als einer, aber die Alternative hätte Kestrel auf `0.0.0.0` gebunden, eine zweite Firewall-Regel gebraucht und eine Topologie geprüft, die weder der Entwicklungs- noch der Produktionsumgebung entspricht (in Produktion liefert die Api das Frontend selbst aus `wwwroot/` aus). Der vermutete Bruchpunkt der gewählten Fassung war `X-Forwarded-Proto`: `AuthEndpoints.cs` setzt das `Secure`-Flag des State-Cookies aus `Request.IsHttps`, das in dieser Kette allein aus dem weitergereichten Header stammt. **Gemessen am Tag der Einrichtung hält die Kette das aus** — die Login-Antwort über `https://dev.lan.example` trägt `Set-Cookie: ep_oauth_state=…; secure`, und ein Callback mit diesem Cookie kommt an der State-Prüfung vorbei (er scheitert erst am Token-Tausch). Beide Hops reichen den Header also durch. Der Ausweg (NPM splittet `/` und `/api`) ist in der Doku beschrieben, aber weder gebaut noch nötig.
 
 **Was beim ersten Live-Test tatsächlich schiefging, gehört ins Log, weil das Symptom auf die falsche Maschine zeigt:** Der Login endete in `InvalidOAuthState` — die Meldung kam aber von der **Produktions**-Api. Die neue Redirect-URI war in der Twitch-App noch nicht gespeichert; Twitch beantwortet eine unbekannte `redirect_uri` nicht mit einer Fehlerseite, sondern leitet `?error=redirect_mismatch&state=…` an eine *registrierte* Adresse weiter, hier also nach `emotepurge.app`. Deren Callback sieht einen `state` ohne `code` und trifft denselben Zweig in Zeile 60. Wer den Fehlercode für sich nimmt, sucht ihn in der falschen Umgebung.
 
-**Und der Grund dafür war ein Schiefstand, der älter ist als diese Umgebung: `dotnet run` authentifizierte sich gegen die Produktions-App.** Es gibt zwei Twitch-Apps — `EmotePurgeDev` und die zu `emotepurge.app` gehörende. `docker compose` nahm über `TWITCH_CLIENT_ID` aus der `.env` schon immer die Entwicklungs-App, die User-Secrets des Api-Projekts hielten dagegen die Produktions-Zugangsdaten; ein und derselbe Rechner sprach also je nach Startweg mit zwei verschiedenen Apps, ohne dass es irgendwo stand. Die neue Redirect-URI landete folgerichtig in der einen App, während der laufende Prozess die andere benutzte. **Konsequenz, gezogen am selben Tag:** die User-Secrets tragen jetzt ebenfalls `EmotePurgeDev`, und diese App führt alle drei Redirect-URLs (`localhost:5151`, `localhost:8080`, `dev.home.sensitron.me`). Lokal berührt damit nichts mehr die Produktions-App. Die Alternative — die LAN-Adresse einfach zusätzlich in der Produktions-App zu registrieren — wäre ein Klick gewesen und hätte den Schiefstand konserviert.
+**Und der Grund dafür war ein Schiefstand, der älter ist als diese Umgebung: `dotnet run` authentifizierte sich gegen die Produktions-App.** Es gibt zwei Twitch-Apps — `EmotePurgeDev` und die zu `emotepurge.app` gehörende. `docker compose` nahm über `TWITCH_CLIENT_ID` aus der `.env` schon immer die Entwicklungs-App, die User-Secrets des Api-Projekts hielten dagegen die Produktions-Zugangsdaten; ein und derselbe Rechner sprach also je nach Startweg mit zwei verschiedenen Apps, ohne dass es irgendwo stand. Die neue Redirect-URI landete folgerichtig in der einen App, während der laufende Prozess die andere benutzte. **Konsequenz, gezogen am selben Tag:** die User-Secrets tragen jetzt ebenfalls `EmotePurgeDev`, und diese App führt alle drei Redirect-URLs (`localhost:5151`, `localhost:8080`, `dev.lan.example`). Lokal berührt damit nichts mehr die Produktions-App. Die Alternative — die LAN-Adresse einfach zusätzlich in der Produktions-App zu registrieren — wäre ein Klick gewesen und hätte den Schiefstand konserviert.
 
 **Warum ein zusätzliches Profil statt geänderter Standardwerte.** `npm start`, `dotnet run` ohne Profil und `appsettings.Development.json` bleiben unangetastet; der Handy-Modus ist ein zweites Gleis (`--launch-profile lan`, `npm run start:lan`). Der Dev-Server bindet nur in dieser Configuration auf `0.0.0.0` — ein Standardwert hätte jeden gewöhnlichen `ng serve` ins LAN gestellt, ohne dass jemand danach gefragt hat. Die Configuration muss ihr `buildTarget` selbst mitbringen, weil `--configuration lan` das `defaultConfiguration: "development"` ersetzt und nicht ergänzt; `allowedHosts` ist Pflicht, weil der Vite-basierte Dev-Server fremde `Host`-Header abweist und NPM den angefragten Namen unverändert durchreicht. Twitch bekommt eine **zusätzliche** Redirect-URI in der bestehenden App statt einer zweiten App — eine zweite App wäre ein zweites Secret ohne Gegenwert, und die Cookies sind host-only, Produktions- und Testsitzung stören sich also ohnehin nicht.
 

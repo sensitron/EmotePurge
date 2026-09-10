@@ -41,6 +41,10 @@ Thumbs.db
 ## Environment secrets
 .env
 
+# Local-only overrides for the `lan` launch profile (mobile LAN testing): holds the operator's
+# private LAN hostname, which must not land in the public repo. Template: appsettings.Lan.json.example.
+src/EmotePurge.Api/appsettings.Lan.json
+
 ## Angular production build copied into the Api image at Docker build time (src/EmotePurge.Api/Dockerfile); never committed
 src/EmotePurge.Api/wwwroot/
 

@@ -1251,7 +1251,7 @@ dotnet run --project src/EmotePurge.Api --launch-profile lan
 npm --prefix web run start:lan
 ```
 
-Am Gerät über `https://dev.home.sensitron.me`:
+Am Gerät über `https://dev.lan.example`:
 
 - [ ] Trigger als Daumenziel brauchbar, Panel geht auf.
 - [ ] Das Panel wird **nicht beschnitten**. Es ist rund 320 px hoch und hängt aus einem 56-px-Header; bekäme irgendein Vorfahr `overflow: hidden` oder `auto`, wäre es hier abgeschnitten. Heute trägt keiner eines — das ist der Test dafür.

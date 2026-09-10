@@ -17,6 +17,18 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Local-only overrides for the `lan` launch profile (mobile LAN testing, see
+// docs/Operations.md). The repo is public, so the operator's private LAN
+// hostname cannot live in launchSettings.json — instead the `lan` profile sets only this flag,
+// and the actual hostname lives in a gitignored appsettings.Lan.json (see
+// appsettings.Lan.json.example for the one-time setup). Added last so it wins over
+// appsettings.Development.json's Auth:Twitch:PostLoginRedirectUrl; harmless no-op for every
+// other profile, where the flag is unset and the file is never read.
+if (builder.Configuration.GetValue<bool>("EMOTEPURGE_LAN"))
+{
+    builder.Configuration.AddJsonFile("appsettings.Lan.json", optional: true, reloadOnChange: true);
+}
+
 builder.Services.AddOpenApi();
 
 builder.Services.AddEmotePurgeInfrastructure(builder.Configuration);
