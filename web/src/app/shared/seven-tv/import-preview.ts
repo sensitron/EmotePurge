@@ -62,18 +62,70 @@ export function buildImportPreview(
 }
 
 /**
- * True for a name 7TV is known to reject when creating an emote in the target set.
+ * True for an alias 7TV is known to reject when adding an emote to the target set. This tests
+ * `row.name` in its role as the `alias` an `addEmote` mutation sends (#149/T2) — not 7TV's
+ * separate, stricter validator for the canonical emote name, which this preview does not touch.
  *
- * Deliberately narrow: the only thing we have *evidence* for is that 7TV rejects non-ASCII
- * characters in the emote name itself (the alias is not affected — 7TV does allow umlauts
- * there). That evidence is two live rejections observed during manual testing of this feature,
- * both `Failed to parse "String": invalid emote name` for a name containing an umlaut (`Hänno`,
- * `HörMalZuBrudi`). We do not otherwise know 7TV's full allowed character set, and guessing at
- * it has gone wrong twice already in this project (#33, #37 — code and test mock shared the same
- * wrong assumption, so the tests stayed green while the behavior was broken). So this check stays
- * exactly as narrow as what was actually observed rejected; if a further rejection reason is
- * observed, extend this check, do not loosen it into a guessed-at allow-list.
+ * This used to claim non-ASCII aliases were doomed ("the alias is not affected — 7TV does allow
+ * umlauts there" was the previous wording here, and it was wrong: the two live rejections it cited,
+ * `Hänno` and `HörMalZuBrudi`, were themselves alias rejections, not name rejections). What was
+ * actually true is narrower: 7TV `v3`'s alias validator rejects every non-ASCII codepoint outright,
+ * because 7TV never backported the Unicode-aware alias validator it shipped for `v4`
+ * (`SevenTV/SevenTV#228`, merged 2025-12-01) onto `v3`. Since #149 we write against `v4`, so that
+ * rejection no longer applies — but `v4` has its own, different validator, and *that* one is what
+ * this check now has to reflect.
+ *
+ * The `v4` rule below is evidenced from two independent directions that agree on all 25 data
+ * points measured live against `7tv.io` on 2026-09-10 (docs/plans/Plan-149-7TV-v4-Schreibflaeche.md,
+ * section 0/T0): 7TV's own `EmoteAliasValidator` regex, read from `SevenTV/SevenTV` at
+ * `apps/api/src/http/validators.rs` —
+ *
+ *     ^[\w\-():!+|.'?><&\p{Emoji_Presentation}*$#]{1,100}$
+ *
+ * (Rust's `\w` is Unicode-aware, which is why letters of any script pass) — and a live probe of
+ * that same field with 25 aliases. Both agree on what gets rejected: whitespace anywhere in the
+ * alias (space, tab, newline), a zero-width space, the characters `/ \ " , ; @ % = [ ] { } ~ ^`,
+ * an alias over 100 characters, and the empty string. Both agree on what gets accepted: letters of
+ * any script, `ß`, emoji, and a 100-character alias.
+ *
+ * This check still only tests for what was actually observed rejected — a blocklist, not the
+ * regex's allow-list transcribed into code. Guessing at 7TV's allowed character set has gone wrong
+ * twice already in this project (#33, #37 — code and test mock shared the same wrong assumption,
+ * so the tests stayed green while the behavior was broken), and the one time 7TV changed this rule
+ * it only ever *loosened* it (`v3` to `v4`). A blocklist errs safe under that trend: an alias 7TV
+ * newly allows that this check does not yet know about still gets flagged (an unnecessary but
+ * harmless warning — this is informational only, `toAdd` is never filtered by it), where an
+ * allow-list built from the regex above would instead silently wave it through on the strength of
+ * a regex reading, not a probe. If a further rejection reason is observed, extend this blocklist;
+ * do not turn it into a guessed-at, or even regex-transcribed, allow-list.
  */
 function isNameRejectedBySevenTv(name: string): boolean {
-  return [...name].some((char) => (char.codePointAt(0) ?? 0) > 0x7f);
+  const codepoints = [...name];
+  if (codepoints.length === 0 || codepoints.length > 100) {
+    return true;
+  }
+  return codepoints.some((char) => SEVEN_TV_REJECTED_ALIAS_CHARS.has(char));
 }
+
+/** Every character 7TV's `v4` alias validator was observed to reject — see
+ *  `isNameRejectedBySevenTv` for the evidence and why this is a blocklist, not an allow-list. */
+const SEVEN_TV_REJECTED_ALIAS_CHARS = new Set([
+  ' ',
+  '\t',
+  '\n',
+  '\u200b', // zero-width space
+  '/',
+  '\\',
+  '"',
+  ',',
+  ';',
+  '@',
+  '%',
+  '=',
+  '[',
+  ']',
+  '{',
+  '}',
+  '~',
+  '^',
+]);
