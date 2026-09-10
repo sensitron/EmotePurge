@@ -61,9 +61,9 @@ describe('apiAuthInterceptor', () => {
   // expiry must not sign the user out of EmotePurge.
   it('ignores a 401 from the 7TV endpoint', () => {
     http
-      .post('https://7tv.io/v3/gql', {})
+      .post('https://7tv.io/v4/gql', {})
       .subscribe({ next: () => undefined, error: () => undefined });
-    flush('https://7tv.io/v3/gql', 401);
+    flush('https://7tv.io/v4/gql', 401);
 
     expect(handleSessionExpired).not.toHaveBeenCalled();
   });

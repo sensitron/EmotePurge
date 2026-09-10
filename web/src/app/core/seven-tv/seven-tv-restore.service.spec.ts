@@ -23,7 +23,7 @@ const DE_TRANSLATIONS = {
   },
 };
 
-const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
+const GQL_ENDPOINT = 'https://7tv.io/v4/gql';
 const RESYNC_ENDPOINT = '/api/channels/sensitron/resync';
 const SYNC_RESTORED_ENDPOINT = '/api/channels/sensitron/emotes/sync-restored';
 
@@ -81,12 +81,34 @@ describe('SevenTvRestoreService', () => {
 
     const req = httpMock.expectOne(GQL_ENDPOINT);
     expect(req.request.headers.get('Authorization')).toBe('Bearer write-token');
-    expect(req.request.body.query).toContain('action: ADD');
+    // v4 dropped the ADD action in favour of a dedicated field, and the alias travels *inside* the
+    // input object — pin both, not the vanished enum.
+    expect(req.request.body.query).toContain('addEmote(id: { emoteId: $emoteId, alias: $alias })');
     expect(req.request.body.variables).toEqual({
       setId: 'set-1',
       emoteId: '7tv-1',
-      name: 'PogU',
+      alias: 'PogU',
     });
+    req.flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+    httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+    httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+  });
+
+  // Regression guard for #149: v3 rejected any alias outside ASCII+emoji, umlauts included. v4
+  // fixed that server-side, but only if the alias actually reaches the wire unmangled — this is
+  // the case that would have caught the old `name`-as-sibling-argument shape just as well as a
+  // stray transliteration.
+  it('sends an alias containing an umlaut unmangled in the mutation variables', () => {
+    service.startRestore('set-1', 'sensitron', [{ ...EMOTES[0], name: 'Gänsehosen' }]);
+
+    const req = httpMock.expectOne(GQL_ENDPOINT);
+    expect(req.request.body.variables).toEqual({
+      setId: 'set-1',
+      emoteId: '7tv-1',
+      alias: 'Gänsehosen',
+    });
+
     req.flush({});
     vi.advanceTimersByTime(RUN_DELAY_MS);
     httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
@@ -197,6 +219,108 @@ describe('SevenTvRestoreService', () => {
     expect(service.queue()).toEqual([]);
     expect(service.syncReport()).toBe('idle');
     expect(service.resyncTrigger()).toBe('idle');
+  });
+
+  // #149/T5: this service does not filter `emotes` itself (its callers — restore-flow.ts,
+  // mass-delete-panel.ts — do, via already-present-filter.ts, before ever calling startRestore).
+  // What it owns is surfacing the caller's skip count to the user, including in the one case a
+  // caller could otherwise leave silent: every row was a duplicate, so nothing gets queued at all.
+  describe('skippedDuplicates (#149/T5)', () => {
+    it('defaults to 0 when the caller omits it', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+
+      expect(service.skippedDuplicates()).toBe(0);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reports the caller-supplied skip count even when every row was a duplicate and nothing queues', () => {
+      // A second restore over rows already restored: the caller's pre-run filter (T5) removed
+      // every row, leaving an empty list — the engine refuses to start on an empty queue, but the
+      // skip count must still reach the user rather than the run silently doing nothing.
+      service.startRestore('set-1', 'sensitron', [], 2);
+
+      expect(service.isRunning()).toBe(false);
+      expect(service.queue()).toEqual([]);
+      expect(service.skippedDuplicates()).toBe(2);
+    });
+
+    it('resets to 0 on the next call, even without duplicates', () => {
+      service.startRestore('set-1', 'sensitron', [], 2);
+      expect(service.skippedDuplicates()).toBe(2);
+
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+      expect(service.skippedDuplicates()).toBe(0);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reset() clears it back to 0', () => {
+      service.startRestore('set-1', 'sensitron', [], 2);
+      expect(service.skippedDuplicates()).toBe(2);
+
+      service.reset();
+
+      expect(service.skippedDuplicates()).toBe(0);
+    });
+  });
+
+  // #149: whether the caller's pre-run check (already-present-filter.ts) actually ran — distinct
+  // from skippedDuplicates above, which alone cannot tell "nothing to skip" apart from "could not
+  // check". A caller that never passes the fifth argument (every pre-fix test above, and every
+  // caller that predates this fix) must keep reading as "checked".
+  describe('duplicateCheckAvailable (#149)', () => {
+    it('defaults to true when the caller omits it', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+
+      expect(service.duplicateCheckAvailable()).toBe(true);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reports false when the caller says its check could not run, even though the run itself still starts', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]], 0, false);
+
+      expect(service.duplicateCheckAvailable()).toBe(false);
+      // Fails open, same as always — an unverifiable check does not block the confirmed run.
+      expect(service.isRunning()).toBe(true);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('resets to true on the next call, even without a fifth argument', () => {
+      service.startRestore('set-1', 'sensitron', [], 2, false);
+      expect(service.duplicateCheckAvailable()).toBe(false);
+
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+      expect(service.duplicateCheckAvailable()).toBe(true);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('reset() clears it back to true', () => {
+      service.startRestore('set-1', 'sensitron', [], 2, false);
+      expect(service.duplicateCheckAvailable()).toBe(false);
+
+      service.reset();
+
+      expect(service.duplicateCheckAvailable()).toBe(true);
+    });
   });
 
   // R15 (#72, T12): finish() flips isRunning() to false *before* the two closing calls resolve, so

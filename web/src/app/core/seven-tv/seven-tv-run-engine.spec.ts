@@ -28,7 +28,7 @@ const DE_TRANSLATIONS = {
   },
 };
 
-const GQL_ENDPOINT = 'https://7tv.io/v3/gql';
+const GQL_ENDPOINT = 'https://7tv.io/v4/gql';
 
 const TEST_OPERATION: RunOperation = {
   label: 'test run',
@@ -215,6 +215,32 @@ describe('SevenTvRunEngine', () => {
     expect(engine.queue()[0].status).toBe('done');
   });
 
+  it('backs off a degenerate rate-limit answer for a full window when extensions.headers is missing', () => {
+    // Safety net for the plan-149 §0.3 parity claim: v4 uses the same ApiError serializer as v3, but
+    // nothing guarantees every rejection carries the header mirror. isRateLimitError only looks at
+    // extensions.code/status, so this must still be recognised as a rate limit and fall back to the
+    // blind 60s wait — never fall through to readRateLimitInfo silently defaulting everything to
+    // null and being (mis-)treated as an ordinary row failure.
+    start([EMOTES[0]]);
+    httpMock.expectOne(GQL_ENDPOINT).flush({
+      errors: [
+        {
+          message: 'RATE_LIMIT_EXCEEDED rate limit exceeded',
+          extensions: { code: 'RATE_LIMIT_EXCEEDED' },
+        },
+      ],
+    });
+
+    expect(engine.queue()[0].status).toBe('in-progress');
+    expect(engine.rateLimitPauseSeconds()).toBe(60);
+
+    vi.advanceTimersByTime(60_000);
+    httpMock.expectOne(GQL_ENDPOINT).flush({});
+    vi.advanceTimersByTime(RUN_DELAY_MS);
+
+    expect(engine.queue()[0].status).toBe('done');
+  });
+
   it('clears the token on 401 so the UI falls back to the prompt', () => {
     start([EMOTES[0]]);
     httpMock.expectOne(GQL_ENDPOINT).flush(null, { status: 401, statusText: 'Unauthorized' });
@@ -299,7 +325,7 @@ describe('SevenTvRunEngine', () => {
       expect(results[0].doneKeys).toEqual(['internal-1']);
     });
 
-    it('gives the hook the raw GQL message and a null httpStatus for a GQL-level rejection', () => {
+    it('gives the hook the raw GQL message, a null httpStatus and a null errorCode for a GQL-level rejection without extensions', () => {
       const abortOn = vi.fn().mockReturnValue(false);
       const operation: RunOperation = { ...TEST_OPERATION, abortOn };
       expect(start([EMOTES[0]], operation)).toBe(true);
@@ -309,10 +335,35 @@ describe('SevenTvRunEngine', () => {
       expect(abortOn).toHaveBeenCalledExactlyOnceWith({
         message: 'insufficient privileges',
         httpStatus: null,
+        errorCode: null,
       });
     });
 
-    it('gives the hook the translated text and the HTTP status for a transport failure, after the token is cleared', () => {
+    it('passes extensions.code through to the hook for a structured GQL rejection', () => {
+      // The v4 shape the migration exists for: a missing-permission mutation answers with HTTP 200
+      // and extensions.code = LACKING_PRIVILEGES, no httpStatus to match on at all — the caller's
+      // abortsForMissingPrivileges (a different task) reads this field, not the message text.
+      const abortOn = vi.fn().mockReturnValue(false);
+      const operation: RunOperation = { ...TEST_OPERATION, abortOn };
+      expect(start([EMOTES[0]], operation)).toBe(true);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({
+        errors: [
+          {
+            message: 'LACKING_PRIVILEGES you are not an editor for this user',
+            extensions: { code: 'LACKING_PRIVILEGES' },
+          },
+        ],
+      });
+
+      expect(abortOn).toHaveBeenCalledExactlyOnceWith({
+        message: 'LACKING_PRIVILEGES you are not an editor for this user',
+        httpStatus: null,
+        errorCode: 'LACKING_PRIVILEGES',
+      });
+    });
+
+    it('gives the hook the translated text, the HTTP status and a null errorCode for a transport failure, after the token is cleared', () => {
       const abortOn = vi.fn().mockReturnValue(false);
       const operation: RunOperation = { ...TEST_OPERATION, abortOn };
       expect(start([EMOTES[0]], operation)).toBe(true);
@@ -323,10 +374,11 @@ describe('SevenTvRunEngine', () => {
       expect(abortOn).toHaveBeenCalledExactlyOnceWith({
         message: 'Token ungültig oder abgelaufen — bitte neues 7TV-Token eintragen.',
         httpStatus: 403,
+        errorCode: null,
       });
     });
 
-    it('passes httpStatus 0 for a network error', () => {
+    it('passes httpStatus 0 and a null errorCode for a network error', () => {
       const abortOn = vi.fn().mockReturnValue(false);
       const operation: RunOperation = { ...TEST_OPERATION, abortOn };
       expect(start([EMOTES[0]], operation)).toBe(true);
@@ -336,6 +388,7 @@ describe('SevenTvRunEngine', () => {
       expect(abortOn).toHaveBeenCalledExactlyOnceWith({
         message: 'Keine Verbindung zu 7TV möglich (Netzwerkfehler).',
         httpStatus: 0,
+        errorCode: null,
       });
     });
 
@@ -360,6 +413,7 @@ describe('SevenTvRunEngine', () => {
       expect(abortOn).toHaveBeenCalledExactlyOnceWith({
         message: '7TV-Rate-Limit auch nach mehreren Wartezyklen aktiv — Emote übersprungen.',
         httpStatus: null,
+        errorCode: null,
       });
     });
 

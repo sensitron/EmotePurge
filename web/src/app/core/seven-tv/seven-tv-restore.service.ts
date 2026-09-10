@@ -14,14 +14,19 @@ import {
 import { RunOperation, RunQueueEmote, RunResult, SevenTvRunEngine } from './seven-tv-run-engine';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
-/** Same shape as the delete's REMOVE, with ADD and the alias to restore under. `name` restores the
- *  chat alias the emote had at delete time — without it 7TV falls back to the emote's default name,
- *  which for renamed emotes would not be the one the chat knows. */
+/** Same shape as the delete's REMOVE, with `addEmote` and the alias to restore under. `alias`
+ *  restores the chat alias the emote had at delete time — without it 7TV falls back to the emote's
+ *  default name, which for renamed emotes would not be the one the chat knows. It travels *inside*
+ *  the `EmoteSetEmoteId` input object, not as a sibling argument — v4's `addEmote` field replaces
+ *  v3's single `emotes(action: ADD, name:)` mutation with one field per operation (see
+ *  docs/DECISIONS.md, #149). */
 const ADD_EMOTE_MUTATION = `
-  mutation AddEmote($setId: ObjectID!, $emoteId: ObjectID!, $name: String) {
-    emoteSet(id: $setId) {
-      emotes(id: $emoteId, action: ADD, name: $name) {
-        id
+  mutation AddEmote($setId: Id!, $emoteId: Id!, $alias: String) {
+    emoteSets {
+      emoteSet(id: $setId) {
+        addEmote(id: { emoteId: $emoteId, alias: $alias }) {
+          id
+        }
       }
     }
   }
@@ -31,7 +36,7 @@ const ADD_OPERATION: RunOperation = {
   label: 'restore',
   buildRequest: (setId, emote) => ({
     query: ADD_EMOTE_MUTATION,
-    variables: { setId, emoteId: emote.sevenTvEmoteId, name: emote.name },
+    variables: { setId, emoteId: emote.sevenTvEmoteId, alias: emote.name },
   }),
 };
 
@@ -92,7 +97,35 @@ export class SevenTvRestoreService {
 
   readonly resyncTrigger = signal<ResyncTriggerState>('idle');
 
-  startRestore(setId: string, channelName: string, emotes: DeleteQueueEmote[]): void {
+  /** How many rows the caller's pre-run duplicate check (#149/T5, `already-present-filter.ts`)
+   *  dropped before ever calling `startRestore` — surfaced so a run where every row was already
+   *  present is not a silent no-op. Set unconditionally, even when the engine then refuses to start
+   *  (an empty `emotes` list, e.g. because everything was a duplicate) — that case is exactly the
+   *  one this exists to make visible. */
+  readonly skippedDuplicates = signal(0);
+
+  /** Whether the caller's pre-run duplicate check (#149/T5, `already-present-filter.ts`) actually
+   *  ran — `false` means its fetch failed, so `emotes` passed through unfiltered and an undetected
+   *  duplicate is possible in this run. Same vocabulary as `AlreadyPresentFilterResult.available`;
+   *  see that type's doc for why a failed check must not read as a clean `skippedDuplicates: 0`.
+   *  Defaults to `true` so existing callers/tests that omit it keep reading as "checked, nothing to
+   *  skip". */
+  readonly duplicateCheckAvailable = signal(true);
+
+  /** `skippedDuplicates` is the caller's own count from filtering `emotes` *before* this call —
+   *  this method does no filtering of its own (see `already-present-filter.ts`, which every current
+   *  caller runs first). Defaults to 0 so existing callers/tests that pass only three arguments are
+   *  unaffected. `duplicateCheckAvailable` mirrors the same call's `available` and defaults to
+   *  `true` for the same reason. */
+  startRestore(
+    setId: string,
+    channelName: string,
+    emotes: DeleteQueueEmote[],
+    skippedDuplicates = 0,
+    duplicateCheckAvailable = true,
+  ): void {
+    this.skippedDuplicates.set(skippedDuplicates);
+    this.duplicateCheckAvailable.set(duplicateCheckAvailable);
     // Same key-mirrors-emoteId reasoning as the delete service (see R3 in docs/DECISIONS.md).
     const queueEmotes: RunQueueEmote[] = emotes.map((emote) => ({ ...emote, key: emote.emoteId }));
     const started: RestoreRunInfo = { channelName, result: null };
@@ -100,7 +133,10 @@ export class SevenTvRestoreService {
       this.onRunComplete(started, result),
     );
     if (!engineStarted) {
-      // Refused (already running, empty list, no token) — leave every signal as it was.
+      // Refused (already running, empty list, no token) — leave every signal as it was, except
+      // skippedDuplicates and duplicateCheckAvailable above: an all-duplicates restore is a
+      // legitimate "refused" case whose count (and whether it is even trustworthy) the caller still
+      // needs to see.
       return;
     }
     this.run = started;
@@ -116,6 +152,8 @@ export class SevenTvRestoreService {
     this.engine.reset();
     this.syncReport.set('idle');
     this.resyncTrigger.set('idle');
+    this.skippedDuplicates.set(0);
+    this.duplicateCheckAvailable.set(true);
     this.run = null;
   }
 

@@ -97,7 +97,7 @@ Publizierende Stellen je Event-Typ (Stand 2026-08-01):
 >
 > **Nachtrag 2026-07-30:** Die Re-Untersuchung [Untersuchung-7TV-WebSocket-2026-07-30.md](Untersuchung-7TV-WebSocket-2026-07-30.md) hat die Attribution „nachweislich nicht zuverlässig seitens 7TV" **widerlegt**: Ursache waren zwei eigene Implementierungsfehler (Resubscribe vor dem Verbindungsaufbau; Parser las `added`/`removed` statt des echten Wire-Formats `pushed`/`pulled`), und die channel-scoped Subscription ist serverseitig ein Presence-Scope, der Channel-Set-Updates strukturell nicht liefert. Der WebSocket wurde daraufhin als **Ergänzung** wieder eingeführt (Eintrag „7TV-EventAPI-WebSocket wieder eingeführt" in docs/DECISIONS.md): `SevenTvEventWorker`/`SevenTvEventClient` liefern Live-Deltas (`emote_set.*` + `user.*`, jeweils `{object_id}`), der periodische REST-Resync bleibt als zwingende Reconciliation bestehen — die EventAPI hat kein Resume/Replay und trennt jede Verbindung nach ~1 h TTL. Feature-Flag `SevenTv:EventApi:Enabled` (Default aus), Resync-Takt `SevenTv:ResyncIntervalSeconds` (Default 60 s, bei bewährtem WS-Betrieb manuell streckbar).
 >
-> **API-Version:** 7TV v3 (REST + GQL + EventAPI), nicht v4. v4 existiert als GraphQL-API, hat aber keinen Event-Kanal (kein `events.7tv.io/v4`, GQL-Schema ohne Subscriptions) — die v3-EventAPI ist der einzige Live-Weg und nicht deprecated (Stand 2026-07-30).
+> **API-Version:** Backend (REST + lesendes GQL für die Twitch→7TV-Nutzerauflösung + EventAPI) bleibt auf 7TV v3, nicht v4. v4 existiert als GraphQL-API, hat aber keinen Event-Kanal (kein `events.7tv.io/v4`, GQL-Schema ohne Subscriptions) — die v3-EventAPI ist der einzige Live-Weg und nicht deprecated (Stand 2026-07-30). **Ausnahme seit 2026-09-10 (#149):** die Schreibfläche des Frontends (Modul D, Mass-Delete-Engine: Import, Restore, Delete) spricht `https://7tv.io/v4/gql`, weil `v3`s Alias-Validator Umlaute ablehnt und `v4` das repariert hat — s. Abschnitt „Modul D" und DECISIONS.md.
 >
 > **Auflösung Channel → Emote-Set:** 7TVs REST-Endpoint (`/v3/users/twitch/{twitchUserId}`) akzeptiert nur die numerische Twitch-User-ID, nicht den Usernamen. Da bewusst keine Twitch-Helix-API/App-Registrierung genutzt wird, löst `ISevenTvApiClient` den Twitch-Usernamen stattdessen über 7TVs eigene GraphQL-Nutzersuche (`/v3/gql`, `users(query: ...)`, gefiltert auf exakten Treffer in `connections[]` mit `platform=="TWITCH"`) auf. Das befüllt `Channel.TwitchChannelId` damit bereits jetzt (nicht erst durch das künftige Modul B) — semantisch dieselbe numerische ID, nur ein anderer Befüllungsweg.
 
@@ -184,13 +184,15 @@ $$\text{Score} = \text{Keep-Votes} - \text{Delete-Votes}$$
 - Mehrfachauswahl (Checkbox + Shift-Klick-Bereichsauswahl) auf beiden Grid-Seiten identisch.
 - Virtual Scrolling: Nutzung von Angular CDK `CdkVirtualScrollViewport` für flüssiges Rendering.
 - Direct GraphQL Execution: Schreib-Tokens verbleiben lokal im Browser (`sessionStorage`).
-- Batch Delete Queue: Das Frontend schickt beim Löschbefehl die Mutation direkt vom Browser an `https://7tv.io/v3/gql`:
+- Batch Delete Queue: Das Frontend schickt beim Löschbefehl die Mutation direkt vom Browser an `https://7tv.io/v4/gql` (bis 2026-09-10 `v3`, s. #149 und DECISIONS.md — `v4` hat das `action`-Enum abgeschafft und je Operation ein eigenes Feld unter `emoteSets { emoteSet(id:) { … } }`):
 
 ```graphql
-mutation RemoveEmote($setId: ObjectID!, $emoteId: ObjectID!) {
-  emoteSet(id: $setId) {
-    emotes(id: $emoteId, action: REMOVE) {
-      id
+mutation RemoveEmote($setId: Id!, $emoteId: Id!) {
+  emoteSets {
+    emoteSet(id: $setId) {
+      removeEmote(id: { emoteId: $emoteId }) {
+        id
+      }
     }
   }
 }
