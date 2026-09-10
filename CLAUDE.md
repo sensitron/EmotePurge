@@ -62,7 +62,15 @@ dotnet run --project src/EmotePurge.Api --launch-profile lan
 npm --prefix web run start:lan
 ```
 
-Das Handy ruft im heimischen WLAN `https://dev.home.sensitron.me` auf; Nginx Proxy Manager terminiert TLS und reicht an den Dev-Server auf `:4200` durch. Gleiche Datenbank, gleiche Testdaten, Hot Reload, echter Twitch-Login. Die beiden `lan`-Varianten unterscheiden sich vom Alltagsstart nur darin, dass der Dev-Server auf allen Schnittstellen lauscht und die Twitch-Redirect-URI auf den Hostnamen umgestellt ist — **weder `appsettings.Development.json` noch `npm start` sind davon berührt**. Einrichtung, Topologie und Fehlersuche: [docs/Testumgebung-Mobile-2026-08-07.md](docs/Testumgebung-Mobile-2026-08-07.md).
+Das Handy ruft im heimischen WLAN einen eigenen Hostnamen auf, hinter dem ein Reverse Proxy TLS terminiert und an den Dev-Server auf `:4200` durchreicht. Gleiche Datenbank, gleiche Testdaten, Hot Reload, echter Twitch-Login. Die beiden `lan`-Varianten unterscheiden sich vom Alltagsstart nur darin, dass der Dev-Server auf allen Schnittstellen lauscht und die Twitch-Redirect-URI auf den Hostnamen umgestellt ist — **weder `appsettings.Development.json` noch `npm start` sind davon berührt**.
+
+**Der Hostname steht nicht im Repo** (es ist öffentlich, s. DECISIONS 2026-09-10). Das `lan`-Profil setzt nur das Flag `EMOTEPURGE_LAN`; der Hostname selbst liegt in der gitignorierten `src/EmotePurge.Api/appsettings.Lan.json`. Einmalig anlegen:
+
+```
+cp src/EmotePurge.Api/appsettings.Lan.json.example src/EmotePurge.Api/appsettings.Lan.json
+```
+
+und darin die beiden Platzhalter durch den echten Hostnamen ersetzen. Fehlt die Datei, startet `--launch-profile lan` trotzdem und fällt auf die `localhost`-Redirect-URI zurück — der Login schlägt dann sichtbar fehl, statt still etwas Falsches zu tun. Der projektöffentliche Teil steht in [docs/Operations.md](docs/Operations.md); die eigene Netz-Topologie (Proxy-Manager, DNS-Rewrite, Zertifikat) liegt in `infra-docs`.
 
 Es gibt keine Staging-Stage; die Umgebung *ist* die lokale, nur unter anderem Namen erreichbar. Von außen (Mobilfunk) ist sie bewusst nicht erreichbar.
 
@@ -75,7 +83,7 @@ npm --prefix web run e2e                   # Frontend E2E (Playwright, /api/** g
 node scripts/coverage-local.mjs            # Coverage-Vorabschätzung gegen die 80-%-Schwelle
 ```
 
-**Die E2E-Suite läuft nur, wenn auf `:5151` keine Api lauscht.** Gemockt wird pro Test einzeln; was ein Test nicht mockt, fällt durch den Dev-Proxy. Ist dort nichts, scheitert die Anfrage sofort und die Seite rendert trotzdem — antwortet dort eine echte Api mit `401`, schickt der `apiAuthInterceptor` die App auf die Login-Seite, und ab da findet kein Test mehr seine Inhalte. Das Fehlerbild ist irreführend: rund die halbe Suite fällt mit „element not found" durch, quer über Dateien, die mit der Änderung nichts zu tun haben. Gemessen am 2026-08-07: mit laufender Api 38 von 76 rot in 5 min, ohne sie 76 grün in 52 s. Die Suite ist seither gewachsen — Stand 2026-08-30 sind es **96 Tests in rund 1,5 min**. Die beiden Fälle zum Sync-Fehlergrund (aus #32), die früher je rund 31 Sekunden echt gewartet haben, laufen seit #33 auf Playwrights `page.clock`; die Suite hat damit keine realzeitwartenden Fälle mehr. Wer selbst einen zeitgesteuerten Fall schreibt: `page.clock.install()` **vor** `goto` (sonst rennt die zoneless-Change-Detection gegen die gefälschten Timer), danach `runFor(...)` und nicht `fastForward(...)` — Letzteres feuert jeden fälligen Timer höchstens einmal und macht ein wiederkehrendes Intervall falsch grün. Wer gerade [mobil getestet](docs/Testumgebung-Mobile-2026-08-07.md) hat, beendet also erst `dotnet run`.
+**Die E2E-Suite läuft nur, wenn auf `:5151` keine Api lauscht.** Gemockt wird pro Test einzeln; was ein Test nicht mockt, fällt durch den Dev-Proxy. Ist dort nichts, scheitert die Anfrage sofort und die Seite rendert trotzdem — antwortet dort eine echte Api mit `401`, schickt der `apiAuthInterceptor` die App auf die Login-Seite, und ab da findet kein Test mehr seine Inhalte. Das Fehlerbild ist irreführend: rund die halbe Suite fällt mit „element not found" durch, quer über Dateien, die mit der Änderung nichts zu tun haben. Gemessen am 2026-08-07: mit laufender Api 38 von 76 rot in 5 min, ohne sie 76 grün in 52 s. Die Suite ist seither gewachsen — Stand 2026-08-30 sind es **96 Tests in rund 1,5 min**. Die beiden Fälle zum Sync-Fehlergrund (aus #32), die früher je rund 31 Sekunden echt gewartet haben, laufen seit #33 auf Playwrights `page.clock`; die Suite hat damit keine realzeitwartenden Fälle mehr. Wer selbst einen zeitgesteuerten Fall schreibt: `page.clock.install()` **vor** `goto` (sonst rennt die zoneless-Change-Detection gegen die gefälschten Timer), danach `runFor(...)` und nicht `fastForward(...)` — Letzteres feuert jeden fälligen Timer höchstens einmal und macht ein wiederkehrendes Intervall falsch grün. Wer gerade [mobil getestet](docs/Operations.md) hat, beendet also erst `dotnet run`.
 
 **`scripts/coverage-local.mjs` schätzt vor dem PR, ob die SonarCloud-Quality-Gate reißt.** Es fährt beide Suiten mit Coverage (`--collect:"XPlat Code Coverage;Format=opencover"` bzw. `--coverage --coverage-reporters=lcov` — `dotnet test` allein erzeugt **keine** Coverage-Datei) und rechnet die Quote über die gegen `origin/main` geänderten Dateien. Die Schwelle ist 80 % auf neuem Code, und seit dem 2026-09-06 blockiert sie: `analyze` wartet auf das Gate und ist ein required check (s. DECISIONS). **Die Zahl ist eine dateigenaue Näherung, Sonar misst zeilengenau — und sie ist in _beide_ Richtungen unscharf, ohne Schranke.** Eine einzelne neue Zeile in einer großen, gut gedeckten Bestandsdatei sieht hier gut aus, während Sonar für genau diese Datei 0 % auf neuem Code meldet. Umgekehrt zieht eine schlecht gedeckte Bestandsdatei die Zahl hier nach unten, obwohl die wenigen neuen Zeilen von einem neuen Test voll gedeckt sind und Sonar 100 % zählt. Bei **neuen** Dateien ist die Näherung nah an der Wahrheit, weil dort fast alle Zeilen neu sind; bei kleinen, chirurgischen Änderungen in großen Dateien ist sie am schwächsten. Seit der Frontend-Lauf **alle** Produktivdateien in den Report zwingt, wiegt zudem eine große, ungetestete Datei mit vollem Zeilen- und Zweiggewicht im Nenner, auch wenn nur wenige Zeilen darin geändert wurden — die Gesamtquote fällt dadurch tendenziell strenger aus als Sonars. Lies das Ergebnis als Anlass hinzusehen, nicht als Urteil. `--skip-tests` wertet vorhandene Reports erneut aus, `--frontend-only`/`--backend-only` halbieren die Laufzeit.
 
@@ -129,7 +137,7 @@ Konfiguration über `.env` am Repo-Root (Vorlage: `.env.example`). Der `api`-Bui
 
 ### Backup
 
-`scripts/backup-postgres.sh` plus [docs/Backup-und-Restore.md](docs/Backup-und-Restore.md) — dort steht auch, was auf dem VPS einmalig einzurichten ist.
+`scripts/backup-postgres.sh` plus [docs/Operations.md](docs/Operations.md) — dort stehen Aufrufform, Umgebungsvariablen, Restore-Probe und der Katastrophenfall. Was auf dem **eigenen** VPS einmalig einzurichten ist (Cron, Zielkette, Monitoring), steht nicht mehr im Repo, sondern in `infra-docs`.
 
 ## Architektur
 
@@ -212,9 +220,10 @@ schreibt, bleibt deutsch. Begründung im Entscheidungslog.
 - `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, die GitHub-Templates, die Kommentare in
   `.github/workflows/`, Repo-Beschreibung und Topics.
 - **Neue** Einträge in `docs/DECISIONS.md`.
-- Noch offen, aber vorgesehen (s. #152): `docs/Architectur.md`, `docs/UI-Designsprache.md`,
-  `DESIGN.md` und die drei Betriebsanleitungen (`Backup-und-Restore.md`, `VPS-Reverse-Proxy.md`,
-  `Testumgebung-Mobile-2026-08-07.md`).
+- `docs/Architectur.md`, `docs/UI-Designsprache.md`, `DESIGN.md` und `docs/Operations.md`.
+  Die drei früheren Betriebsanleitungen sind dabei **nicht** übersetzt, sondern aufgeteilt worden:
+  was für jeden Betreiber gilt, steht englisch in `docs/Operations.md`; die eigene Infrastruktur
+  (Proxy-Manager, NAS-Kette, Heimnetz) ist nach `infra-docs` gewandert.
 
 **Deutsch:**
 

@@ -10,6 +10,51 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-10 — The infrastructure guides leave the repository; what every operator needs stays as `Operations.md` (#152)
+
+**Betrifft:** `docs/Operations.md` (new) · `docs/Backup-und-Restore.md` (removed) ·
+`docs/VPS-Reverse-Proxy.md` (removed) · `docs/Testumgebung-Mobile-2026-08-07.md` (removed) ·
+`CLAUDE.md` · `README.md` · `CONTRIBUTING.md` · `scripts/backup-postgres.sh` ·
+`docs/Untersuchung-Twitch-EventSub-2026-08-01.md`
+
+Three of the six documents queued for translation turned out not to be project documentation at
+all. They described **this maintainer's** infrastructure: a reverse-proxy manager, a DNS rewrite in
+a home network, a backup chain ending on a NAS and in OneDrive. Translating them would have
+polished something that should not be in a public repository in the first place.
+
+But deleting them outright would have been wrong too, because each of the three documents
+explains a **committed artefact**: `scripts/backup-postgres.sh` is in the repo, so is the `lan` launch profile,
+so is the `start:lan` npm script. Removing their only documentation would leave a stranger holding
+code nobody explains.
+
+**So the line was drawn per statement, not per file:** does this hold for anyone who runs the
+project, or only for the person who runs this one instance? The first kind moved into the new
+`docs/Operations.md`, in English; the second kind left the repository for the maintainer's private
+`infra-docs`. What survived is worth naming, because it is the part that would have been lost:
+
+- **Behind a reverse proxy:** the application sets its own security headers, so adding them again
+  in the proxy is a defect, not defence in depth. `proxy_buffering off` is a precondition for the
+  SSE live stream, and the read timeout has to outlast the 15-second heartbeat. `X-Forwarded-Proto`
+  has to survive the hop or login breaks, because the auth cookie is `Secure`-only. None of that is
+  specific to one proxy.
+- **Backups:** what `scripts/backup-postgres.sh` actually does — write to `.tmp`, check `pg_dump`'s
+  exit code *and* the file size, only then move it into place, because `pg_dump | gzip` hides a
+  failure behind a valid-looking archive. Its eight environment variables. The restore drill with
+  `ON_ERROR_STOP=1`, without which the drill proves nothing. And the fact that `dataprotection-keys`
+  is a second stateful volume, which the old document never said — a restore plan covering only
+  `postgres-data` is incomplete.
+- **Testing on a phone:** why the `lan` profiles exist and what a developer needs, described as a
+  principle rather than as one person's network.
+
+What deliberately did **not** survive: host layout, port numbers, certificate setup, the CDN in
+front, the cron schedule, the off-site chain, the monitoring pings, and every internal IP.
+
+Historical references to the three removed files stay as they are in older decision-log entries and
+in the plan documents. They pointed at something true when they were written, and rewriting history
+to hide a rename is worse than a reader occasionally finding a file that has moved on.
+
+---
+
 ### 2026-09-10 — The LAN hostname leaves the public repository: `EMOTEPURGE_LAN` plus a gitignored `appsettings.Lan.json` (#152)
 
 **Betrifft:** `src/EmotePurge.Api/Program.cs` ·

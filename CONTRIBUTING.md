@@ -74,6 +74,8 @@ documents in `docs/` remain German; that split is intentional and documented in 
 | Document | What's in it | Language |
 |---|---|---|
 | [`CLAUDE.md`](CLAUDE.md) | The full rulebook: 22 numbered rules, commands, architecture, layering | German |
-| [`docs/Architectur.md`](docs/Architectur.md) | Full specification — modules, DB schema, Docker topology, communication flow | German |
+| [`docs/Architectur.md`](docs/Architectur.md) | Full specification — modules, DB schema, Docker topology, communication flow | English |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Chronological log of every architecture/infrastructure decision and why | German |
-| [`docs/UI-Designsprache.md`](docs/UI-Designsprache.md) | Binding visual design language for anything under `web/` | German |
+| [`docs/UI-Designsprache.md`](docs/UI-Designsprache.md) | Binding visual design language for anything under `web/` | English |
+| [`docs/Operations.md`](docs/Operations.md) | Running it: reverse-proxy requirements, backup and restore, testing on a phone | English |
+| [`DESIGN.md`](DESIGN.md) | The same visual system as machine-readable tokens plus thirteen named rules | English |

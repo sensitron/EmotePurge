@@ -468,7 +468,7 @@ gekostet hat.
 
 ### 4.4 Webhook-Topologie gegen unsere nginx-Konfiguration
 
-Aus [VPS-Reverse-Proxy.md](VPS-Reverse-Proxy.md): **genau eine** `location /` →
+Aus der damaligen `VPS-Reverse-Proxy.md` (inzwischen nach `infra-docs` ausgelagert, s. DECISIONS 2026-09-10): **genau eine** `location /` →
 `proxy_pass http://127.0.0.1:4300/`. Ein `POST /api/twitch/eventsub/webhook` wäre also **ohne jede
 nginx-Änderung erreichbar**, TLS terminiert, `X-Forwarded-*` gesetzt. Das eingehende
 WebSocket-Upgrade fehlt zwar — betrifft aber nur *eingehende* Verbindungen; unsere ausgehenden
