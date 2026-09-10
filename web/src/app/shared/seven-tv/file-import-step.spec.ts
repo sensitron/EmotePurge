@@ -1,4 +1,3 @@
-import { DIALOG_DATA, DialogRef } from '@angular/cdk/dialog';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
 import { firstValueFrom } from 'rxjs';
@@ -7,18 +6,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { RunQueueItem } from '../../core/seven-tv/seven-tv-run-engine';
 import { ExportEnvelope } from '../export/export-envelope';
 import { buildPurgeRunProtocol, purgeRunJson } from '../export/purge-run-export';
-import { FileImportDialog, FileImportDialogData, FileImportResult } from './file-import-dialog';
+import { FileImportResult, FileImportStep } from './file-import-step';
 
 /**
- * Only the keys this dialog itself renders — not the full app translation file. Error texts are the
+ * Only the keys this step itself renders — not the full app translation file. Error texts are the
  * real German ones (`web/public/i18n/de.json`), so an assertion reads as the sentence the user gets;
  * per rule 12 the wording only identifies *which* banner appeared, it is never the thing under test.
  */
 const DE_TRANSLATIONS = {
-  common: { cancel: 'Abbrechen' },
   restore: {
     import: {
-      title: 'Datei importieren',
       sorts: {
         purgeRun: 'Purge-Protokoll (Wiederherstellen) als JSON',
         emoteList: 'Emote-Liste (Kopieren) als JSON',
@@ -121,10 +118,8 @@ function wrongKindText(): string {
 }
 
 interface Harness {
-  fixture: ComponentFixture<FileImportDialog>;
+  fixture: ComponentFixture<FileImportStep>;
   pickerButton(): HTMLButtonElement;
-  cancelButton(): HTMLButtonElement;
-  heading(): HTMLHeadingElement | null;
   alertText(): string | null;
   focusableInOrder(): Element[];
   /** Drives `onFileSelected` directly with a synthetic `Event`/`<input>` pair, awaiting the whole
@@ -134,29 +129,23 @@ interface Harness {
   selectFile(selected: File | undefined): Promise<void>;
 }
 
-describe('FileImportDialog', () => {
-  let dialogData: FileImportDialogData;
-  let closed: (FileImportResult | undefined)[];
+describe('FileImportStep', () => {
+  let channelName: string;
+  let setId: string;
+  let closed: FileImportResult[];
 
   beforeEach(async () => {
     closed = [];
-    dialogData = { channelName: CURRENT_CHANNEL, setId: CURRENT_SET };
+    channelName = CURRENT_CHANNEL;
+    setId = CURRENT_SET;
 
     await TestBed.configureTestingModule({
       imports: [
-        FileImportDialog,
+        FileImportStep,
         TranslocoTestingModule.forRoot({
           langs: { de: DE_TRANSLATIONS },
           translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
         }),
-      ],
-      providers: [
-        // Resolved when the component is created, so a test may shape the data first.
-        { provide: DIALOG_DATA, useFactory: () => dialogData },
-        {
-          provide: DialogRef,
-          useValue: { close: (result?: FileImportResult) => closed.push(result) },
-        },
       ],
     }).compileComponents();
 
@@ -164,7 +153,11 @@ describe('FileImportDialog', () => {
   });
 
   function render(): Harness {
-    const fixture = TestBed.createComponent(FileImportDialog);
+    const fixture = TestBed.createComponent(FileImportStep);
+    // Frozen values handed in by the trigger, never read in a constructor (Regel 13).
+    fixture.componentRef.setInput('channelName', channelName);
+    fixture.componentRef.setInput('setId', setId);
+    fixture.componentInstance.picked.subscribe((result) => closed.push(result));
     fixture.detectChanges();
     const host: HTMLElement = fixture.nativeElement;
 
@@ -181,14 +174,6 @@ describe('FileImportDialog', () => {
         }
         return found;
       },
-      cancelButton: () => {
-        const found = buttons().find((button) => button.textContent?.trim() === 'Abbrechen');
-        if (!found) {
-          throw new Error('no cancel button rendered');
-        }
-        return found;
-      },
-      heading: () => host.querySelector('h2'),
       alertText: () => host.querySelector('[role="alert"]')?.textContent?.trim() ?? null,
       focusableInOrder: () => Array.from(host.querySelectorAll('button, input, a[href]')),
       selectFile: async (selected) => {
@@ -207,8 +192,8 @@ describe('FileImportDialog', () => {
     };
   }
 
-  describe('closing result by file sort (plan §1.1 — the discriminated close contract)', () => {
-    it('closes with a restore result carrying only the done rows of a matching purge-run protocol', async () => {
+  describe('reported result by file sort (plan §1.1 — the discriminated result contract)', () => {
+    it('reports a restore result carrying only the done rows of a matching purge-run protocol', async () => {
       const dialog = render();
 
       await dialog.selectFile(
@@ -245,7 +230,7 @@ describe('FileImportDialog', () => {
       ]);
     });
 
-    it("closes with an import result for an emote-list file — the target stays the caller's decision", async () => {
+    it("reports an import result for an emote-list file — the target stays the caller's decision", async () => {
       const dialog = render();
 
       await dialog.selectFile(file(emoteListText()));
@@ -261,7 +246,7 @@ describe('FileImportDialog', () => {
       }
     });
 
-    it('closes with an import result for a usage export, same path as an emote-list file', async () => {
+    it('reports an import result for a usage export, same path as an emote-list file', async () => {
       const dialog = render();
 
       await dialog.selectFile(
@@ -278,7 +263,7 @@ describe('FileImportDialog', () => {
     });
   });
 
-  describe('read/validation errors — all nine keys, none of them close the dialog', () => {
+  describe('read/validation errors — all nine keys, none of them report a result', () => {
     it.each([
       ['notJson', () => file('not json{')],
       ['csvInsteadOfJson', () => file('seven_tv_emote_id,name\n7tv-1,PogU\n')],
@@ -306,7 +291,7 @@ describe('FileImportDialog', () => {
             }),
           ),
       ],
-    ] as const)('shows the %s banner and leaves the dialog open', async (key, buildFile) => {
+    ] as const)('shows the %s banner and reports nothing', async (key, buildFile) => {
       const dialog = render();
 
       await dialog.selectFile(buildFile());
@@ -317,7 +302,7 @@ describe('FileImportDialog', () => {
   });
 
   describe('edge cases (plan §1.5)', () => {
-    it('stays open with no banner when the native file dialog is cancelled (no file chosen)', async () => {
+    it('reports nothing and shows no banner when the native file dialog is cancelled', async () => {
       const dialog = render();
 
       await dialog.selectFile(undefined);
@@ -352,23 +337,9 @@ describe('FileImportDialog', () => {
         },
       ]);
     });
-
-    it('closes with undefined on cancel, without a result', () => {
-      const dialog = render();
-
-      dialog.cancelButton().click();
-
-      expect(closed).toEqual([undefined]);
-    });
   });
 
   describe('accessibility', () => {
-    it('gives the dialog an accessible name via the DialogShell heading', () => {
-      const dialog = render();
-
-      expect(dialog.heading()?.textContent?.trim()).toBe('Datei importieren');
-    });
-
     it('gives the file control an accessible name and makes it the first focusable element', () => {
       const dialog = render();
 

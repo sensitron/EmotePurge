@@ -120,6 +120,17 @@ function channelSource(rows: ImportRow[], overrides: Partial<ImportSource> = {})
   };
 }
 
+/** The third source (spec §7): a channel EmotePurge does not track, read live from 7TV. Rows carry
+ *  the *alias* of the source set, which is what makes a name collision in the target likely. */
+function foreignChannelSource(rows: ImportRow[], channelName = 'handofblood'): ImportSource {
+  return {
+    origin: { kind: 'seventv-channel', channelName },
+    rows,
+    duplicatesCollapsed: 0,
+    discardedRows: 0,
+  };
+}
+
 function fileSource(
   rows: ImportRow[],
   origin: Partial<Extract<ImportSource['origin'], { kind: 'file' }>> = {},
@@ -570,6 +581,30 @@ describe('ImportConfirmDialog', () => {
       expect(dialog.text()).not.toContain('Diese Liste stammt aus diesem Kanal.');
     });
 
+    it('names a foreign channel as a channel origin, not as a file', () => {
+      // The template used to ask `origin.kind === 'channel'` and fell into the *file* branch for
+      // everything else — this origin would have been announced as a file and then read a fileName
+      // it does not have (spec F6).
+      const dialog = render({
+        source: foreignChannelSource([row('new-1', 'Kappa')]),
+      });
+
+      expect(dialog.text()).toContain('Aus Kanal handofblood');
+      expect(dialog.text()).not.toContain('Aus Datei');
+      expect(dialog.text()).not.toContain('Export aus');
+    });
+
+    it('does not flag a foreign channel origin as a list that came from this channel', () => {
+      // The "came back to where it started" line is about a downloaded file; the target picker
+      // excludes the source channel, so this pairing cannot even be produced by the flow.
+      const dialog = render({
+        source: foreignChannelSource([row('new-1', 'Kappa')], 'targetchannel'),
+        targetChannelName: 'targetchannel',
+      });
+
+      expect(dialog.text()).not.toContain('Diese Liste stammt aus diesem Kanal.');
+    });
+
     it('does not flag a file from another channel', () => {
       const dialog = render({
         source: fileSource([row('new-1', 'Kappa')], { channelName: 'someoneelse' }),
@@ -593,6 +628,35 @@ describe('ImportConfirmDialog', () => {
       expect(dialog.text()).toContain('Der letzte Abgleich des Zielkanals ist fehlgeschlagen.');
       // A stale picture is a caveat, not a lock — 7TV decides at run time.
       expect(dialog.button(EXECUTE).disabled).toBe(false);
+    });
+  });
+
+  describe('name collisions for the foreign source (spec E7/AK 17)', () => {
+    it('warns about a colliding alias and still keeps the row in the run', () => {
+      // Nothing new was built for this — `buildImportPreview` has produced `nameCollisions` since
+      // #72. What is pinned here is that it keeps working for the third source, whose rows carry the
+      // *alias* of the foreign set and therefore collide more readily than a base name would. Warn,
+      // never block: the row stays in `toAdd` and 7TV decides.
+      const dialog = render({
+        source: foreignChannelSource([row('new-1', 'Kappa'), row('new-2', 'Collides')]),
+        target: readyTarget({
+          setId: 'set-42',
+          emotes: [{ sevenTvEmoteId: 'existing-9', name: 'Collides' }],
+        }),
+      });
+
+      expect(dialog.text()).toContain('1 Name ist im Zielset schon vergeben:');
+      expect(dialog.text()).toContain('Collides');
+      expect(dialog.button(EXECUTE).disabled).toBe(false);
+
+      dialog.button(EXECUTE).click();
+
+      expect(closed).toEqual([
+        {
+          targetSetId: 'set-42',
+          rows: [row('new-1', 'Kappa'), row('new-2', 'Collides')],
+        },
+      ]);
     });
   });
 

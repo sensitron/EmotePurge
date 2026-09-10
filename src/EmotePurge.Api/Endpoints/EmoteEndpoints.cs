@@ -133,7 +133,13 @@ public static class EmoteEndpoints
             // Ordinal and strictly lower-case (F3, import plan): the only caller is our own
             // frontend, so a silent case-insensitive fallback would hide a frontend bug rather than
             // surfacing it.
-            if (request.SourceKind is not ("channel" or "file"))
+            // "seventv-channel" is the third and newest member (foreign-import spec E6/F5.1): a
+            // channel EmotePurge does not track, read straight from 7TV. It is deliberately its own
+            // word rather than being folded into "channel" — the two are read through different
+            // paths and an audit row must still say which one it was, forever. Adding a word here is
+            // never enough on its own: AuditLogQueryService.ProjectDetail has to learn it too, or
+            // every row written with it silently loses its provenance (F5.3).
+            if (request.SourceKind is not ("channel" or "file" or "seventv-channel"))
             {
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidSourceKind });
             }
@@ -150,6 +156,11 @@ public static class EmoteEndpoints
             // kept forever, so an inconsistent body would leave a permanently wrong entry: "channel"
             // without a name claims an origin it cannot name, and "file" with one gets filed under a
             // channel origin the import never had. Rejecting beats guessing which half was meant.
+            // The condition asks "file versus not-file", so it covers "seventv-channel" as well —
+            // correctly, but only because that kind happens to be name-carrying too (F5.2). It stays
+            // written this way and is pinned by tests for both directions of the new word instead;
+            // a fourth kind without a source name would have to change this line, not just add to
+            // the vocabulary above.
             if (string.IsNullOrWhiteSpace(request.SourceChannelName) != (request.SourceKind == "file"))
             {
                 return Results.BadRequest(new { errorCode = ApiErrorCodes.InvalidSourceKind });

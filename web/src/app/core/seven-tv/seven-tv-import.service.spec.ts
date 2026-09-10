@@ -32,6 +32,10 @@ const SYNC_IMPORTED_C = '/api/channels/kanal_c/emotes/sync-imported';
 const RESYNC_C = '/api/channels/kanal_c/resync';
 
 const CHANNEL_ORIGIN: ImportOrigin = { kind: 'channel', channelName: 'brudivoeller_tv' };
+const FOREIGN_CHANNEL_ORIGIN: ImportOrigin = {
+  kind: 'seventv-channel',
+  channelName: 'handofblood',
+};
 const FILE_ORIGIN: ImportOrigin = {
   kind: 'file',
   fileName: 'emotepurge_brudivoeller_tv_emote-list_2026-09-05.json',
@@ -128,6 +132,27 @@ describe('SevenTvImportService', () => {
     expect(service.resyncTrigger()).toBe('succeeded');
     httpMock.expectNone(RESYNC_B);
     expect(service.run()?.result?.doneKeys).toEqual(['7tv-1', '7tv-2']);
+  });
+
+  it('reports a foreign-channel import with both its kind and its source channel', () => {
+    // The expensive failure this pins (spec F6): the body used to be built with a
+    // `kind === 'channel'` test, which sent `sourceChannelName: null` for this origin. The server
+    // rejects a non-file kind without a name with a 400 — and this call runs *after* the ADD
+    // mutations, so the emotes would already be copied and their origin lost for good.
+    service.startImport(TARGET_B, FOREIGN_CHANNEL_ORIGIN, ROWS);
+    runTwoRowsToDone();
+
+    const reportReq = httpMock.expectOne(SYNC_IMPORTED_B);
+    expect(reportReq.request.body).toEqual({
+      sevenTvEmoteIds: ['7tv-1', '7tv-2'],
+      sourceChannelName: 'handofblood',
+      sourceKind: 'seventv-channel',
+    });
+    reportReq.flush(null, { status: 204, statusText: 'No Content' });
+    expect(service.syncReport()).toBe('succeeded');
+
+    httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    expect(service.resyncTrigger()).toBe('succeeded');
   });
 
   it('sends sourceChannelName null for a file import even when the file names a channel', () => {

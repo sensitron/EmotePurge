@@ -605,6 +605,53 @@
   }
 }
 
+/* The wide pane, added on top of `.app-dialog-panel` (never instead of it) for the one dialog step
+   that shows a grid rather than a form: the foreign-channel emote picker. 28rem gave that grid five
+   columns and ~190 rows of scrolling while 700px of viewport sat empty on either side; at 72rem it
+   is sixteen columns.
+
+   Everything about it follows the two rules the base pane already documents. It is UNlayered and
+   doubles up the pane class (0,2,0) so CDK's runtime-injected `.cdk-overlay-pane { max-width:100% }`
+   cannot outrank it, and it repeats `color` because the overlay container hangs outside the app
+   shell. It sits AFTER the base rules on purpose: same specificity, later source — which is what
+   lets it override `.app-dialog-panel`'s own `max-width` in both the fine and the coarse case.
+
+   `ImportSourceDialog` adds and removes it at runtime (overlayRef.addPanelClass) against exactly one
+   condition: is the grid on screen. Its three form states — the source choice, the file branch, and
+   the channel branch before a set has loaded — stay on the ordinary 28rem, because a form's worth of
+   content in 72rem looks lost. That leaves one resize, and it coincides with "Set laden", i.e. with a
+   content change the reader is already watching; a size change there reads as consequence rather
+   than caprice.
+
+   On this pane the *pane* deliberately does not scroll — the grid inside it does, and it is the only
+   scroll container in the dialog (a pane scrollbar plus a viewport scrollbar was the reported
+   defect). Nothing here enforces that; the picker keeps its content shorter than the pane by sizing
+   the virtual-scroll viewport against `dvh`. */
+.cdk-overlay-pane.app-dialog-panel-wide {
+  max-width: min(72rem, calc(100vw - 4rem));
+  color: var(--ep-fg);
+}
+
+/* The bottom-sheet mirror, and it needs BOTH halves. The docking sits on the WRAPPER — CDK's
+   GlobalPositionStrategy writes `align-items` there as an inline style, so `!important` is the only
+   thing that beats it — while the geometry sits on the pane. Copying only the pane half yields a
+   centred dialog (design language §7). Without the pane half, `min(72rem, …)` would beat
+   `.app-dialog-panel`'s `max-width: none` by source order and cap the sheet.
+
+   In practice the 7TV write paths are hidden on a coarse pointer, so this pane should never appear
+   as a sheet; that is a page-level gate, not a property of the pane, and the pane still owes the
+   house geometry. */
+@media (pointer: coarse) {
+  .cdk-global-overlay-wrapper:has(> .app-dialog-panel-wide) {
+    align-items: flex-end !important;
+  }
+
+  .cdk-overlay-pane.app-dialog-panel-wide {
+    max-width: none;
+    max-height: 85dvh;
+  }
+}
+
 /* Window-scrolled virtual-scroll chrome — UNlayered for the same reason as the dialog rules
    above: CDK's own component styles are unlayered, and unlayered declarations beat anything
    inside @layer regardless of specificity.

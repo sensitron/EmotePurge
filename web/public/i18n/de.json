@@ -912,6 +912,19 @@
   },
   "import": {
     "copyButton": "Übertragen",
+    "source": {
+      "title": "Emotes importieren",
+      "legend": "Woher kommen die Emotes?",
+      "back": "Zurück",
+      "file": {
+        "label": "Aus einer Datei",
+        "hint": "Purge-Protokoll, Emote-Liste oder Nutzungs-Export als JSON"
+      },
+      "channel": {
+        "label": "Aus einem Kanal",
+        "hint": "Das aktive 7TV-Set eines beliebigen Twitch-Kanals"
+      }
+    },
     "dockCopyButton": "Übertragen ({{ count }})",
     "target": {
       "title": "Emotes übertragen",
@@ -923,6 +936,30 @@
       "loadFailed": "Die Kanalliste konnte nicht geladen werden.",
       "retry": "Erneut laden",
       "submit": "Weiter"
+    },
+    "foreignChannel": {
+      "title": "Aus einem Kanal importieren",
+      "channelLabel": "Kanalname",
+      "placeholder": "z. B. handofblood",
+      "invalidChannelName": "Kein gültiger Twitch-Kanalname.",
+      "load": "Set laden",
+      "reload": "Neu laden",
+      "retry": "Erneut versuchen",
+      "continue": "Weiter",
+      "empty": "Das aktive 7TV-Set dieses Kanals hat keine Emotes.",
+      "truncated": "Nur ein Teil des Sets konnte geladen werden ({{ loaded }} von {{ totalCount }}) — 7TV begrenzt, wie viele Einträge ein Abruf zurückgibt.",
+      "selectedCount": "{{ count }} ausgewählt",
+      "grid": {
+        "ariaLabel": "Emote-Auswahl"
+      },
+      "sort": {
+        "label": "Sortieren nach",
+        "none": "Set-Reihenfolge",
+        "topAllTime": "7TV-Score (gesamt)",
+        "trending": "7TV-Score (Trend)",
+        "noScore": "kein Wert",
+        "scoreHint": "Die Zahl auf jeder Kachel ist 7TVs netzwerkweiter Vergleichswert für dieses eine Emote — kein Maß dafür, wie oft es in diesem Kanal benutzt wird."
+      }
     },
     "confirm": {
       "title": {
@@ -1039,6 +1076,10 @@
       "invalid_source_kind": "Ungültige Import-Quelle.",
       "channel_not_found": "Channel nicht gefunden.",
       "channel_not_on_twitch": "Diesen Channel gibt es auf Twitch nicht (mehr). Bitte prüf die Schreibweise.",
+      "foreign_channel_twitch_unavailable": "Twitch ist gerade nicht erreichbar. Bitte versuch es in Kürze erneut.",
+      "foreign_channel_no_seventv_account": "Für diesen Channel existiert kein 7TV-Account.",
+      "foreign_channel_no_active_emote_set": "Dieser Channel hat aktuell kein aktives 7TV-Emote-Set.",
+      "foreign_channel_seventv_unavailable": "7TV ist gerade nicht erreichbar. Bitte versuch es in Kürze erneut.",
       "vote_session_not_found": "Abstimmung nicht gefunden.",
       "vote_session_ended": "Diese Abstimmung ist bereits beendet.",
       "emote_not_eligible": "Dieses Emote ist nicht mehr abstimmbar.",

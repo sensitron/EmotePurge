@@ -327,7 +327,8 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   1. Bereichs-Radiogruppe `visible`/`selection` — nur, wenn eine Grid-Auswahl existiert; ohne
      Auswahl steht an derselben Stelle stattdessen der gedämpfte Hinweis
      `export.scopeNoSelectionHint` (#144) — außer ein Aufrufer erzwingt den Scope
-     (`forcedScope`, §8.7): dann fehlt an dieser Stelle beides, Radiogruppe wie Hinweis, weil ein
+     (`forcedScope`, §8.7 — seit #147 nur noch der Dock-Einstieg): dann fehlt an dieser Stelle
+     beides, Radiogruppe wie Hinweis, weil ein
      erzwungener Scope keine offene Wahl ist, die eine Erklärung bräuchte.
   2. Kanalliste-Zustand: `<app-skeleton-rows [count]="3">`, während `listMine()` lädt, danach
      höchstens **eine** Meldung (exklusiv) — `reauthRequired` (warning), sonst `loadFailed` (error +
@@ -381,35 +382,111 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   `import-target-options.ts`, `import-preview.ts`, `slot-projection.ts`,
   `web/src/app/core/emotes/import-target-loader.ts`; Aufrufer `web/src/app/shared/seven-tv/import-flow.ts`.
 
-### 7.3 Einspiel-Dialog (#91)
+### 7.3 Einspiel-Dialog (#91, seit #147 der eine Import-Dialog)
 
-- **Was gilt:** Der Datei-Weg der Nutzungsseite — ein Purge-Protokoll wiederherstellen, eine
-  Emote-Liste oder einen Nutzungs-Export in **diesen** Kanal kopieren — beginnt im Seitenkopf mit
-  dem Trigger `<app-file-import-trigger>` (§8.7 regelt die Fläche, §4.2 die Sperren) und läuft über
-  **einen** Dialog: `FileImportDialog` (`shared/seven-tv/file-import-dialog.ts`,
-  `openFileImportDialog`). Er **liest und prüft** die Datei — mehr nicht.
-- **Zeilenreihenfolge im Body (Vertrag):**
-  1. Überschrift (`dialogTitle`, damit `ariaLabelledBy` greift — s. §7 „Benennung").
-  2. Die **Liste der drei zulässigen Dateisorten**, je ein eigener Listeneintrag mit dem Zusatz
+- **Was gilt:** Alles, was Emotes **in** den Kanal der Seite bringt, beginnt im Seitenkopf mit dem
+  Trigger `<app-import-trigger>` (§8.7 regelt die Fläche, §4.2 die Sperren) und läuft über **einen**
+  Dialog: `ImportSourceDialog` (`shared/seven-tv/import-source-dialog.ts`,
+  `openImportSourceDialog`). **Sein erster Schritt ist die Quellenwahl** — bis #147 hatte der
+  Fremdkanal einen eigenen Kopfknopf daneben, was der Spec-Festlegung E1 („eine Quelle unter anderen
+  im Import-Dialog, keine eigene Seite") widersprach. Eine vierte Quelle ist eine vierte Zeile in
+  diesem Schritt, kein weiterer Knopf und ausdrücklich **kein** ausgegrauter Platzhalter, solange sie
+  nicht existiert.
+- **Schrittfolge (Vertrag):**
+  1. **Quellenwahl** — je Quelle eine geriffelte Zeile mit Label und einer gedämpften Hinweiszeile
+     darunter, beides Teil des zugänglichen Namens (dasselbe zweizeilige Muster wie §7.4). Die Zeile
+     ist ein Knopf und **keine** Radiogruppe: sie navigiert, sie parametrisiert keine spätere
+     Aktion, es bleibt also nichts zu bestätigen.
+  2. Der gewählte Zweig, **im selben Dialog**. Er öffnet keinen zweiten.
+- **Die Aktionszeile gehört dem Dialog, nicht dem Schritt:** Abbrechen zuerst (§7), danach
+  „Zurück", sobald man einen Zweig betreten hat, und „Weiter" **erst, wenn das Raster steht** —
+  gekoppelt an denselben Zustand wie die Pane-Breite, nicht an einen zweiten. Der Kanal-Zweig hat
+  vor dem Laden bereits eine Vorwärts-Aktion, nämlich „Set laden" am Feld, auf das sie wirkt; ein
+  zweites, dauerhaft gesperrtes „Weiter" daneben ließ einen Dialog um **ein** Textfeld nach vier
+  Knöpfen aussehen und konkurrierte mit der Aktionszeile. Ein hinten fehlender Knopf rührt die
+  Reihenfolge der übrigen nicht an — „Abbrechen zuerst" gilt unverändert.
+- **Die Feldzeile des Kanal-Schritts ist ein Paar, kein Umbruch:** Feld und „Set laden" stehen auf
+  derselben Höhe (beide auf dem 44-px-Boden, den `buttonSize="lg"` definiert — am Feld **gesagt**,
+  nicht vom Nachbarn geerbt), im Dialog-Abstand statt im Toolbar-Abstand, und **ohne** `flex-wrap`:
+  bräche der Knopf unter das Feld, verlöre das Feld zugleich seine Höhe. Es schrumpft stattdessen
+  (`min-w-0`).
+- **Der Kopf nennt den Zweig:** „Emotes importieren" auf dem ersten Schritt, „Datei importieren" bzw.
+  „Aus einem Kanal importieren" darunter. Das ist die einzige Ortsangabe, die ein Ein-Dialog-Fluss
+  neben „Zurück" hat.
+- **Die Pane ist breit, solange das Raster steht — und nur dann** (`app-dialog-panel-wide`, s. §7 und
+  `styles.css`). Die Breite gehört der Pane, nicht dem Inhalt, der Schalter ist deshalb die
+  Panel-Klasse und keine `max-w-*` im Template; gesetzt wird sie zur Laufzeit über
+  `overlayRef.addPanelClass`, weil beim Öffnen noch niemand weiß, ob ein Raster kommt. Die drei
+  Formularzustände — Quellenwahl, Datei-Zweig, Kanal-Zweig **vor** dem Laden — bleiben bei den
+  gewöhnlichen 28 rem: ein Formular in 72 rem sieht verloren aus. **Damit gibt es genau eine
+  Größenänderung, und sie fällt mit „Set laden" zusammen**, also mit einem ohnehin sichtbaren
+  Inhaltswechsel — der einzige Ort, an dem eine Größenänderung als Folge lesbar ist statt als
+  Willkür. Auslöser ist die Sichtbarkeit des Rasters, nicht der Schritt.
+- **Das Kanalfeld trägt trotzdem ein `max-w-sm`**, und das ist keine zweite Meinung über die
+  Pane-Breite: das Formular bleibt im geladenen Zustand **über** dem 72-rem-Raster stehen. Ungekappt
+  spannte ein Feld für ein Dutzend Zeichen dort über die ganze Pane. Bei 24 rem ist es vor und nach
+  „Set laden" gleich breit — die Pane wächst um das Feld herum, das Feld bewegt sich nicht.
+- **Datei-Zweig (`FileImportStep`, `shared/seven-tv/file-import-step.ts`).** Er **liest und prüft**
+  die Datei — mehr nicht. Bis #147 war er ein eigener Dialog (`FileImportDialog`); geändert hat sich
+  allein seine Behausung, nicht sein Verhalten.
+- **Zeilenreihenfolge im Datei-Zweig (Vertrag):**
+  1. Die **Liste der drei zulässigen Dateisorten**, je ein eigener Listeneintrag mit dem Zusatz
      „als JSON": Purge-Protokoll (Wiederherstellen) · Emote-Liste (Kopieren) · Nutzungs-Export
      (Kopieren). Sie steht **über** dem Bedienelement, das sie erklärt, und ist eine Liste und kein
      Satz mit Kommas — die deutschen Fassungen brächen sonst auf 360 px an willkürlicher Stelle
      (§12).
-  3. Das **Datei-Bedienelement**: sichtbar beschrifteter Knopf plus verstecktes
-     `<input type="file" accept="application/json">`. Der Knopf ist das **erste fokussierbare
-     Element** des Dialogs, damit der `first-tabbable`-Default des CDK von selbst darauf landet —
-     kein `cdkFocusInitial`. §7 „Abbrechen steht immer zuerst" gilt für die Aktionszeile und bleibt
-     davon unberührt.
-  4. Das Fehlerbanner (`NoticeBanner` `error`) — nur im Fehlerfall.
-  5. Aktionszeile mit **nur** Abbrechen. Es gibt keinen „Weiter"-Knopf: die Dateiauswahl selbst ist
-     der Vollzug.
-- **Ergebnisvertrag:** Der Dialog schließt bei Erfolg mit einem diskriminierten Ergebnis — „Restore"
-  mit den restaurierbaren Zeilen des Protokolls oder „Import" mit der `ImportSource` —, bei
-  Abbrechen/Escape/Backdrop mit `undefined`. Er startet **keinen** Lauf, wählt **kein** Importziel
-  und öffnet **keinen** weiteren Dialog. Im Fehlerfall bleibt er offen und zeigt das Banner; jeder
-  neue Versuch setzt es zurück, und das Input wird nach jeder Auswahl geleert, damit dieselbe
-  korrigierte Datei erneut ein `change` auslöst.
-- **Die Ketten laufen nacheinander, nicht ineinander.** Erst schließt der Einspiel-Dialog mit seinem
+  2. Das **Datei-Bedienelement**: sichtbar beschrifteter Knopf plus verstecktes
+     `<input type="file" accept="application/json">`. Der Knopf ist das erste sinnvolle
+     Bedienelement des Schritts und bekommt beim Betreten den Fokus (s. den Fokusvertrag unten).
+     §7 „Abbrechen steht immer zuerst" gilt für die Aktionszeile und bleibt davon unberührt.
+  3. Das Fehlerbanner (`NoticeBanner` `error`) — nur im Fehlerfall.
+
+  Es gibt in diesem Zweig **keinen** „Weiter"-Knopf: die Dateiauswahl selbst ist der Vollzug.
+- **Kanal-Zweig (`ForeignChannelStep`, `shared/seven-tv/foreign-channel-step.ts`):** sichtbar
+  beschriftetes Kanalfeld (§5.2 gilt hier voll — es ist keine Filterleiste) plus „Set laden", danach
+  Ladezustand/Fehlerbanner und das `ForeignEmoteGrid`. Der Schritt schließt nichts; er meldet sein
+  Ergebnis als Signal, gegen das der Dialog sein „Weiter" sperrt.
+- **Fokusvertrag: Wer einen Schritt betritt, landet auf dessen erstem sinnvollen Bedienelement.**
+  Konkret: Datei-Zweig → „Datei auswählen" (das versteckte `<input type="file">` kann selbst keinen
+  Fokus nehmen), Kanal-Zweig → das Kanalfeld, „Zurück" → die Quellenzeile, aus der man kam (dieselbe
+  Höflichkeit, die ein Menü-Button beim Schließen seines Untermenüs erweist — „falscher Zweig, dann
+  eben der andere" kostet so kein Tabben). **Das erledigt das CDK nicht:** sein Autofokus läuft
+  **einmal**, beim Öffnen des Overlays, und nie wieder für einen Wechsel **innerhalb** desselben
+  Dialogs. Bis #147 galt der Vertrag zufällig — der Datei-Dialog öffnete direkt auf seinen eigenen
+  Knopf —, seither muss er ausgesprochen und gesetzt werden, und zwar **nach** dem Rendern des neuen
+  Schritts (`afterNextRender`, Muster wie `account-menu.ts`), weil das Ziel erst durch dieses
+  Rendern existiert. Ein Mausnutzer merkt von einer Verletzung nichts; per Tastatur landet der Fokus
+  im Nichts und der Dialog wird von vorn durchgetabt. Deshalb hängt daran ein E2E-Fall je Zweig und
+  nicht bloß ein Blick. Erscheint nach „Set laden" das Raster, **bleibt** der Fokus auf „Set laden":
+  der Knopf steht über dem Umschaltpunkt, wird also nicht abgeräumt, und meint dort weiterhin etwas
+  (neu laden, Namen korrigieren) — nichts zu bewegen.
+- **Es gibt genau einen Scroll-Container im Kanal-Zweig, und das ist das Raster.** Die Pane scrollt
+  sonst mit (§7) und zwei ineinandergeschachtelte Balken über derselben Liste waren der gemeldete
+  Defekt. Erreicht wird das nicht durch eine Prozent-Höhenkette — die überlebt die beiden
+  `display: inline`-Component-Hosts nicht —, sondern indem das virtualisierte Viewport gegen `dvh`
+  bemessen ist und der Dialoginhalt damit kürzer bleibt als die Pane:
+  `min(34rem, max(4rem, 100dvh - 26rem))`.
+  **Die Untergrenze ist dabei der gefährliche Teil, nicht die Obergrenze.** Eine Untergrenze F holt
+  den Doppelbalken für jedes Fenster unter `F + 22rem` zurück (22 rem = gemessene Chrome-Höhe plus
+  der 2-rem-Rand der Pane) — mit den ursprünglichen 16 rem also für jedes Fenster unter ~608 px, und
+  das ist ein 1366×768-Laptop oder ein gezoomtes Fenster, keine Exotik: bei 500 px lief die Pane um
+  gemessene 107 px über. Bei 4 rem liegt das Band unter ~416 px, also unterhalb der Chrome selbst.
+  Ganz beseitigen ließe es sich nur mit einer echten Höhenkette ab der Pane, und die hieße,
+  `DialogShell`s Host für alle zwölf Dialoge zur Flex-Spalte zu machen — bewusst nicht getan. Die
+  Zahlen hängen an einem E2E-Fall, weil jsdom kein Layout hat.
+- **Ergebnisvertrag:** Der Dialog schließt bei Erfolg mit einem diskriminierten Ergebnis —
+  „Restore" mit den restaurierbaren Zeilen des Protokolls, „Import" mit der `ImportSource` aus der
+  Datei oder „Foreign" mit den im Raster markierten Zeilen —, bei Abbrechen/Escape/Backdrop mit
+  `undefined`. Er startet **keinen** Lauf, wählt **kein** Importziel und öffnet **keinen** weiteren
+  Dialog. Im Fehlerfall bleibt er offen und zeigt das Banner; jeder neue Versuch setzt es zurück, und
+  das File-Input wird nach jeder Auswahl geleert, damit dieselbe korrigierte Datei erneut ein
+  `change` auslöst.
+- **Das Ziel wird nicht erfragt, es steht fest:** der Kanal der Seite, aus deren Kopf der Trigger
+  angeklickt wurde — für **alle** Quellen gleich. Der Fremdkanal-Weg hatte bis #147 dazwischen noch
+  `ImportTargetDialog` mit `forcedScope: 'selection'` stehen; mit unterdrückter Bereichs-Radiogruppe
+  blieb dort genau eine Frage übrig, die der Seitenkontext schon beantwortet hatte. Der Schritt ist
+  ersatzlos gestrichen. `forcedScope` selbst bleibt — der Dock-Einstieg in §8.7 benutzt es weiter.
+- **Die Ketten laufen nacheinander, nicht ineinander.** Erst schließt der Import-Dialog mit seinem
   Ergebnis, dann startet der Auslöser die passende Kette — `startRestoreFlow` (Token → Bestätigung)
   oder `startImportFlow` (Bestätigung → Token, §7.2). Kein Dialog dieser Ketten wird aus einem
   offenen Dialog heraus geöffnet; der Ein-Dialog-Vertrag aus §7 bleibt gewahrt und beide
@@ -418,9 +495,32 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   `<input type="file">` **nach** dem `closed` eines CDK-Dialogs läuft außerhalb der Nutzergeste; der
   Browser öffnet das Dateifenster dann stumm nicht. Innerhalb des offenen Dialogs ist der Klick
   (oder Enter/Leertaste auf dem Knopf) eine frische Aktivierung.
-- **Referenz:** `web/src/app/shared/seven-tv/file-import-dialog.ts`, `file-import-trigger.ts`,
-  `file-import-trigger-gate.ts`, `restore-flow.ts`; Parser `shared/export/read-envelope.ts`,
-  `purge-run-export.ts`, `import-source-parser.ts`.
+- **Die Sortierung im Raster benennt eine Eigenschaft des einzelnen Emotes, nie die Herkunft der
+  Liste — und behauptet keine Einheit.** Drei Auflagen, alle drei aus einem Fehler entstanden:
+  1. *Keine Aussage über die Liste.* „7TV global · Top aller Zeiten" in einer Reiterleiste hatte den
+     Betreiber schließen lassen, das Raster zeige 7TVs globale Emotes statt des Sets des
+     eingegebenen Kanals. Verbindlich seither: ein beschriftetes `<select>` („Sortieren nach"), keine
+     Reiterleiste.
+  2. *Keine erfundene Einheit.* Der Wert ist `Emote.scores.topAllTime`/`trendingDay`, ein
+     Ranking-Score — **nicht** `Emote.channels.totalCount`, das dieses Feature ausdrücklich nicht
+     abfragt, weil es an 7TVs Such-Eimer hängt und dessen Überziehung uns rund eine Stunde sperrt.
+     „Verbreitung" und „in wie vielen 7TV-Sets" haben die erste Fehldeutung gegen eine Mengenangabe
+     getauscht, die niemand belegt hat. Die Optionen heißen deshalb „7TV-Score (gesamt)"/„(Trend)",
+     und der stille Satz unter der Sortierzeile sagt nur zweierlei: netzwerkweit, für dieses **eine**
+     Emote — und **nicht** die Nutzung in diesem Kanal. Ein Vergleichswert ohne Einheit ist ehrlich,
+     eine erfundene Einheit nicht.
+  3. *Nie Vorbelegung, nie „Beliebtheit"* (Konzept P5') — eine kanalbezogene Beliebtheit gibt es für
+     einen fremden Kanal nicht.
+- **Der aktive Score steht im zugänglichen Namen der Kachel.** Ein explizites `aria-label` **ersetzt**
+  den Nachfahrentext im Accessibility-Baum, die sichtbare Zahl existiert für Screenreader also sonst
+  gar nicht — und sie ist genau das, wonach gerade sortiert wird. Angesagt wird sie unter derselben
+  Beschriftung, die das Sortier-Control trägt; das gibt der nackten Zahl ihre Bedeutung, ohne eine
+  Einheit zu erfinden. Einziger Unterschied zur Kachel: der fehlende Wert wird zum Wort, weil die
+  Kachel dafür nur einen Gedankenstrich hat und ein Screenreader den gar nicht ausspricht.
+- **Referenz:** `web/src/app/shared/seven-tv/import-source-dialog.ts`, `file-import-step.ts`,
+  `foreign-channel-step.ts`, `foreign-emote-grid.ts`, `import-trigger.ts`, `import-trigger-gate.ts`,
+  `restore-flow.ts`; Parser `shared/export/read-envelope.ts`, `purge-run-export.ts`,
+  `import-source-parser.ts`.
 
 ### 7.4 Export-Dialog (Zweck statt Format)
 

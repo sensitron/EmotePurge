@@ -130,16 +130,20 @@ const dockCopyButton = (page: Page, count: number) =>
   page.getByRole('button', { name: `Übertragen (${count})`, exact: true });
 
 /**
- * Opens the file-import dialog (#91) via the header trigger and returns the file input sitting
- * inside it. Locale-independent by position, same reasoning as `ui-audit.audit.ts:858-864` for its
- * neighbour: the trigger's label is translated and shares no word with the other header buttons, so
- * this goes by position instead — `main header button` `.nth(2)`, after `.nth(0)` (Exportieren) and
- * `.nth(1)` (Übertragen). Scoped to `main` because the app shell has its own top-level `<header>`
- * (the account menu) that an unscoped `header button` would count first.
+ * Opens the one import dialog (#91, #147) via the header trigger, walks its first step to the file
+ * source, and returns the file input sitting inside it. Locale-independent by position, same
+ * reasoning as `ui-audit.audit.ts` for its neighbour: the trigger's label is translated and shares
+ * no word with the other header buttons, so this goes by position instead — `main header button`
+ * `.nth(2)`, after `.nth(0)` (Exportieren) and `.nth(1)` (Übertragen). Scoped to `main` because the
+ * app shell has its own top-level `<header>` (the account menu) that an unscoped `header button`
+ * would count first. The source row itself is picked by its label: it is the dialog's own content,
+ * not a header button, and there is no position rule to lean on there.
  */
 async function openFileImportDialog(page: Page): Promise<Locator> {
   const dialog = page.getByRole('dialog');
   await page.locator('main header button').nth(2).click();
+  await expect(dialog.locator('#app-dialog-title')).toHaveText('Emotes importieren');
+  await dialog.getByRole('button', { name: /^Aus einer Datei/ }).click();
   await expect(dialog.locator('#app-dialog-title')).toHaveText('Datei importieren');
   return dialog.locator('input[type="file"]');
 }
@@ -560,9 +564,9 @@ test.describe('silent reload: selection reconciliation feedback (#94)', () => {
 test.describe('push flow: the file path', () => {
   // Both an emote-list and a usage export lead into the same confirmation dialog, uploaded through
   // the file-import dialog opened from the header trigger (not the picker's "save as file" option)
-  // — the dialog dispatches on the envelope's `kind` (FileImportDialog.onFileSelected) and, on
+  // — the dialog dispatches on the envelope's `kind` (FileImportStep.onFileSelected) and, on
   // success, closes and hands the result to the trigger. The target here is always the CURRENT
-  // channel: FileImportTrigger.openDialog always imports into the `channelName` it was opened with.
+  // channel: ImportTrigger.openDialog always imports into the `channelName` it was opened with.
   test('an emote-list file and a usage-export file both reach the confirm dialog', async ({
     page,
   }) => {
@@ -693,8 +697,10 @@ test.describe('push flow: the file path', () => {
   });
 });
 
-test.describe('file import dialog: shell contract', () => {
-  test('opening the dialog focuses the file control, not the cancel button', async ({ page }) => {
+test.describe('import dialog: shell contract', () => {
+  test('entering the file branch focuses the file control, not the cancel button', async ({
+    page,
+  }) => {
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page);
     await installLiveStub(page);
@@ -707,14 +713,94 @@ test.describe('file import dialog: shell contract', () => {
 
     const fileInput = await openFileImportDialog(page);
 
-    // Plan §1.1 / design-language §7.3, open question 6: the file control is deliberately the
-    // dialog's first focusable element, so the CDK's own `first-tabbable` default lands there with
-    // no explicit `cdkFocusInitial`. A hidden `<input type="file">` cannot itself receive focus, so
-    // the visible button in front of it is what the CDK actually focuses.
+    // Design-language §7.3: entering a step puts the caret on that step's first meaningful control.
+    // This used to hold by accident — the file dialog opened straight onto this content, so the
+    // CDK's `first-tabbable` default landed here — and stopped holding when the same content became
+    // step two of one dialog (#147): CDK autofocuses once, when the overlay opens, and never again
+    // for a swap inside it. The dialog now arranges it after the step renders. A hidden
+    // `<input type="file">` cannot itself receive focus, so the visible button in front of it is the
+    // target.
     await expect(page.getByRole('button', { name: 'Datei auswählen' })).toBeFocused();
     // The input stays reachable through that button; asserted here so the two locators are not
     // silently talking about different elements.
     await expect(fileInput).toBeAttached();
+  });
+
+  test('the grid shrinks on a short window instead of handing the pane a second scrollbar', async ({
+    page,
+  }) => {
+    // The pane is `overflow-y: auto` by design (§7), so it will happily grow a bar of its own the
+    // moment the dialog's content outgrows it — which is exactly the double-scrollbar defect the
+    // grid's dvh-based height exists to prevent. jsdom has no layout, so this is the only level the
+    // arithmetic can be checked on. 500 px is a zoomed window, not an exotic device.
+    await page.setViewportSize({ width: 1280, height: 500 });
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.route('**/api/seventv/channels/handofblood/emotes*', (route) =>
+      route.fulfill({
+        json: {
+          channelName: 'handofblood',
+          sevenTvUserId: '7tv-user-1',
+          emoteSetId: 'set-source',
+          totalCount: 60,
+          truncated: false,
+          emotes: Array.from({ length: 60 }, (_, index) => ({
+            sevenTvEmoteId: `foreign-${index}`,
+            name: `ForeignEmote${index}`,
+            defaultName: `ForeignEmote${index}`,
+            imageUrl: `https://cdn.7tv.app/emote/foreign-${index}/2x.webp`,
+            topAllTime: null,
+            trending: null,
+          })),
+        },
+      }),
+    );
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    const dialog = page.getByRole('dialog');
+    await page.locator('main header button').nth(2).click();
+    await dialog.getByRole('button', { name: /^Aus einem Kanal/ }).click();
+    await dialog.getByLabel('Kanalname').fill('handofblood');
+    await dialog.getByRole('button', { name: 'Set laden' }).click();
+    await expect(dialog.getByRole('group', { name: 'Emote-Auswahl' })).toBeVisible();
+
+    // One scroll container, and it is the grid's. Measured on the pane itself rather than by
+    // looking for a scrollbar, which is a rendering detail the platform may hide.
+    const paneOverflow = await page
+      .locator('.cdk-overlay-pane.app-dialog-panel')
+      .evaluate((pane) => pane.scrollHeight - pane.clientHeight);
+    expect(paneOverflow).toBeLessThanOrEqual(1);
+
+    const gridScrolls = await dialog
+      .locator('cdk-virtual-scroll-viewport')
+      .evaluate((viewport) => viewport.scrollHeight > viewport.clientHeight);
+    expect(gridScrolls).toBe(true);
+  });
+
+  test('entering the channel branch focuses the channel field', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    const dialog = page.getByRole('dialog');
+    await page.locator('main header button').nth(2).click();
+    await dialog.getByRole('button', { name: /^Aus einem Kanal/ }).click();
+
+    // The other half of the same contract, and here it is more than reachability: the step exists
+    // to be typed into, so it can be typed into at once.
+    await expect(dialog.getByLabel('Kanalname')).toBeFocused();
   });
 
   test('lists the three acceptable file sorts before the file control', async ({ page }) => {

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using System.Text.Json;
 using EmotePurge.Api.RateLimiting;
 using EmotePurge.Core.Services;
@@ -81,7 +82,7 @@ public class AdminRateLimitsEndpointTests : IClassFixture<ApiFactory>
 
         var policies = root.GetProperty("policies").EnumerateArray().ToList();
         // Every registered policy shows up, not only the one with traffic.
-        Assert.Equal(5, policies.Count);
+        Assert.Equal(6, policies.Count);
 
         var resync = policies.Single(p => p.GetProperty("name").GetString() == RateLimitPolicyNames.ChannelResync);
         Assert.Equal("fixed-window", resync.GetProperty("type").GetString());
@@ -163,7 +164,7 @@ public class AdminRateLimitsEndpointTests : IClassFixture<ApiFactory>
         // The effective configuration is unaffected by a Redis outage — it comes from options, not
         // from the counter store.
         var policies = root.GetProperty("policies").EnumerateArray().ToList();
-        Assert.Equal(5, policies.Count);
+        Assert.Equal(6, policies.Count);
         Assert.All(policies, p =>
         {
             Assert.Equal(0, p.GetProperty("acceptedLastMinute").GetInt64());
@@ -196,6 +197,44 @@ public class AdminRateLimitsEndpointTests : IClassFixture<ApiFactory>
             .Single(p => p.GetProperty("name").GetString() == RateLimitPolicyNames.InteractiveRead);
 
         Assert.Equal(777, interactiveRead.GetProperty("capacity").GetInt32());
+    }
+
+
+    /// <summary>
+    /// The failure this file's own remarks describe — "a policy that disappears from the page is
+    /// indistinguishable from one that was never wired up" — happened for real: the foreign-channel
+    /// preview's <c>ForeignEmoteLookup</c> policy guarded a live route while the admin snapshot, built
+    /// solely from the descriptor list, showed no trace of it (AK 15). Pinned by comparing against
+    /// <see cref="RateLimitPolicyNames"/> itself rather than by counting rows, so the next policy
+    /// added without a descriptor fails here instead of shipping invisible.
+    /// </summary>
+    [Fact]
+    public async Task Get_ListsEveryPolicyNameTheAppKnows_NoneMissingFromTheDescriptorList()
+    {
+        var reader = Substitute.For<IRateLimitTelemetryReader>();
+        reader.ReadAsync(Arg.Any<CancellationToken>()).Returns(RateLimitTelemetrySnapshot.Unavailable);
+
+        var (_, body) = await SendAsAdminAsync(reader);
+        using var bodyDisposal = body;
+
+        var expected = typeof(RateLimitPolicyNames)
+            .GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+            .Where(field => field is { IsLiteral: true, IsInitOnly: false })
+            .Select(field => (string)field.GetRawConstantValue()!)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+        var listed = body.RootElement.GetProperty("policies").EnumerateArray()
+            .Select(policy => policy.GetProperty("name").GetString()!)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(expected, listed);
+
+        var foreignLookup = body.RootElement.GetProperty("policies").EnumerateArray()
+            .Single(policy => policy.GetProperty("name").GetString() == RateLimitPolicyNames.ForeignEmoteLookup);
+        Assert.Equal("fixed-window", foreignLookup.GetProperty("type").GetString());
+        Assert.Equal(10, foreignLookup.GetProperty("capacity").GetInt32());
+        Assert.Equal("twitch-user", foreignLookup.GetProperty("partition").GetString());
     }
 
     /// <summary>

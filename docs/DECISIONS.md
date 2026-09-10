@@ -10,6 +10,127 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-10 — Die Quellenwahl ist der erste Schritt des einen Import-Dialogs (#147)
+
+**Betrifft:** `web/src/app/shared/seven-tv/import-source-dialog.ts` ·
+`web/src/app/shared/seven-tv/file-import-step.ts` (war `file-import-dialog.ts`) ·
+`web/src/app/shared/seven-tv/foreign-channel-step.ts` (war `foreign-channel-import-dialog.ts`) ·
+`web/src/app/shared/seven-tv/import-trigger.ts` + `import-trigger-gate.ts` (waren
+`file-import-trigger*.ts`) · `web/src/app/shared/seven-tv/foreign-import-flow.ts` ·
+`web/src/app/shared/seven-tv/foreign-emote-grid.ts` · `web/src/app/shared/ui/dialog.ts` ·
+`web/src/styles.css` · `web/src/app/features/usage-stats/usage-stats-page.{ts,html}` ·
+`web/public/i18n/de.json` · `web/public/i18n/en.json` · `docs/UI-Designsprache.md` (§7.3)
+
+Sechs Befunde des Betreibers an der laufenden Anwendung, alle auf denselben Fehler zurückführbar:
+der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebaut.
+
+1. **Der eigene Kopfknopf ist weg.** Im Seitenkopf standen „Importieren" (Datei) und „Fremder
+   Kanal" nebeneinander — gegen E1 der Spec („eine Quelle unter anderen im Import-Dialog, keine
+   eigene Seite"). „Importieren" öffnet jetzt **einen** Dialog, dessen erster Schritt fragt, woher
+   die Emotes kommen. Eine dritte Quelle (#148) ist eine dritte Zeile dort; ein ausgegrauter
+   Platzhalter dafür wird ausdrücklich **nicht** ausgeliefert. Die beiden bisherigen Dialoge sind
+   dabei zu Schritten geworden — bei unverändertem Verhalten, insbesondere behält der Datei-Weg
+   seine Zwei-Pass-Prüfung des Purge-Protokolls und sein Sperrgatter.
+2. **Eigene Panel-Klasse `app-dialog-panel-wide`.** Die Basisregel kappt auf `min(28rem, …)`; das
+   Raster über 956 Emotes bekam damit fünf Spalten und ~190 Zeilen Scrollweg, während links und
+   rechts je 700 px brachlagen. Die neue Klasse liegt **unlayered und mit verdoppelter Pane-Klasse**
+   (`.cdk-overlay-pane.app-dialog-panel-wide`), weil CDK seine Overlay-Styles zur Laufzeit hinter
+   allen Bundle-Stylesheets injiziert, und sie spiegelt die Bottom-Sheet-Regeln **in beiden Hälften**
+   — Andockung auf dem Wrapper mit `!important`, Geometrie auf der Pane. Wer nur die Pane-Hälfte
+   kopiert, bekommt einen zentrierten Dialog.
+3. **Breit ist die Pane genau, solange das Raster steht.** Zwischendurch war sie über alle Schritte
+   konstant breit — abgeleitet aus der Regel „keine Layout-Sprünge" und am fertigen Bild vom Nutzer
+   wieder verworfen (2026-09-10): die drei Formularzustände (Quellenwahl, Datei-Zweig, Kanal-Zweig
+   **vor** dem Laden) sahen in 72 rem verloren aus. Maßgeblich ist jetzt der Inhalt des Zustands, und
+   die eine verbleibende Größenänderung fällt mit „Set laden" zusammen — mit einem ohnehin sichtbaren
+   Inhaltswechsel, dem einzigen Ort, an dem eine Größenänderung als Folge lesbar ist statt als
+   Willkür. Geschaltet wird über `overlayRef.addPanelClass`, nicht per `panelClass` beim Öffnen (dort
+   ist der Zustand noch nicht bekannt) und erst recht nicht per `max-w-*` am Inhalt — §7 gibt die
+   Breite der Pane. Auslöser ist die Sichtbarkeit des Rasters, nicht der Schritt. Das Kanalfeld
+   behält sein `max-w-sm`: im geladenen Zustand steht das Formular über dem 72-rem-Raster, und
+   ungekappt spannte es dort über die ganze Pane; bei 24 rem ist es vor und nach dem Laden gleich
+   breit.
+4. **Genau ein Scroll-Container.** Pane **und** virtualisiertes Raster scrollten übereinander. Eine
+   Prozent-Höhenkette überlebt die beiden `display: inline`-Component-Hosts zwischen Pane und Inhalt
+   nicht (steht so schon in §7); das Viewport ist deshalb gegen `dvh` bemessen
+   (`clamp(16rem, calc(100dvh - 26rem), 34rem)`), womit der Dialoginhalt kürzer bleibt als die Pane
+   und diese keinen eigenen Balken bekommt.
+5. **Die Sortierung benennt eine Eigenschaft des Emotes, nicht die Herkunft der Liste.** „7TV global
+   · Top aller Zeiten" in einer Reiterleiste hatte den Betreiber schließen lassen, das Raster zeige
+   7TVs globale Emotes statt des Sets des eingegebenen Kanals. Er hat die Fehldeutung
+   zurückgenommen — sie bleibt trotzdem der Beleg, dass das Label die *Liste* zu beschreiben schien.
+   Neu: ein beschriftetes `<select>` („Sortieren nach"), keine Reiterleiste; Optionen
+   „7TV-Verbreitung (gesamt)"/„(Trend)"; und, solange eine Score-Sortierung aktiv ist, ein stiller
+   Satz, der sagt, was die Zahl auf der Kachel **nicht** ist. Die beiden Auflagen aus dem Konzept
+   (P5') gelten unverändert: nie die Vorbelegung, nie bloß „Beliebtheit".
+6. **Der Kanal-Schritt hatte zwei Vorwärts-Aktionen.** „Set laden" bringt weiter, das daneben
+   liegende, bis dahin gesperrte „Weiter" auch — vier Knöpfe um **ein** Textfeld, zwei davon mit
+   derselben Grundbedeutung, und die Feldzeile konkurrierte sichtbar mit der Aktionszeile darunter.
+   Entschieden (Nutzer, 2026-09-10, aus drei Varianten): „Set laden" bleibt am Feld, weil es auf die
+   Eingabe daneben wirkt und nicht auf den Dialog; „Weiter" erscheint **erst mit dem Raster** —
+   gekoppelt an `showsGrid()`, denselben Zustand wie die Pane-Breite, nicht an einen zweiten. §7s
+   „Abbrechen zuerst" bleibt unberührt, ein hinten fehlender Knopf ordnet nichts um. Dazu die
+   Metrik der Feldzeile: Dialog-Abstand statt Toolbar-Abstand, Feld und Knopf beide auf dem
+   44-px-Boden von `buttonSize="lg"` (am Feld **gesagt**, nicht vom Nachbarn geerbt), und kein
+   `flex-wrap` — sonst rutscht der Knopf in der jetzt schmalen Pane unter das Feld und das Feld
+   verliert dabei seine Höhe; es schrumpft stattdessen.
+7. **Der Hinweis zur Zahl auf der Kachel gehört zum Raster**, nicht an die Sortierzeile geklebt: er
+   wickelt sich mit dem Raster in eine eigene, engere Flex-Spalte (§7 — Abstände macht die Shell,
+   Engzusammengehörendes seine eigene Spalte), statt in gleichem Abstand zwischen beiden zu schweben
+   und für keines von beiden als Bildunterschrift zu lesen. Der Raster-Host bekam dafür überhaupt
+   erst eine Flex-Spalte; vorher stapelten seine Kinder als nackte Blöcke ganz ohne Abstand.
+8. **Der Fokus folgt dem Schritt — und das musste ausgesprochen werden.** Ein E2E-Fall hielt fest,
+   dass der Datei-Knopf den Fokus bekommt, und begründete das mit CDKs `first-tabbable`-Default. Die
+   Prämisse ist durch den Umbau tot: CDKs Autofokus läuft einmal beim Öffnen des Overlays und nie
+   wieder für einen Wechsel **innerhalb** desselben Dialogs. Seit der Dialog auf der Quellenwahl
+   öffnet, landete der Fokus nach „Aus einer Datei" im Nichts — für einen Mausnutzer unsichtbar, per
+   Tastatur wird der Dialog von vorn durchgetabt. Der Vertrag lautet jetzt: **wer einen Schritt
+   betritt, landet auf dessen erstem sinnvollen Bedienelement** (Datei-Knopf, Kanalfeld, bei
+   „Zurück" die Quellenzeile, aus der man kam), gesetzt per `afterNextRender` nach dem Rendern des
+   neuen Schritts. Beim Übergang vom Formular zum Raster bleibt der Fokus auf „Set laden" — der
+   Knopf überlebt den Wechsel und meint dort weiterhin etwas; nachgeprüft, nicht angenommen.
+9. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3).
+
+**Drei Befunde der zweiten Codex-Sol-Zweitmeinung, alle P2, alle im Raster:**
+
+10. **Die Hinweiszeile behauptete eine Einheit, die nie geprüft wurde.** „in wie vielen 7TV-Sets das
+    Emote steckt" — der Wert ist aber `Emote.scores.topAllTime`/`trendingDay`, ein Ranking-Score, und
+    ausdrücklich **nicht** `Emote.channels.totalCount`: das fragt dieses Feature nie ab, weil es an
+    7TVs Such-Eimer hängt, dessen Überziehung rund eine Stunde sperrt. Wir hatten die Fehldeutung
+    „das sind globale Emotes" gegen eine unbelegte Mengenangabe getauscht. Neu, in beiden Sprachen:
+    der Satz sagt netzwerkweit + dieses eine Emote + **nicht** die Kanalnutzung, und **keine
+    Einheit**. Die Optionsbeschriftungen sind mitgeändert — „Verbreitung" klang genauso nach Menge —,
+    sie heißen jetzt „7TV-Score (gesamt)"/„(Trend)".
+11. **Screenreader hörten die Zahl nie.** Das explizite `aria-label` der Kachel ersetzt ihren
+    Nachfahrentext im Accessibility-Baum, und es trug nur Alias und Basisnamen — die sichtbare Zahl
+    existierte für Screenreader nicht, obwohl genau nach ihr sortiert wird (WCAG-AA-Auflage in
+    `web/.claude/CLAUDE.md`). `cellLabel` hängt den aktiven Score jetzt unter der Beschriftung des
+    Sortier-Controls an, mit derselben Vorsicht wie oben; der fehlende Wert wird dabei zum Wort, weil
+    die Kachel nur einen Gedankenstrich zeigt und ein Screenreader den nicht ausspricht.
+12. **Der Doppel-Scrollbalken kam auf niedrigen Fenstern zurück.** Die Untergrenze von 16 rem am
+    Raster-Viewport passte unterhalb von rund 608 px CSS-Höhe nicht mehr neben Titel, Formular,
+    Sortierzeile und Aktionszeile — bei 500 px lief die Pane um **gemessene 107 px** über, also genau
+    der Zustand aus Runde eins. Eine Untergrenze F holt den Defekt für jedes Fenster unter
+    `F + 22rem` zurück (22 rem = gemessene Chrome-Höhe plus 2-rem-Pane-Rand); ganz beseitigen ließe
+    ihn nur eine echte Höhenkette ab der Pane, und die hieße `DialogShell`s Host für alle zwölf
+    Dialoge umzubauen. Stattdessen ist die Untergrenze auf 4 rem gesenkt, womit das Band unter
+    ~416 px liegt — unterhalb der Chrome selbst, wo nichts mehr hilft. Der Fall hängt jetzt an einem
+    E2E-Test (500-px-Viewport, Pane-Overflow ≤ 1 px, Raster scrollt): jsdom hat kein Layout, das ist
+    die einzige Ebene, auf der er sichtbar wird. Beim Aussuchen
+   einzelner Emotes ist der Name die Entscheidungsgrundlage — er landet im Zielset und der
+   Kollisionshinweis handelt von ihm. Sichtbar steht der **Alias** des Quellsets; der globale
+   Basisname kommt dort dazu, wo er abweicht (296 von 956 bei HandOfBlood), und zwar im zugänglichen
+   Namen und im Tooltip der Kachel, weil 64 px die meisten Namen abschneiden.
+
+**Und ein Schritt ist ersatzlos gestrichen:** der Fremdkanal-Weg öffnete nach der Auswahl noch
+`ImportTargetDialog` mit `forcedScope: 'selection'`. Mit unterdrückter Bereichs-Radiogruppe blieb
+dort genau eine Frage übrig — in welchen Kanal —, und die war schon beantwortet: der Fluss startet
+im Kopf der Seite genau dieses Kanals, und der Datei-Weg fragt dort seit jeher nicht. Beide Wege
+verhalten sich jetzt gleich. `forcedScope` selbst bleibt, der Dock-Einstieg (§8.7) benutzt es
+weiter.
+
+---
+
 ### 2026-09-09 — Ohne Auswahl steht ein Hinweis statt der Bereichswahl, nicht eine tote Option (#144)
 
 **Betrifft:** `web/src/app/shared/export/export-dialog.ts` ·
@@ -249,6 +370,259 @@ Begründung im PR sehen will, muss sie per `gh pr comment` nachreichen, nach dem
 **Wann die Regel wieder weg muss.** Mit dem Angular-Major, der vitest 5 als Peer trägt. Der
 Upgrade bringt beide Pakete ohnehin mit; bleibt die Regel dann stehen, hängt das Frontend still
 auf einer alten Testrunner-Linie fest.
+
+---
+
+### 2026-09-09 — Fremde Kanäle sind eine Lesequelle: eigene `/api/seventv`-MapGroup ohne Kanalrolle (#147)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/SevenTvEndpoints.cs` ·
+`src/EmotePurge.Core/Services/IForeignEmoteSetService.cs` ·
+`src/EmotePurge.Infrastructure/Services/ForeignEmoteSetService.cs` ·
+`src/EmotePurge.Core/SevenTv/ISevenTvApiClient.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiClient.cs` ·
+`src/EmotePurge.Api/Validation/ApiErrorCodes.cs` ·
+`src/EmotePurge.Api/RateLimiting/RateLimitPolicyNames.cs` ·
+`tests/EmotePurge.Api.Tests/SevenTvForeignEmoteSetEndpointTests.cs` ·
+`docs/superpowers/specs/2026-09-09-fremde-kanaele-import-quelle-spec.md`
+
+**Bis heute war „die Emote-Liste eines Kanals lesen" an eine Rolle in diesem Kanal gebunden.** Jeder
+Weg zur Liste lief über `LoadChannelReadOnlyAsync` und damit über einen *getrackten* Kanal; für alles
+andere gab es 404. Wer Emotes aus einem fremden Set übernehmen wollte, musste den Kanal erst joinen —
+ein Admin-Umweg, der einen Worker-Join, eine Channel-Zeile und einen Platz unter Twitchs
+100-Chatroom-Decke kostet, nur um eine Liste zu lesen.
+
+**Die neue `MapGroup` `/api/seventv/channels/{name}/emotes` trägt ausschließlich
+`RequireAuthorization()`** — kein `UsageStatsAccessAuthorizationFilter`, keine Rollenprüfung im
+Quellkanal. Das ist nicht die Aufweichung einer Zugriffsregel, sondern ihre richtige Verortung: die
+Daten liegen auf `7tv.app` öffentlich und sind dort kopierbar; unsere Rollenprüfung schützte nie das
+Set, sondern die *Chat-Statistik* daneben. Genau die wird hier nicht geliefert — die Antwort trägt
+Alias, Basisname, Bild und 7TV-weite Scores, aber keine Nutzungszahl. Nächstliegendes Bestandsmuster
+ist `LiveEndpoints` (jeder Eingeloggte, kanalübergreifend).
+
+**Fremd ist die Quelle, nie das Ziel.** Geschrieben wird weiterhin nur in ein Set, in dem der Nutzer
+7TV-Rechte hat, und das Zielset bleibt ein getrackter Kanal aus `listMine()`. Die Mutationen laufen
+unverändert im Browser über den 7TV-Token; das Backend sieht ihn nie. Dieser Eintrag fügt eine
+**Lese**fähigkeit hinzu, keine Schreibfähigkeit.
+
+**Die Auflösungskette meidet 7TVs Suchendpunkt.** `LookupByLoginAsync` (Helix) →
+`ResolveSevenTvIdentityAsync` (`userByConnection`) → v4-Set-Abfrage. `GqlUsersQuery` /
+`ResolveTwitchUserIdAsync` bleiben dem periodischen Sync vorbehalten: das ist 7TVs *Suche*, sie hängt
+an einem eigenen Eimer von 100, ihre Überziehung sperrt rund eine Stunde, und sie tarnt die Ablehnung
+als **HTTP 200 mit `extensions.status: 429`**. Ein Feature, das diesen Endpunkt pro Nutzereingabe
+anspräche, würde die Sperre auslösen, die es zu meiden gilt. Ein Test hält das Verbot fest.
+
+**Ein erkanntes 429 sieht ohne Sonderbehandlung wie ein leeres Set aus** — und ein leeres Set ist
+laut Zustandstabelle ausdrücklich kein Fehler, sondern 200. Diese Verwechslung wäre der teuerste
+Einzelfehler des Features: der Nutzer bekäme „dieser Kanal hat keine Emotes" statt „7TV drosselt
+gerade". Die Erkennung sitzt deshalb im Parser, nicht im HTTP-Handler.
+
+**Die Seitendecke schneidet nicht mehr still ab.** Der bestehende `addedAt`-Pfad bricht bei
+`MaxSetEntryPages` kommentarlos ab; für eine Anreicherung ist das tolerabel, für eine Vorschau nicht —
+eine zu kurze Liste, die sich nicht als zu kurz zu erkennen gibt, ist schlimmer als ein Fehler. Die
+Antwort trägt darum `truncated` samt `totalCount`, und die Oberfläche sagt es.
+
+**Die Bild-URL wird aus Id und Animiertheit gebaut, nicht abgefragt.** `Emote.images` mitzuholen
+verteuerte die Antwort um das 17,4-Fache (113.748 gegen 6.535 Bytes für 45 Emotes); `flags { animated }`
+kostet 18,9 % und genügt. **Die Id allein genügt nicht** — das war der erste Anlauf und er war falsch:
+eine `_static`-Rendition existiert bei 7TV nur für animierte Emotes, für statische antwortet
+`4x_static.webp` mit 404. Live gemessen sind das 305 von 956 Emotes eines echten Sets, also knapp ein
+Drittel kaputter Bilder. Aufgefallen ist es erst, als eine Sonde die gebauten URLs wirklich abrief;
+die Konvention war zuvor „gegen zwei Antworten bestätigt", und beide waren zufällig animiert. Der
+Bestandspfad rät deshalb nicht, sondern liest `host.files[].static_name` — 7TV benennt die Datei
+selbst. Die erzeugte Zeichenkette ist jetzt bytegleich mit jener, und der `_static`-Marker bleibt
+tragend, weil das Frontend die animierte URL durch sein Entfernen ableitet.
+
+**Kein Worker, kein Join, keine Migration.** Der Endpunkt schreibt nichts in unsere Datenbank. Das
+Messfenster aus Epic #118 (bis 2026-10-07) bleibt dadurch unberührt — eine ausdrückliche Auflage
+dieser Runde, keine glückliche Nebenwirkung.
+
+---
+
+### 2026-09-09 — Die Fremdset-Vorschau wird gehärtet, weil 7TV eine Server-IP sieht und nicht N Nutzer (#147)
+
+**Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/HardenedForeignEmoteSetService.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignSevenTvBreakerPolicy.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetProviderBudget.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetRequestCoalescer.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetCache.cs` ·
+`src/EmotePurge.Infrastructure/Telemetry/ProviderRequestTelemetryHandler.cs` ·
+`src/EmotePurge.Infrastructure/ServiceCollectionExtensions.cs` ·
+`src/EmotePurge.Core/Services/IForeignEmoteSetCache.cs` · `src/EmotePurge.Core/Services/IRateLimitTelemetry.cs`
+
+**Ein Limit pro Nutzer begrenzt gegenüber 7TV nichts.** Der Endpunkt nimmt einen frei getippten
+Kanalnamen entgegen; zehn verschiedene Namen umgehen Cache und Koaleszierung vollständig und kosten
+je bis zu einen Helix-Abruf, ein `userByConnection` und zehn Set-Seiten. 7TV sieht davon nicht zehn
+Nutzer, sondern eine Server-IP. Deshalb steht neben der Per-Nutzer-Policy `ForeignEmoteLookup`
+(10/min) ein **providerweites** Budget: höchstens zwei gleichzeitige Abrufe und 60
+Upstream-Requests je Minute aus diesem Feature. **Über der Schranke wird gewartet, nicht
+abgelehnt** — die Alternative wäre, unter Last genau den Fehler zu zeigen, den die Schranke
+verhindern soll.
+
+**Die Wartezeit ist auf 5 s gedeckelt, und diese Zahl ist eine Setzung.** Sie ist großzügig gegen
+die gemessenen 0,72 s eines typischen Abrufs und kurz genug, den Import-Dialog nicht hängen zu
+lassen. Sie deckt den pathologischen Fall (zehn Seiten × HTTP-Timeout) bewusst **nicht** ab. Wenn
+der Live-Betrieb widerspricht, ist das die Zahl, die man anfasst.
+
+**Der Breaker öffnet bei einem bestätigten 429 sofort, nicht nach fünf Fehlern.** 7TVs Sperre läuft
+rund eine Stunde; ein Breaker, der nach einem eindeutigen 429 noch vier Versuche zulässt und dann
+nach starren 60 s erneut anklopft, verschärft die Sperre, die er vermeiden soll. Die Offenzeit folgt
+darum einem vorliegenden `Retry-After`, und nur ersatzweise den 60 s. Sonstige Upstream-Fehler
+behalten die Fünferschwelle. Pure Policy-Klasse wie `TwitchReconnectBackoffPolicy` und
+`SevenTvBackoffPolicy`, kein Polly.
+
+**Ein 429 kommt in zwei Gestalten, und die zweite war zunächst unsichtbar.** Dass 7TV Überlast als
+HTTP 200 mit `extensions.status: 429` tarnt, war von Anfang an eingeplant. Beim Härten fiel auf, dass
+der *literale* HTTP 429 durch `EnsureSuccessStatusCode()` in den generischen Catch lief und als
+schlichtes `Unavailable` zurückkam — ununterscheidbar von jedem anderen Fehler. Der Breaker hätte
+damit für die unverkleidete Hälfte der Fälle nie schnell geöffnet. Beide Gestalten werden jetzt vor
+allem geprüft, was werfen könnte.
+
+**Die Telemetrie meldet die Client-Methode selbst, nicht der Message-Handler.** Der Handler bekommt
+seine Call-Source fest bei der Registrierung des typisierten Clients; eine neue Methode erschiene
+weiter unter `seventv-rest`. Schlimmer: er sieht bei `extensions.status: 429` nur HTTP 200, und der
+Store wertet allein einen HTTP-429 als Rate-Limit — ausgerechnet der wichtigste Fehler bliebe im
+Admin-Monitoring unsichtbar. Für diesen Pfad wird der Handler darum über
+`ProviderTelemetrySuppression.OptionsKey` stillgelegt, und die Beobachtung entsteht **nach** dem
+Parsen, unter der neuen Quelle `seventv-foreign-preview`. **Genau eine Beobachtung je
+Upstream-Request** — nicht null, nicht zwei; ein Test hält das fest. Das ist der erste Präzedenzfall
+dafür, dass eine Client-Methode ihre eigene Telemetrie meldet, und er gilt für Fälle, in denen das
+semantische Ergebnis erst nach dem Rumpf feststeht.
+
+**Der Dekorator hängt über keyed DI vor dem rohen Dienst** (`AddKeyedScoped` /
+`GetRequiredKeyedService`) — erster Einsatz von keyed services in diesem Repo. Gewählt gegen ein
+zweites Interface, weil Tests so beide Seiten unabhängig substituieren können, ohne dass eine
+Attrappe der Härtung in der Signatur des Fachdienstes auftaucht.
+
+**Bekannte Grenze, bewusst in Kauf genommen:** Breaker-Zustand, Koaleszierung und das providerweite
+Budget sind Singletons **in einem Prozess**. Bei einer zweiten Api-Replica bräuchten alle drei
+verteilten Zustand — dieselbe Klasse von Grenze wie der In-Process-Lock des Twitch-Token-Refresh.
+Heute läuft eine Replica.
+
+**`ResolveSevenTvIdentityAsync` bleibt außen vor.** Ein 429 dort zählt über den Gesamtstatus in die
+generische Fünferschwelle, bekommt aber keinen Schnellpfad, weil die Methode mit `SevenTvSyncService`
+und `ChannelAccessService` geteilt wird. Bewusst nicht mitgeändert; falls es sich im Betrieb rächt,
+ist es ein eigenes Ticket wert.
+
+---
+
+### 2026-09-09 — Die dritte Herkunftsvokabel `seventv-channel` muss an drei Stellen ankommen, und `ImportOrigin` wird nur noch an einer auseinandergenommen (#147)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/EmoteEndpoints.cs` ·
+`src/EmotePurge.Infrastructure/Services/AuditLogQueryService.cs` ·
+`web/src/app/core/seven-tv/import-source.ts` ·
+`web/src/app/core/seven-tv/seven-tv-import.service.ts` ·
+`web/src/app/core/emotes/emote-admin.service.ts` ·
+`web/src/app/shared/seven-tv/import-confirm-dialog.ts` ·
+`web/src/app/shared/seven-tv/foreign-import-flow.ts` ·
+`web/src/app/features/usage-stats/usage-stats-page.html`
+
+**Ein Import aus einem fremden Set ist eine eigene Herkunft, kein `channel`.** Die Vokabel
+`"seventv-channel"` steht dauerhaft in write-once-Audit-Zeilen; sie in `"channel"` zu falten würde
+den Unterschied für immer einebnen, den die Zeile später erklären soll. Sie muss deshalb **vor** dem
+ersten Produktionslauf feststehen — nach einem Revert bleiben bereits geschriebene Zeilen mit dieser
+Vokabel stehen.
+
+**Sie an einer Stelle einzutragen reicht nicht.** Drei Stellen im Backend sehen sie, und nur die
+erste meldet sich, wenn man sie vergisst: die Vokabelprüfung des Endpunkts, der Kind/Name-Abgleich
+und der Herkunftszweig des Audit-Renderers. Der Renderer prüfte `sourceKind is "channel" or "file"`
+und ließ alles andere in den nackten `EmoteCount`-Zweig fallen — der Kommentar darüber benennt genau
+diesen Schaden („silently drop the one thing that row can't be reconstructed from otherwise"). Ohne
+den dritten Schritt hätte jede Fremdkanal-Zeile ihre Herkunft verloren, dauerhaft und unbemerkt.
+
+**Der Kind/Name-Abgleich bleibt unverändert — aber nicht mehr aus Zufall.** Er fragt binär „Datei
+gegen Nicht-Datei" und trägt die neue Vokabel deshalb versehentlich richtig. Das steht jetzt als
+Kommentar dort, samt der Bedingung, unter der es aufhört zu gelten: eine vierte, namenlose Herkunft
+müsste diese Zeile anfassen. Ein Test hält beide Richtungen fest.
+
+**`=== 'channel'` und `!== 'file'` sind ab dem dritten Union-Mitglied nicht mehr dasselbe.** Sie
+fallen in entgegengesetzte Richtungen, und im Bestand standen beide Formen nebeneinander. Die
+teuerste Fundstelle war still und typkorrekt: der Wire-Rumpf sendete den Quellnamen nur für
+`kind === 'channel'`, hätte für die neue Herkunft `null` geschickt und wäre mit 400 abgewiesen worden
+— **nachdem die 7TV-Mutationen gelaufen sind**. Die Emotes wären kopiert, die Meldung gescheitert,
+die Herkunft weg.
+
+**`ImportOrigin` wird darum nur noch in `importOriginSourceChannelName` auseinandergenommen**,
+`switch` über den Diskriminanten mit `never`-Arm. Ein viertes Union-Mitglied ist dort ein
+Build-Fehler statt einer Laufzeitüberraschung. Der Bestätigungsdialog prüft `kind` im Template gar
+nicht mehr: dass die alte Prüfung laut war, lag allein daran, dass der `@else`-Zweig zufällig
+`origin.fileName` las — und ein Template ist der Ort, an dem ein falscher Zweig gerade nicht
+typgeprüft wird.
+
+**Der Hinweis „gleiche Datei, gleicher Kanal" bleibt dateiexklusiv.** Er handelt von einer
+heruntergeladenen Liste, die im Kreis läuft; die Zielauswahl schließt den Quellkanal aus. Für beide
+Kanal-Herkünfte ist der Befund damit unmöglich statt bloß unwahrscheinlich — das steht jetzt als
+Begründung im Code.
+
+**Der Einstieg sitzt neben dem Datei-Import, unter `!isCoarse()`, aber nicht unter
+`activeEmoteSetId()`.** Der Import endet in einem 7TV-Schreibvorgang, und den Token trägt niemand auf
+dem Handy — die Grobzeiger-Sperre gilt also. Das aktive Set des *Zielkanals* gilt nicht: eine
+Fremdübernahme braucht weder dieses Set noch eine Zeile im Raster, und die Bedingung hätte die neue
+Quelle ausgerechnet auf den noch nicht synchronisierten Kanälen versteckt.
+
+---
+
+### 2026-09-10 — Das Providerbudget zählt Requests, nicht Auflösungen, und nur die aktuelle Generation schließt den Breaker (#147)
+
+**Betrifft:** `src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetProviderBudget.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignSevenTvBreakerPolicy.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/ForeignEmoteSetRequestCoalescer.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/HardenedForeignEmoteSetService.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiClient.cs` ·
+`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiDtos.cs` ·
+`src/EmotePurge.Infrastructure/Services/ForeignEmoteSetService.cs` ·
+`src/EmotePurge.Api/Endpoints/AdminEndpoints.cs`
+
+Sechs Befunde aus der Codex-Sol-Zweitmeinung zum Fremdkanal-Import, alle nachgeprüft und behoben.
+Jeder Fix trägt einen Test, der ohne ihn rot ist; bei den beiden Nebenläufigkeitsfällen wurde das
+durch temporäres Zurückbauen verifiziert, nicht behauptet.
+
+**Nebenläufigkeit und Rate sind zwei Größen und brauchen zwei Nahtstellen.** Die Härtung buchte
+einmal Budget je *Auflösung*. Eine Auflösung löst aber bis zu zwölf Upstream-Requests aus — ein
+Helix, ein `userByConnection`, bis zu zehn Seiten. Die Schranke „60 Upstream-Requests/Minute" ließ
+damit faktisch bis zu 720 zu. Die Nebenläufigkeitsgrenze bleibt eine Eigenschaft der Auflösung und
+sitzt weiter im Dekorator; die Rate ist eine Eigenschaft des einzelnen Requests und wird **dort
+abgebucht, wo er rausgeht**, vor dem Absenden — eine Ablehnung heißt dann wirklich „nicht gesendet".
+Neues Interface `IForeignUpstreamRequestBudget`, bewusst in `Infrastructure` statt in `Core`: es ist
+eine interne Naht der Härtung, kein Fachvertrag. Helix und `ResolveSevenTvIdentityAsync` werden
+**außerhalb** des geteilten `ChannelIdentityService` abgebucht — dort zu drosseln träfe Join-Pfad,
+Worker-Reconcile und den periodischen Sync mit, die mit diesem Feature nichts zu tun haben.
+
+**Das Fenster ist rollend.** Ein Zähler-Reset an der Fenstergrenze lässt 60 Permits davor und 60
+danach zu, also rund 120 in einer rollenden Minute. Die Spec sagt „60/Minute" ohne Lesart; die
+rollende ist die, die den Zweck der Schranke trägt. **Kein Vertragsbruch** — die Zweitmeinung nannte
+es „documented rolling window", das überzeichnet —, aber eine Festlegung.
+
+**Nur die aktuelle Generation darf den Breaker schließen.** Liefen zwei Auflösungen parallel, konnte
+die eine ein 429 bekommen und öffnen, während die andere — vor dem Fehler zugelassen — danach
+erfolgreich endete und den Breaker bedingungslos wieder schloss. Das verwarf das `Retry-After` und
+nahm den Verkehr sofort wieder auf, gegen genau die Sperre, die E4 respektieren soll. Jede Zulassung
+trägt jetzt eine Generation, jede Rückmeldung gibt sie zurück, und eine Meldung aus einer älteren
+Generation zählt weder fürs Schließen noch fürs Verlängern.
+
+**Geteilte Arbeit gehört keinem Aufrufer.** Der Koaleszierer legte das Token des *ersten* Aufrufers
+in die geteilte Task: brach dieser ab, starb der Abruf für alle Mitwartenden. Die geteilte Ausführung
+läuft jetzt unter eigenem Token, das Aufrufer-Token wirkt nur auf das eigene Warten — abgebrochene
+Arbeit läuft zu Ende und füllt den Cache.
+
+**Zwei Statuswerte, die nicht auf die Leitung gehen** (`ProviderBudgetExhausted`,
+`BudgetExhausted`): die eigene Drossel muss intern von einem 7TV-Fehler unterscheidbar sein, sonst
+öffnet selbstverursachte Stauung den Breaker. Nach außen bleibt es derselbe 503 — **keine** neuen
+Fehlercodes, keine Frontend-Änderung.
+
+**7TVs `errors[].extensions.headers` bleibt unbelegt und wird nur opportunistisch gelesen.** Die
+Zweitmeinung behauptet, getarnte 429er lieferten dort ein `x-ratelimit-…-reset`. Zwei Websuchen und
+7TVs veröffentlichte Quellen geben dazu nichts her, und ein 429 zu provozieren kostet rund eine
+Stunde IP-Sperre. Statt den Streit zu entscheiden, wird er gegenstandslos: das Feld wird gelesen
+**falls vorhanden** und schlägt dann `Retry-After`, sonst bleibt alles wie zuvor. Interpretiert wird
+nur „Sekunden verbleibend"; Werte ≤ 0 oder über sechs Stunden werden verworfen statt umgedeutet —
+ein als Unix-Zeitstempel missverstandener Wert hielte den Breaker sonst jahrzehntelang zu.
+
+**Der Admin-Snapshot führt die neue Policy.** `ForeignEmoteLookup` fehlte in
+`AdminEndpoints.RateLimitPolicyDescriptors`, und der Endpunkt baut seine Antwort ausschließlich aus
+dieser Liste — die Policy war in `/api/admin/rate-limits` unsichtbar. Der zugehörige Test vergleicht
+die Liste per Reflection gegen **alle** Konstanten in `RateLimitPolicyNames`, statt Zeilen zu zählen;
+die nächste Policy ohne Deskriptor fällt damit hier auf. Das providerweite Budget steht bewusst
+**nicht** in der Liste: es ist keine ASP.NET-Policy und hat keine Partition.
 
 ---
 

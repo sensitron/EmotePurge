@@ -1,6 +1,7 @@
 /**
- * Whether the file-import trigger (#91, plan §1.2 point 3) — the button that opens the file-based
- * restore/import dialog from the usage-stats page header — should be disabled.
+ * Whether the import trigger (#91, plan §1.2 point 3; #147) — the "Importieren" button in the
+ * usage-stats page header, which opens the one import dialog and with it every import source —
+ * should be disabled.
  *
  * Deliberately NOT part of this gate, because both are already enforced by the `@if` block the
  * trigger sits in on the page (`usage-stats-page.html`, the same block that gates "Übertragen"):
@@ -9,8 +10,8 @@
  *   without one.
  *
  * Also deliberately NOT part of it, unlike the neighbouring "Übertragen" button this trigger
- * otherwise mirrors: `atlasOrder().length === 0`. The file path needs no rows loaded in the grid —
- * the chosen file supplies its own.
+ * otherwise mirrors: `atlasOrder().length === 0`. Neither the file path nor the foreign-channel path
+ * needs rows loaded in the grid — both bring their own.
  *
  * `importScopeCurrent` mirrors `importScopeIsCurrent` (`import-scope.ts`): a channel switch inside
  * the route can leave `channelName()` pointing at the new channel while the set status/rows still
@@ -18,13 +19,13 @@
  * hands it in as an input, rather than this gate recomputing it — that keeps the gate a pure
  * function taking only booleans, testable without a TestBed (same shape as `import-shortcut.ts`).
  */
-export interface FileImportTriggerGateState {
+export interface ImportTriggerGateState {
   /** `SevenTvRunArbiter.activeRun() !== null` — any of the three 7TV-writing runs, not just this one. */
   readonly hasActiveRun: boolean;
   /** See `importScopeIsCurrent` — false during the window right after a same-route channel switch. */
   readonly importScopeCurrent: boolean;
 }
 
-export function fileImportTriggerDisabled(state: FileImportTriggerGateState): boolean {
+export function importTriggerDisabled(state: ImportTriggerGateState): boolean {
   return state.hasActiveRun || !state.importScopeCurrent;
 }

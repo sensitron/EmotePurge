@@ -693,7 +693,7 @@ const SCENARIOS: Scenario[] = [
   },
   {
     // The A6/#91 import path in its refusal state: a protocol from another channel renders the
-    // error banner inside the file-import dialog, under the sort list and the file control
+    // error banner inside the import dialog's file step, under the sort list and the file control
     // (§1.1's body order) — deterministic (no token prompt, no further dialog).
     slug: 'usage-stats-restore-import-error',
     path: '/channels/sensitron/usage-stats',
@@ -705,11 +705,16 @@ const SCENARIOS: Scenario[] = [
       await mockUsageTotals(page, 'sensitron', usageEmotes(8));
     },
     afterLoad: async (page) => {
-      // The file control now lives inside FileImportDialog (#91), not directly on the page, so the
-      // trigger has to be opened first — same position-based handle as the import-target-dialog
-      // scenario above, `.nth(2)` because the file-import trigger sits after export and import.
+      // The file control now lives inside the import dialog (#91, #147), not directly on the page,
+      // so the trigger has to be opened first — same position-based handle as the
+      // import-target-dialog scenario above, `.nth(2)` because the import trigger sits after export
+      // and transfer — and since #147 the file source has to be picked in the dialog's first step.
       await page.locator('main header button').nth(2).click();
       await page.locator('#app-dialog-title').waitFor();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^Aus einer Datei/ })
+        .click();
 
       const foreignProtocol = JSON.stringify({
         source: 'emotepurge',
@@ -745,8 +750,27 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // The file-import dialog (#91) in its starting state: sort list, file control, no error yet.
-    // Its own scenario because the list holds the longest new strings the cutover introduced (three
+    // The import dialog's first step (#147): the source rows. Each row is a two-line label, and the
+    // German hints are the longest strings in the dialog — §12 flags exactly that as the most
+    // common wrap break.
+    slug: 'usage-stats-import-source-dialog',
+    path: '/channels/sensitron/usage-stats',
+    requiresFinePointer: true,
+    setup: async (page) => {
+      await authedShell(page);
+      await channelWorkspace(page);
+      await mockActiveEmoteSet(page, 'sensitron');
+      await mockUsageTotals(page, 'sensitron', usageEmotes(8));
+    },
+    afterLoad: async (page) => {
+      // Same position-based handle as the scenario above: export, transfer, then this trigger.
+      await page.locator('main header button').nth(2).click();
+      await page.locator('#app-dialog-title').waitFor();
+    },
+  },
+  {
+    // The file step (#91) in its starting state: sort list, file control, no error yet. Its own
+    // scenario because the list holds the longest new strings the cutover introduced (three
     // full-sentence-length entries) and §12 flags longer German strings as the most common wrap
     // break — the starting state otherwise has no screenshot of its own at all.
     slug: 'usage-stats-file-import-dialog',
@@ -759,9 +783,12 @@ const SCENARIOS: Scenario[] = [
       await mockUsageTotals(page, 'sensitron', usageEmotes(8));
     },
     afterLoad: async (page) => {
-      // Same position-based handle as the scenario above: export, import, then this trigger.
       await page.locator('main header button').nth(2).click();
       await page.locator('#app-dialog-title').waitFor();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: /^Aus einer Datei/ })
+        .click();
     },
   },
   {

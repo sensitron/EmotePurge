@@ -23,11 +23,18 @@ export interface EmoteSetWarning {
   otherModeratedChannelsSharingSet: string[];
 }
 
-/** Request body of syncImported — same shape the server's `SyncImportedRequest` binds. */
+/** Request body of syncImported — same shape the server's `SyncImportedRequest` binds.
+ *
+ *  `sourceKind` is spelled out here rather than derived from `ImportOrigin['kind']`: this is the
+ *  wire contract, and it has to be readable next to the endpoint that validates it
+ *  (`EmoteEndpoints.cs`, closed vocabulary, ordinal and lower-case). The union stays in step with
+ *  `ImportOrigin` because `importOriginSourceChannelName` is exhaustive over that union — a fourth
+ *  origin breaks the build there and lands here on the way past. `sourceChannelName` must be set for
+ *  every non-file kind: the server answers 400 otherwise, *after* the 7TV writes have happened. */
 export interface SyncImportedBody {
   sevenTvEmoteIds: string[];
   sourceChannelName: string | null;
-  sourceKind: 'channel' | 'file';
+  sourceKind: 'channel' | 'file' | 'seventv-channel';
 }
 
 /** Wire shape of GET .../emotes — wrapped in an object like the admin channel list, not a bare

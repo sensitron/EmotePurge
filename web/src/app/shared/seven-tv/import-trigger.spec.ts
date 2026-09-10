@@ -13,16 +13,17 @@ import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.serv
 import { SevenTvRunArbiter, SevenTvRunKind } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { PurgeRunRow } from '../export/purge-run-export';
-import { FileImportResult } from './file-import-dialog';
-import { FileImportTrigger } from './file-import-trigger';
+import { FileImportResult } from './file-import-step';
+import { ImportSourceDialogResult } from './import-source-dialog';
+import { ImportTrigger } from './import-trigger';
 
 /**
- * `FileImportTrigger` opens every dialog through the plain `Dialog` it injects, same as
+ * `ImportTrigger` opens every dialog through the plain `Dialog` it injects, same as
  * `startRestoreFlow`/`startImportFlow` do with the one they are handed: `dialog.open` is one
- * `vi.fn()` standing in for the file-import
- * dialog itself, the token prompt, the restore confirmation and the import confirmation alike,
- * distinguished by call order and by the side effects (`getSetStatus`/`startRestore`/
- * `startImport`) each step is allowed to have triggered by the time it runs.
+ * `vi.fn()` standing in for the import-source dialog itself, the token prompt, the restore
+ * confirmation and the import confirmation alike, distinguished by call order and by the side
+ * effects (`getSetStatus`/`startRestore`/`startImport`) each step is allowed to have triggered by
+ * the time it runs.
  */
 
 // Only the key this trigger itself renders.
@@ -68,13 +69,13 @@ function readyStatus(overrides: Partial<EmoteSetStatus> = {}): EmoteSetStatus {
 }
 
 interface Harness {
-  fixture: ComponentFixture<FileImportTrigger>;
+  fixture: ComponentFixture<ImportTrigger>;
   detect(): void;
   triggerDisabled(): boolean;
   click(): void;
 }
 
-describe('FileImportTrigger', () => {
+describe('ImportTrigger', () => {
   let getSetStatus: ReturnType<typeof vi.fn>;
   let listEmotes: ReturnType<typeof vi.fn>;
   let getSetWarning: ReturnType<typeof vi.fn>;
@@ -103,7 +104,7 @@ describe('FileImportTrigger', () => {
 
     await TestBed.configureTestingModule({
       imports: [
-        FileImportTrigger,
+        ImportTrigger,
         TranslocoTestingModule.forRoot({
           langs: { de: DE_TRANSLATIONS },
           translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
@@ -132,7 +133,7 @@ describe('FileImportTrigger', () => {
   });
 
   function render(channelName = CURRENT_CHANNEL, setId = CURRENT_SET): Harness {
-    const fixture = TestBed.createComponent(FileImportTrigger);
+    const fixture = TestBed.createComponent(ImportTrigger);
     fixture.componentRef.setInput('channelName', channelName);
     fixture.componentRef.setInput('setId', setId);
     fixture.detectChanges();
@@ -169,7 +170,7 @@ describe('FileImportTrigger', () => {
     return dialogOpen.mock.calls[index][1].data;
   }
 
-  describe('opening the file-import dialog', () => {
+  describe('opening the import-source dialog', () => {
     it('opens exactly one dialog with the current channel and set frozen into its data', () => {
       const dialog = render('achannel', 'aset');
 
@@ -179,7 +180,7 @@ describe('FileImportTrigger', () => {
       expect(dataAt(0)).toEqual({ channelName: 'achannel', setId: 'aset' });
     });
 
-    it('does nothing further when the file-import dialog closes with no result (cancel/Escape/backdrop)', () => {
+    it('does nothing further when the import dialog closes with no result (cancel/Escape/backdrop)', () => {
       const dialog = render();
       dialog.click();
 
@@ -194,7 +195,7 @@ describe('FileImportTrigger', () => {
       const dialog = render('channel-a', 'set-a');
       dialog.click();
 
-      // Simulate a same-route channel switch while the file-import dialog is still open.
+      // Simulate a same-route channel switch while the import dialog is still open.
       dialog.fixture.componentRef.setInput('channelName', 'channel-b');
       dialog.fixture.componentRef.setInput('setId', 'set-b');
       dialog.detect();
@@ -242,7 +243,7 @@ describe('FileImportTrigger', () => {
 
       closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
 
-      // One dialog beyond the file picker, and it is already the confirmation.
+      // One dialog beyond the source dialog, and it is already the confirmation.
       expect(dialogOpen).toHaveBeenCalledTimes(2);
       expect(getSetStatus).toHaveBeenCalledWith(CURRENT_CHANNEL);
 
@@ -346,6 +347,49 @@ describe('FileImportTrigger', () => {
     });
   });
 
+  describe('foreign-channel result: straight into the import confirmation, no target picker (#147)', () => {
+    it("confirms against this page's channel without asking where the emotes should go", () => {
+      hasToken.set(true);
+      const dialog = render();
+      dialog.click();
+
+      closedAt<ImportSourceDialogResult | undefined>(0).next({
+        kind: 'foreign',
+        picked: {
+          channelName: 'handofblood',
+          sevenTvUserId: 'user-1',
+          emoteSetId: 'set-source',
+          rows: [
+            {
+              sevenTvEmoteId: '7tv-1',
+              name: 'HandLuL',
+              defaultName: 'LuL',
+              imageUrl: 'https://cdn.7tv.app/7tv-1/2x.webp',
+              topAllTime: null,
+              trending: null,
+            },
+          ],
+        },
+      });
+
+      // Exactly one further dialog, and it is the confirmation: the old target picker in between
+      // asked a question that was already answered by the page the trigger sits on.
+      expect(dialogOpen).toHaveBeenCalledTimes(2);
+      expect(getSetStatus).toHaveBeenCalledWith(CURRENT_CHANNEL);
+
+      closedAt<{ targetSetId: string; rows: unknown[] }>(1).next({
+        targetSetId: CURRENT_SET,
+        rows: [{ sevenTvEmoteId: '7tv-1', name: 'HandLuL' }],
+      });
+
+      expect(startImport).toHaveBeenCalledWith(
+        { setId: CURRENT_SET, channelName: CURRENT_CHANNEL },
+        { kind: 'seventv-channel', channelName: 'handofblood' },
+        [{ sevenTvEmoteId: '7tv-1', name: 'HandLuL' }],
+      );
+    });
+  });
+
   describe('trigger lock', () => {
     it('disables exactly while arbiter.activeRun() is not null', () => {
       const dialog = render();
@@ -361,7 +405,7 @@ describe('FileImportTrigger', () => {
     });
 
     it('disables while importScopeCurrent is false', () => {
-      const fixture = TestBed.createComponent(FileImportTrigger);
+      const fixture = TestBed.createComponent(ImportTrigger);
       fixture.componentRef.setInput('channelName', CURRENT_CHANNEL);
       fixture.componentRef.setInput('setId', CURRENT_SET);
       fixture.componentRef.setInput('importScopeCurrent', false);

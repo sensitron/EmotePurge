@@ -95,6 +95,17 @@ public static class RateLimitCallSources
 
     /// <summary>The typed 7TV REST client (<c>7tv.io/v3</c>). The browser's direct GQL calls are not counted here.</summary>
     public const string SevenTvRest = "seventv-rest";
+
+    /// <summary>
+    /// The foreign-channel-import preview's own paginated v4 GraphQL requests (spec 2026-09-09,
+    /// section 6 telemetry vertrag). Reported by <c>SevenTvApiClient.GetEmoteSetPreviewAsync</c>
+    /// itself rather than by <see cref="EmotePurge.Infrastructure.Telemetry.ProviderRequestTelemetryHandler"/>,
+    /// which is silenced for these requests: only the client sees the parsed GraphQL body, and 7TV
+    /// disguises an overload as HTTP 200 with <c>extensions.status: 429</c> — the shared handler only
+    /// ever sees the raw HTTP status and would file that as a plain success under
+    /// <see cref="SevenTvRest"/>, the exact gap the spec calls "the most expensive single mistake".
+    /// </summary>
+    public const string SevenTvForeignPreview = "seventv-foreign-preview";
 }
 
 /// <summary>
@@ -111,4 +122,10 @@ public static class RateLimitCacheNames
 
     /// <summary>The subscriber check behind the voting eligibility.</summary>
     public const string SubscriberCheck = "subscriber-check";
+
+    /// <summary>
+    /// The 60 s foreign-channel-import preview cache, keyed on the normalized source login (spec
+    /// 2026-09-09, E3).
+    /// </summary>
+    public const string ForeignEmoteSet = "foreign-emote-set";
 }

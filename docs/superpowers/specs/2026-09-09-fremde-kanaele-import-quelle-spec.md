@@ -1,6 +1,6 @@
 # Fremde Kanäle als Import-Quelle — Spec
 
-**Datum:** 2026-09-09 · **Status:** vorgelegt, nicht freigegeben · **Zweitmeinung:** Codex Sol, adversarial, 2026-09-09 — 5 Befunde (3 hoch), **alle im Code nachgeprüft und alle eingearbeitet** (Abschnitt 17) · **Konzept:** [Fremde-Kanaele-als-Import-Quelle-2026-09-09.md](../../designs/Fremde-Kanaele-als-Import-Quelle-2026-09-09.md) (APPROVED, `b3f09c2`) · **Epic:** #118 (messungsneutral)
+**Datum:** 2026-09-09 · **Status:** freigegeben, Umsetzung läuft (Issue #147, Branch `feat/fremde-kanaele-import-147`) · **Zweitmeinung:** Codex Sol, adversarial, 2026-09-09 — 5 Befunde (3 hoch), **alle im Code nachgeprüft und alle eingearbeitet** (Abschnitt 17) · **Konzept:** [Fremde-Kanaele-als-Import-Quelle-2026-09-09.md](../../designs/Fremde-Kanaele-als-Import-Quelle-2026-09-09.md) (APPROVED, `b3f09c2`) · **Epic:** #118 (messungsneutral)
 
 Diese Spec **zerlegt** das freigegebene Konzept. Sie entwirft es nicht neu. Ansatz B, die
 verworfene Export-Seite (C), die zurückgestellte Multi-Kanal-Palette (D), „fremd ist die Quelle,
@@ -125,7 +125,7 @@ Neu gegenüber dem Konzept, beim Nachprüfen gefunden. `POST /sync-imported` nim
 einzutragen reicht **nicht**:
 
 1. **Endpunkt-Validierung** (`EmoteEndpoints.cs:136-138`): Vokabelmenge erweitern.
-2. **Kind/Name-Abgleich** (`EmoteEndpoints.cs:155`):
+2. **Kind/Name-Abgleich** (`EmoteEndpoints.cs:153`):
    `IsNullOrWhiteSpace(SourceChannelName) != (SourceKind == "file")`. Für `"seventv-channel"` mit
    gesetztem Namen trägt die Bedingung — aber **zufällig**, weil sie binär „file gegen nicht-file"
    fragt. Sie bleibt so und wird mit einem Test festgenagelt, statt sich darauf zu verlassen.
@@ -157,7 +157,7 @@ sourceKind: run.origin.kind,
 ```
 
 Für einen `seventv-channel`-Lauf wäre `sourceChannelName` also **`null`**. Der Kind/Name-Abgleich
-(`EmoteEndpoints.cs:155`) verlangt für jeden Nicht-Datei-Ursprung einen Namen und antwortet mit
+(`EmoteEndpoints.cs:153`) verlangt für jeden Nicht-Datei-Ursprung einen Namen und antwortet mit
 **400** — und zwar **nachdem die 7TV-Mutationen bereits gelaufen sind**. Die Emotes sind kopiert,
 die Meldung scheitert, die Herkunft ist weg. Das ist schlimmer als der stille Anzeigeverlust aus
 F5.3 und die einzige Falle, die nach unumkehrbarer Arbeit zuschlägt.
@@ -269,7 +269,7 @@ ganzen Spec.
 | Koaleszierung | Parallele identische Abrufe teilen sich einen Upstream-Abruf |
 | `refresh=true` | Übergeht den Cache, unterliegt derselben Rate-Limit-Policy und demselben Breaker |
 | 429-Erkennung | Aus `extensions.status` bei HTTP 200, siehe Abschnitt 5 |
-| Breaker | 5 aufeinanderfolgende Upstream-Fehler → 60 s offen → ein Probe-Request. Pure Policy-Klasse, kein Polly (E4). Das Öffnen wird **einmal** geloggt, nicht je Request |
+| Breaker | **Zwei Auslöser (E4, verbindlich):** ein erkanntes 429 — HTTP 429 *oder* `extensions.status: 429` — öffnet **sofort**, ohne Zählschwelle; sonstige Upstream-Fehler erst nach **5 aufeinanderfolgenden**. Offenzeit **nicht fix**: ein vorliegendes `Retry-After` bzw. ein Reset-Hinweis schlägt die 60-s-Vorgabe. Danach genau ein Probe-Request. Pure Policy-Klasse, kein Polly. Das Öffnen wird **einmal** geloggt, nicht je Request |
 | Telemetrie | Eigene `RateLimitCallSources`-Quelle, sichtbar in `/api/admin/rate-limits`, **mit semantischem Status** — siehe Vertrag unten. Ein Feature, dessen Begründung „7TV nicht verärgern" lautet, muss seinen eigenen Verbrauch zeigen |
 
 ### Telemetrievertrag (korrigiert nach Codex)

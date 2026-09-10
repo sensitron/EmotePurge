@@ -28,4 +28,14 @@ public interface ISevenTvApiClient
     // null; Grants is populated if and only if Status is Ok — an account with zero grants still
     // answers Ok with an empty list, since only a genuinely unusable response reaches Unavailable.
     Task<SevenTvEditorGrantsResult> GetEditorOfChannelsAsync(string sevenTvUserId, CancellationToken cancellationToken = default);
+
+    // A read-only, paginated preview of an arbitrary 7TV emote set — the foreign-channel-import
+    // source (spec 2026-09-09), distinct from every method above in that the caller need not own,
+    // moderate, or even track the channel the set belongs to. Uses the v4 GQL emoteSet(id) query, not
+    // the v3 REST path GetChannelStateForTwitchUserAsync reads: that path exists for our own synced
+    // channels and its NoActiveEmoteSet/fallback machinery does not apply here. Never null; Preview is
+    // populated if and only if Status is Ok. RateLimited is reported apart from Unavailable
+    // specifically so a hardening decorator can react to a confirmed 7TV overload differently from a
+    // generic upstream failure (spec E4) — see SevenTvPreviewLookupStatus.
+    Task<SevenTvEmoteSetPreviewResult> GetEmoteSetPreviewAsync(string emoteSetId, CancellationToken cancellationToken = default);
 }

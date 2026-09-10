@@ -2,12 +2,18 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using EmotePurge.Core.Entities;
+using EmotePurge.Core.Services;
 using EmotePurge.Core.SevenTv;
+using EmotePurge.Infrastructure.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace EmotePurge.Infrastructure.SevenTv;
 
-public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> logger) : ISevenTvApiClient
+public class SevenTvApiClient(
+    HttpClient httpClient,
+    IRateLimitTelemetry telemetry,
+    IForeignUpstreamRequestBudget foreignRequestBudget,
+    ILogger<SevenTvApiClient> logger) : ISevenTvApiClient
 {
     private const string GqlUsersQuery =
         "query($q: String!) { users(query: $q) { id username connections { platform username id } } }";
@@ -36,8 +42,24 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     private const int SetEntriesPerPage = 500;
     private const int MaxSetEntryPages = 10;
 
+    // Ceiling for a reset hint read out of a GraphQL error payload (ReadResetHintSeconds). Six hours
+    // is comfortably above the ~1 h search-bucket lockout measured live and far below anything that
+    // could be a Unix timestamp, so an unexpected unit is dropped instead of silently keeping the
+    // circuit breaker shut for years.
+    private const int MaxResetHintSeconds = 6 * 60 * 60;
+
     private const string GqlEditorOfQuery =
         "query($id: ObjectID!) { user(id: $id) { editor_of { user { connections { platform id username } } } } }";
+
+    // v4 schema, foreign-channel-import spec (F1 step 3): a set-agnostic, paginated preview of an
+    // arbitrary emote set's entries, including the set-local alias, the emote's global default name,
+    // and its network-wide scores — all three land in this one request per page (measured live
+    // 2026-09-09: 7734 bytes for a 45-emote set, extrapolating to ~164 KB for a 956-emote set, close
+    // to the 174 547 bytes the design doc measured for HandOfBlood's set with a near-identical
+    // shape). Deliberately omits Emote.images — see the comment on SevenTvGqlEmoteSetPreviewResponseDto
+    // for why, and BuildForeignImageUrl for how the image url is built instead.
+    private const string GqlEmoteSetPreviewQuery =
+        "query($id: Id!, $page: Int!, $perPage: Int!) { emote_sets: emoteSets { emote_set: emoteSet(id: $id) { emotes(page: $page, perPage: $perPage) { total_count: totalCount page_count: pageCount items { alias emote { id default_name: defaultName flags { animated } scores { top_all_time: topAllTime trending_day: trendingDay } } } } } } }";
 
     // Latches the fallback-set-load path (issue #43) from Information down to Debug after its first
     // occurrence in this process. Once 7TV finishes rolling out the null embedded emote_set, this
@@ -301,6 +323,161 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
         }
     }
 
+    public async Task<SevenTvEmoteSetPreviewResult> GetEmoteSetPreviewAsync(string emoteSetId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var items = new List<SevenTvEmoteSetPreviewItem>();
+            var totalCount = 0;
+
+            for (var page = 1; page <= MaxSetEntryPages; page++)
+            {
+                // One permit per page, taken here rather than once around the whole lookup (E5b): a
+                // single preview walks up to ten pages, and a budget charged per *resolution* would
+                // license ten times the documented rate. The permit is taken before the request is
+                // built, so a refusal really does mean "no request was made".
+                if (!await foreignRequestBudget.TryChargeRequestAsync(cancellationToken))
+                {
+                    logger.LogWarning(
+                        "Providerweites 7TV-Budget erschöpft — Vorschau-Abruf für Set {SetId} bei Seite {Page} abgebrochen.",
+                        emoteSetId, page);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.BudgetExhausted);
+                }
+
+                var pageResult = await FetchPreviewPageAsync(emoteSetId, page, cancellationToken);
+
+                // The single most expensive mistake in the whole spec (section 5/AK7): 7TV answers an
+                // overload — HTTP 429 outright, or HTTP 200 with a GraphQL error carrying
+                // extensions.status == 429 — which without this check is indistinguishable from a set
+                // that genuinely has zero entries. The second is explicitly not an error (see the
+                // state table), so both forms of a confirmed 429 are checked before the "no usable
+                // data" branch below, not folded into it. FetchPreviewPageAsync tells the two forms
+                // apart itself; from here on they are one outcome.
+                if (pageResult.Status == PreviewPageStatus.RateLimited)
+                {
+                    logger.LogWarning(
+                        "7TV meldet Überlast (429) beim Vorschau-Abruf für Set {SetId}, Seite {Page}.",
+                        emoteSetId, page);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.RateLimited, pageResult.RetryAfter);
+                }
+
+                var pageDto = pageResult.Dto?.Data?.EmoteSets?.EmoteSet?.Emotes;
+                if (pageResult.Status == PreviewPageStatus.Unavailable || pageDto is null)
+                {
+                    logger.LogWarning(
+                        "7TV-Vorschau-Abruf für Set {SetId} lieferte keine verwertbaren Daten (GraphQL-Fehlerantwort?), Seite {Page}.",
+                        emoteSetId, page);
+                    return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.Unavailable);
+                }
+
+                totalCount = pageDto.TotalCount;
+                items.AddRange(pageDto.Items.Select(MapPreviewItem));
+
+                if (page >= pageDto.PageCount)
+                {
+                    break;
+                }
+
+                // F3: the guard is a runaway stop, not an expected limit (see the comment on
+                // MaxSetEntryPages) — but unlike the addedAt overlay this reads back to a user as a
+                // preview list, and a silently short one is exactly what the spec forbids. Truncated
+                // is derived once more, robustly, right after the loop from items.Count < totalCount;
+                // this log line exists only to say *why*, while the reason is still known.
+                if (page == MaxSetEntryPages)
+                {
+                    logger.LogWarning(
+                        "7TV-Set {SetId} überschreitet die Seitendecke ({MaxPages} Seiten à {PerPage}) — Vorschau wird als unvollständig (truncated) markiert, angesagte Gesamtzahl {TotalCount}.",
+                        emoteSetId, MaxSetEntryPages, SetEntriesPerPage, totalCount);
+                }
+            }
+
+            var truncated = items.Count < totalCount;
+            return SevenTvEmoteSetPreviewResult.Ok(new SevenTvEmoteSetPreview(totalCount, truncated, items));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            logger.LogWarning(ex, "7TV-Vorschau-Abruf für Set {SetId} fehlgeschlagen, wird übersprungen.", emoteSetId);
+            return SevenTvEmoteSetPreviewResult.Failed(SevenTvPreviewLookupStatus.Unavailable);
+        }
+    }
+
+    // One HTTP request, one telemetry observation — the unit the telemetry vertrag (spec section 6)
+    // is written against. ProviderRequestTelemetryHandler is silenced for this request
+    // (ProviderTelemetrySuppression.OptionsKey) because it only ever sees the raw HTTP status: a 7TV
+    // overload disguised as HTTP 200 with extensions.status 429 would land in its count as a plain
+    // success. This method reports itself instead, after parsing far enough to know the real,
+    // semantic outcome, under RateLimitCallSources.SevenTvForeignPreview rather than SevenTvRest.
+    private async Task<PreviewPageResult> FetchPreviewPageAsync(string emoteSetId, int page, CancellationToken cancellationToken)
+    {
+        var payload = new
+        {
+            query = GqlEmoteSetPreviewQuery,
+            variables = new { id = emoteSetId, page, perPage = SetEntriesPerPage }
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, V4GqlPath) { Content = JsonContent.Create(payload) };
+        request.Options.Set(ProviderTelemetrySuppression.OptionsKey, true);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var retryAfterSeconds = ProviderRequestTelemetryHandler.ReadRetryAfterSeconds(response);
+
+        // A literal HTTP 429 — distinct from the disguised-as-200 form checked below, and previously
+        // indistinguishable from it: EnsureSuccessStatusCode() used to throw here and fall into the
+        // generic catch below as a plain Unavailable, losing exactly the distinction E4 needs to open
+        // the breaker immediately instead of counting toward its five-failure threshold.
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            RecordForeignPreviewObservation(response, statusOverride: 429, retryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.RateLimited, null, ToRetryAfter(retryAfterSeconds));
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.Unavailable, null, null);
+        }
+
+        SevenTvGqlEmoteSetPreviewResponseDto? dto;
+        try
+        {
+            dto = await response.Content.ReadFromJsonAsync<SevenTvGqlEmoteSetPreviewResponseDto>(
+                SevenTvEmoteJsonMapper.JsonOptions, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            // The HTTP layer really did answer 200 — that is what gets counted — even though the body
+            // could not be parsed. The caller's outer catch maps the rethrown exception to Unavailable.
+            RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
+            throw;
+        }
+
+        if (IsRateLimited(dto?.Errors))
+        {
+            // Reset hint first, Retry-After second, the breaker's own 60 s default last (E4). The hint
+            // is read opportunistically — see SevenTvGqlErrorExtensionsDto.Headers for why its
+            // existence is neither assumed nor denied — so on the payload shape we have actually seen,
+            // this behaves exactly as it did before: retryAfterSeconds, or nothing.
+            var effectiveRetryAfterSeconds = ReadResetHintSeconds(dto!.Errors) ?? retryAfterSeconds;
+            RecordForeignPreviewObservation(response, statusOverride: 429, effectiveRetryAfterSeconds);
+            return new PreviewPageResult(PreviewPageStatus.RateLimited, null, ToRetryAfter(effectiveRetryAfterSeconds));
+        }
+
+        RecordForeignPreviewObservation(response, statusOverride: null, retryAfterSeconds);
+        return new PreviewPageResult(PreviewPageStatus.Ok, dto, null);
+    }
+
+    private void RecordForeignPreviewObservation(HttpResponseMessage response, int? statusOverride, int? retryAfterSeconds) =>
+        telemetry.RecordProviderResponse(new ProviderResponseObservation(
+            RateLimitProviders.SevenTv,
+            RateLimitCallSources.SevenTvForeignPreview,
+            statusOverride ?? (int)response.StatusCode,
+            retryAfterSeconds,
+            ProviderRequestTelemetryHandler.ReadHeader(response, "Ratelimit-Limit"),
+            ProviderRequestTelemetryHandler.ReadHeader(response, "Ratelimit-Remaining"),
+            ProviderRequestTelemetryHandler.ReadHeader(response, "Ratelimit-Reset")));
+
+    private static TimeSpan? ToRetryAfter(int? retryAfterSeconds) =>
+        retryAfterSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null;
+
     // Common continuation for both branches of GetChannelStateForTwitchUserAsync: whether emoteSetDto
     // came straight off the primary response or was reloaded via the issue #43 fallback, everything
     // from here on (emote mapping, the v4 AddedToSetAt overlay, the account id, capacity handling)
@@ -466,4 +643,124 @@ public class SevenTvApiClient(HttpClient httpClient, ILogger<SevenTvApiClient> l
     // measured one.
     private static bool IsUsableSevenTvId(string? id) =>
         !string.IsNullOrWhiteSpace(id) && id.Any(c => c != '0');
+
+    // 7TV wraps a GraphQL-level failure as HTTP 200 (see GqlEmoteSetPreviewQuery's comment and
+    // SevenTvGqlEmoteSetPreviewResponseDto); a rate limit is one specific `errors[].extensions.status`
+    // value among those failures, matching the shape already captured live for a different query
+    // (SevenTvApiClientResolveIdentityTests' GraphQlErrorPayload: `extensions: { code, status }`).
+    private static bool IsRateLimited(List<SevenTvGqlErrorDto>? errors) =>
+        errors?.Any(error => error.Extensions?.Status == 429) ?? false;
+
+    /// <summary>
+    /// The reset hint a GraphQL error payload may carry in <c>extensions.headers</c>, in seconds —
+    /// <c>null</c> whenever it is absent, unreadable, or not plausibly a duration.
+    /// </summary>
+    /// <remarks>
+    /// Read defensively on purpose. We have no confirmation that 7TV sends this at all (see
+    /// <c>SevenTvGqlErrorExtensionsDto.Headers</c>); the one thing we do know is the shape of the
+    /// value if it is the same one the live measurement saw in a header —
+    /// <c>x-ratelimit-search-reset: 3583</c>, seconds remaining. So: seconds remaining is the only
+    /// reading accepted, both as a JSON number and as a quoted string, and anything outside a
+    /// plausible duration is discarded rather than reinterpreted. A Unix timestamp would land far
+    /// above the ceiling and be dropped — deliberately, because guessing that it *is* a timestamp
+    /// would be inventing a semantics we cannot check, and getting it wrong means holding the breaker
+    /// shut for decades.
+    /// </remarks>
+    private static int? ReadResetHintSeconds(List<SevenTvGqlErrorDto>? errors)
+    {
+        if (errors is null)
+        {
+            return null;
+        }
+
+        foreach (var headers in errors.Select(error => error.Extensions?.Headers).OfType<Dictionary<string, JsonElement>>())
+        {
+            foreach (var (name, value) in headers)
+            {
+                if (!IsResetHintHeaderName(name) || !TryReadSeconds(value, out var seconds))
+                {
+                    continue;
+                }
+
+                if (seconds > 0 && seconds <= MaxResetHintSeconds)
+                {
+                    return seconds;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    // "x-ratelimit-reset" and the per-bucket variants like "x-ratelimit-search-reset" — the form the
+    // live measurement of 7TV's search bucket produced.
+    private static bool IsResetHintHeaderName(string name) =>
+        name.StartsWith("x-ratelimit-", StringComparison.OrdinalIgnoreCase)
+        && name.EndsWith("-reset", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryReadSeconds(JsonElement value, out int seconds)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Number:
+                return value.TryGetInt32(out seconds);
+            case JsonValueKind.String:
+                return int.TryParse(value.GetString(), out seconds);
+            default:
+                seconds = 0;
+                return false;
+        }
+    }
+
+    private static SevenTvEmoteSetPreviewItem MapPreviewItem(SevenTvGqlEmoteSetPreviewItemDto dto)
+    {
+        var emoteId = dto.Emote?.Id ?? string.Empty;
+        return new SevenTvEmoteSetPreviewItem(
+            emoteId,
+            dto.Alias,
+            dto.Emote?.DefaultName ?? string.Empty,
+            BuildForeignImageUrl(emoteId, dto.Emote?.Flags?.Animated ?? false),
+            dto.Emote?.Scores?.TopAllTime,
+            dto.Emote?.Scores?.TrendingDay);
+    }
+
+    // 7TV's emote CDN url is fixed and keyed only by the emote id — every variant sits under
+    // https://cdn.7tv.app/emote/{id}/{scale}{_static?}.{ext}. Building the 4x directly from the id
+    // avoids requesting the images list at all (see GqlEmoteSetPreviewQuery's comment for the
+    // measured payload cost of doing so).
+    //
+    // The "_static" rendition, however, only exists when the source is animated — it is 7TV's
+    // flattened first frame, and there is nothing to flatten otherwise. Hardcoding it cost a 404 for
+    // every still emote: measured 2026-09-09 against HandOfBlood's set, 305 of 956 emotes (31.9 %)
+    // are stills and answered 404 on 4x_static.webp while 4x.webp answered 200. That is why the flag
+    // is queried rather than assumed — Emote.flags.animated is a plain Boolean and costs ~26 bytes an
+    // emote (+18.1 % on a 45-item page, against +1640 % for pulling Emote.images).
+    //
+    // The resulting string is byte-identical to what the tracked-channel path produces, and must
+    // stay so: SevenTvEmoteJsonMapper.BuildImageUrl reads the same distinction out of 7TV's own
+    // host.files[].static_name — literally "4x_static.webp" for an animated emote and "4x.webp" for a
+    // still one (both verified live 2026-09-09 on this very set) — and the frontend's STILL_SUFFIX
+    // derives the animated url by stripping that marker, so its presence is load-bearing on both
+    // paths alike.
+    //
+    // The false default when the flag is absent is a guard, not a behaviour: the v4 schema types
+    // Emote.flags and its animated member as non-null, so no captured payload omits them. It falls to
+    // 4x.webp on purpose, because that rendition exists for every emote — on an animated one it
+    // simply carries all frames — whereas the other guess would render nothing at all.
+    private static string BuildForeignImageUrl(string emoteId, bool animated) =>
+        emoteId.Length == 0
+            ? string.Empty
+            : $"https://cdn.7tv.app/emote/{emoteId}/{(animated ? "4x_static.webp" : "4x.webp")}";
+
+    private enum PreviewPageStatus
+    {
+        Ok,
+        RateLimited,
+        Unavailable
+    }
+
+    // Nested at the class end (Regel 19) — a pure return-value carrier local to FetchPreviewPageAsync,
+    // not part of this client's public shape.
+    private readonly record struct PreviewPageResult(
+        PreviewPageStatus Status, SevenTvGqlEmoteSetPreviewResponseDto? Dto, TimeSpan? RetryAfter);
 }
