@@ -14,9 +14,9 @@ Production: **[emotepurge.app](https://emotepurge.app)**
 |---|---|
 | **this README** | One-time setup and everyday commands |
 | [`CLAUDE.md`](CLAUDE.md) (in German) | The applicable rules and conventions, condensed. Read this before your first PR. |
-| [`docs/Architectur.md`](docs/Architectur.md) (in German) | The specification: modules, communication flow, DB model, Docker topology |
+| [`docs/Architectur.md`](docs/Architectur.md) | The specification: modules, communication flow, DB model, Docker topology |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) (in German) | **"Why is X built this way?"** — chronological decision log. Searchable via `grep <filename> docs/DECISIONS.md`. |
-| [`docs/UI-Designsprache.md`](docs/UI-Designsprache.md) (in German) | Binding for every UI change under `web/` |
+| [`docs/UI-Designsprache.md`](docs/UI-Designsprache.md) | Binding for every UI change under `web/` |
 | [`web/.claude/CLAUDE.md`](web/.claude/CLAUDE.md) | Frontend-specific conventions |
 
 Anything with an outward effect is written in English: this README, `CONTRIBUTING.md`, issues and pull requests, code comments, commit messages, and log and error messages. Plans, concepts and the existing entries of the decision log stay German by design — they are the maintainer's working notes, not a public surface. The exact rule is in `CLAUDE.md` (in German) under "Sprache", and the reasoning is in `docs/DECISIONS.md` (2026-09-10).
@@ -140,7 +140,7 @@ Four things that are deliberately this way and still trip people up:
 
 **A new backend capability costs three places.** Interface in `EmotePurge.Core/Services/`, implementation in `EmotePurge.Infrastructure/Services/`, registration in `AddEmotePurgeInfrastructure`. `AppDbContext` and `IConnectionMultiplexer` are forbidden from API handlers (Rule 4). The interfaces are never mocked — they carry the layer separation, not testability. This is ceremony by intent, not by accident.
 
-**Endpoints live in `src/EmotePurge.Api/Endpoints/*.cs`, never in `Program.cs`** (Rule 6), and authorization runs via `IEndpointFilter` classes in `Auth/`, not ASP.NET policies. Which filter applies to which endpoint is documented as a matrix in `docs/Architectur.md` (in German).
+**Endpoints live in `src/EmotePurge.Api/Endpoints/*.cs`, never in `Program.cs`** (Rule 6), and authorization runs via `IEndpointFilter` classes in `Auth/`, not ASP.NET policies. Which filter applies to which endpoint is documented as a matrix in `docs/Architectur.md`.
 
 **On errors, the API returns only language-neutral codes** (`ApiErrorCodes`), never finished text. A new code needs the same key in `web/src/app/core/i18n/api-error.ts` **and** in both locale files — otherwise `api-error.spec.ts` fails.
 

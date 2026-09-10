@@ -26,8 +26,7 @@
       "applicationUrl": "http://localhost:5151",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "Auth__Twitch__RedirectUri": "https://dev.home.sensitron.me/api/auth/twitch/callback",
-        "Auth__Twitch__PostLoginRedirectUrl": "https://dev.home.sensitron.me/"
+        "EMOTEPURGE_LAN": "true"
       }
     }
   }

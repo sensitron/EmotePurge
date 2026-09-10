@@ -23,3 +23,7 @@
 **/values.dev.yaml
 LICENSE
 README.md
+
+# Local-only LAN override: carries the operator's private hostname, must never
+# reach an image (see docs/Operations.md).
+**/appsettings.Lan.json

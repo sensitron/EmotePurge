@@ -10,8 +10,8 @@
 # a `.tmp` file first, verify pg_dump's own exit code and that the result is
 # non-empty, and only then atomically `mv` it into its final name.
 #
-# See docs/Backup-und-Restore.md for VPS setup, cron wiring, and restore
-# instructions (including the "volume is gone" disaster-recovery case).
+# See docs/Operations.md for the environment variables, the restore drill and
+# the "volume is gone" disaster-recovery case.
 
 set -euo pipefail
 

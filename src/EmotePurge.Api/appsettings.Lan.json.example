@@ -1,0 +1,12 @@
+// Copy this file to appsettings.Lan.json (gitignored, next to this one) and fill in your own
+// LAN hostname. Only loaded when the `lan` launch profile's EMOTEPURGE_LAN flag is set — see
+// docs/Operations.md. The Angular dev server needs the same hostname separately, passed as
+// __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS when starting `npm run start:lan`.
+{
+  "Auth": {
+    "Twitch": {
+      "RedirectUri": "https://dev.lan.example/api/auth/twitch/callback",
+      "PostLoginRedirectUrl": "https://dev.lan.example/"
+    }
+  }
+}

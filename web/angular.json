@@ -73,8 +73,7 @@
             },
             "lan": {
               "buildTarget": "web:build:development",
-              "host": "0.0.0.0",
-              "allowedHosts": ["dev.home.sensitron.me"]
+              "host": "0.0.0.0"
             }
           },
           "defaultConfiguration": "development"

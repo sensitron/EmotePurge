@@ -1,79 +1,79 @@
-# UI-Designsprache
+# UI design language
 
-Verbindliche Vorgabe für alle UI-Arbeit unter `web/`.
+Binding requirement for all UI work under `web/`.
 
-**Dieses Dokument beschreibt ausschließlich den geltenden Stand.** Was einmal anders war, welche Regel eine frühere abgelöst hat und warum, steht in [DECISIONS.md](DECISIONS.md) — hier steht keine Vorgeschichte, keine Zwischenstufe und kein „bis dahin galt". Wer wissen will, wie eine Regel entstanden ist, sucht sie dort per `grep`; wer wissen will, was heute zu tun ist, liest nur hier.
+**This document describes the state that applies today, and nothing else.** What used to be different, which rule superseded an earlier one and why, is in [DECISIONS.md](DECISIONS.md) — there is no prehistory here, no intermediate stage and no "until then it was". Whoever wants to know how a rule came about looks for it there with `grep`; whoever wants to know what to do today reads only here.
 
-Format pro Regel: **Was gilt** · **Wann anwenden** · **Referenz** (Dateipfad der Muster-Implementierung). Dieses Dokument ist das **Wie**, DECISIONS.md das **Warum**-Log. Bei Widerspruch zwischen einem älteren DECISIONS-Wortlaut und diesem Dokument gilt dieses Dokument.
+Format per rule: **What applies** · **When to apply** · **Reference** (file path of the model implementation). This document is the **how**, DECISIONS.md the **why** log. Where an older DECISIONS wording and this document disagree, this document wins.
 
-Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-ui-bauen) ab und verifiziert per [Audit-Harness (Abschnitt 12)](#12-verifikation-per-ui-audit-harness) — dann braucht es kein neues UI/UX-Audit.
+Whoever builds new UI works through the [checklist in section 11](#11-checklist-building-new-ui) and verifies with the [audit harness (section 12)](#12-verification-via-the-ui-audit-harness) — then no new UI/UX audit is needed.
 
 ---
 
-## 1. Geltung
+## 1. Scope of application
 
-- Gilt für alles unter `web/` — neue Seiten, neue Komponenten, Änderungen an bestehenden.
-- Ergänzt [`web/.claude/CLAUDE.md`](../web/.claude/CLAUDE.md) (Angular-Konventionen, Signals, Standalone) — beide gelten kumulativ.
-- Bestandscode wird nicht rückwirkend umgeschrieben (CLAUDE.md-Sprachregel gilt analog): Abweichungen werden bei der nächsten Berührung der Stelle behoben, nicht in Sammel-Refactorings.
+- Applies to everything under `web/` — new pages, new components, changes to existing ones.
+- Complements [`web/.claude/CLAUDE.md`](../web/.claude/CLAUDE.md) (Angular conventions, signals, standalone) — both apply cumulatively.
+- Existing code is not rewritten retroactively (the CLAUDE.md language rule applies analogously): deviations are fixed the next time the spot is touched, not in bulk refactorings.
 
-## 2. Farbe & Flächen
+## 2. Colour & surfaces
 
-### 2.0 Farbe kommt aus Tokens, nicht aus der Palette
+### 2.0 Colour comes from tokens, not from the palette
 
-- **Was gilt:** Kein Template, keine Varianten-Map und keine Komponentenklasse schreibt eine Tailwind-Paletten-Farbe (`slate-*`, `purple-*`, `red-*`, `amber-*`, `emerald-*`, `blue-*`, `pink-*`, `white`, `black`) direkt. Erlaubt sind ausschließlich die semantischen Utilities aus dem Tokensatz. Paletten-Namen stehen an genau **einer** Stelle: im Tokenblock von `web/src/styles.css`.
+- **What applies:** No template, no variant map and no component class writes a Tailwind palette colour (`slate-*`, `purple-*`, `red-*`, `amber-*`, `emerald-*`, `blue-*`, `pink-*`, `white`, `black`) directly. Only the semantic utilities from the token set are allowed. Palette names live in exactly **one** place: in the token block of `web/src/styles.css`.
 
-  | Rolle | Utilities |
+  | Role | Utilities |
   |---|---|
-  | Flächen | `bg-page` (der Grund) · `bg-surface` (die eine erhöhte Fläche, s. 2.1) · `bg-surface-inset` · `bg-surface-inset-hover` · `bg-field` |
-  | Ränder | `border-border` · `border-border-strong` · `border-border-field` (Bedienelemente, 3:1-Pflicht — s. 5.1) |
+  | Surfaces | `bg-page` (the ground) · `bg-surface` (the one raised surface, see 2.1) · `bg-surface-inset` · `bg-surface-inset-hover` · `bg-field` |
+  | Borders | `border-border` · `border-border-strong` · `border-border-field` (controls, 3:1 mandatory — see 5.1) |
   | Text | `text-fg` · `text-fg-body` · `text-fg-secondary` · `text-fg-muted` · `text-fg-disabled` |
-  | Akzent | `bg-accent` · `bg-accent-solid` (+`-hover`) · `bg-accent-selected` · `text-accent-fg` (Akzent **als Text**) · `bg-accent-wash` · `text-on-accent` (Text **auf** gefüllter Akzentfläche) |
-  | Töne | `{success,warning,danger,info,neutral}-{wash,fg,solid,dot}` — `wash` = getönte Fläche, `fg` = Schrift darauf, `solid` = gefüllte Fläche mit `on-accent`-Schrift, `dot` = kleine bedeutungstragende Grafik (Statuspunkt, Balkenfüllung; schuldet 3:1, nicht 4,5:1) |
-  | Sonstiges | `shadow-overlay` (Popover/Dialog) · `bg-emote-canvas` (Bildfläche einer Emote-Zelle) |
+  | Accent | `bg-accent` · `bg-accent-solid` (+`-hover`) · `bg-accent-selected` · `text-accent-fg` (accent **as text**) · `bg-accent-wash` · `text-on-accent` (text **on** a filled accent surface) |
+  | Tones | `{success,warning,danger,info,neutral}-{wash,fg,solid,dot}` — `wash` = tinted surface, `fg` = type on it, `solid` = filled surface with `on-accent` type, `dot` = small meaning-bearing graphic (status dot, bar fill; owes 3:1, not 4.5:1) |
+  | Other | `shadow-overlay` (popover/dialog) · `bg-emote-canvas` (image surface of an emote cell) |
 
-- **Wann anwenden:** Immer. Braucht eine neue UI eine Farbe, die es als Token nicht gibt, wird **das Token ergänzt** — mit Wert für **beide** Modi und mit gerechnetem Kontrastnachweis in der Commit-Message — nicht die Palette benutzt. Unterscheiden sich die Modi strukturell statt nur im Wert, ist das zuerst ein Hinweis, dass das Token falsch geschnitten ist; erst danach eine CSS-Variante. **Es gibt keine themefeste Farbe mehr** — `bg-emote-canvas` war die eine dokumentierte Ausnahme und wurde nach dem Ansehen zurückgenommen (s. 2.4). Ein eigenes Token heißt „eigene Rolle", nicht „fester Wert".
-- **Tone-Namen sind Bedeutungen, keine Farben.** `StatusBadgeTone` und `SlotBudgetTone` heißen `accent · info · success · neutral · warning · danger`. Ein Aufrufer, der `red` verlangt, verlangt einen Farbwert — und den gibt es nicht, weil hinter `danger` pro Modus ein anderer steht. Das gilt für jede neue Ton-Union.
-- **Gefüllte Buttons werden im Hover dunkler — in beiden Modi.** `*-solid-hover` liegt immer eine Stufe unter `*-solid`. Die Regel ist keine Optik, sondern der einzige Weg, den Hover kontrastsicher zu halten: `on-accent` ist in beiden Modi weiß, ein *hellerer* Hover kann Kontrast also nur wegnehmen. **Kein Werkzeug fängt einen Verstoß** — axe wertet nur aus, was gerade gerendert ist, und ein Hover ist das nie.
-- **Die Werte stehen bewusst nicht hier**, sondern nur in `web/src/styles.css`. Eine zweite Wertetabelle in Markdown driftet ab dem ersten nachgezogenen Token; der Tokenblock im Code wird bei jeder Farbänderung zwangsläufig angefasst und kann von sich selbst nicht abweichen. Dieses Dokument führt die **Rollen**, der Code die Werte. Der Kontrastnachweis gehört in die Commit-Message der Änderung, die ihn nötig macht; das jeweils engste Paar steht in §10 und wird dort mitgezogen.
-- **Erzwungen**, nicht erbeten: `npm run lint` fährt `web/scripts/check-color-tokens.mjs` mit und verbietet Paletten-Utilities unterhalb `web/src/app/`.
-- **Referenz:** `web/src/styles.css` (Tokenblock).
+- **When to apply:** Always. If a new UI needs a colour that does not exist as a token, **the token is added** — with a value for **both** modes and with a computed contrast proof in the commit message — rather than using the palette. If the modes differ structurally instead of only in value, that is first of all a hint that the token is cut wrong; only after that a CSS variant. **There is no theme-fixed colour any more** — `bg-emote-canvas` was the one documented exception and was withdrawn after looking at it (see 2.4). Having its own token means "own role", not "fixed value".
+- **Tone names are meanings, not colours.** `StatusBadgeTone` and `SlotBudgetTone` are named `accent · info · success · neutral · warning · danger`. A caller asking for `red` is asking for a colour value — and there is none, because behind `danger` there is a different one per mode. This holds for every new tone union.
+- **Filled buttons get darker on hover — in both modes.** `*-solid-hover` is always one step below `*-solid`. The rule is not aesthetics but the only way to keep the hover contrast-safe: `on-accent` is white in both modes, so a *lighter* hover can only take contrast away. **No tool catches a violation** — axe only evaluates what is rendered right now, and a hover never is.
+- **The values deliberately are not here**, only in `web/src/styles.css`. A second value table in Markdown drifts from the first token added afterwards; the token block in the code is necessarily touched on every colour change and cannot deviate from itself. This document carries the **roles**, the code the values. The contrast proof belongs in the commit message of the change that makes it necessary; the tightest pair at any time is in §10 and is carried along there.
+- **Enforced**, not requested: `npm run lint` runs `web/scripts/check-color-tokens.mjs` along with it and forbids palette utilities below `web/src/app/`.
+- **Reference:** `web/src/styles.css` (token block).
 
-### 2.0a Themes: Umschaltung, Persistenz, kein Aufblitzen
+### 2.0a Themes: switching, persistence, no flash
 
-- **Drei Zustände, nicht zwei:** `'system' | 'light' | 'dark'` (`THEME_PREFERENCES` in `core/theme/theme.service.ts`), Default `'system'`. Ein Zweizustands-Toggle kann „folge dem System" nicht ausdrücken — wer einmal umschaltet, säße sonst für immer fest.
-- **Der aufgelöste Modus steht als `data-theme` auf `<html>`**, nicht auf dem Shell-`<div>`: der CDK-Overlay-Container hängt außerhalb der App-Shell und erbt sonst keine Tokens.
-- **`public/theme-init.js` läuft synchron im `<head>`, vor dem Stylesheet.** Angular bootet erst nach dem ersten Paint; ohne dieses Skript blitzte bei heller Systempräferenz die dunkle Seite auf. Der `ThemeService` **liest** das gesetzte Attribut als Ausgangszustand, statt ihn neu zu bestimmen. Das Skript ist bewusst eine eigene Datei und kein Inline-Block — so braucht es unter der CSP der Api keine Nonce.
-- **Persistenz: `localStorage['emotepurge.theme']`.** Eine Darstellungspräferenz, keine Sitzungsinformation — die Regel „Auth-Session gehört nicht in `localStorage`" bleibt davon unberührt. Zusätzlich hört der Service auf `matchMedia('(prefers-color-scheme: dark)')`, damit ein Systemwechsel bei geöffneter App sofort durchschlägt, solange `'system'` gilt.
-- **`theme-color` sind zwei Metas** (`data-theme-mode="light"|"dark"` + `media`), damit der `'system'`-Fall ohne JavaScript stimmt; bei expliziter Wahl korrigiert der Service zusätzlich per DOM.
-- **`color-scheme` wird pro Modus im Tokenblock auf `:root` gesetzt** — dadurch folgen `input[type="time"]`, Scrollbars und Autofill von selbst, ohne eine einzige eigene Regel.
-- **Bedienelement ist `<app-display-preferences>`** — zwei beschriftete `SegmentedControl`-Gruppen (Darstellung, Sprache), die ausschließlich im Panel von `<app-account-menu>` (§7.1) leben. Es gibt keine zweite Stelle im Repo, an der Theme oder Sprache umgestellt werden; Shell, Landing und Login setzen dasselbe Menü an dieselbe Stelle. Bewusst kein durchklickender Icon-Button: dessen nächster Zustand ist nicht ansagbar. Und bewusst `role="radiogroup"` statt `role="menuitemradio"` — das Panel hält gemischte Kinder, für die `role="menu"` nicht gilt.
-- **Eingeloggt liegen sie eine Ebene tiefer**, hinter der Zeile „Einstellungen"; ausgeloggt zeigt das Panel sie direkt. Das ist die Bemerkenswert-wie-oft-Regel auf *Platz* statt auf Farbe angewandt: beides wird einmal eingestellt und danach nur noch bestätigt, darf also nicht der größte Posten in einem Panel sein, das mit dem Produkt wächst. Gemessen am Prototyp: die Wurzel schrumpft von 322 auf 190 px, und der Abstand wächst mit jedem weiteren Eintrag. **„Nur kleiner machen" war die verworfene Alternative** — sie brachte 20 px und hätte das Daumenziel *überall* gekostet, also auch dort, wo ein Daumen bedient. Verkleinert wird stattdessen nur, wo keiner ist: alle Zeilen und Segmente des Panels folgen der Menüzeilen-Regel aus §7.1 (`min-h-11 sm:min-h-9`). Ausgeloggt gilt die Ebene nicht: eine Zeile, die eine Unteransicht mit ihrem einzigen Inhalt öffnet, ist eine Tür vor einer Tür.
-- **Referenz:** `web/src/app/core/theme/theme.service.ts` (+ `theme.service.spec.ts`), `web/src/app/shared/ui/display-preferences.ts`, `web/src/app/shared/ui/account-menu.ts`, `web/public/theme-init.js`, `web/src/index.html`, Flow-Test `web/e2e/theme.spec.ts`.
+- **Three states, not two:** `'system' | 'light' | 'dark'` (`THEME_PREFERENCES` in `core/theme/theme.service.ts`), default `'system'`. A two-state toggle cannot express "follow the system" — whoever switched once would otherwise be stuck forever.
+- **The resolved mode sits as `data-theme` on `<html>`**, not on the shell `<div>`: the CDK overlay container hangs outside the app shell and would otherwise inherit no tokens.
+- **`public/theme-init.js` runs synchronously in the `<head>`, before the stylesheet.** Angular boots only after the first paint; without this script the dark page flashed up when the system preference was light. The `ThemeService` **reads** the attribute that was set as its initial state instead of determining it again. The script is deliberately its own file and not an inline block — that way it needs no nonce under the API's CSP.
+- **Persistence: `localStorage['emotepurge.theme']`.** A presentation preference, not session information — the rule "the auth session does not belong in `localStorage`" is untouched by this. In addition the service listens to `matchMedia('(prefers-color-scheme: dark)')` so that a system change takes effect immediately while the app is open, as long as `'system'` applies.
+- **`theme-color` is two metas** (`data-theme-mode="light"|"dark"` + `media`), so that the `'system'` case is correct without JavaScript; on an explicit choice the service additionally corrects it via the DOM.
+- **`color-scheme` is set per mode on `:root` in the token block** — that way `input[type="time"]`, scrollbars and autofill follow on their own, without a single rule of our own.
+- **The control is `<app-display-preferences>`** — two labelled `SegmentedControl` groups (appearance, language) that live exclusively in the panel of `<app-account-menu>` (§7.1). There is no second place in the repo where theme or language can be changed; shell, landing and login put the same menu in the same spot. Deliberately not a click-through icon button: its next state cannot be announced. And deliberately `role="radiogroup"` instead of `role="menuitemradio"` — the panel holds mixed children, for which `role="menu"` does not apply.
+- **Logged in they sit one level deeper**, behind the row "Settings"; logged out the panel shows them directly. That is the Notable-how-often rule applied to *place* instead of colour: both are set once and afterwards only confirmed, so neither may be the largest item in a panel that grows with the product. Measured on the prototype: the root shrinks from 322 to 190 px, and the gap grows with every further entry. **"Just make it smaller" was the rejected alternative** — it gained 20 px and would have cost the thumb target *everywhere*, including where a thumb is operating. Instead things are only made smaller where there is none: every row and segment of the panel follows the menu-row rule from §7.1 (`min-h-11 sm:min-h-9`). Logged out the level does not apply: a row that opens a sub-view with its only content is a door in front of a door.
+- **Reference:** `web/src/app/core/theme/theme.service.ts` (+ `theme.service.spec.ts`), `web/src/app/shared/ui/display-preferences.ts`, `web/src/app/shared/ui/account-menu.ts`, `web/public/theme-init.js`, `web/src/index.html`, flow test `web/e2e/theme.spec.ts`.
 
-### 2.1 Flächen: geriffelte Zeile und randloser Abschnitt
+### 2.1 Surfaces: ruled row and borderless section
 
-- **Es gibt keine Kartenklasse.** `styles.css` führt weder `.app-card` noch eine Entsprechung, und es kommt keine zurück. Flächen entstehen aus geriffelten Zeilen, randlosen Abschnitten und getönten Blöcken — nicht aus umrandeten Rechtecken.
-- **Die Prüffrage vor jeder neuen Abgrenzung:** eine Karte ist eine Grenze gegen einen **andersartigen** Nachbarn. Ist jeder Nachbar dieselbe Sorte Ding — in einer Liste ist jede Zeile eine Zeile, auf einer Diagnoseseite ist jede Sektion ein Subsystem, das über sich selbst berichtet —, dann zeichnet ein Rand acht Rechtecke, wo eine Linie „Liste" deutlicher sagt, und konkurriert mit dem Einzigen, was auffallen muss: dem Subsystem, das nicht in Ordnung ist. Wer eine Fläche abgrenzen will, beantwortet zuerst diese Frage.
-- **Zeilenliste:** `-mx-3 divide-y divide-border border-y border-border` am `<ul>`, `px-3 py-3` je `<li>`. Klickbare Zeilen zusätzlich `relative transition-colors hover:bg-surface-inset`. Der negative Rand lässt den Hover-Wisch über den Text hinausatmen, während die Inhalte auf der linken Kante der Seite bleiben. Umgesetzt in `overview-page.html`, `vote-session-list-page.html`, `my-votings-page.ts`, `admin-channels-page.ts`, `admin-users-page.ts`, `audit-log-list.ts`.
-- **Abschnittsstapel:** `flex flex-col gap-3 border-t border-border pt-4` je Sektion, Überschrift links und Statusmarker rechts. Umgesetzt in `admin-monitoring-page.ts`, `admin-channel-detail-page.ts`.
-- **Getönter Block** (`rounded-md bg-surface-inset px-3 py-3`) für das, was tatsächlich gegen Andersartiges grenzt: Panels *in* einer Seite, das 7TV-Token-Formular, der Fortschrittslauf. Fläche statt Rand — die Tönung sagt „hier gilt etwas anderes", ohne ein Rechteck zu zeichnen.
-- **Die Tiefenwirkung entsteht pro Modus anders, und das ist Absicht:** dunkel trennt über Flächenhelligkeit, hell über einen echten Elevationsschatten — im Hellen liegen Blatt und Grund nur 1,10:1 auseinander und könnten eine Erhöhung gar nicht tragen. Die *Richtung* bleibt in beiden Modi gleich: erhöht entfernt sich vom Grund, eingelassen (`surface-inset`) geht zu ihm zurück. Das Overlay ist die einzige erhöhte Fläche der App, `--ep-shadow-overlay` deshalb das einzige Schatten-Token.
-- **Referenz:** `web/src/styles.css`, `web/src/app/features/overview/overview-page.html`.
+- **There is no card class.** `styles.css` carries neither `.app-card` nor an equivalent, and none is coming back. Surfaces are made from ruled rows, borderless sections and tinted blocks — not from bordered rectangles.
+- **The test question before every new demarcation:** a card is a border against a **different kind of** neighbour. If every neighbour is the same kind of thing — in a list every row is a row, on a diagnostics page every section is a subsystem reporting on itself — then a border draws eight rectangles where one line says "list" more clearly, and competes with the only thing that has to stand out: the subsystem that is not okay. Whoever wants to demarcate a surface answers this question first.
+- **Ruled list:** `-mx-3 divide-y divide-border border-y border-border` on the `<ul>`, `px-3 py-3` per `<li>`. Clickable rows additionally `relative transition-colors hover:bg-surface-inset`. The negative margin lets the hover wipe breathe out past the text while the contents stay on the left edge of the page. Implemented in `overview-page.html`, `vote-session-list-page.html`, `my-votings-page.ts`, `admin-channels-page.ts`, `admin-users-page.ts`, `audit-log-list.ts`.
+- **Section stack:** `flex flex-col gap-3 border-t border-border pt-4` per section, heading on the left and status marker on the right. Implemented in `admin-monitoring-page.ts`, `admin-channel-detail-page.ts`.
+- **Tinted block** (`rounded-md bg-surface-inset px-3 py-3`) for what actually borders on something different in kind: panels *inside* a page, the 7TV token form, the progress run. Surface instead of border — the tint says "something else applies here" without drawing a rectangle.
+- **The depth effect is produced differently per mode, and that is intentional:** dark separates via surface lightness, light via a real elevation shadow — in light mode sheet and ground are only 1.10:1 apart and could not carry an elevation at all. The *direction* stays the same in both modes: raised moves away from the ground, inset (`surface-inset`) goes back towards it. The overlay is the only raised surface of the app, `--ep-shadow-overlay` therefore the only shadow token.
+- **Reference:** `web/src/styles.css`, `web/src/app/features/overview/overview-page.html`.
 
-### 2.2 Hover nur bei Klickbarkeit
+### 2.2 Hover only where clickable
 
-- **Was gilt:** Eine Hover-Reaktion kommt **nur** auf tatsächlich klickbare Zeilen — `relative transition-colors hover:bg-surface-inset`. Statische Zeilen und Abschnitte bleiben stumm: Hover darf nie einen Klick versprechen, den es nicht gibt.
-- **Wann anwenden:** Genau dann, wenn die Zeile den Stretched-Link-Kontrakt (2.3) erfüllt. Bedingte Anwendung ist erlaubt und der Normalfall — `[class]`-Binding schaltet den Hover-Teil nur bei Klickbarkeit zu (`overview-page.html` tut das pro Channel über `isTracked`).
-- **Referenz:** `web/src/app/features/admin/admin-channels-page.ts` (bedingt), `web/src/app/features/overview/overview-page.html`.
+- **What applies:** A hover reaction comes **only** on rows that are actually clickable — `relative transition-colors hover:bg-surface-inset`. Static rows and sections stay mute: hover must never promise a click that does not exist.
+- **When to apply:** Exactly when the row fulfils the stretched-link contract (2.3). Conditional application is allowed and the normal case — a `[class]` binding switches in the hover part only where clickable (`overview-page.html` does that per channel via `isTracked`).
+- **Reference:** `web/src/app/features/admin/admin-channels-page.ts` (conditional), `web/src/app/features/overview/overview-page.html`.
 
-### 2.3 Stretched-Link-Kontrakt (vollflächig klickbare Zeilen)
+### 2.3 Stretched-link contract (rows clickable across their full area)
 
-- **Was gilt:** Klickbare Listenzeilen nutzen das Stretched-Link-Pattern über `.app-card-link` (Inclusive-Components-„Cards"-Muster). Der Klassenname benennt das Pseudoelement, nicht eine Fläche — er gilt unverändert für geriffelte Zeilen. Der Kontrakt hat drei Pflichtteile:
-  1. Zeilencontainer ist `relative`.
-  2. **Ein** kurzer echter Link (Titel/Name) trägt `app-card-link` — sein `::after` dehnt die Klickfläche über die ganze Zeile; Screenreader hören nur den kurzen Namen.
-  3. **Jede** Sekundäraktion in der Zeile (Buttons, weitere Links) liegt in einem Container mit `relative z-10` und bleibt separat klick- und fokussierbar.
+- **What applies:** Clickable list rows use the stretched-link pattern via `.app-card-link` (the Inclusive Components "Cards" pattern). The class name names the pseudo-element, not a surface — it applies unchanged to ruled rows. The contract has three mandatory parts:
+  1. The row container is `relative`.
+  2. **One** short real link (title/name) carries `app-card-link` — its `::after` stretches the click area across the whole row; screen readers hear only the short name.
+  3. **Every** secondary action in the row (buttons, further links) sits in a container with `relative z-10` and stays separately clickable and focusable.
 
-  Kanonisches Markup:
+  Canonical markup:
 
   ```html
   <li class="relative flex items-center gap-4 px-3 py-3 transition-colors hover:bg-surface-inset">
@@ -84,160 +84,160 @@ Wer neue UI baut, arbeitet die [Checkliste in Abschnitt 11](#11-checkliste-neue-
   </li>
   ```
 
-- **Wann anwenden:** Jede Listenzeile, deren primäre Aktion „öffnen/ansehen" ist. **Nicht:** die ganze Zeile als `<a>` wrappen (ungültig bei inneren Buttons, aufgeblähter Accessible Name) oder ein JS-Klick-Handler auf dem Container.
-- **Referenz:** `web/src/app/features/overview/overview-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/voting/vote-session-list-page.html`.
+- **When to apply:** Every list row whose primary action is "open/view". **Not:** wrapping the whole row as an `<a>` (invalid with inner buttons, bloated accessible name) or a JS click handler on the container.
+- **Reference:** `web/src/app/features/overview/overview-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/voting/vote-session-list-page.html`.
 
-### 2.4 Bildfläche einer Emote-Zelle
+### 2.4 Image surface of an emote cell
 
-- **Was gilt:** Die Fläche, auf der ein 7TV-Emote gezeichnet wird, ist `bg-emote-canvas` — ein **eigenes Token**, nicht `surface-inset`. Grund: das Bildmaterial ist fremd, für dunkle Chats gezeichnet und enthält weiße Schrift und helle Outlines. Diese Fläche wird deshalb irgendwann anders entschieden werden müssen als „irgendeine eingelassene Fläche", und dann muss es eine Zeile sein.
-- **Sie folgt dem Theme**, statt in beiden Modi dunkel zu bleiben. Eine themefeste dunkle Leinwand stünde auf **jeder** Zelle und wäre auf einer hellen Seite deren lautestes Element — während die Emotes, die sie schützen soll, die Minderheit sind. Bewusst in Kauf genommener Preis: ein weiß umrandetes Emote verliert im Hellen seine Kontur. Der Handel steht an genau einer Stelle und ist eine Zeile.
-- **Der Selektions-Wash liegt auf der Zelle, nicht unter dem Bild.** Sonst kämpfen Wash und Bildmaterial um dieselben Pixel — der `inset-ring` (8.5) trägt die Auswahl, die Fläche verstärkt sie nur.
-- **Die Fläche ist flach — kein Alpha-Karo.** Ein Karo beantwortet eine Frage, die diese Seiten nie stellen (*welche Pixel sind transparent*), und lässt das Nie-benutzt-Band wie eine andere Art Ding aussehen statt wie dieselbe Sache mit einer Null darauf.
-- **`.app-sprite-cell-void` ist Stimmzettel-only.** Dort markiert sie ein **archiviertes** Emote mitten in einem gemischten Raster, in dem keine Überschrift das sagt — der Fall, für den eine eigene Platte da ist. Im Atlas hat sie nichts zu suchen: „im Zeitraum nie benutzt" sagen dort bereits die Bandüberschrift, die gedruckte 0 auf jeder Zelle und der fehlende Füllbalken. **Eine Markierung, die auf jedes Mitglied ihrer eigenen Gruppe zutrifft, markiert nichts** — sie kostet nur die Gleichmäßigkeit des Bogens.
-- **Referenz:** `web/src/styles.css` (`--color-emote-canvas`, `.app-sprite-cell`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
+- **What applies:** The surface on which a 7TV emote is drawn is `bg-emote-canvas` — a **token of its own**, not `surface-inset`. Reason: the image material is foreign, drawn for dark chats, and contains white type and light outlines. This surface will therefore at some point have to be decided differently from "some inset surface or other", and then it has to be one line.
+- **It follows the theme** instead of staying dark in both modes. A theme-fixed dark canvas would sit on **every** cell and would be the loudest element on a light page — while the emotes it is meant to protect are the minority. The price deliberately accepted: an emote with a white outline loses its contour in light mode. The trade sits in exactly one place and is one line.
+- **The selection wash lies on the cell, not under the image.** Otherwise wash and image material fight over the same pixels — the `inset-ring` (8.5) carries the selection, the surface only reinforces it.
+- **The surface is flat — no alpha checkerboard.** A checkerboard answers a question these pages never ask (*which pixels are transparent*) and makes the never-used band look like a different kind of thing instead of the same thing with a zero on it.
+- **`.app-sprite-cell-void` is ballot-only.** There it marks an **archived** emote in the middle of a mixed grid in which no heading says so — the case a plate of its own exists for. In the atlas it has no business: "never used in the range" is already said there by the band heading, the printed 0 on every cell and the missing fill bar. **A marking that applies to every member of its own group marks nothing** — it only costs the evenness of the sheet.
+- **Reference:** `web/src/styles.css` (`--color-emote-canvas`, `.app-sprite-cell`), `web/src/app/features/usage-stats/usage-stats-page.html`, `web/src/app/features/voting/vote-session-detail-page.html`.
 
-### 2.5 Das Sprite-Blatt: Bänder, Sidecar, Dock
+### 2.5 The sprite sheet: bands, sidecar, dock
 
-Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartiger Zellen**. Was für sie gilt, gilt für nichts anderes in der App — und umgekehrt.
+The usage page and the ballot are not lists but **one sheet of uniform cells**. What applies to them applies to nothing else in the app — and vice versa.
 
-- **Die Bänder sind Pareto-Schnitte aus dem Set selbst, keine festen Schwellen.** `heavy` = die Emotes, die zusammen die erste Hälfte der Nutzung ausmachen · `regular` = bis 80 % · `rare` = der Rest mit mindestens einem Treffer · `dead` = null. Feste Grenzen („ab 1000 ist es viel") sind für einen großen Channel richtig und für einen kleinen bedeutungslos — dort landete jedes Emote im selben Band und die Gruppierung trüge keine Information. Die Reihenfolge ist fest (`USAGE_BAND_ORDER`, schwer zuerst): der Leser scannt nach unten auf die Kandidaten zu.
-- **Geschnitten wird über Werte, nicht über Ränge.** Ein Rangschnitt zerteilt eine Gruppe gleicher Zählerstände willkürlich in der Mitte; ein Wertschnitt hält sie zusammen.
-- **Der Füllbalken einer Zelle misst gegen die Spitze ihres *Bandes*, nicht gegen die des Sets.** Sonst wäre im Schwanz jeder Balken leer und das Band ohne Aussage.
-- **Bandüberschriften sind Haarlinie plus Label** — dieselbe Form wie beim `EmptyState` (6.2) und den Landing-Stufen, nicht eine fünfte Sorte Überschrift.
-- **Eine Bandüberschrift nennt beide Zahlen mit ihrer Einheit, und der Prozentwert ist gemessen.** `TRAGEND · 53 % der Nutzung · 4 Emotes`. Die 50/80-Marken sind die Schwellen der *Berechnung*, nicht der Anteil, den ein Band am Ende trägt: der Schnitt liegt beim ersten Emote, das die kumulierte Summe über die Marke hebt, und nimmt es ganz mit. Real gemessen sind das 50–53 % statt 50 %, in der E2E-Fixture sogar 76 %. Eine Beschriftung, die „die erste Hälfte der Nutzung" verspricht, behauptet also eine Genauigkeit, die die Zahl nicht hat — und liest sich obendrein zeitlich statt als Anteil. Der Nenner ist die Nutzung des **ganzen** Sets, der Zähler die **sichtbaren** Emotes des Bandes: bei aktivem Namensfilter schrumpfen Prozentwert und Anzahl gemeinsam, statt einen Anteil für drei übrig gebliebene Emotes zu behaupten. Was auf 0 % rundet, aber nicht null ist, steht als `<1 %`.
-- **Die Bandnamen sind Klassennamen im Singular** (`Tragend`, `Regelmäßig`, `Selten`, `Nie benutzt`), weil sie nicht nur über einer Gruppe stehen, sondern im Sidecar und im Inspector hinter dem Rang eines einzelnen Emotes: `#3 · Tragend`. Dieselben Schlüssel trägt das Landing-Diagramm (`SetShape`) — dort ist es dieselbe Einteilung, also dieselbe Vokabel.
-- **Die vier Bänder haben eine Helligkeitsrampe der Leitfarbe, keine vier Farbtöne.** `heavy` = `bg-accent-fg` · `regular` = `bg-accent-fg/55` · `rare` = `bg-accent-fg/25` · `dead` = `bg-fg-disabled/40`, zentral in `USAGE_BAND_FILL`. Die Bänder sind eine Rangfolge, kein Nebeneinander von Kategorien; ein zweiter Farbton behauptete einen Unterschied in der Art. Es entsteht **kein neues Farbtoken** — die Rampe sind Deckkraftstufen bestehender Farben. Die Farbe ist überall redundant: neben jeder Fläche steht das Band als Wort, deshalb trägt der Farbtupfer in der Kopfzeile `aria-hidden` und braucht keinen Kontrastnachweis.
-- **Der Verteilungsstreifen trägt dieselben vier Farben und einen 3-px-Sockel.** Ohne Sockel ist ein Balken des toten Schwanzes einen Pixel hoch, und eine Farbe auf einem Pixel nimmt niemand wahr; der Sockel stellt „nie benutzt" außerdem richtig dar — das ist keine kleine Zahl, sondern eine eigene Kategorie. Darunter ein flacher Segmentbalken, dessen Breiten die Nutzungsanteile sind: derselbe Sachverhalt auf der anderen Achse, und zusammen gelesen die Pareto-Aussage. Er beschreibt das **ganze** Set, auch wenn ein Filter aktiv ist — der Streifen sagt „Das ganze Set, nach Nutzung gereiht", eine Bandüberschrift sagt, was unter ihr liegt. Beschriftet wird nicht das Segment, sondern eine umbrechende Legende darunter — Farbplättchen, Anteil, Bandname, nach Inhalt bemessen. Die Beschriftung in Segmentbreite zu zwingen war der Versuch, eine Pixelfrage mit einer Prozentschwelle zu beantworten: gemessen braucht „11 % regelmäßig" 105 px und bekommt selbst auf 1280 px nur 68, war also auf **jeder** Breite abgeschnitten — auf Englisch nur unauffälliger, weil die Wörter kürzer sind. Die Ausrichtung unter dem eigenen Segment ist der Preis dafür und war bei 11 % Breite ohnehin keine.
-- **Der Sidecar ist die Lupe ab `lg`** (`<aside>`, sticky, 16 rem; das Raster wird erst zweispaltig, wenn tatsächlich etwas inspiziert ist). Darunter trägt eine kompakte Meta-Zeile (`lg:hidden`) dieselben Zahlen. **Der Drilldown-Dialog bleibt** — er ist der einzige Weg auf dem Stimmzettel, unterhalb `lg`, per Touch und per Tastatur, und trägt zusätzlich den Zeitraum, Erst- und Letztnutzung und den Abstimmungsblock. Y-Achse, Spitzensatz und die Live-Tage-Zeile stehen in beiden.
-- **Der Sidecar lädt nie pro Zelle nach.** Seine Tagesreihe kommt aus **einem** Aufruf pro (Channel, Zeitraum) — `GET /usage-stats/series`. Eine Fläche, die am Mauszeiger hängt, darf keine Requests erzeugen; das Durchfahren eines Bandes wäre sonst ein Lastprofil.
-- **`.app-dock` erscheint nur, solange es etwas zu tun oder zu lesen gibt:** eine Auswahl, oder ein 7TV-Lauf (Delete, Restore, Import), der läuft oder gerade fertig geworden ist — dessen Zusammenfassung trägt das Protokoll zum Herunterladen und muss den letzten Löschvorgang überleben. Eine dauerhaft geparkte Aktionsleiste ist ein Bedienelement, an dem der Erstbesuch vorbeilesen muss. Der Dock trägt als einzige Fläche der App eine Linie in der Leitfarbe — sie markiert die Grenze eines lebenden, umkehrbaren Zustands. Welche Kommandos darin stehen dürfen und welche in den Seitenkopf gehören, regelt §8.7.
-- **Das aktive Emote-Set gated nur die Markier-Hälfte des Docks, nicht den Dock selbst.** Zählzeile, Mass-Delete-Panel und der Stimmzettel-Knopf handeln vom Set *dieses* Kanals und brauchen eines; die Import-Sektion zeigt einen Lauf in ein **fremdes** Set (§7.2) und ist deshalb außerhalb dieses Gates montiert. Andernfalls verschwände auf einer Usage-Seite ohne aktives Set ein schreibender Lauf samt seinem Abbrechen-Knopf, während er weiterläuft.
-- **Selektion, Dock und der 20-px-Verlaufs-Trigger sind zusätzlich hinter `PointerModeService.isCoarse` gegated — kein 7TV-Schreibzugriff ohne Maus.** Das 7TV-Schreib-Token lässt sich nur aus den Entwicklertools auf 7tv.app kopieren, die ein Telefon nicht hat; das Gate ist deshalb die Zeigerart, nicht die Breite (`(pointer: coarse)`, nicht `any-pointer` — ein Desktop mit angestecktem Touchscreen behält alles, weil DevTools bleiben). Auf `coarse` markiert ein Klick auf die Zelle nichts mehr, sondern öffnet direkt den Drilldown-Dialog (§7.1), das Mass-Delete-Panel rendert gar nicht erst, und im Seitenkopf der Nutzungsseite verschwindet mit demselben Gate der ganze `@if`-Block der 7TV-Schreibwege — der Übertragen-Knopf **und** der Datei-Einspiel-Trigger (§7.3).
-- **Was auf `coarse` wegfällt, wird nicht erklärt — was auf `coarse` ins Leere zeigt, schon.** Dock, Mass-Delete-Panel und die beiden 7TV-Schreibwege des Seitenkopfs verschwinden kommentarlos: visuell fehlt nichts, also gibt es nichts zu sagen. Ein *Verweis* auf eine dieser Fähigkeiten ist der andere Fall — er bleibt sichtbar stehen und verspricht etwas, das sein Ziel dort nicht einlösen kann. Einziges Beispiel bisher: der Link „Nur bestimmte Emotes zur Wahl stellen?" unter dem Erstellen-Formular der Voting-Liste, der auf coarse einem Satz weicht (`voting.list.wholeSetHintDesktopOnly`). Rein visuelles Umschalten dieser Art gehört ins Variantenpaar `pointer-coarse:hidden` / `hidden pointer-coarse:inline`, nicht in `PointerModeService` — der Dienst ist für Entscheidungen, die der Code trifft.
-- **Tastatur ist gleichwertig, nicht nachgereicht:** Roving-Tabindex über den Bogen, Pfeile bewegen, Leertaste markiert, Enter öffnet den Verlauf, Umschalt+Klick überträgt den Zustand der zuletzt angeklickten Zelle auf einen ganzen Bereich — er markiert ihn also, oder hebt die Markierung wieder auf, wenn der letzte Klick eine aufgehoben hat. Eine *Gruppen*aktion darf das nicht: „alle markieren" bleibt rein additiv, weil ein zweiter Druck sonst eine handgebaute Auswahl in einem Klick vernichtet. Der Hinweistext dazu ist übersetzt und steht sichtbar an der Seite — eine Tastaturbedienung, die niemand erwähnt, existiert für die meisten nicht.
-- **Hover-Flächen tragen keine Klickziele.** Was nur beim Überfahren erscheint, ist per Touch nicht erreichbar; jede Aktion des Bogens hat einen Weg ohne Mauszeiger.
-- **Was die Zahlen des Bogens *nicht* enthalten, steht als Satz in der Caption darunter — nicht als Bedienelement, nicht als Banner, nicht als zweite Zahl an der Zelle.** Die Ehrlichkeitssätze teilen sich **ein** `<p>` unter dem Bogen, in fester Reihenfolge: Zählbeginn → Live-Tage → Bots → geteilter Chat. Das ist die Entstehungsreihenfolge der Ausschlüsse; ein neuer reiht sich hinten an, er drängt sich nicht dazwischen und verdrängt keinen. Jeder Satz erscheint nur, wenn es für diesen Kanal etwas zu erklären gibt — sein Datum ist die **erste Sichtung** dieser Art von Nutzung, nicht der Beginn der Trennung, und ein fehlendes Datum heißt „hier gab es nichts zu trennen", nie „hier wird nicht getrennt". Ein Umschalter, der die ausgeschlossene Nutzung wieder einblendet, ist ausdrücklich **kein** Mittel: Der Erstbesuch soll nicht zwei Zahlenbegriffe mitlesen müssen (DECISIONS 2026-09-01 und 2026-09-08). Referenz: `web/src/app/core/emotes/bots-excluded-caption.ts` und `shared-chat-separated-caption.ts`.
-- **Referenz:** `web/src/app/shared/emotes/usage-bands.ts` (+ `usage-bands.spec.ts`), `usage-series.ts`, `usage-sparkline.ts`, `web/src/styles.css` (`.app-sprite-cell*`, `.app-dock`), `web/src/app/features/usage-stats/usage-stats-page.html`; Flow-Test `web/e2e/usage-atlas.e2e.spec.ts`.
+- **The bands are Pareto cuts out of the set itself, not fixed thresholds.** `heavy` = the emotes that together make up the first half of usage · `regular` = up to 80% · `rare` = the rest with at least one hit · `dead` = zero. Fixed limits ("from 1000 on it is a lot") are right for a large channel and meaningless for a small one — there every emote would land in the same band and the grouping would carry no information. The order is fixed (`USAGE_BAND_ORDER`, heavy first): the reader scans downwards towards the candidates.
+- **The cut is made over values, not over ranks.** A rank cut arbitrarily splits a group of equal counts down the middle; a value cut keeps it together.
+- **A cell's fill bar measures against the top of its *band*, not against that of the set.** Otherwise every bar in the tail would be empty and the band would say nothing.
+- **Band headings are a hairline plus a label** — the same shape as the `EmptyState` (6.2) and the landing steps, not a fifth kind of heading.
+- **A band heading names both numbers with their unit, and the percentage is measured.** `BACKBONE · 53% of usage · 4 emotes`. The 50/80 marks are the thresholds of the *calculation*, not the share a band ends up carrying: the cut lies at the first emote that lifts the cumulative sum above the mark, and takes it along whole. Really measured that is 50–53% instead of 50%, in the E2E fixture even 76%. A label promising "the first half of usage" therefore claims a precision the number does not have — and on top of that reads temporally instead of as a share. The denominator is the usage of the **whole** set, the numerator the **visible** emotes of the band: with an active name filter, percentage and count shrink together instead of claiming a share for three leftover emotes. Anything that rounds to 0% but is not zero appears as `<1%`.
+- **The band names are class names in the singular** (`Backbone`, `Regular`, `Rare`, `Never used`), because they do not only stand above a group but also in the sidecar and in the inspector after the rank of a single emote: `#3 · Backbone`. The landing diagram (`SetShape`) carries the same keys — there it is the same division, so the same vocabulary.
+- **The four bands have a lightness ramp of the accent colour, not four hues.** `heavy` = `bg-accent-fg` · `regular` = `bg-accent-fg/55` · `rare` = `bg-accent-fg/25` · `dead` = `bg-fg-disabled/40`, centrally in `USAGE_BAND_FILL`. The bands are a ranking, not a set of categories side by side; a second hue would claim a difference in kind. **No new colour token** arises — the ramp is opacity steps of existing colours. The colour is redundant everywhere: next to every surface the band stands as a word, which is why the colour dab in the header row carries `aria-hidden` and needs no contrast proof.
+- **The distribution strip carries the same four colours and a 3 px plinth.** Without a plinth a bar of the dead tail is one pixel high, and nobody perceives a colour on one pixel; the plinth also represents "never used" correctly — that is not a small number but a category of its own. Below it a flat segment bar whose widths are the usage shares: the same matter on the other axis, and read together the Pareto statement. It describes the **whole** set even when a filter is active — the strip says "the whole set, ordered by usage", a band heading says what lies underneath it. What gets labelled is not the segment but a wrapping legend beneath it — colour chip, share, band name, sized by content. Forcing the label into the segment width was the attempt to answer a pixel question with a percentage threshold: measured, "11% regular" needs 105 px and gets only 68 even at 1280 px, so it was cut off at **every** width — in English merely less conspicuously, because the words are shorter. Alignment under its own segment is the price for that, and at 11% width it was none anyway.
+- **The sidecar is the magnifier from `lg` up** (`<aside>`, sticky, 16 rem; the grid only becomes two-column once something is actually being inspected). Below that a compact meta row (`lg:hidden`) carries the same numbers. **The drilldown dialog stays** — it is the only way on the ballot, below `lg`, by touch and by keyboard, and it additionally carries the range, first and last use and the voting block. Y axis, peak rate and the live-days row appear in both.
+- **The sidecar never loads per cell.** Its day series comes from **one** call per (channel, range) — `GET /usage-stats/series`. A surface that hangs off the mouse pointer must not generate requests; sweeping through a band would otherwise be a load profile.
+- **`.app-dock` appears only as long as there is something to do or to read:** a selection, or a 7TV run (delete, restore, import) that is running or has just finished — whose summary carries the protocol for download and must survive the last delete. A permanently parked action bar is a control the first visit has to read past. The dock carries, as the only surface of the app, a line in the accent colour — it marks the boundary of a living, reversible state. Which commands may stand in it and which belong in the page header is governed by §8.7.
+- **The active emote set gates only the marking half of the dock, not the dock itself.** The count row, the mass-delete panel and the ballot button are about the set of *this* channel and need one; the import section shows a run into a **foreign** set (§7.2) and is therefore mounted outside this gate. Otherwise a writing run together with its cancel button would disappear on a usage page without an active set while it is still running.
+- **Selection, dock and the 20 px history trigger are additionally gated behind `PointerModeService.isCoarse` — no 7TV write access without a mouse.** The 7TV write token can only be copied out of the devtools on 7tv.app, which a phone does not have; the gate is therefore the pointer type, not the width (`(pointer: coarse)`, not `any-pointer` — a desktop with an attached touchscreen keeps everything, because devtools remain). On `coarse` a click on the cell no longer marks anything but opens the drilldown dialog directly (§7.1), the mass-delete panel does not render at all, and in the page header of the usage page the same gate removes the entire `@if` block of the 7TV write paths — the Transfer button **and** the file-ingest trigger (§7.3).
+- **What falls away on `coarse` is not explained — what points into the void on `coarse` is.** The dock, the mass-delete panel and the two 7TV write paths of the page header disappear without comment: visually nothing is missing, so there is nothing to say. A *pointer* to one of these capabilities is the other case — it stays visibly in place and promises something whose target cannot deliver there. The only example so far: the link "Want to put only certain emotes up for a vote?" beneath the create form of the voting list, which on coarse gives way to a sentence (`voting.list.wholeSetHintDesktopOnly`). Purely visual switching of this kind belongs in the variant pair `pointer-coarse:hidden` / `hidden pointer-coarse:inline`, not in `PointerModeService` — the service is for decisions the code makes.
+- **The keyboard is equal, not an afterthought:** roving tabindex across the sheet, arrows move, space marks, Enter opens the history, shift-click transfers the state of the most recently clicked cell to a whole range — so it marks that range, or unmarks it again if the last click removed a mark. A *group* action must not do that: "mark all" stays purely additive, because a second press would otherwise destroy a hand-built selection in one click. The hint text for this is translated and stands visibly at the side — a keyboard operation nobody mentions does not exist for most people.
+- **Hover surfaces carry no click targets.** What appears only on mouse-over is unreachable by touch; every action of the sheet has a path without a mouse pointer.
+- **What the numbers of the sheet do *not* contain is stated as a sentence in the caption beneath it — not as a control, not as a banner, not as a second number on the cell.** The honesty sentences share **one** `<p>` under the sheet, in a fixed order: counting start → live days → bots → shared chat. That is the order in which the exclusions came about; a new one queues up at the back, it does not push in between and displaces none. Each sentence appears only if there is something to explain for this channel — its date is the **first sighting** of that kind of usage, not the start of the separation, and a missing date means "there was nothing to separate here", never "nothing is separated here". A toggle that shows the excluded usage again is explicitly **not** an option: the first visit should not have to keep two notions of the numbers in mind (DECISIONS 2026-09-01 and 2026-09-08). Reference: `web/src/app/core/emotes/bots-excluded-caption.ts` and `shared-chat-separated-caption.ts`.
+- **Reference:** `web/src/app/shared/emotes/usage-bands.ts` (+ `usage-bands.spec.ts`), `usage-series.ts`, `usage-sparkline.ts`, `web/src/styles.css` (`.app-sprite-cell*`, `.app-dock`), `web/src/app/features/usage-stats/usage-stats-page.html`; flow test `web/e2e/usage-atlas.e2e.spec.ts`.
 
-## 3. Typografie-Hierarchie
+## 3. Typographic hierarchy
 
-- **Was gilt:** Vier Ebenen, feste Klassenketten:
+- **What applies:** Four levels, fixed class chains:
 
-  | Ebene | Klassen | Element |
+  | Level | Classes | Element |
   |---|---|---|
-  | Seitentitel | `text-2xl font-bold tracking-tight` | `<h1>` in Layouts, `<h2>` auf Seiten ohne eigenes Layout-`<h1>` |
-  | Sektionstitel | `text-lg font-semibold` | `<h2>` |
-  | Blocktitel | `text-base font-semibold` | `<h3>` |
-  | Listenzeilen-Titellink | `font-medium` (Textgröße erbt vom Kontext) | `<a class="app-card-link">` / `<span>` |
+  | Page title | `text-2xl font-bold tracking-tight` | `<h1>` in layouts, `<h2>` on pages without a layout `<h1>` of their own |
+  | Section title | `text-lg font-semibold` | `<h2>` |
+  | Block title | `text-base font-semibold` | `<h3>` |
+  | List-row title link | `font-medium` (text size inherits from the context) | `<a class="app-card-link">` / `<span>` |
 
-  Ein `<h3>` trägt **nie** die Sektionsgröße `text-lg`: zwei Ebenen, die gleich aussehen, sind eine Ebene.
-- **Wann anwenden:** Immer. Das Heading-**Level** folgt der Dokumentstruktur (eine Seite unter einem Layout-`<h1>` beginnt bei `<h2>`), die **Optik** folgt der Tabelle — beides ist unabhängig voneinander einzuhalten.
-- **Ausnahme:** Die Landing-Page (`web/src/app/features/landing/landing-page.html`) ist bewusst Marketing-skaliert (`text-4xl`/`sm:text-5xl`-Hero, `sm:text-3xl`-Sektionen) und folgt der Tabelle nicht.
-- **Referenz:** `web/src/app/features/admin/admin-layout.ts` (Seitentitel), `web/src/app/features/usage-stats/usage-stats-page.html` (Sektionstitel), `web/src/app/features/admin/admin-monitoring-page.ts` (Blocktitel).
+  An `<h3>` **never** carries the section size `text-lg`: two levels that look the same are one level.
+- **When to apply:** Always. The heading **level** follows the document structure (a page under a layout `<h1>` starts at `<h2>`), the **look** follows the table — both are to be observed independently of each other.
+- **Exception:** The landing page (`web/src/app/features/landing/landing-page.html`) is deliberately scaled for marketing (`text-4xl`/`sm:text-5xl` hero, `sm:text-3xl` sections) and does not follow the table.
+- **Reference:** `web/src/app/features/admin/admin-layout.ts` (page title), `web/src/app/features/usage-stats/usage-stats-page.html` (section title), `web/src/app/features/admin/admin-monitoring-page.ts` (block title).
 
-### 3.1 Mikroschrift: `label` und `micro`
+### 3.1 Micro type: `label` and `micro`
 
-- **Was gilt:** Unterhalb von `text-xs` (12 px) gibt es **zwei** Stufen und **keine** weiteren:
+- **What applies:** Below `text-xs` (12 px) there are **two** steps and **no** others:
 
-  | Stufe | Größe | Typische Kette | Wofür |
+  | Step | Size | Typical chain | For what |
   |---|---|---|---|
-  | `label` | 11 px (`text-[11px]`) | `text-[11px] font-semibold tracking-[0.13em] uppercase`, alternativ `font-mono text-[11px]` | Kapitälchen-Label und Zähler auf Sektionsebene: Bandtitel, Statusabzeichen, Stufenlabel |
-  | `micro` | 10 px (`text-[10px]`) | `text-[10px] font-semibold tracking-[0.11em] uppercase`, alternativ `font-mono text-[10px]` | dieselbe Rolle eine Ebene tiefer, in dichten Kontexten: Kennzahl-Terme im Sidecar, Achsenbeschriftung, Beschriftung gedrängter Schaltflächen |
+  | `label` | 11 px (`text-[11px]`) | `text-[11px] font-semibold tracking-[0.13em] uppercase`, alternatively `font-mono text-[11px]` | small-caps labels and counters at section level: band titles, status badges, step labels |
+  | `micro` | 10 px (`text-[10px]`) | `text-[10px] font-semibold tracking-[0.11em] uppercase`, alternatively `font-mono text-[10px]` | the same role one level deeper, in dense contexts: metric terms in the sidecar, axis labels, labels on crowded buttons |
 
-  Beide sind bewusst als Pixel-Literal geschrieben: Tailwind endet nach unten bei `text-xs`, und eigene Stufen sind weder in `styles.css` noch in einer Tailwind-Konfiguration definiert. Die maschinenlesbare Entsprechung steht in [`DESIGN.md`](../DESIGN.md) unter `typography.label` bzw. `typography.micro`.
-- **Wann anwenden:** `label`, solange die Beschriftung für sich steht. `micro` erst, wenn sie in einer Zeile mit anderen Angaben um Platz konkurriert — Sidecar, Achsen, Bandkopf. Wer neu baut und schwankt, nimmt `label`.
-- **Was nicht gilt:** Kein dritter Wert. Ein neues `text-[12px]`, `text-[13px]` oder `text-[8px]` ist kein Feinschliff, sondern eine vierte Ebene, die niemand benannt hat — dann gehört sie hierher oder sie entfällt.
-- **Eine benannte Ausnahme: 9 px** (`text-[9px]`), ausschließlich für die Nutzungszahl, die **auf** ein Emote-Sprite gedruckt wird (`usage-stats-page.html`, `vote-session-detail-page.html`, zusammen zwei Stellen). Sie steht über fremdem Bildmaterial und hat neben sich einen Scrim, nicht Weißraum; sie ist deshalb keine Stufe des Systems, sondern eine Eigenschaft dieses einen Bausteins. Als Stufe geführt wäre sie ein Freibrief für 9 px überall. Der Designsystem-Hook kennt sie als bewusste Ausnahme.
-- **Offener Vorbehalt:** `label` und `micro` werden an einzelnen Stellen für dasselbe benutzt — einmal als `<h3>`, einmal als `<dt>`, beide als Kapitälchen mit `tracking`. Entweder sind es wirklich zwei Ebenen, oder eine davon ist Drift. Die Bestandsaufnahme vom 2026-08-30 zählt 15 Vorkommen `label` in fünf Dateien und 14 Vorkommen `micro` in zwei; das reicht, um beide als Stufe zu führen, aber nicht, um die Abgrenzung als geklärt zu bezeichnen. Wer sie zusammenlegen will, ändert fünf Dateien — kein Doku-Eintrag.
-- **Referenz:** `web/src/app/features/usage-stats/usage-stats-page.html` (beide Stufen und die Ausnahme), `web/src/app/features/landing/landing-page.html` (`label`), `web/src/app/features/voting/vote-session-detail-page.html` (`micro`).
+  Both are deliberately written as pixel literals: Tailwind ends at `text-xs` at the bottom, and steps of our own are defined neither in `styles.css` nor in a Tailwind configuration. The machine-readable equivalent is in [`DESIGN.md`](../DESIGN.md) under `typography.label` and `typography.micro` respectively.
+- **When to apply:** `label` as long as the caption stands on its own. `micro` only once it competes for space in a row with other information — sidecar, axes, band head. Whoever builds something new and wavers takes `label`.
+- **What does not apply:** No third value. A new `text-[12px]`, `text-[13px]` or `text-[8px]` is not fine-tuning but a fourth level that nobody has named — then it belongs here or it is dropped.
+- **One named exception: 9 px** (`text-[9px]`), exclusively for the usage number printed **on** an emote sprite (`usage-stats-page.html`, `vote-session-detail-page.html`, two places in total). It sits over foreign image material and has a scrim next to it, not whitespace; it is therefore not a step of the system but a property of this one building block. Carried as a step it would be a licence for 9 px everywhere. The design-system hook knows it as a deliberate exception.
+- **Open reservation:** `label` and `micro` are used for the same thing in individual places — once as an `<h3>`, once as a `<dt>`, both as small caps with `tracking`. Either they really are two levels, or one of them is drift. The stocktaking of 2026-08-30 counts 15 occurrences of `label` in five files and 14 occurrences of `micro` in two; that is enough to carry both as a step, but not enough to call the distinction settled. Whoever wants to merge them changes five files — not a docs entry.
+- **Reference:** `web/src/app/features/usage-stats/usage-stats-page.html` (both steps and the exception), `web/src/app/features/landing/landing-page.html` (`label`), `web/src/app/features/voting/vote-session-detail-page.html` (`micro`).
 
-## 4. Buttons, Badges, Banner
+## 4. Buttons, badges, banners
 
 ### 4.1 Buttons: `appButton`
 
-- **Was gilt:** Jeder Button/Aktions-Link nutzt die Attribut-Direktive `appButton` (`web/src/app/shared/ui/button.ts`) — keine kopierten Utility-Ketten. Varianten `primary`/`neutral`/`outline`/`danger`/`danger-quiet`/`danger-solid`, Größen `md` (Default)/`lg`. Element-spezifisches Layout (`ml-auto`, `relative z-10`, …) bleibt am eigenen `class`-Attribut, Angular merged beides.
+- **What applies:** Every button/action link uses the attribute directive `appButton` (`web/src/app/shared/ui/button.ts`) — no copied utility chains. Variants `primary`/`neutral`/`outline`/`danger`/`danger-quiet`/`danger-solid`, sizes `md` (default)/`lg`. Element-specific layout (`ml-auto`, `relative z-10`, …) stays on the element's own `class` attribute, Angular merges both.
 
-  | Variante | Einsatz |
+  | Variant | Use |
   |---|---|
-  | `primary` | die eine Haupt-Aktion eines Kontexts (Login, Erstellen, Speichern) |
-  | `neutral` | Sekundäraktionen mit Fläche (Aktualisieren, Kopieren) |
-  | `outline` | leise Sekundäraktionen, Abbrechen in Dialogen |
-  | `danger` | siehe 4.2 |
-  | `danger-quiet` | siehe 4.2 |
-  | `danger-solid` | siehe 4.2 |
+  | `primary` | the one main action of a context (login, create, save) |
+  | `neutral` | secondary actions with a surface (refresh, copy) |
+  | `outline` | quiet secondary actions, cancel in dialogs |
+  | `danger` | see 4.2 |
+  | `danger-quiet` | see 4.2 |
+  | `danger-solid` | see 4.2 |
 
-- **Schalter: `[buttonPressed]` statt einer eigenen Klassenkette.** Ein Button mit `aria-pressed` bekommt seinen Ein-Zustand vom Primitiv; die Variante bleibt daneben stehen und gilt im Aus-Zustand. Die Füllung ist bewusst dieselbe wie beim gewählten Segment des `SegmentedControl`: „dieses hier ist an" soll gleich aussehen, ob allein oder als eines von mehreren. Einziger Unterschied ist der Hover-Schritt — ein einzelner Schalter lässt sich erneut drücken, ein gewähltes Radio nicht. **Ein Zustand, der nur als angehängter Pfeil im Label steht, erreicht Screenreader und sonst niemanden** und ist deshalb kein zulässiger Ersatz.
-- **Ein Filter mit benannten Bereichen plus freien Feldern ist ein Popover-Menü**, kein Lauf einzelner Felder: Trigger nennt die aktuelle Einstellung, Panel enthält die Voreinstellungen und tauscht seinen Inhalt gegen die Felder, sobald „eigener Bereich" gewählt ist (`DateRangeMenu` für Zeiträume, `UsageRangeMenu` für Nutzungsspannen). **Kein Schalter, der in Wahrheit Feldwerte setzt:** ein „nur ungenutzte"-Toggle, der still min = 0/max = 0 in die Felder daneben schreibt, ist kein eigener Filter, sondern eine unsichtbare Überschreibung.
-- **Eins-aus-N ist kein Schalterpaar, sondern `<app-segmented-control>`.** Zwei Toggles, bei denen ein zweiter Klick auf den aktiven heimlich etwas anderes umschaltet, verstecken eine ganze Einstellung: Sortierschlüssel und Sortierrichtung sind zwei Fragen und bekommen zwei Controls.
-- **Referenz:** `web/src/app/shared/ui/button.ts`, `web/src/app/shared/ui/segmented-control.ts`; Schalter-Aufrufstellen `web/src/app/features/usage-stats/usage-stats-page.html`.
+- **Toggles: `[buttonPressed]` instead of a class chain of your own.** A button with `aria-pressed` gets its on state from the primitive; the variant stays alongside it and applies in the off state. The fill is deliberately the same as that of the selected segment of the `SegmentedControl`: "this one is on" should look the same whether alone or as one of several. The only difference is the hover step — a single toggle can be pressed again, a selected radio cannot. **A state that exists only as an arrow appended to the label reaches screen readers and nobody else** and is therefore not an admissible substitute.
+- **A filter with named ranges plus free fields is a popover menu**, not a run of individual fields: the trigger names the current setting, the panel contains the presets and swaps its content for the fields as soon as "custom range" is selected (`DateRangeMenu` for time ranges, `UsageRangeMenu` for usage spans). **No toggle that in truth sets field values:** an "unused only" toggle that silently writes min = 0/max = 0 into the fields next to it is not a filter of its own but an invisible override.
+- **One-out-of-N is not a pair of toggles but `<app-segmented-control>`.** Two toggles where a second click on the active one secretly switches something else hide an entire setting: sort key and sort direction are two questions and get two controls.
+- **Reference:** `web/src/app/shared/ui/button.ts`, `web/src/app/shared/ui/segmented-control.ts`; toggle call sites `web/src/app/features/usage-stats/usage-stats-page.html`.
 
-### 4.2 Destruktiv-Stufung: Flow-Position, nicht Schwere
+### 4.2 Destructive-action tiers: position in the flow, not severity
 
-- **Was gilt:** Die Destruktiv-Stufen kodieren die **Position im Bestätigungs-Flow**, nicht die Schwere der Aktion:
-  - `danger` (Outline): der **auslösende** destruktive Button im Seitenkontext, der neben anderen Controls steht und noch einen Bestätigungsschritt vor sich hat (Channel verlassen, Channel-Purge öffnen).
-  - `danger-quiet` (nur Schrift, Wash beim Hover): **derselbe Auslöser, wenn er sich je Listenzeile wiederholt.** Zwanzig rot umrandete „Löschen"-Knöpfe untereinander machen die seltenste Aktion einer Seite zu ihrem lautesten Element. Die Stufe ist an die **Wiederholung** gekoppelt, nicht an geringere Schwere — der Bestätigungsdialog dahinter bleibt unverändert, es fällt allein der dauerhafte rote Kasten weg.
-  - `danger-solid` (gefüllt): der **ausführende** Button — der Bestätigen-Button in `ConfirmDialog`/`TypedConfirmDialog`/Mass-Delete-Dialog sowie der Seiten-Haupt-CTA des Mass-Delete-Panels.
+- **What applies:** The destructive tiers encode the **position in the confirmation flow**, not the severity of the action:
+  - `danger` (outline): the **triggering** destructive button in the page context, which stands next to other controls and still has a confirmation step ahead of it (leave channel, open channel purge).
+  - `danger-quiet` (type only, wash on hover): **the same trigger when it repeats per list row.** Twenty red-outlined "delete" buttons underneath one another make the rarest action of a page its loudest element. The tier is coupled to **repetition**, not to lower severity — the confirmation dialog behind it stays unchanged, only the permanent red box falls away.
+  - `danger-solid` (filled): the **executing** button — the confirm button in `ConfirmDialog`/`TypedConfirmDialog`/mass-delete dialog as well as the page-level main CTA of the mass-delete panel.
 
-  Merksatz: Outline löst aus, Solid vollzieht, Quiet ist Outline in Serie. Dass die unwiderrufliche Purge per Outline **ausgelöst** und das reversible Verlassen per Solid **bestätigt** wird, ist damit korrekt.
-- **Wann anwenden:** Jede destruktive Aktion bekommt Auslöser **und** Vollzug: `danger`/`danger-quiet`-Auslöser → Dialog → `danger-solid`-Bestätigung. Ein destruktiver Button ohne Bestätigungsdialog ist nicht vorgesehen. Auf welcher Fläche der Auslöser sitzt und an welcher Stelle einer Aktionszeile, sagt §8.7 — diese Stufung sagt nur, wie er aussieht.
-- **Schwere rechtfertigt keine Ausnahme von der Wiederholungsregel.** Auch Purge und Session-Revoke laufen in den Admin-Listen als `danger-quiet` — je länger die Liste, desto schlimmer die Farbleiter. Abgesichert wird eine unwiderrufliche Aktion durch die typisierte Namensbestätigung, nicht durch einen roten Rahmen, den man fünfundzwanzigmal untereinander sieht.
-- **Während eines 7TV-Laufs beliebiger Sorte (Delete, Restore, ab K3 Import) sind alle 7TV-Start-Buttons deaktiviert, ohne Hinweistext.** Der `SevenTvRunArbiter` macht die gegenseitige Ausschließlichkeit sichtbar, ohne sie in Worten zu wiederholen — der laufende Fortschritt steht im selben Dock und ist selbst der Hinweis (#70). Das gilt seit #72 auch für den Header-Button „Übertragen" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) und seit #91 für den Datei-Einspiel-Trigger daneben (`shared/seven-tv/file-import-trigger-gate.ts`) — beide gesperrt während **jedes** der drei Laufarten, nicht nur eines eigenen Imports. Der Trigger erbt dabei nicht alle Sperren seines Nachbarn: `atlasOrder().length === 0` gilt für ihn bewusst nicht, weil die Datei ihre Zeilen selbst mitbringt (§7.3).
-- **Referenz:** Auslöser: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, Header-Buttons `web/src/app/features/usage-stats/usage-stats-page.html` und `web/src/app/shared/seven-tv/file-import-trigger.ts` (+ `file-import-trigger-gate.ts`); in Serie: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Vollzug: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
+  Mnemonic: outline triggers, solid executes, quiet is outline in series. That the irreversible purge is **triggered** via outline and the reversible leave is **confirmed** via solid is thereby correct.
+- **When to apply:** Every destructive action gets a trigger **and** an execution: `danger`/`danger-quiet` trigger → dialog → `danger-solid` confirmation. A destructive button without a confirmation dialog is not provided for. Which surface the trigger sits on and at which position in an action row is said by §8.7 — this tiering only says how it looks.
+- **Severity justifies no exception from the repetition rule.** Purge and session revoke, too, run as `danger-quiet` in the admin lists — the longer the list, the worse the colour ladder. An irreversible action is safeguarded by the typed name confirmation, not by a red frame you see twenty-five times underneath one another.
+- **While a 7TV run of any kind (delete, restore, from K3 on import) is in progress, all 7TV start buttons are disabled, without hint text.** The `SevenTvRunArbiter` makes the mutual exclusivity visible without repeating it in words — the running progress is in the same dock and is itself the hint (#70). Since #72 this also holds for the header button "Transfer" (`usage-stats-page.html`, `[disabled]="atlasOrder().length === 0 || arbiter.activeRun() !== null"`) and since #91 for the file-ingest trigger next to it (`shared/seven-tv/file-import-trigger-gate.ts`) — both blocked during **each** of the three kinds of run, not only during an import of their own. The trigger does not inherit all of its neighbour's blocks in doing so: `atlasOrder().length === 0` deliberately does not apply to it, because the file brings its own rows along (§7.3).
+- **Reference:** Triggers: `web/src/app/features/channel-workspace/channel-workspace-layout.ts`, header buttons `web/src/app/features/usage-stats/usage-stats-page.html` and `web/src/app/shared/seven-tv/file-import-trigger.ts` (+ `file-import-trigger-gate.ts`); in series: `web/src/app/features/voting/vote-session-list-page.html`, `web/src/app/features/admin/admin-channels-page.ts`, `web/src/app/features/admin/admin-users-page.ts`. Execution: `web/src/app/shared/ui/confirm-dialog.ts`, `web/src/app/shared/seven-tv/mass-delete-panel.ts`.
 
 ### 4.3 StatusBadge
 
-- **Was gilt:** Ein `<app-status-badge>` markiert eine **bemerkenswerte** Eigenschaft, nicht jede Eigenschaft. Der Baustein kennt nur Töne, die Bedeutung liegt beim Aufrufer:
+- **What applies:** An `<app-status-badge>` marks a **notable** property, not every property. The building block knows only tones, the meaning lies with the caller:
 
-  | Tone | Verwendung im Bestand |
+  | Tone | Use in the existing code |
   |---|---|
-  | `accent` | hervorgehobene Eigenschaft |
-  | `info` | Hinweis-Eigenschaft |
-  | `success` | LIVE · „läuft"-Zustände |
-  | `neutral` | inaktiv/neutral |
-  | `warning` | degradiert/Warnung |
-  | `danger` | Fehler/getrennt |
+  | `accent` | highlighted property |
+  | `info` | advisory property |
+  | `success` | LIVE · "running" states |
+  | `neutral` | inactive/neutral |
+  | `warning` | degraded/warning |
+  | `danger` | error/disconnected |
 
-- **Die Prüffrage lautet „bemerkenswert wie oft?"** Eine Pille, die in jeder Zeile steht, markiert nichts mehr — sie ist eine Farbleiter. Was auf den meisten Zeilen dasselbe Wort ist, wird stiller Text: die **Rollen** in der Übersicht (Broadcaster/Moderator/7TV-Editor) sind eine Tatsache über *dich* und wiederholen sich; die **Abstimmungs-Zielgruppe** trägt ihre Einschränkung als eine Kontraststufe statt als blaue Pille; **offline** ist der unauffällige Fall. Die Pille bleibt dem vorbehalten, was *gerade jetzt* gilt und nicht auf jeder Zeile steht — **LIVE** ist der Musterfall.
-- **Zustand ≠ Eigenschaft.** Wovon eine Zeile gerade *ist* (Bot misst / Session läuft / Twitch-Token vorhanden), ist `<app-state-dot>` mit `tone="on"|"off"` — Punkt plus Wort statt Pille. Damit konkurriert der Zustand nicht mit den Eigenschaften daneben, und die Farbe trägt keine Bedeutung, die das Wort nicht schon trägt.
-- **Subsysteme, die ihre eigene Gesundheit melden, benutzen `<app-health-marker>`.** Der Baustein entscheidet die Darstellung anhand des Tons: `ok`/`idle` werden zum Punkt, `warning`/`danger` zur Pille. Damit trägt eine gesunde Monitoring-Seite **keine einzige farbige Pille**, und das erste auffällige Subsystem ist ohne Zutun das lauteste Element auf ihr. Das ist derselbe Satz wie oben, nur andersherum gelesen: die Aussage entsteht durch **Abwesenheit**, und Abwesenheit funktioniert nur, wenn nichts anderes sie ausgibt. Aufrufer bilden ihren Domänenstatus auf den `HealthTone` ab (`admin-monitoring-page.ts`, `admin-roster-card.ts`, `admin-channel-detail-page.ts`).
-- **Der App-Rahmen schweigt im Normalfall ganz.** Für den Kopfbereich gilt die Regel eine Stufe strenger als für eine Seite: was dort steht, steht auf **jedem** Bildschirm in **jeder** Sitzung, und selbst der stille Punkt-plus-Wort-Zustand von `HealthMarker` ist dafür zu viel. Beim Worker-Status steht dort bei `connected` und bei `unknown` **nichts** und nur bei `stale` eine Warn-Pille. `unknown` schweigt mit, weil es der Zustand vor der ersten Antwort des Polls ist: eine Warnung dort blitzt bei jedem Kaltstart auf. **Und was der Rahmen sagt, sagt keine Seite ein zweites Mal** — zwei Aussagen derselben Tatsache auf einem Bildschirm sind genau das, was dieses Kapitel abräumt.
-- **Der Text nennt die Folge, nicht das Subsystem.** „Chat wird nicht gezählt" statt „Worker getrennt": wer die Meldung liest, will wissen, was *für ihn* gerade nicht stimmt, nicht welcher Prozess welchen Namen trägt.
-- **Ein transienter Zustand ist keine Warnung.** Der SSE-Stream steht beim Laden jeder Admin-Seite kurz auf `connecting`; als `warning` gerendert hätte das bei jedem Seitenaufruf eine gelbe Pille aufblitzen lassen und einem Admin beigebracht, gelbe Pillen zu übersehen. `connecting` ist deshalb `idle`.
-- **Das Label geht als `label`-Input hinein, nicht als projizierter Inhalt.** Ein `<ng-content>` in zwei Zweigen eines Control-Flow-Blocks wird von Angular nur einmal befüllt — beim Wechsel zwischen Punkt und Pille wäre der Text sonst still verschwunden.
-- **Referenz:** `web/src/app/shared/ui/status-badge.ts`, `web/src/app/shared/ui/state-dot.ts`, `web/src/app/shared/ui/health-marker.ts`; Verwendung `overview-page.html`, `vote-session-list-page.html`, `admin-*`.
+- **The test question is "notable how often?"** A pill that stands in every row no longer marks anything — it is a colour ladder. What is the same word on most rows becomes quiet text: the **roles** in the overview (broadcaster/moderator/7TV editor) are a fact about *you* and repeat themselves; the **voting audience** carries its restriction as a contrast step instead of as a blue pill; **offline** is the inconspicuous case. The pill stays reserved for what applies *right now* and does not stand on every row — **LIVE** is the model case.
+- **State ≠ property.** What a row currently *is* (bot is measuring / session is running / Twitch token present) is `<app-state-dot>` with `tone="on"|"off"` — dot plus word instead of a pill. That way the state does not compete with the properties next to it, and the colour carries no meaning the word does not already carry.
+- **Subsystems that report their own health use `<app-health-marker>`.** The building block decides the presentation from the tone: `ok`/`idle` become a dot, `warning`/`danger` a pill. That way a healthy monitoring page carries **not a single coloured pill**, and the first conspicuous subsystem is, without any effort, the loudest element on it. That is the same sentence as above, only read the other way round: the statement arises from **absence**, and absence only works if nothing else spends it. Callers map their domain status onto the `HealthTone` (`admin-monitoring-page.ts`, `admin-roster-card.ts`, `admin-channel-detail-page.ts`).
+- **The app frame is entirely silent in the normal case.** For the header area the rule applies one step more strictly than for a page: what stands there stands on **every** screen in **every** session, and even the quiet dot-plus-word state of `HealthMarker` is too much for that. For the worker status **nothing** stands there for `connected` and for `unknown`, and only for `stale` a warning pill. `unknown` keeps silent along with it because it is the state before the first answer of the poll: a warning there would flash up on every cold start. **And what the frame says, no page says a second time** — two statements of the same fact on one screen are exactly what this chapter clears away.
+- **The text names the consequence, not the subsystem.** "Chat is not being counted" instead of "worker disconnected": whoever reads the message wants to know what is currently not right *for them*, not which process carries which name.
+- **A transient state is not a warning.** The SSE stream stands briefly at `connecting` while every admin page loads; rendered as `warning` that would have flashed a yellow pill on every page view and taught an admin to overlook yellow pills. `connecting` is therefore `idle`.
+- **The label goes in as a `label` input, not as projected content.** An `<ng-content>` in two branches of a control-flow block is filled by Angular only once — on the switch between dot and pill the text would otherwise have silently vanished.
+- **Reference:** `web/src/app/shared/ui/status-badge.ts`, `web/src/app/shared/ui/state-dot.ts`, `web/src/app/shared/ui/health-marker.ts`; used in `overview-page.html`, `vote-session-list-page.html`, `admin-*`.
 
 ### 4.4 NoticeBanner
 
-- **Was gilt:** Jede seitenweite Meldung ist ein `<app-notice-banner>`; keine Ad-hoc-Fehlerboxen oder gefärbten Absätze. `variant="error"` rendert `role="alert"` (wird vorgelesen), `info`/`warning` bleiben `role="status"` (still). Aktions-Button in den `[notice-action]`-Slot (rechtsbündig).
-- **Wann anwenden:** `error` = fehlgeschlagener Request (Text via `apiErrorTranslationKey`, s. 9), `warning` = degradierter Zustand (Reauth nötig, Bot inaktiv), `info` = gutartiger Wartezustand (Sync ausstehend).
-- **Nicht für etwas, das der App-Rahmen schon sagt** (4.3). Ein Banner ist für das, was **diese Seite** betrifft; alles App-weite trägt der Kopfbereich, und zwar allein.
-- **Referenz:** `web/src/app/shared/ui/notice-banner.ts`; Verwendung `overview-page.html`, `usage-stats-page.html`.
+- **What applies:** Every page-wide message is an `<app-notice-banner>`; no ad-hoc error boxes or coloured paragraphs. `variant="error"` renders `role="alert"` (is read out), `info`/`warning` stay `role="status"` (silent). Action button into the `[notice-action]` slot (right-aligned).
+- **When to apply:** `error` = failed request (text via `apiErrorTranslationKey`, see 9), `warning` = degraded state (reauth needed, bot inactive), `info` = benign waiting state (sync pending).
+- **Not for something the app frame already says** (4.3). A banner is for what concerns **this page**; everything app-wide is carried by the header area, and by it alone.
+- **Reference:** `web/src/app/shared/ui/notice-banner.ts`; used in `overview-page.html`, `usage-stats-page.html`.
 
-### 4.5 Vergängliche Statusmeldung
+### 4.5 Transient status message
 
-- **Was gilt:** Eine Rückmeldung, die eine gerade abgeschlossene Sache quittiert und danach nichts mehr zu sagen hat, ist **kein** Banner, sondern ein `<span role="status">`, das nach 4000 ms von selbst verschwindet. Es gibt **keinen** Toast-Service und es soll keiner entstehen; das Muster ist bewusst pro Ort ausgeschrieben: eine Konstante `…_FEEDBACK_MS = 4000`, ein Signal mit dem Übersetzungsschlüssel, ein `setTimeout`-Handle, das beim Neusetzen **zuerst** gelöscht wird, und ein Aufräumen beim Zerstören der Komponente.
-- **Die Rolle ist `status`, nie `alert`.** Eine Quittung ist kein Fehler; `alert` unterbricht den Screenreader mitten im Satz und ist für etwas reserviert, das sofort Aufmerksamkeit verlangt (4.4).
-- **Wann anwenden:** „Resync ist eingereiht", „n Emotes sind aus der Auswahl gefallen" — Dinge, die *passiert sind*. Ein Zustand, der **anhält** (Reauth nötig, Sync ausstehend, Request fehlgeschlagen), gehört in ein `NoticeBanner` und darf nicht wegblenden, solange er gilt.
-- **Der Ort muss den Fall überleben, den er meldet.** Die Meldung gehört nicht auf eine Fläche, die durch dasselbe Ereignis verschwindet. Konkret: eine Meldung über eine geschrumpfte Auswahl darf nicht im Dock stehen, denn das Dock unmountet, sobald die Auswahl leer ist (2, 8.7) — also genau im schlimmsten Fall. Sie sitzt deshalb an der Emote-Zählzeile, die immer steht.
-- **Die Live-Region selbst ist permanent gemountet, nur ihr Text kommt und geht.** Ein `role="status"`-Element, das erst zusammen mit seinem Inhalt ins DOM kommt (`@if (feedback(); as f) { <span role="status">…</span> }`), kündigt bei den meisten Screenreader-/Browser-Paarungen **nichts** an — die kündigen nur eine Mutation *innerhalb* einer bereits bestehenden Region an, nicht deren eigenes Erscheinen. Verbindlich also zwei Elemente: eine dauerhaft gemountete `sr-only`-Region mit `role="status"`, in der nur der *Inhalt* per `@if` wechselt, plus ein sichtbarer, mit `aria-hidden="true"` markierter Zwilling daneben — sonst wird dieselbe Meldung doppelt vorgelesen, einmal aus der Live-Region, einmal aus dem sichtbaren Text. Präzedenzfall und Begründung im Kommentar: `app-shell.ts` (die `liveQuotaExhausted`-Meldung); seit #94 (P2) ebenso `usage-stats-page.html`. **`channel-workspace-layout.ts` und `admin-channels-page.ts` folgen diesem Punkt noch nicht** — ihre Meldung mountet weiterhin erst zusammen mit dem Inhalt. Das ist eine offene Altlast in einem eigenen Ticket, kein zweiter, gleichwertiger Stil — bei einer Änderung an diesen beiden Stellen mitziehen, nicht als Vorbild kopieren.
-- **Referenz:** `channel-workspace-layout.ts` (`showResyncFeedback`), `admin-channels-page.ts`, `usage-stats-page.ts` (`showSelectionPrunedFeedback`), `app-shell.ts` (Live-Region-Präzedenzfall).
+- **What applies:** Feedback that acknowledges something just completed and has nothing more to say afterwards is **not** a banner but a `<span role="status">` that disappears on its own after 4000 ms. There is **no** toast service and none is to arise; the pattern is deliberately written out per place: a constant `…_FEEDBACK_MS = 4000`, a signal with the translation key, a `setTimeout` handle that is cleared **first** when it is set anew, and a cleanup when the component is destroyed.
+- **The role is `status`, never `alert`.** An acknowledgement is not an error; `alert` interrupts the screen reader mid-sentence and is reserved for something that demands attention immediately (4.4).
+- **When to apply:** "Resync is queued", "n emotes have dropped out of the selection" — things that *have happened*. A state that **persists** (reauth needed, sync pending, request failed) belongs in a `NoticeBanner` and must not fade out while it applies.
+- **The place must survive the case it reports.** The message does not belong on a surface that disappears through the same event. Concretely: a message about a shrunken selection must not stand in the dock, because the dock unmounts as soon as the selection is empty (2, 8.7) — that is, in exactly the worst case. It therefore sits on the emote count row, which always stands.
+- **The live region itself is permanently mounted, only its text comes and goes.** A `role="status"` element that only enters the DOM together with its content (`@if (feedback(); as f) { <span role="status">…</span> }`) announces **nothing** on most screen reader/browser pairings — those announce only a mutation *inside* an already existing region, not its own appearance. Binding, therefore, are two elements: a permanently mounted `sr-only` region with `role="status"` in which only the *content* changes via `@if`, plus a visible twin next to it marked with `aria-hidden="true"` — otherwise the same message is read out twice, once from the live region, once from the visible text. Precedent and rationale in the comment: `app-shell.ts` (the `liveQuotaExhausted` message); since #94 (P2) likewise `usage-stats-page.html`. **`channel-workspace-layout.ts` and `admin-channels-page.ts` do not yet follow this point** — their message still mounts together with the content. That is an open legacy item in a ticket of its own, not a second, equivalent style — carry it along when changing these two places, do not copy it as a model.
+- **Reference:** `channel-workspace-layout.ts` (`showResyncFeedback`), `admin-channels-page.ts`, `usage-stats-page.ts` (`showSelectionPrunedFeedback`), `app-shell.ts` (live-region precedent).
 
-## 5. Formulare & Validierung
+## 5. Forms & validation
 
 ### 5.1 Inputs
 
-- **Was gilt:** `.app-input` ist der einzige Input-Stil, `.app-input-sm` die kompakte Variante für Filter-Toolbars. Beide bringen expliziten `color` mit (nötig im CDK-Overlay außerhalb der Shell-DOM).
-- **Der Rand ist Vertrag, nicht Optik:** Er trägt `border-border-field` und muss gegen die Fläche darunter **mindestens 3:1** erreichen (WCAG 1.4.11 — ein Eingabefeld wird durch seinen Rand überhaupt erst als Bedienelement erkennbar). Dieses Token ist das **einzige mit demselben Wert in beiden Modi**: es liegt bewusst in der Mitte, damit es gegen ein dunkles *und* gegen ein helles Feld reicht. Wer einen input-artigen Trigger von Hand nachbaut statt `.app-input` zu benutzen (der DateTime-Trigger tut das), schuldet denselben Wert — und einen Hover, der den Rand-Kontrast **erhöht**. `hover:border-fg-muted` tut genau das in beiden Modi (im Dunkeln heller, im Hellen dunkler); eine fest verdrahtete Richtung wäre in einem der beiden Modi falsch herum.
-- **Referenz:** `web/src/styles.css`, `web/src/app/shared/datetime/datetime-picker.ts` (nachgebauter Trigger).
+- **What applies:** `.app-input` is the only input style, `.app-input-sm` the compact variant for filter toolbars. Both bring an explicit `color` along (necessary in the CDK overlay outside the shell DOM).
+- **The border is a contract, not aesthetics:** it carries `border-border-field` and has to reach **at least 3:1** against the surface beneath it (WCAG 1.4.11 — an input field only becomes recognisable as a control through its border at all). This token is the **only one with the same value in both modes**: it deliberately sits in the middle so that it suffices against a dark *and* against a light field. Whoever rebuilds an input-like trigger by hand instead of using `.app-input` (the DateTime trigger does that) owes the same value — and a hover that **increases** the border contrast. `hover:border-fg-muted` does exactly that in both modes (lighter in the dark, darker in the light); a hard-wired direction would be the wrong way round in one of the two modes.
+- **Reference:** `web/src/styles.css`, `web/src/app/shared/datetime/datetime-picker.ts` (rebuilt trigger).
 
-### 5.2 Label-Pflicht
+### 5.2 Label requirement
 
-- **Was gilt:** Jedes Feld hat entweder ein sichtbares `<label for="…">` + `id` am Input, oder — nur in Filter-Toolbars, wo kein sichtbares Label vorgesehen ist — `[attr.aria-label]` (+ `[title]` für den Maus-Tooltip).
-- **Referenz:** sichtbares Label: `web/src/app/shared/ui/typed-confirm-dialog.ts`; `aria-label`-Fall: `web/src/app/features/usage-stats/usage-stats-page.html` (Filterleiste).
+- **What applies:** Every field has either a visible `<label for="…">` + `id` on the input, or — only in filter toolbars, where no visible label is provided for — `[attr.aria-label]` (+ `[title]` for the mouse tooltip).
+- **Reference:** visible label: `web/src/app/shared/ui/typed-confirm-dialog.ts`; `aria-label` case: `web/src/app/features/usage-stats/usage-stats-page.html` (filter bar).
 
-### 5.3 Feldfehler-Muster
+### 5.3 Field-error pattern
 
-- **Was gilt:** Feldbezogene Validierungsfehler folgen einem festen Muster:
+- **What applies:** Field-level validation errors follow a fixed pattern:
 
   ```html
   <input
@@ -252,328 +252,328 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   }
   ```
 
-  Fest: Fehlertext `text-sm text-danger-fg`, Fehler-`<p>` mit `id`, Input mit `aria-invalid` + `aria-describedby` nur im Fehlerfall. Formular-**übergreifende** Fehler (Request fehlgeschlagen) laufen dagegen über `NoticeBanner variant="error"` (4.4), nicht über Feldfehler.
-- **Wann anwenden:** Jedes Feld mit Client-Validierung, dessen Fehler sichtbar wird. Ein still bleibendes `invalid` ohne Anzeige (7TV-Token-Input) ist die zu vermeidende Ausnahme.
-- **Referenz:** `web/src/app/features/voting/vote-session-list-page.html` (Titel-Feld), `web/src/app/features/admin/admin-channels-page.ts` (Channel-Join).
+  Fixed: error text `text-sm text-danger-fg`, error `<p>` with `id`, input with `aria-invalid` + `aria-describedby` only in the error case. Errors spanning the **whole form** (request failed), by contrast, run through `NoticeBanner variant="error"` (4.4), not through field errors.
+- **When to apply:** Every field with client validation whose error becomes visible. An `invalid` that stays silent without display (7TV token input) is the exception to be avoided.
+- **Reference:** `web/src/app/features/voting/vote-session-list-page.html` (title field), `web/src/app/features/admin/admin-channels-page.ts` (channel join).
 
-### 5.4 Validierungs-Fallen
+### 5.4 Validation traps
 
-- **Was gilt:**
-  - Client-Validatoren denken die serverseitige **Normalisierung** mit, nicht nur die Server-Regex (CLAUDE.md Regel 9): Channel-Namen validieren über `channelNameValidator` aus `web/src/app/core/channels/channel-name.ts`, das den **normalisierten** Wert prüft (Nutzer tippen `HandOfBlood`).
-  - `(ngSubmit)` feuert **nie** auf einem `<form>` mit nur einem standalone `[formControl]` — stattdessen `(submit)="onSubmit($event)"` mit `event.preventDefault()`.
-  - Deaktivierte Submit-/Bestätigen-Buttons erklären ihren Grund als **Text** daneben, nicht nur per Ausgrauung (WCAG); Enter-Pfade prüfen die Bedingung selbst statt sich auf `disabled` zu verlassen.
-- **Referenz:** `web/src/app/core/channels/channel-name.ts`, `web/src/app/shared/ui/typed-confirm-dialog.ts` (Hint + Enter-Pfad).
+- **What applies:**
+  - Client validators take the server-side **normalisation** into account, not only the server regex (CLAUDE.md rule 9): validate channel names via `channelNameValidator` from `web/src/app/core/channels/channel-name.ts`, which checks the **normalised** value (users type `HandOfBlood`).
+  - `(ngSubmit)` **never** fires on a `<form>` with only a standalone `[formControl]` — use `(submit)="onSubmit($event)"` with `event.preventDefault()` instead.
+  - Disabled submit/confirm buttons explain their reason as **text** next to them, not only by greying out (WCAG); Enter paths check the condition themselves instead of relying on `disabled`.
+- **Reference:** `web/src/app/core/channels/channel-name.ts`, `web/src/app/shared/ui/typed-confirm-dialog.ts` (hint + Enter path).
 
-## 6. Lade- & Leerzustände
+## 6. Loading & empty states
 
-### 6.1 Skeleton vs. Spinner (NN/g-Regel)
+### 6.1 Skeleton vs. spinner (NN/g rule)
 
-- **Was gilt:** **Skeleton für Seiten-/Listen-Ladevorgänge, disabled-Button (Label bleibt konstant) für isolierte Aktionen.** Keine „Lädt…"-Textzeilen, keine Spinner für Seitenladen.
-  - Geriffelte Listen: `<app-skeleton-rows [count]="3" />`.
-  - Abschnittsseiten (Admin-Monitoring, Admin-Channel-Detail): `<app-skeleton-sections [count]="3" />`.
-  - Abweichende Formen (Atlas, Stimmzettel): handgerolltes Skeleton nach demselben A11y-Muster — **ein** `role="status"`-Element mit übersetztem `aria-label`, die Schimmer-Blöcke (`.app-skeleton`) in einem `aria-hidden="true"`-Container.
-  - Aktionen (Refresh, Join, Purge): Button `[disabled]="isLoading()"`, Label bleibt.
-- **Das Skeleton zeichnet den Umriss des echten Inhalts, nicht irgendeinen Platzhalter** — Abstand, Kante und horizontale Ausdehnung inklusive. **Ein Skeleton, dessen Umriss vom Inhalt abweicht, lässt das Eintreffen des Inhalts wie einen Layoutfehler aussehen** und kostet damit genau die Ruhe, für die es da ist; schon ein anderes horizontales Padding zeigt sich als seitlich springender Text. Wer eine Listen- oder Abschnittsform ändert, prüft das zugehörige Skeleton **im selben Commit** — keine Testsuite sieht je ein Skeleton, hier gibt es also nichts, was den Fehler für einen fängt.
-- **Referenz:** `web/src/app/shared/ui/skeleton-rows.ts`, `skeleton-sections.ts`, Grid-Variante `web/src/app/features/usage-stats/usage-stats-page.html`.
+- **What applies:** **Skeleton for page/list loads, disabled button (label stays constant) for isolated actions.** No "loading…" text lines, no spinners for page loads.
+  - Ruled lists: `<app-skeleton-rows [count]="3" />`.
+  - Section pages (admin monitoring, admin channel detail): `<app-skeleton-sections [count]="3" />`.
+  - Deviating shapes (atlas, ballot): hand-rolled skeleton following the same a11y pattern — **one** `role="status"` element with a translated `aria-label`, the shimmer blocks (`.app-skeleton`) in an `aria-hidden="true"` container.
+  - Actions (refresh, join, purge): button `[disabled]="isLoading()"`, label stays.
+- **The skeleton draws the outline of the real content, not just any placeholder** — spacing, edge and horizontal extent included. **A skeleton whose outline deviates from the content makes the arrival of the content look like a layout bug** and thereby costs exactly the calm it exists for; even a different horizontal padding shows up as text jumping sideways. Whoever changes a list or section shape checks the corresponding skeleton **in the same commit** — no test suite ever sees a skeleton, so there is nothing here to catch the mistake for you.
+- **Reference:** `web/src/app/shared/ui/skeleton-rows.ts`, `skeleton-sections.ts`, grid variant `web/src/app/features/usage-stats/usage-stats-page.html`.
 
 ### 6.2 EmptyState
 
-- **Was gilt:** Jeder Leerzustand ist ein `<app-empty-state>` mit `title` (warum leer) + möglichst `description` und projiziertem CTA (was als Nächstes tun). Kein nackter grauer Satz.
-- **Kein Emoji, keine gestrichelte Box, nicht zentriert.** Der Baustein hat bewusst **keinen** `icon`-Input, damit keine Aufrufstelle ein Emoji unterbringen kann: ein Bilderrahmen um 🔍 ist kein Icon-System, sondern dessen Abwesenheit. Und eine zentrierte Textspalte in einer linksbündigen Seite liest sich wie ein vergessener Platzhalter — für einen korrekten und erwarteten Zustand genau die falsche Lesart. Stattdessen dieselbe Haarlinie-plus-Label-Form, die die Atlas-Bänder (2.5) und die Landing-Stufen benutzen.
-- **Wann anwenden:** Liste/Grid ohne Einträge, Filter ohne Treffer — aber erst **nach** abgeschlossenem Laden (Skeleton verhindert das Aufblitzen des EmptyState während `rxResource`-Loads mit `defaultValue`).
-- **Referenz:** `web/src/app/shared/ui/empty-state.ts`; Verwendung `overview-page.html`, `usage-stats-page.html`.
+- **What applies:** Every empty state is an `<app-empty-state>` with a `title` (why empty) + where possible a `description` and a projected CTA (what to do next). No bare grey sentence.
+- **No emoji, no dashed box, not centred.** The building block deliberately has **no** `icon` input, so that no call site can smuggle in an emoji: a picture frame around 🔍 is not an icon system but its absence. And a centred text column in a left-aligned page reads like a forgotten placeholder — for a correct and expected state exactly the wrong reading. Instead the same hairline-plus-label shape that the atlas bands (2.5) and the landing steps use.
+- **When to apply:** List/grid without entries, filter without hits — but only **after** loading has finished (the skeleton prevents the EmptyState from flashing up during `rxResource` loads with `defaultValue`).
+- **Reference:** `web/src/app/shared/ui/empty-state.ts`; used in `overview-page.html`, `usage-stats-page.html`.
 
-## 7. Dialoge
+## 7. Dialogs
 
-- **Was gilt:** **Jeder** Dialog läuft über `@angular/cdk/dialog` — nie `window.confirm`, nie handgebaute Overlays. Fokus-Trap, Escape, Backdrop-Klick, `aria-modal`, Fokus-Rückgabe kommen vom CDK.
-- **Öffnen: nie `Dialog.open` direkt.** Jede Dialog-Komponente exportiert ihre eigene `open<X>Dialog(dialog, data)`-Funktion neben sich, die intern `openAppDialog` (`shared/ui/dialog.ts`) aufruft — dort sitzen `backdropClass`, `panelClass` und die Benennung. Der Grund ist gemessen: der Dreizeiler stand an zwölf Aufrufstellen von Hand, fünf davon hatten `ariaLabelledBy` vergessen. Ein neuer Dialog bekommt seine `open…()`-Funktion im selben Commit wie die Komponente.
-- **Innen: `<app-dialog-shell>`** (`shared/ui/dialog-shell.ts`) — Fläche, Padding, Überschrift, Body, Aktionszeile. Abstände macht die Shell (Flex-Spalte), **nicht** `mb-*` an jedem Kind; enger zusammengehörender Inhalt wickelt sich in ein eigenes `flex flex-col gap-1`. Die Breite **und die Höhe** gehören dem Pane (`.cdk-overlay-pane.app-dialog-panel`), nie dem Inhalt.
-- **Auf einem groben Zeiger ist derselbe Dialog ein Bottom-Sheet — dieselbe Instanz, zweite Erscheinung, kein zweiter Overlay-Stack.** Zwei getrennte `@media (pointer: coarse)`-Regeln tragen das, nicht eine: die Andockung sitzt auf dem **Wrapper**, nicht auf der Pane — `.cdk-global-overlay-wrapper:has(> .app-dialog-panel) { align-items: flex-end !important; }`, das `!important` Pflicht, weil CDKs `GlobalPositionStrategy` `align-items` als Inline-Style auf denselben Wrapper schreibt und Inline nur von `!important` geschlagen wird. Die zweite Regel bleibt auf der Pane-Klasse und ändert `max-width` (`none` statt `min(28rem, calc(100vw - 2rem))`) und `max-height` (`85dvh` statt `calc(100dvh - 2rem)`) — `width: 100%` steht schon in der Basisregel und ändert sich nie, es ist also nie „volle Breite statt 28rem", sondern „keine Kappung mehr". Wer die Andockung auf eine neue Panel-Klasse überträgt und dabei nur die Pane-Regel kopiert, bekommt einen zentrierten Dialog — derselbe Fehlertyp wie die beiden CDK-Fallen unten, nur an dieser Stelle noch nicht gelistet. Die Geometrie kommt ohne `openAppDialog()` und ohne eine Änderung an der Pane-Wahl aus; `PointerModeService.isCoarse` entscheidet live statt einmalig beim Öffnen. Die Sheet-**Chrome** dagegen sitzt in `dialog-shell.ts`: `DialogShell` rendert den Ziehbereich mit dem Attribut `data-sheet-handle` — die `SheetDrag`-Direktive sucht exakt danach, um eine Ziehgeste zuzulassen; ändert sich der Name auf einer Seite ohne die andere, bricht Drag-to-Dismiss lautlos. **Der Ziehbereich ist die ganze Oberkante des Sheets, nicht der sichtbare Balken:** die sticky Leiste ist auf `min-h-11` bemessen (44 px, das Komfortziel aus §10 — der Balken selbst ist 4 px hoch), und der Kopfblock darunter trägt dasselbe Attribut, weil ein Zug, der auf der Überschrift beginnt, das Sheet meint und nicht den Inhalt. Die beiden müssen **lückenlos** aneinanderstoßen: der Kopfblock schluckt das `gap-4` der Hülle per `-mt-4 pt-4` und gibt es als eigenes Padding zurück. Bleibt der Abstand bei der Hülle, ist er weder Griff noch `touch-none` — ein Streifen, in dem eine Geste gegen das Scrollen des Browsers antreten muss, und zwar genau dort, wohin ein Daumen zielt. `web/e2e/touch-mobile.e2e.spec.ts` pinnt davon die eine Hälfte (`toHaveCount(2)` auf `[data-sheet-handle]` innerhalb der Pane, Höhe der Leiste ≥ 44 px, und die beiden Kästen berühren sich) — dass ein echter Dialog die Griffe unter diesem Namen überhaupt rendert; für die andere Hälfte, den literalen String in `SheetDrag`, steht allein die Spec der Direktive. Die Geometrie sagt zu beidem nichts, sie kommt aus der Media-Query und hält auch ganz ohne Griff. Der Griff trägt das `rounded-t-2xl` der Hülle ein zweites Mal: seine negativen Ränder blenden ihn in die Ecken, die der Radius der Hülle frei lässt — ohne das liest sich das Sheet oben eckig. `overflow-hidden` an der Hülle wäre der andere Weg und ist verboten, es machte die Hülle zum eigenen Scroll-Container und bräche die Sticky-Verankerung des Griffs. Die Pane bleibt auch hier der Scroll-Container, siehe die CDK-Fallen unten.
-- **Drag-to-dismiss** (`shared/ui/sheet-drag.ts` + `sheet-drag-policy.ts`) schließt über `DialogRef.close()`, ist also kein vierter Ausgang neben Backdrop-Tap und Escape. Die Geste beginnt nur am Griff oder wenn die Pane oben angeschlagen ist — sonst bedeutet ein Zug nach unten „Inhalt hochscrollen". Der zweite Weg ist dabei kein Ersatz für den ersten: sobald der Inhalt länger ist als das Sheet, nimmt der Browser eine Abwärtsbewegung als Scroll für sich und bricht den Pointer ab. Verlässlich ist allein, was `data-sheet-handle` trägt und damit `touch-none` ist. **Und sie beginnt erst mit der ersten Bewegung über 4 px: ein bloßes Drücken nimmt keinen Pointer-Capture und schreibt keinen Inline-Style.** Das ist keine Feinheit — `setPointerCapture` beim `pointerdown` verlegt den folgenden `click` auf das Capture-Element, also auf die Hülle, unter der jeder Knopf des Dialogs liegt. Bei Zeigertyp `touch` fällt das nicht auf, bei Zeigertyp `mouse` ist damit jeder Knopf in jedem Dialog tot — und genau diese Kombination (`pointer: coarse` bei Mauseingabe) ist die DevTools-Emulation, mit der diese Ansicht von Hand geprüft wird. Die Schwelle des Entlassens hat **drei** Zahlen, nicht zwei: `distancePx ≥ 72` **oder** `velocityPxPerMs ≥ 0,5`, aber erst ab einer Mindeststrecke von `24 px` — ohne die Untergrenze schlösse ein Vier-Pixel-Zucken beim Tippen das Sheet, weil eine kurze Bewegung per Definition schnell ist. **Beide Größen werden am Ende der Geste gemessen, nicht über ihren Verlauf**, und das ist der Teil, der zweimal falsch war: Geschwindigkeit über die ganze Geste gemittelt teilt jede Millisekunde ruhenden Fingers in das Ergebnis hinein (deshalb `VELOCITY_WINDOW_MS`, die letzten 100 ms), und der Weg, aus der letzten *gemeldeten* Bewegung gelesen, hinkt hinterher, weil der Browser `pointermove` zusammenfasst und verwirft — je hastiger die Geste, desto mehr. Eine hastige Geste ist eine kurze, sie steht und fällt also mit genau diesen beiden Zahlen.
-- **Benennung (jeder Dialog braucht einen Accessible Name):** entweder eine sichtbare Überschrift — dann `[dialogTitle]` bzw. ein `[dialog-header]`-Slot mit `id="app-dialog-title"`, und `openAppDialog` verdrahtet `ariaLabelledBy` selbst — **oder** ein `ariaLabel` mit einer kurzen Aktionsphrase. Ein Dialog ohne beides ist ein Fehler.
-- **Aktionszeile: Abbrechen steht immer zuerst.** Damit landet der `first-tabbable`-Default des CDK auf dem harmlosen Knopf; ein explizites `cdkFocusInitial` erübrigt sich. Eine *Wahl* (Format, Bereich) gehört in den Body als Radiogruppe, nicht als zweiter Ausgangsknopf in die Fußzeile — sonst konkurrieren gleichrangige Optionen als Buttons und eine muss willkürlich leiser gestuft werden.
-- **Farbe im Dialog meint „dieser Fall ist ungewöhnlich".** Hinweise, die für *jeden* Durchlauf gelten (»unwiderruflich«, »nicht alle Channels erkennbar«), sind still — `fg-secondary`/`fg-muted`. Nur der Befund, der diesen Durchlauf von den anderen unterscheidet, wird `<app-notice-banner>`. Vier gestapelte Warnfarben im Lösch-Dialog hießen faktisch: keine davon ist wichtig.
-- **Namenslisten** (»das wird gelöscht«) über `<app-name-preview-list>` — Kappung bei 50 plus gezählter Rest, geriffelte Zeilen nach §2.1, voll blutend gegen das `p-6` der Shell.
-- **Wahlkriterium:**
-  - `ConfirmDialog` (`shared/ui/confirm-dialog.ts`): destruktive Aktion, die eine Ja/Nein-Bestätigung braucht (Channel verlassen, Session löschen). Aufrufer übergibt fertig übersetzte `message`/`confirmLabel`. Bewusst **ohne** Überschrift — jede seiner Meldungen beginnt schon mit der Aktion; benannt wird er per `ariaLabel`.
-  - `TypedConfirmDialog` (`shared/ui/typed-confirm-dialog.ts`): Aktion ist unwiderruflich **und** zeilenbezogen (Channel-Purge) — Nachtippen beweist, *welche* Zeile gemeint war. Vergleich getrimmt, aber case-sensitiv. `title` ist Pflicht.
-  - Eigener Dialog nur, wenn keiner der beiden passt (z. B. Mass-Delete mit Fortschritt) — dann trotzdem `DialogShell` + eigene `open…()`.
-- **Gesperrter Bestätigen-Knopf braucht seinen Grund als Text** neben sich (`mr-auto` in der Aktionszeile, per `aria-describedby` verbunden). Ausgegraut allein ist keine wahrnehmbare Erklärung (WCAG) — gilt für das Nachtipp-Feld genauso wie für den laufenden Shared-Set-Check.
-- **CDK-Fallen (beide live gefunden):**
-  1. Der Overlay-Container hängt **außerhalb** der App-Shell-DOM — er erbt keine Textfarbe. Dialog-Panel und `.app-input` brauchen explizites `color` (haben sie; bei neuen Overlay-Styles daran denken).
-  2. CDK injiziert seine Overlay-Styles zur Laufzeit **hinter** allen Bundle-Stylesheets. Panel-Chrome muss deshalb unlayered und mit erhöhter Spezifität definiert werden (`.cdk-overlay-pane.app-dialog-panel`) — neue Panel-Regeln nach demselben Muster.
-- **Referenz:** `web/src/app/shared/ui/dialog.ts`, `dialog-shell.ts`, `name-preview-list.ts`, `confirm-dialog.ts`, `typed-confirm-dialog.ts`, `web/src/styles.css` (Dialog-Klassen), Aufrufer `channel-workspace-layout.ts`, `admin-channels-page.ts`.
+- **What applies:** **Every** dialog runs through `@angular/cdk/dialog` — never `window.confirm`, never hand-built overlays. Focus trap, Escape, backdrop click, `aria-modal`, focus return come from the CDK.
+- **Opening: never `Dialog.open` directly.** Every dialog component exports its own `open<X>Dialog(dialog, data)` function next to it, which internally calls `openAppDialog` (`shared/ui/dialog.ts`) — that is where `backdropClass`, `panelClass` and the naming sit. The reason is measured: the three-liner stood at twelve call sites by hand, five of which had forgotten `ariaLabelledBy`. A new dialog gets its `open…()` function in the same commit as the component.
+- **Inside: `<app-dialog-shell>`** (`shared/ui/dialog-shell.ts`) — surface, padding, heading, body, action row. The spacing is done by the shell (flex column), **not** by `mb-*` on every child; content that belongs together more tightly wraps itself in its own `flex flex-col gap-1`. The width **and the height** belong to the pane (`.cdk-overlay-pane.app-dialog-panel`), never to the content.
+- **On a coarse pointer the same dialog is a bottom sheet — the same instance, a second appearance, no second overlay stack.** Two separate `@media (pointer: coarse)` rules carry that, not one: the docking sits on the **wrapper**, not on the pane — `.cdk-global-overlay-wrapper:has(> .app-dialog-panel) { align-items: flex-end !important; }`, the `!important` mandatory because CDK's `GlobalPositionStrategy` writes `align-items` as an inline style onto the same wrapper, and inline is only beaten by `!important`. The second rule stays on the pane class and changes `max-width` (`none` instead of `min(28rem, calc(100vw - 2rem))`) and `max-height` (`85dvh` instead of `calc(100dvh - 2rem)`) — `width: 100%` is already in the base rule and never changes, so it is never "full width instead of 28rem" but "no capping any more". Whoever transfers the docking to a new panel class and copies only the pane rule gets a centred dialog — the same type of mistake as the two CDK traps below, only not yet listed at this spot. The geometry gets by without `openAppDialog()` and without a change to the pane choice; `PointerModeService.isCoarse` decides live instead of once at opening time. The sheet **chrome**, by contrast, sits in `dialog-shell.ts`: `DialogShell` renders the drag area with the attribute `data-sheet-handle` — the `SheetDrag` directive looks for exactly that in order to allow a drag gesture; if the name changes on one side without the other, drag-to-dismiss breaks silently. **The drag area is the entire top edge of the sheet, not the visible bar:** the sticky bar is dimensioned at `min-h-11` (44 px, the comfort target from §10 — the bar itself is 4 px high), and the head block beneath it carries the same attribute, because a drag that starts on the heading means the sheet and not the content. The two have to abut **without a gap**: the head block swallows the shell's `gap-4` via `-mt-4 pt-4` and gives it back as padding of its own. If the gap stays with the shell, it is neither handle nor `touch-none` — a strip in which a gesture has to compete with the browser's scrolling, and precisely where a thumb is aiming. `web/e2e/touch-mobile.e2e.spec.ts` pins one half of this (`toHaveCount(2)` on `[data-sheet-handle]` inside the pane, height of the bar ≥ 44 px, and the two boxes touching) — that a real dialog renders the handles under this name at all; for the other half, the literal string in `SheetDrag`, only the directive's spec stands. The geometry says nothing about either, it comes from the media query and holds even without a handle at all. The handle carries the shell's `rounded-t-2xl` a second time: its negative margins blend it into the corners the shell's radius leaves free — without that the sheet reads square at the top. `overflow-hidden` on the shell would be the other way and is forbidden, it would make the shell its own scroll container and would break the sticky anchoring of the handle. The pane remains the scroll container here as well, see the CDK traps below.
+- **Drag-to-dismiss** (`shared/ui/sheet-drag.ts` + `sheet-drag-policy.ts`) closes via `DialogRef.close()` and is therefore not a fourth exit next to backdrop tap and Escape. The gesture begins only at the handle or when the pane is scrolled to the top — otherwise a downward drag means "scroll the content up". The second path is not a substitute for the first: as soon as the content is longer than the sheet, the browser takes a downward movement as a scroll for itself and cancels the pointer. Reliable is only what carries `data-sheet-handle` and is thereby `touch-none`. **And it begins only with the first movement beyond 4 px: a mere press takes no pointer capture and writes no inline style.** That is not a subtlety — `setPointerCapture` on `pointerdown` relocates the following `click` onto the capture element, that is onto the shell, underneath which every button of the dialog lies. With pointer type `touch` that goes unnoticed, with pointer type `mouse` every button in every dialog is dead — and precisely this combination (`pointer: coarse` with mouse input) is the devtools emulation with which this view is checked by hand. The dismissal threshold has **three** numbers, not two: `distancePx ≥ 72` **or** `velocityPxPerMs ≥ 0.5`, but only from a minimum distance of `24 px` — without the lower bound a four-pixel twitch while tapping would close the sheet, because a short movement is by definition fast. **Both quantities are measured at the end of the gesture, not over its course**, and that is the part that was wrong twice: velocity averaged over the whole gesture divides every millisecond of a resting finger into the result (hence `VELOCITY_WINDOW_MS`, the last 100 ms), and the distance, read from the last *reported* movement, lags behind, because the browser coalesces and discards `pointermove` — the hastier the gesture, the more so. A hasty gesture is a short one, so it stands and falls with exactly these two numbers.
+- **Naming (every dialog needs an accessible name):** either a visible heading — then `[dialogTitle]` or a `[dialog-header]` slot with `id="app-dialog-title"`, and `openAppDialog` wires up `ariaLabelledBy` itself — **or** an `ariaLabel` with a short action phrase. A dialog with neither is a bug.
+- **Action row: cancel always comes first.** That way the CDK's `first-tabbable` default lands on the harmless button; an explicit `cdkFocusInitial` becomes unnecessary. A *choice* (format, scope) belongs in the body as a radio group, not as a second exit button in the footer — otherwise equal-ranking options compete as buttons and one has to be arbitrarily toned down.
+- **Colour in a dialog means "this case is unusual".** Notices that apply to *every* run ("irreversible", "not all channels detectable") are quiet — `fg-secondary`/`fg-muted`. Only the finding that distinguishes this run from the others becomes an `<app-notice-banner>`. Four stacked warning colours in the delete dialog effectively said: none of them is important.
+- **Name lists** ("this will be deleted") via `<app-name-preview-list>` — capped at 50 plus a counted remainder, ruled rows per §2.1, bleeding full-width against the shell's `p-6`.
+- **Choice criterion:**
+  - `ConfirmDialog` (`shared/ui/confirm-dialog.ts`): destructive action that needs a yes/no confirmation (leave channel, delete session). The caller passes fully translated `message`/`confirmLabel`. Deliberately **without** a heading — each of its messages already begins with the action; it is named via `ariaLabel`.
+  - `TypedConfirmDialog` (`shared/ui/typed-confirm-dialog.ts`): the action is irreversible **and** row-related (channel purge) — retyping proves *which* row was meant. The comparison is trimmed but case-sensitive. `title` is mandatory.
+  - A dialog of your own only if neither of the two fits (e.g. mass delete with progress) — then still `DialogShell` + your own `open…()`.
+- **A blocked confirm button needs its reason as text** next to it (`mr-auto` in the action row, connected via `aria-describedby`). Greyed out alone is not a perceivable explanation (WCAG) — this holds for the retype field just as much as for the running shared-set check.
+- **CDK traps (both found live):**
+  1. The overlay container hangs **outside** the app shell DOM — it inherits no text colour. Dialog panel and `.app-input` need an explicit `color` (they have one; keep it in mind for new overlay styles).
+  2. CDK injects its overlay styles at runtime **after** all bundle stylesheets. Panel chrome must therefore be defined unlayered and with raised specificity (`.cdk-overlay-pane.app-dialog-panel`) — new panel rules follow the same pattern.
+- **Reference:** `web/src/app/shared/ui/dialog.ts`, `dialog-shell.ts`, `name-preview-list.ts`, `confirm-dialog.ts`, `typed-confirm-dialog.ts`, `web/src/styles.css` (dialog classes), callers `channel-workspace-layout.ts`, `admin-channels-page.ts`.
 
-### 7.1 Popover (nicht-modal)
+### 7.1 Popover (non-modal)
 
-- **Was gilt:** Nicht-modale Dropdowns laufen über **`<app-popover>`** (`shared/ui/popover.ts`) — nie ein weiteres handgebautes `relative`-Wrapper-plus-`absolute`-Panel. Das Primitive bringt Panel-Chrome, `max-w-[calc(100vw-2rem)]`, Außenklick- und Escape-Dismiss mit. Der Host setzt den `position: relative`-Wrapper mit dem Marker `data-popover-anchor` um Trigger **und** Popover; Klicks darin zählen nie als Außenklick (sonst schließt der öffnende Klick das Panel im selben Dispatch wieder).
-- **Vertrag:** gerendert = offen. Das Panel versteckt sich nie selbst, es emittiert `closed`; das Sichtbarkeits-Signal **und** die Fokus-Rückgabe an den Trigger gehören dem Host. Padding bringt der Inhalt mit — das Panel ist padding-frei, damit Full-Bleed-Menüzeilen und gepolsterte Formulare beide hineinpassen.
-- **Abgrenzung zu §7:** Popover ≠ Dialog. Kein Fokus-Trap, kein `aria-modal`, kein Backdrop. Sobald die Interaktion den Rest der Seite blockieren soll, ist es ein CDK-Dialog. Und **kein** CDK-Overlay für den Popover-Fall: diese Panels öffnen aus Sticky-Leisten heraus und müssen deren Stacking-Kontext erben (§8.5), was ein an `<body>` gehängter Overlay-Container nicht kann.
-- **Mobil:** Menüzeilen `min-h-11 sm:min-h-9` (§10, 44-px-Komfortziel bei Touch). Ein geöffnetes Popover gehört mit `afterLoad` in den Audit-Harness (§12) — geschlossen sagen die Overflow- und Touch-Target-Metriken nichts über es aus.
-- **Das 44-px-Komfortziel ist inzwischen kein Popover-Sonderfall mehr, sondern an der Button-Größe `lg` verankert** (`shared/ui/button.ts`, `SIZE_CLASSES.lg = 'min-h-11 …'`): ein flow-tragender Button, der sich für `lg` entscheidet — Dialog-Bestätigungen, der Mass-Delete-Auslöser, der Schließen-Weg des Sheets —, bekommt die 44-px-Höhe darüber, ohne die Klassenkette selbst nachzubauen. Automatisch ist daran nichts: `buttonSize` ist standardmäßig `md` (23 Aufrufstellen setzen `lg` bewusst), und `md` bleibt unverändert für dichte Toolbars, wo eine Maus der realistische Zeiger ist.
-- **Der 20-px-Verlaufs-Trigger auf einer Atlas-Zelle (§2.5) entfällt auf `coarse` ganz** — dort ist die ganze 64-px-Zelle das Ziel, was ein 20-px-Overlay in jeder Hinsicht schlägt und ohnehin die einzige Aktion ist, die der Tap auf coarse noch auslöst.
-- **Referenz:** `web/src/app/shared/ui/popover.ts`; Verwendung `shared/datetime/date-range-menu.ts`.
+- **What applies:** Non-modal dropdowns run through **`<app-popover>`** (`shared/ui/popover.ts`) — never yet another hand-built `relative` wrapper plus `absolute` panel. The primitive brings panel chrome, `max-w-[calc(100vw-2rem)]`, outside-click and Escape dismiss with it. The host sets the `position: relative` wrapper with the marker `data-popover-anchor` around trigger **and** popover; clicks inside it never count as an outside click (otherwise the opening click would close the panel again in the same dispatch).
+- **Contract:** rendered = open. The panel never hides itself, it emits `closed`; the visibility signal **and** the focus return to the trigger belong to the host. Padding is brought by the content — the panel is padding-free so that full-bleed menu rows and padded forms both fit into it.
+- **Demarcation from §7:** popover ≠ dialog. No focus trap, no `aria-modal`, no backdrop. As soon as the interaction is supposed to block the rest of the page, it is a CDK dialog. And **no** CDK overlay for the popover case: these panels open out of sticky bars and have to inherit their stacking context (§8.5), which an overlay container attached to `<body>` cannot do.
+- **Mobile:** menu rows `min-h-11 sm:min-h-9` (§10, 44 px comfort target for touch). An opened popover belongs in the audit harness (§12) with `afterLoad` — closed, the overflow and touch-target metrics say nothing about it.
+- **The 44 px comfort target is by now no longer a popover special case but anchored in the button size `lg`** (`shared/ui/button.ts`, `SIZE_CLASSES.lg = 'min-h-11 …'`): a button carrying the flow that opts for `lg` — dialog confirmations, the mass-delete trigger, the sheet's close path — gets the 44 px height through that, without rebuilding the class chain itself. There is nothing automatic about it: `buttonSize` is `md` by default (23 call sites deliberately set `lg`), and `md` stays unchanged for dense toolbars, where a mouse is the realistic pointer.
+- **The 20 px history trigger on an atlas cell (§2.5) falls away entirely on `coarse`** — there the whole 64 px cell is the target, which beats a 20 px overlay in every respect and is anyway the only action the tap still triggers on coarse.
+- **Reference:** `web/src/app/shared/ui/popover.ts`; used in `shared/datetime/date-range-menu.ts`.
 
-### 7.2 Ziel-Picker und Bestätigungsdialog (Import, #72)
+### 7.2 Target picker and confirmation dialog (import, #72)
 
-- **Was gilt:** Der Fluss hinter „Übertragen" läuft über zwei Dialoge, beide über
-  `openAppDialog` (s. o.): `ImportTargetDialog` (`shared/seven-tv/import-target-dialog.ts`,
-  `openImportTargetDialog`) wählt Bereich und Ziel, `ImportConfirmDialog`
-  (`shared/seven-tv/import-confirm-dialog.ts`, `openImportConfirmDialog`) zeigt die Vorschau und
-  startet den Lauf. Beide Reihenfolgen unten sind Vertrag (2.4/2.5 des #72-Plans), keine
-  Layout-Frage — wer sie ändert, ändert einen Vertrag. Welche Flächen diesen Fluss auslösen
-  dürfen, regelt §8.7.
-- **Ziel-Picker, Zeilenreihenfolge:**
-  1. Bereichs-Radiogruppe `visible`/`selection` — nur, wenn eine Grid-Auswahl existiert; ohne
-     Auswahl steht an derselben Stelle stattdessen der gedämpfte Hinweis
-     `export.scopeNoSelectionHint` (#144) — außer ein Aufrufer erzwingt den Scope
-     (`forcedScope`, §8.7 — seit #147 nur noch der Dock-Einstieg): dann fehlt an dieser Stelle
-     beides, Radiogruppe wie Hinweis, weil ein
-     erzwungener Scope keine offene Wahl ist, die eine Erklärung bräuchte.
-  2. Kanalliste-Zustand: `<app-skeleton-rows [count]="3">`, während `listMine()` lädt, danach
-     höchstens **eine** Meldung (exklusiv) — `reauthRequired` (warning), sonst `loadFailed` (error +
-     „Erneut laden"), sonst `listIncomplete` (info).
-  3. Ziel-Radiogruppe: ein Radio je Kanal, in dem der Nutzer Broadcaster oder 7TV-Editor ist
-     (`importTargetOptions`), `disabled` + „(Kanal muss erst beitreten)" für nicht getrackte Kanäle.
-     Gibt es keinen solchen Kanal, bleibt die Gruppe leer und die `import.target.none`-Meldung
-     erscheint an ihrer Stelle (E5) — der Dialog öffnet sich trotzdem, er hat nur nichts zur Wahl.
-  4. Abbrechen / Weiter.
-- **Scope-Default `selection` bricht bewusst mit dem Export-Dialog** (der dort `visible` vorbelegt):
-  ein Export läuft Gefahr, unbemerkt zu **verengen**; ein Kopieren in ein fremdes 7TV-Set läuft
-  Gefahr, unbemerkt auf mehrere hundert sichtbare Emotes zu **verbreitern** — der Wedge des Features
-  ist „auswählen, dann kopieren". Ohne Grid-Auswahl gibt es keine Radiogruppe, Scope ist dann
-  `visible`. Nicht angleichen. Der Datei-Weg, der früher als Radio in dieser Gruppe stand, liegt
-  seit #141 im Export-Dialog (§7.4) und erbt dessen Scope-Vorbelegung `visible` — der Ziel-Dialog
-  bleibt bei seinem `selection`-Default, weil die beiden jetzt getrennte Kommandos mit getrennten
-  Risiken sind, nicht mehr zwei Ausgänge desselben Dialogs.
-- **Bestätigungsdialog, Zeilenreihenfolge:** Titel (Anzahl + Zielkanal) → Herkunftszeile (Kanal,
-  oder Datei mit Export-Datum/-Kanal) → Zielzeile „Ziel: Kanal · Set …", sobald die Zieldaten da
-  sind → genau **einer** von drei Ladezuständen (handgerolltes Skeleton nach §6.1-Muster /
-  `no-set`-Banner / `failed`-Banner mit Retry) → geteiltes-Set-Warnung (error) oder „Prüfung nicht
-  möglich" (warning) → Slot-Projektion (Überlauf als Warnbanner, sonst stiller Text) →
-  Veraltet-Hinweis, wenn der letzte Sync des Ziels fehlgeschlagen ist → „bereits im Zielset"-Zeile →
-  Namenskollisionen-Zeile + `NamePreviewList` → ungültige-Namen-Zeile + `NamePreviewList`
-  (Nicht-ASCII-Zeichen im Emote-Namen — beide Zeilen sagen „7TV wird das ablehnen" und stehen
-  deshalb nebeneinander) → **verworfene Zeilen vor zusammengefassten
-  Duplikaten** (echter Datenverlust wiegt schwerer als bloße Konsolidierung — der Grund steht bei
-  `discardedRows`/`duplicatesCollapsed`) → „nichts hinzuzufügen"-Banner → „Diese Liste stammt aus
-  diesem Kanal" → der stille Hinweis auf den automatischen Lauf → (nur im Ladezustand: der
-  Ladehinweis neben den Aktionsknöpfen) → Abbrechen / Kopieren.
-- **Der Zieldaten-Loader (`core/emotes/import-target-loader.ts`, `loadImportTarget`) emittiert genau
-  einmal und wirft nie** — die drei inneren Anfragen (`getSetStatus`, `listEmotes`,
-  `getSetWarning`) fangen ihren eigenen Fehler und liefern einen getaggten Wert, statt den `forkJoin`
-  beim ersten Fehler abbrechen zu lassen. Ein fehlgeschlagenes `getSetWarning` degradiert nur die
-  Set-Prüfung zu „nicht möglich" und lässt den Lauf zu; ein fehlgeschlagenes `getSetStatus`/
-  `listEmotes` oder ein fehlendes aktives Set blockiert ihn (`failed`/`no-set`, `no-set` gewinnt bei
-  beidem gleichzeitig — ein 404 ist die endgültigere Aussage). Der Ausführen-Knopf trägt seinen
-  Sperrgrund als Text (`aria-describedby`, Muster wie oben): `loadingHint`, `loadFailed`,
-  `noTargetSet`, `nothingToAdd` — nur beim gleichzeitig laufenden 7TV-Lauf einer anderen Stelle
-  (`runBlocked`) bleibt der Knopf ohne eigenen Text gesperrt, weil dann der laufende Fortschritt im
-  Dock schon die Erklärung ist (4.2).
-- **Der Token-Prompt kommt beim Import nach der Bestätigung, nicht davor** — anders als bei Delete
-  und Restore, wo er weiterhin vor der Bestätigung steht. Grund: Picker und Vorschau sind reine
-  Lesevorgänge, und die Vorschau ist beim Import der Ort, an dem die eigentliche Entscheidung fällt
-  — ein Secret zu verlangen, bevor der Nutzer gesehen hat, was passieren würde, wäre die falsche
-  Reihenfolge. Bricht der Nutzer den Prompt ab, startet kein Lauf. Delete/Restore ändern sich nicht:
-  dort *ist* die Bestätigung schon die ganze Vorschau, also gibt es dort keinen Grund, den Token
-  später zu verlangen. **Dieser Unterschied ist Absicht, kein Nachzügler** — bei einer
-  Vereinheitlichung zuerst hier nachlesen, nicht den Import „korrigieren".
-- **Referenz:** `web/src/app/shared/seven-tv/import-target-dialog.ts`, `import-confirm-dialog.ts`,
+- **What applies:** The flow behind "Transfer" runs through two dialogs, both via
+  `openAppDialog` (see above): `ImportTargetDialog` (`shared/seven-tv/import-target-dialog.ts`,
+  `openImportTargetDialog`) picks scope and target, `ImportConfirmDialog`
+  (`shared/seven-tv/import-confirm-dialog.ts`, `openImportConfirmDialog`) shows the preview and
+  starts the run. Both orders below are a contract (2.4/2.5 of the #72 plan), not a
+  layout question — whoever changes them changes a contract. Which surfaces may trigger this
+  flow is governed by §8.7.
+- **Target picker, row order:**
+  1. Scope radio group `visible`/`selection` — only if a grid selection exists; without a
+     selection the muted hint `export.scopeNoSelectionHint` (#144) stands in the same place
+     instead — unless a caller forces the scope
+     (`forcedScope`, §8.7 — since #147 only the dock entry point): then both are missing at
+     this spot, radio group as well as hint, because a
+     forced scope is not an open choice that would need an explanation.
+  2. Channel list state: `<app-skeleton-rows [count]="3">` while `listMine()` is loading, after
+     that at most **one** message (mutually exclusive) — `reauthRequired` (warning), otherwise `loadFailed` (error +
+     "Reload"), otherwise `listIncomplete` (info).
+  3. Target radio group: one radio per channel in which the user is broadcaster or 7TV editor
+     (`importTargetOptions`), `disabled` + "(channel has to join first)" for untracked channels.
+     If there is no such channel, the group stays empty and the `import.target.none` message
+     appears in its place (E5) — the dialog opens anyway, it just has nothing to choose from.
+  4. Cancel / Continue.
+- **The scope default `selection` deliberately breaks with the export dialog** (which preselects `visible` there):
+  an export runs the risk of unnoticed **narrowing**; a copy into a foreign 7TV set runs the
+  risk of unnoticed **widening** to several hundred visible emotes — the wedge of the feature
+  is "select, then copy". Without a grid selection there is no radio group, and the scope is then
+  `visible`. Do not align them. The file path, which used to stand as a radio in this group, has
+  been in the export dialog (§7.4) since #141 and inherits its scope default `visible` — the target dialog
+  stays with its `selection` default, because the two are now separate commands with separate
+  risks, no longer two exits of the same dialog.
+- **Confirmation dialog, row order:** title (count + target channel) → origin row (channel,
+  or file with export date/channel) → target row "Target: channel · set …" as soon as the target data
+  are there → exactly **one** of three loading states (hand-rolled skeleton per the §6.1 pattern /
+  `no-set` banner / `failed` banner with retry) → shared-set warning (error) or "check not
+  possible" (warning) → slot projection (overflow as a warning banner, otherwise quiet text) →
+  stale notice if the last sync of the target failed → "already in the target set" row →
+  name-collisions row + `NamePreviewList` → invalid-names row + `NamePreviewList`
+  (non-ASCII characters in the emote name — both rows say "7TV will reject this" and therefore
+  stand next to each other) → **discarded rows before collapsed
+  duplicates** (real data loss weighs more than mere consolidation — the reason is stated at
+  `discardedRows`/`duplicatesCollapsed`) → "nothing to add" banner → "This list comes from
+  this channel" → the quiet notice about the automatic run → (only in the loading state: the
+  loading hint next to the action buttons) → Cancel / Copy.
+- **The target-data loader (`core/emotes/import-target-loader.ts`, `loadImportTarget`) emits exactly
+  once and never throws** — the three inner requests (`getSetStatus`, `listEmotes`,
+  `getSetWarning`) catch their own error and deliver a tagged value instead of letting the `forkJoin`
+  abort on the first error. A failed `getSetWarning` only degrades the
+  set check to "not possible" and lets the run proceed; a failed `getSetStatus`/
+  `listEmotes` or a missing active set blocks it (`failed`/`no-set`, `no-set` wins if
+  both occur at once — a 404 is the more final statement). The execute button carries its
+  blocking reason as text (`aria-describedby`, pattern as above): `loadingHint`, `loadFailed`,
+  `noTargetSet`, `nothingToAdd` — only for a simultaneously running 7TV run from somewhere else
+  (`runBlocked`) does the button stay blocked without text of its own, because then the running progress in
+  the dock is already the explanation (4.2).
+- **On import the token prompt comes after the confirmation, not before it** — unlike with delete
+  and restore, where it still stands before the confirmation. Reason: picker and preview are purely
+  read operations, and on import the preview is the place where the actual decision is made
+  — demanding a secret before the user has seen what would happen would be the wrong
+  order. If the user cancels the prompt, no run starts. Delete/restore do not change:
+  there the confirmation *is* already the whole preview, so there is no reason to demand the token
+  later. **This difference is intentional, not a straggler** — when unifying,
+  read up here first, do not "correct" the import.
+- **Reference:** `web/src/app/shared/seven-tv/import-target-dialog.ts`, `import-confirm-dialog.ts`,
   `import-target-options.ts`, `import-preview.ts`, `slot-projection.ts`,
-  `web/src/app/core/emotes/import-target-loader.ts`; Aufrufer `web/src/app/shared/seven-tv/import-flow.ts`.
+  `web/src/app/core/emotes/import-target-loader.ts`; caller `web/src/app/shared/seven-tv/import-flow.ts`.
 
-### 7.3 Einspiel-Dialog (#91, seit #147 der eine Import-Dialog)
+### 7.3 Ingest dialog (#91, since #147 the one import dialog)
 
-- **Was gilt:** Alles, was Emotes **in** den Kanal der Seite bringt, beginnt im Seitenkopf mit dem
-  Trigger `<app-import-trigger>` (§8.7 regelt die Fläche, §4.2 die Sperren) und läuft über **einen**
-  Dialog: `ImportSourceDialog` (`shared/seven-tv/import-source-dialog.ts`,
-  `openImportSourceDialog`). **Sein erster Schritt ist die Quellenwahl** — bis #147 hatte der
-  Fremdkanal einen eigenen Kopfknopf daneben, was der Spec-Festlegung E1 („eine Quelle unter anderen
-  im Import-Dialog, keine eigene Seite") widersprach. Eine vierte Quelle ist eine vierte Zeile in
-  diesem Schritt, kein weiterer Knopf und ausdrücklich **kein** ausgegrauter Platzhalter, solange sie
-  nicht existiert.
-- **Schrittfolge (Vertrag):**
-  1. **Quellenwahl** — je Quelle eine geriffelte Zeile mit Label und einer gedämpften Hinweiszeile
-     darunter, beides Teil des zugänglichen Namens (dasselbe zweizeilige Muster wie §7.4). Die Zeile
-     ist ein Knopf und **keine** Radiogruppe: sie navigiert, sie parametrisiert keine spätere
-     Aktion, es bleibt also nichts zu bestätigen.
-  2. Der gewählte Zweig, **im selben Dialog**. Er öffnet keinen zweiten.
-- **Die Aktionszeile gehört dem Dialog, nicht dem Schritt:** Abbrechen zuerst (§7), danach
-  „Zurück", sobald man einen Zweig betreten hat, und „Weiter" **erst, wenn das Raster steht** —
-  gekoppelt an denselben Zustand wie die Pane-Breite, nicht an einen zweiten. Der Kanal-Zweig hat
-  vor dem Laden bereits eine Vorwärts-Aktion, nämlich „Set laden" am Feld, auf das sie wirkt; ein
-  zweites, dauerhaft gesperrtes „Weiter" daneben ließ einen Dialog um **ein** Textfeld nach vier
-  Knöpfen aussehen und konkurrierte mit der Aktionszeile. Ein hinten fehlender Knopf rührt die
-  Reihenfolge der übrigen nicht an — „Abbrechen zuerst" gilt unverändert.
-- **Die Feldzeile des Kanal-Schritts ist ein Paar, kein Umbruch:** Feld und „Set laden" stehen auf
-  derselben Höhe (beide auf dem 44-px-Boden, den `buttonSize="lg"` definiert — am Feld **gesagt**,
-  nicht vom Nachbarn geerbt), im Dialog-Abstand statt im Toolbar-Abstand, und **ohne** `flex-wrap`:
-  bräche der Knopf unter das Feld, verlöre das Feld zugleich seine Höhe. Es schrumpft stattdessen
+- **What applies:** Everything that brings emotes **into** the channel of the page begins in the page
+  header with the trigger `<app-import-trigger>` (§8.7 governs the surface, §4.2 the blocks) and runs through **one**
+  dialog: `ImportSourceDialog` (`shared/seven-tv/import-source-dialog.ts`,
+  `openImportSourceDialog`). **Its first step is the source selection** — until #147 the
+  foreign channel had a header button of its own next to it, which contradicted spec decision E1 ("one source among others
+  in the import dialog, not a page of its own"). A fourth source is a fourth row in
+  this step, not another button and explicitly **not** a greyed-out placeholder as long as it
+  does not exist.
+- **Step sequence (contract):**
+  1. **Source selection** — one ruled row per source with a label and a muted hint line
+     beneath it, both part of the accessible name (the same two-line pattern as §7.4). The row
+     is a button and **not** a radio group: it navigates, it does not parameterise a later
+     action, so there is nothing left to confirm.
+  2. The chosen branch, **in the same dialog**. It opens no second one.
+- **The action row belongs to the dialog, not to the step:** cancel first (§7), after that
+  "Back" as soon as a branch has been entered, and "Continue" **only once the grid stands** —
+  coupled to the same state as the pane width, not to a second one. Before loading, the channel branch already has
+  a forward action, namely "Load set" at the field it acts on; a
+  second, permanently blocked "Continue" next to it made a dialog around **one** text field look like it had four
+  buttons and competed with the action row. A button missing at the back does not touch
+  the order of the others — "cancel first" applies unchanged.
+- **The field row of the channel step is a pair, not a wrap:** field and "Load set" stand at
+  the same height (both on the 44 px floor that `buttonSize="lg"` defines — **stated** at the field,
+  not inherited from the neighbour), in dialog spacing instead of toolbar spacing, and **without** `flex-wrap`:
+  if the button broke below the field, the field would lose its height at the same time. It shrinks instead
   (`min-w-0`).
-- **Der Kopf nennt den Zweig:** „Emotes importieren" auf dem ersten Schritt, „Datei importieren" bzw.
-  „Aus einem Kanal importieren" darunter. Das ist die einzige Ortsangabe, die ein Ein-Dialog-Fluss
-  neben „Zurück" hat.
-- **Die Pane ist breit, solange das Raster steht — und nur dann** (`app-dialog-panel-wide`, s. §7 und
-  `styles.css`). Die Breite gehört der Pane, nicht dem Inhalt, der Schalter ist deshalb die
-  Panel-Klasse und keine `max-w-*` im Template; gesetzt wird sie zur Laufzeit über
-  `overlayRef.addPanelClass`, weil beim Öffnen noch niemand weiß, ob ein Raster kommt. Die drei
-  Formularzustände — Quellenwahl, Datei-Zweig, Kanal-Zweig **vor** dem Laden — bleiben bei den
-  gewöhnlichen 28 rem: ein Formular in 72 rem sieht verloren aus. **Damit gibt es genau eine
-  Größenänderung, und sie fällt mit „Set laden" zusammen**, also mit einem ohnehin sichtbaren
-  Inhaltswechsel — der einzige Ort, an dem eine Größenänderung als Folge lesbar ist statt als
-  Willkür. Auslöser ist die Sichtbarkeit des Rasters, nicht der Schritt.
-- **Das Kanalfeld trägt trotzdem ein `max-w-sm`**, und das ist keine zweite Meinung über die
-  Pane-Breite: das Formular bleibt im geladenen Zustand **über** dem 72-rem-Raster stehen. Ungekappt
-  spannte ein Feld für ein Dutzend Zeichen dort über die ganze Pane. Bei 24 rem ist es vor und nach
-  „Set laden" gleich breit — die Pane wächst um das Feld herum, das Feld bewegt sich nicht.
-- **Datei-Zweig (`FileImportStep`, `shared/seven-tv/file-import-step.ts`).** Er **liest und prüft**
-  die Datei — mehr nicht. Bis #147 war er ein eigener Dialog (`FileImportDialog`); geändert hat sich
-  allein seine Behausung, nicht sein Verhalten.
-- **Zeilenreihenfolge im Datei-Zweig (Vertrag):**
-  1. Die **Liste der drei zulässigen Dateisorten**, je ein eigener Listeneintrag mit dem Zusatz
-     „als JSON": Purge-Protokoll (Wiederherstellen) · Emote-Liste (Kopieren) · Nutzungs-Export
-     (Kopieren). Sie steht **über** dem Bedienelement, das sie erklärt, und ist eine Liste und kein
-     Satz mit Kommas — die deutschen Fassungen brächen sonst auf 360 px an willkürlicher Stelle
+- **The head names the branch:** "Import emotes" on the first step, "Import file" or
+  "Import from a channel" below it. That is the only location cue a one-dialog flow
+  has besides "Back".
+- **The pane is wide as long as the grid stands — and only then** (`app-dialog-panel-wide`, see §7 and
+  `styles.css`). The width belongs to the pane, not to the content, so the switch is the
+  panel class and not a `max-w-*` in the template; it is set at runtime via
+  `overlayRef.addPanelClass`, because at opening time nobody yet knows whether a grid is coming. The three
+  form states — source selection, file branch, channel branch **before** loading — stay at the
+  ordinary 28 rem: a form in 72 rem looks lost. **That leaves exactly one
+  size change, and it coincides with "Load set"**, that is with a content change that is visible
+  anyway — the only place where a size change can be read as a consequence instead of as
+  arbitrariness. The trigger is the visibility of the grid, not the step.
+- **The channel field nevertheless carries a `max-w-sm`**, and that is not a second opinion about the
+  pane width: in the loaded state the form stands **above** the 72 rem grid. Uncapped,
+  a field for a dozen characters would span the whole pane there. At 24 rem it is equally wide before and after
+  "Load set" — the pane grows around the field, the field does not move.
+- **File branch (`FileImportStep`, `shared/seven-tv/file-import-step.ts`).** It **reads and checks**
+  the file — nothing more. Until #147 it was a dialog of its own (`FileImportDialog`); what changed is
+  only its housing, not its behaviour.
+- **Row order in the file branch (contract):**
+  1. The **list of the three permissible kinds of file**, each its own list entry with the addition
+     "as JSON": purge protocol (restore) · emote list (copy) · usage export
+     (copy). It stands **above** the control it explains, and is a list and not a
+     sentence with commas — the German versions would otherwise break at an arbitrary point at 360 px
      (§12).
-  2. Das **Datei-Bedienelement**: sichtbar beschrifteter Knopf plus verstecktes
-     `<input type="file" accept="application/json">`. Der Knopf ist das erste sinnvolle
-     Bedienelement des Schritts und bekommt beim Betreten den Fokus (s. den Fokusvertrag unten).
-     §7 „Abbrechen steht immer zuerst" gilt für die Aktionszeile und bleibt davon unberührt.
-  3. Das Fehlerbanner (`NoticeBanner` `error`) — nur im Fehlerfall.
+  2. The **file control**: visibly labelled button plus hidden
+     `<input type="file" accept="application/json">`. The button is the first meaningful
+     control of the step and receives focus on entry (see the focus contract below).
+     §7 "cancel always comes first" applies to the action row and stays untouched by this.
+  3. The error banner (`NoticeBanner` `error`) — only in the error case.
 
-  Es gibt in diesem Zweig **keinen** „Weiter"-Knopf: die Dateiauswahl selbst ist der Vollzug.
-- **Kanal-Zweig (`ForeignChannelStep`, `shared/seven-tv/foreign-channel-step.ts`):** sichtbar
-  beschriftetes Kanalfeld (§5.2 gilt hier voll — es ist keine Filterleiste) plus „Set laden", danach
-  Ladezustand/Fehlerbanner und das `ForeignEmoteGrid`. Der Schritt schließt nichts; er meldet sein
-  Ergebnis als Signal, gegen das der Dialog sein „Weiter" sperrt.
-- **Fokusvertrag: Wer einen Schritt betritt, landet auf dessen erstem sinnvollen Bedienelement.**
-  Konkret: Datei-Zweig → „Datei auswählen" (das versteckte `<input type="file">` kann selbst keinen
-  Fokus nehmen), Kanal-Zweig → das Kanalfeld, „Zurück" → die Quellenzeile, aus der man kam (dieselbe
-  Höflichkeit, die ein Menü-Button beim Schließen seines Untermenüs erweist — „falscher Zweig, dann
-  eben der andere" kostet so kein Tabben). **Das erledigt das CDK nicht:** sein Autofokus läuft
-  **einmal**, beim Öffnen des Overlays, und nie wieder für einen Wechsel **innerhalb** desselben
-  Dialogs. Bis #147 galt der Vertrag zufällig — der Datei-Dialog öffnete direkt auf seinen eigenen
-  Knopf —, seither muss er ausgesprochen und gesetzt werden, und zwar **nach** dem Rendern des neuen
-  Schritts (`afterNextRender`, Muster wie `account-menu.ts`), weil das Ziel erst durch dieses
-  Rendern existiert. Ein Mausnutzer merkt von einer Verletzung nichts; per Tastatur landet der Fokus
-  im Nichts und der Dialog wird von vorn durchgetabt. Deshalb hängt daran ein E2E-Fall je Zweig und
-  nicht bloß ein Blick. Erscheint nach „Set laden" das Raster, **bleibt** der Fokus auf „Set laden":
-  der Knopf steht über dem Umschaltpunkt, wird also nicht abgeräumt, und meint dort weiterhin etwas
-  (neu laden, Namen korrigieren) — nichts zu bewegen.
-- **Es gibt genau einen Scroll-Container im Kanal-Zweig, und das ist das Raster.** Die Pane scrollt
-  sonst mit (§7) und zwei ineinandergeschachtelte Balken über derselben Liste waren der gemeldete
-  Defekt. Erreicht wird das nicht durch eine Prozent-Höhenkette — die überlebt die beiden
-  `display: inline`-Component-Hosts nicht —, sondern indem das virtualisierte Viewport gegen `dvh`
-  bemessen ist und der Dialoginhalt damit kürzer bleibt als die Pane:
+  There is **no** "Continue" button in this branch: the file selection itself is the execution.
+- **Channel branch (`ForeignChannelStep`, `shared/seven-tv/foreign-channel-step.ts`):** visibly
+  labelled channel field (§5.2 applies here in full — it is not a filter bar) plus "Load set", after that
+  loading state/error banner and the `ForeignEmoteGrid`. The step closes nothing; it reports its
+  result as a signal against which the dialog blocks its "Continue".
+- **Focus contract: whoever enters a step lands on that step's first meaningful control.**
+  Concretely: file branch → "Choose file" (the hidden `<input type="file">` cannot take focus
+  itself), channel branch → the channel field, "Back" → the source row you came from (the same
+  courtesy a menu button shows when closing its submenu — "wrong branch, then the other one"
+  costs no tabbing that way). **The CDK does not handle this:** its autofocus runs
+  **once**, when the overlay opens, and never again for a switch **inside** the same
+  dialog. Until #147 the contract held by accident — the file dialog opened directly onto its own
+  button — since then it has to be stated and set, and specifically **after** the new step has been
+  rendered (`afterNextRender`, pattern as in `account-menu.ts`), because the target only comes into existence through that
+  render. A mouse user notices nothing of a violation; by keyboard the focus lands
+  in nothing and the dialog is tabbed through from the start. That is why an E2E case per branch hangs on it
+  and not merely a glance. If the grid appears after "Load set", the focus **stays** on "Load set":
+  the button stands above the switching point, so it is not cleared away, and it still means something there
+  (reload, correct the name) — nothing to move.
+- **There is exactly one scroll container in the channel branch, and that is the grid.** Otherwise the pane
+  scrolls along (§7) and two nested bars over the same list were the reported
+  defect. This is achieved not by a percentage height chain — that does not survive the two
+  `display: inline` component hosts — but by dimensioning the virtualised viewport against `dvh`,
+  which keeps the dialog content shorter than the pane:
   `min(34rem, max(4rem, 100dvh - 26rem))`.
-  **Die Untergrenze ist dabei der gefährliche Teil, nicht die Obergrenze.** Eine Untergrenze F holt
-  den Doppelbalken für jedes Fenster unter `F + 22rem` zurück (22 rem = gemessene Chrome-Höhe plus
-  der 2-rem-Rand der Pane) — mit den ursprünglichen 16 rem also für jedes Fenster unter ~608 px, und
-  das ist ein 1366×768-Laptop oder ein gezoomtes Fenster, keine Exotik: bei 500 px lief die Pane um
-  gemessene 107 px über. Bei 4 rem liegt das Band unter ~416 px, also unterhalb der Chrome selbst.
-  Ganz beseitigen ließe es sich nur mit einer echten Höhenkette ab der Pane, und die hieße,
-  `DialogShell`s Host für alle zwölf Dialoge zur Flex-Spalte zu machen — bewusst nicht getan. Die
-  Zahlen hängen an einem E2E-Fall, weil jsdom kein Layout hat.
-- **Ergebnisvertrag:** Der Dialog schließt bei Erfolg mit einem diskriminierten Ergebnis —
-  „Restore" mit den restaurierbaren Zeilen des Protokolls, „Import" mit der `ImportSource` aus der
-  Datei oder „Foreign" mit den im Raster markierten Zeilen —, bei Abbrechen/Escape/Backdrop mit
-  `undefined`. Er startet **keinen** Lauf, wählt **kein** Importziel und öffnet **keinen** weiteren
-  Dialog. Im Fehlerfall bleibt er offen und zeigt das Banner; jeder neue Versuch setzt es zurück, und
-  das File-Input wird nach jeder Auswahl geleert, damit dieselbe korrigierte Datei erneut ein
-  `change` auslöst.
-- **Das Ziel wird nicht erfragt, es steht fest:** der Kanal der Seite, aus deren Kopf der Trigger
-  angeklickt wurde — für **alle** Quellen gleich. Der Fremdkanal-Weg hatte bis #147 dazwischen noch
-  `ImportTargetDialog` mit `forcedScope: 'selection'` stehen; mit unterdrückter Bereichs-Radiogruppe
-  blieb dort genau eine Frage übrig, die der Seitenkontext schon beantwortet hatte. Der Schritt ist
-  ersatzlos gestrichen. `forcedScope` selbst bleibt — der Dock-Einstieg in §8.7 benutzt es weiter.
-- **Die Ketten laufen nacheinander, nicht ineinander.** Erst schließt der Import-Dialog mit seinem
-  Ergebnis, dann startet der Auslöser die passende Kette — `startRestoreFlow` (Token → Bestätigung)
-  oder `startImportFlow` (Bestätigung → Token, §7.2). Kein Dialog dieser Ketten wird aus einem
-  offenen Dialog heraus geöffnet; der Ein-Dialog-Vertrag aus §7 bleibt gewahrt und beide
-  Reihenfolgen bleiben, wie sie sind.
-- **Das File-Input gehört in den Dialog, nicht hinter ihn.** Ein programmatischer Klick auf ein
-  `<input type="file">` **nach** dem `closed` eines CDK-Dialogs läuft außerhalb der Nutzergeste; der
-  Browser öffnet das Dateifenster dann stumm nicht. Innerhalb des offenen Dialogs ist der Klick
-  (oder Enter/Leertaste auf dem Knopf) eine frische Aktivierung.
-- **Die Sortierung im Raster benennt eine Eigenschaft des einzelnen Emotes, nie die Herkunft der
-  Liste — und behauptet keine Einheit.** Drei Auflagen, alle drei aus einem Fehler entstanden:
-  1. *Keine Aussage über die Liste.* „7TV global · Top aller Zeiten" in einer Reiterleiste hatte den
-     Betreiber schließen lassen, das Raster zeige 7TVs globale Emotes statt des Sets des
-     eingegebenen Kanals. Verbindlich seither: ein beschriftetes `<select>` („Sortieren nach"), keine
-     Reiterleiste.
-  2. *Keine erfundene Einheit.* Der Wert ist `Emote.scores.topAllTime`/`trendingDay`, ein
-     Ranking-Score — **nicht** `Emote.channels.totalCount`, das dieses Feature ausdrücklich nicht
-     abfragt, weil es an 7TVs Such-Eimer hängt und dessen Überziehung uns rund eine Stunde sperrt.
-     „Verbreitung" und „in wie vielen 7TV-Sets" haben die erste Fehldeutung gegen eine Mengenangabe
-     getauscht, die niemand belegt hat. Die Optionen heißen deshalb „7TV-Score (gesamt)"/„(Trend)",
-     und der stille Satz unter der Sortierzeile sagt nur zweierlei: netzwerkweit, für dieses **eine**
-     Emote — und **nicht** die Nutzung in diesem Kanal. Ein Vergleichswert ohne Einheit ist ehrlich,
-     eine erfundene Einheit nicht.
-  3. *Nie Vorbelegung, nie „Beliebtheit"* (Konzept P5') — eine kanalbezogene Beliebtheit gibt es für
-     einen fremden Kanal nicht.
-- **Der aktive Score steht im zugänglichen Namen der Kachel.** Ein explizites `aria-label` **ersetzt**
-  den Nachfahrentext im Accessibility-Baum, die sichtbare Zahl existiert für Screenreader also sonst
-  gar nicht — und sie ist genau das, wonach gerade sortiert wird. Angesagt wird sie unter derselben
-  Beschriftung, die das Sortier-Control trägt; das gibt der nackten Zahl ihre Bedeutung, ohne eine
-  Einheit zu erfinden. Einziger Unterschied zur Kachel: der fehlende Wert wird zum Wort, weil die
-  Kachel dafür nur einen Gedankenstrich hat und ein Screenreader den gar nicht ausspricht.
-- **Referenz:** `web/src/app/shared/seven-tv/import-source-dialog.ts`, `file-import-step.ts`,
+  **The lower bound is the dangerous part here, not the upper one.** A lower bound F brings
+  the double bar back for every window below `F + 22rem` (22 rem = measured chrome height plus
+  the 2 rem margin of the pane) — with the original 16 rem, therefore, for every window below ~608 px, and
+  that is a 1366×768 laptop or a zoomed window, not an exotic case: at 500 px the pane overran by
+  a measured 107 px. At 4 rem that band lies below ~416 px, that is below the chrome itself.
+  Eliminating it entirely would only be possible with a real height chain starting at the pane, and that would mean
+  making `DialogShell`'s host a flex column for all twelve dialogs — deliberately not done.
+  The numbers hang on an E2E case, because jsdom has no layout.
+- **Result contract:** on success the dialog closes with a discriminated result —
+  "Restore" with the restorable rows of the protocol, "Import" with the `ImportSource` from the
+  file or "Foreign" with the rows marked in the grid —, on cancel/Escape/backdrop with
+  `undefined`. It starts **no** run, chooses **no** import target and opens **no** further
+  dialog. In the error case it stays open and shows the banner; every new attempt resets it, and
+  the file input is cleared after every selection so that the same corrected file triggers a
+  `change` again.
+- **The target is not asked for, it is fixed:** the channel of the page from whose header the trigger
+  was clicked — the same for **all** sources. Until #147 the foreign-channel path still had
+  `ImportTargetDialog` with `forcedScope: 'selection'` in between; with the scope radio group suppressed,
+  exactly one question remained there that the page context had already answered. The step is
+  deleted without replacement. `forcedScope` itself stays — the dock entry point in §8.7 still uses it.
+- **The chains run one after another, not into one another.** First the import dialog closes with its
+  result, then the trigger starts the matching chain — `startRestoreFlow` (token → confirmation)
+  or `startImportFlow` (confirmation → token, §7.2). No dialog of these chains is opened out of an
+  open dialog; the one-dialog contract from §7 stays intact and both
+  orders stay as they are.
+- **The file input belongs inside the dialog, not behind it.** A programmatic click on an
+  `<input type="file">` **after** a CDK dialog's `closed` runs outside the user gesture; the
+  browser then silently does not open the file window. Inside the open dialog the click
+  (or Enter/space on the button) is a fresh activation.
+- **The sorting in the grid names a property of the individual emote, never the origin of the
+  list — and claims no unit.** Three requirements, all three born of one mistake:
+  1. *No statement about the list.* "7TV global · top of all time" in a tab bar had led the
+     operator to conclude that the grid showed 7TV's global emotes instead of the set of the
+     entered channel. Binding since then: a labelled `<select>` ("Sort by"), no
+     tab bar.
+  2. *No invented unit.* The value is `Emote.scores.topAllTime`/`trendingDay`, a
+     ranking score — **not** `Emote.channels.totalCount`, which this feature explicitly does not
+     request, because it hangs on 7TV's search bucket and overdrawing it blocks us for about an hour.
+     "Spread" and "in how many 7TV sets" traded the first misreading for a quantity claim
+     that nobody has substantiated. The options are therefore called "7TV score (all-time)"/"(trending)",
+     and the quiet sentence under the sort row says only two things: network-wide, for this **one**
+     emote — and **not** the usage in this channel. A comparative value without a unit is honest,
+     an invented unit is not.
+  3. *Never a preselection, never "popularity"* (concept P5') — a channel-related popularity does not exist
+     for a foreign channel.
+- **The active score is in the accessible name of the tile.** An explicit `aria-label` **replaces**
+  the descendant text in the accessibility tree, so for screen readers the visible number does not
+  otherwise exist at all — and it is exactly what is currently being sorted by. It is announced under the same
+  caption that the sort control carries; that gives the bare number its meaning without inventing
+  a unit. The only difference from the tile: the missing value becomes a word, because the
+  tile has only an en dash for it and a screen reader does not pronounce that at all.
+- **Reference:** `web/src/app/shared/seven-tv/import-source-dialog.ts`, `file-import-step.ts`,
   `foreign-channel-step.ts`, `foreign-emote-grid.ts`, `import-trigger.ts`, `import-trigger-gate.ts`,
-  `restore-flow.ts`; Parser `shared/export/read-envelope.ts`, `purge-run-export.ts`,
+  `restore-flow.ts`; parsers `shared/export/read-envelope.ts`, `purge-run-export.ts`,
   `import-source-parser.ts`.
 
-### 7.4 Export-Dialog (Zweck statt Format)
+### 7.4 Export dialog (purpose instead of format)
 
-- **Was gilt:** `ExportDialog` (`shared/export/export-dialog.ts`, `openExportDialog`) hat drei
-  Aufrufer — Nutzungsstatistik, Voting-Detailseite, Löschprotokoll —, aber nur einer von ihnen
-  sortiert seine Optionen nach Zweck statt nach Format. Der Dialog selbst verdrahtet dafür nichts
-  mehr fest: die Optionsliste kommt vom Aufrufer (`ExportDialogData.options`), der Dialog behandelt
-  jede `id` als undurchsichtig und schaltet nirgends selbst darauf.
-- **Zeilenreihenfolge im Body:**
-  1. Bereichs-Radiogruppe `visible`/`selection` (`export.scopeLabel`) — nur, wenn eine Grid-Auswahl
-     existiert (`selectionCount > 0`); ist die Auswahl leer, aber das Konzept vorhanden
-     (`selectionCount === 0`), steht an derselben Stelle stattdessen der gedämpfte Hinweis
-     `export.scopeNoSelectionHint` (#144), der die Abwesenheit erklärt statt sie kommentarlos zu
-     lassen. Hat der Aufrufer gar kein Grid-Auswahl-Konzept (`selectionCount === null` — Voting-
-     Detailseite, Löschprotokoll: die Menge, die exportiert wird, steht dort gar nicht zur Wahl),
-     entfällt an dieser Stelle **beides**, Radiogruppe wie Hinweis — Codex-Review auf PR #145,
-     s. DECISIONS.
-  2. Optionsgruppe — Legende ist `optionsLegendKey`, je Option `labelKey` auf der ersten Zeile,
-     darunter `hintKey`, falls gesetzt.
-  3. Zeilenzahl (`export.rowCount`, folgt dem gewählten Bereich) plus `filteredHint`, wenn die
-     sichtbare Liste gefiltert ist.
-  4. Notice-Banner (`noticeKeys`) — Erklärungen für fehlende Spalten (geheime Abstimmung, nur für
-     Manager sichtbare Nutzungszahlen).
-  5. Abbrechen / Exportieren.
-- **`options[0]` ist die Vorbelegung — die einzige Default-Regel.** Es gibt keinen zweiten
-  Default-Begriff im Dialog. Das hält „CSV zuerst" für die beiden unveränderten Aufrufer (über die
-  geteilte Konstante `FORMAT_EXPORT_OPTIONS`) und macht „Zahlen auswerten" (= CSV) zur Vorbelegung
-  der Nutzungsstatistik, ohne dass der Dialog weiß, was ein „Format" ist.
-- **Die Zweck-Sortierung der Nutzungsstatistik ist Wortlaut-Vertrag** (`export.purposeLabel` als
-  Legende), in dieser Reihenfolge:
-  - „Zahlen auswerten" / „Nutzungsstatistik als CSV"
-  - „Zahlen weiterverarbeiten" / „Nutzungsstatistik als JSON"
-  - „Emotes später wieder einlesen" / „Emote-Liste als JSON"
-  Voting-Detailseite und Löschprotokoll bleiben bei CSV/JSON (`export.formatLabel`,
-  `FORMAT_EXPORT_OPTIONS`) — die Zweck-Liste gilt nur dort, wo mehr als ein Zweck hinter derselben
-  Aktion steckt.
-- **Die Hinweiszeile steht innerhalb des `<label>` und ist damit Teil des zugänglichen Namens**
-  („Zahlen auswerten Nutzungsstatistik als CSV") — Absicht, nicht Zufall. Der Ziel-Picker aus §7.2
-  hängt „(Kanal muss erst beitreten)" genauso in seinen Namen, und ein E2E-Fall matcht dort bereits
-  gegen das Ganze. Ein `aria-describedby` wäre die Alternative gewesen und hätte eine Abweichung
-  ohne Anlass eingeführt. Markup: das `<label>` steht auf `flex items-start` (statt `items-center`),
-  das Textpaar in einem `flex flex-col`. `export-dialog.ts` bleibt dabei die einzige Datei mit einem
-  zweizeiligen Radio-Label — eine geteilte Radio-Komponente wird bewusst **nicht** eingeführt (drei
-  Vorkommen sind kein Muster).
-- **Referenz:** `web/src/app/shared/export/export-dialog.ts`, `export-dialog.spec.ts`; Aufrufer
+- **What applies:** `ExportDialog` (`shared/export/export-dialog.ts`, `openExportDialog`) has three
+  callers — usage statistics, voting detail page, delete protocol —, but only one of them
+  orders its options by purpose instead of by format. The dialog itself no longer hard-wires anything
+  for that: the option list comes from the caller (`ExportDialogData.options`), the dialog treats
+  every `id` as opaque and never switches on it itself.
+- **Row order in the body:**
+  1. Scope radio group `visible`/`selection` (`export.scopeLabel`) — only if a grid selection
+     exists (`selectionCount > 0`); if the selection is empty but the concept is present
+     (`selectionCount === 0`), the muted hint
+     `export.scopeNoSelectionHint` (#144) stands in the same place instead, explaining the absence rather than leaving it
+     uncommented. If the caller has no grid-selection concept at all (`selectionCount === null` — voting
+     detail page, delete protocol: the set that gets exported is not up for choice there),
+     **both** are dropped at this spot, radio group as well as hint — Codex review on PR #145,
+     see DECISIONS.
+  2. Option group — the legend is `optionsLegendKey`, per option `labelKey` on the first line,
+     below it `hintKey`, if set.
+  3. Row count (`export.rowCount`, follows the selected scope) plus `filteredHint` if the
+     visible list is filtered.
+  4. Notice banners (`noticeKeys`) — explanations for missing columns (secret vote, usage figures
+     visible only to managers).
+  5. Cancel / Export.
+- **`options[0]` is the default — the only default rule.** There is no second
+  notion of a default in the dialog. That keeps "CSV first" for the two unchanged callers (via the
+  shared constant `FORMAT_EXPORT_OPTIONS`) and makes "Analyse the numbers" (= CSV) the default
+  of the usage statistics, without the dialog knowing what a "format" is.
+- **The purpose ordering of the usage statistics is a wording contract** (`export.purposeLabel` as the
+  legend), in this order:
+  - "Analyse the numbers" / "Usage statistics as CSV"
+  - "Process the numbers further" / "Usage statistics as JSON"
+  - "Import the emotes again later" / "Emote list as JSON"
+  Voting detail page and delete protocol stay with CSV/JSON (`export.formatLabel`,
+  `FORMAT_EXPORT_OPTIONS`) — the purpose list applies only where more than one purpose sits behind the same
+  action.
+- **The hint line stands inside the `<label>` and is thereby part of the accessible name**
+  ("Analyse the numbers Usage statistics as CSV") — intention, not accident. The target picker from §7.2
+  hangs "(channel has to join first)" into its name in the same way, and an E2E case there already matches
+  against the whole thing. An `aria-describedby` would have been the alternative and would have introduced a deviation
+  without occasion. Markup: the `<label>` is `flex items-start` (instead of `items-center`),
+  the text pair in a `flex flex-col`. `export-dialog.ts` remains the only file with a
+  two-line radio label — a shared radio component is deliberately **not** introduced (three
+  occurrences are not a pattern).
+- **Reference:** `web/src/app/shared/export/export-dialog.ts`, `export-dialog.spec.ts`; callers
   `features/usage-stats/usage-stats-page.ts`, `features/voting/vote-session-detail-page.ts`,
   `shared/seven-tv/mass-delete-panel.ts`.
 
 ## 8. Navigation
 
-### 8.1 Tab-Leisten (Router-Link-Muster)
+### 8.1 Tab bars (router-link pattern)
 
-- **Was gilt:** Tab-Leisten sind Router-Links, **kein** ARIA-Tabs-Pattern (`role="tablist"`/`aria-selected` sind hier falsch, da echte Navigationen). Ein Tab ist `<app-tab-link>`; die Leiste bleibt beim Aufrufer, weil ihre Sticky-Position pro Ebene verschieden ist:
+- **What applies:** Tab bars are router links, **not** an ARIA tabs pattern (`role="tablist"`/`aria-selected` are wrong here, since these are real navigations). A tab is `<app-tab-link>`; the bar stays with the caller, because its sticky position differs per level:
 
   ```html
   <nav class="app-sticky-bar top-14 mb-6 flex h-10 gap-2 border-b border-border">
@@ -581,25 +581,25 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   </nav>
   ```
 
-  **Der Tab selbst ist eine Primitive** (`shared/ui/tab-link.ts`) und wird nie als Klassenkette nachgebaut — ein Vertrag, der in kopierten String-Literalen lebt, driftet beim ersten Edit. `ariaCurrentWhenActive="page"` steckt in der Primitive und ist damit nicht vergessbar. `display: contents` auf dem Host: der Anker muss selbst das Flex-Kind sein, sonst zentriert er in einer eigenen Box statt die `h-10` der Leiste zu tragen.
+  **The tab itself is a primitive** (`shared/ui/tab-link.ts`) and is never rebuilt as a class chain — a contract that lives in copied string literals drifts on the first edit. `ariaCurrentWhenActive="page"` sits in the primitive and is thereby unforgettable. `display: contents` on the host: the anchor has to be the flex child itself, otherwise it centres in a box of its own instead of carrying the bar's `h-10`.
 
-  `h-10` und `flex items-center` (statt `py-2`) sind Teil des Sticky-Vertrags aus §8.5 — die Tab-Leisten-Höhe ist der `top`-Offset der Filter-Toolbars.
-- **Referenz:** `web/src/app/shared/ui/tab-link.ts`; Leisten in `admin-layout.ts`, `channel-workspace-layout.ts`.
+  `h-10` and `flex items-center` (instead of `py-2`) are part of the sticky contract from §8.5 — the tab bar height is the `top` offset of the filter toolbars.
+- **Reference:** `web/src/app/shared/ui/tab-link.ts`; bars in `admin-layout.ts`, `channel-workspace-layout.ts`.
 
-### 8.2 In-Page-Anker
+### 8.2 In-page anchors
 
-- **Was gilt:** Anker laufen über `routerLink` + `fragment`, **nie** über nackte `href="#…"` (löst gegen `<base href="/">` auf und bricht). Der Router scrollt selbst (`withInMemoryScrolling` + `onSameUrlNavigation: 'reload'` sind in `app.config.ts` konfiguriert — nicht entfernen, der Reload-Teil macht den zweiten Klick auf denselben Anker funktionsfähig).
-- **Referenz:** `web/src/app/app.config.ts`, `web/src/app/features/landing/landing-page.html`.
+- **What applies:** Anchors run through `routerLink` + `fragment`, **never** through a bare `href="#…"` (resolves against `<base href="/">` and breaks). The router scrolls by itself (`withInMemoryScrolling` + `onSameUrlNavigation: 'reload'` are configured in `app.config.ts` — do not remove, the reload part is what makes the second click on the same anchor work).
+- **Reference:** `web/src/app/app.config.ts`, `web/src/app/features/landing/landing-page.html`.
 
-### 8.3 Rollen-Sichtbarkeit
+### 8.3 Role visibility
 
-- **Was gilt:** Sichtbarkeit von Navigation/Bereichen entscheidet ein **gelesenes Feld** (z. B. `isGlobalAdmin` aus dem gecachten `/me`), nie ein provozierter Fehler (403-Probing). Guards für Rollen-Bereiche leiten auf `/` (nicht `/login`) und stashen keine Return-URL. Autoritativ bleibt immer der serverseitige Filter.
-- **Referenz:** `web/src/app/core/auth/admin.guard.ts`, `web/src/app/features/shell/app-shell.ts`.
+- **What applies:** The visibility of navigation/areas is decided by a **field that was read** (e.g. `isGlobalAdmin` from the cached `/me`), never by a provoked error (403 probing). Guards for role-gated areas redirect to `/` (not `/login`) and stash no return URL. The server-side filter always remains authoritative.
+- **Reference:** `web/src/app/core/auth/admin.guard.ts`, `web/src/app/features/shell/app-shell.ts`.
 
 ### 8.4 Pagination
 
-- **Was gilt:** Seitenweise Listen nutzen `<app-pager [page] [totalPages] [scrollTarget] (pageChange)>` gegen ein `PagedResult<T>` vom Backend (`items/page/pageSize/totalCount/totalPages`); der Pager versteckt sich bei einer Seite selbst. `create`/`delete` laden die Liste neu statt optimistisch zu patchen (verschiebt sonst die Paginierung); reine In-Place-Änderungen dürfen lokal patchen.
-- **Ein Seitenwechsel repositioniert den Viewport — `[scrollTarget]` ist Pflicht, sobald die Liste länger als ein Bildschirm werden kann.** Der Pager steht unter seiner Liste, der Klick passiert also immer am unteren Dokumentende; ohne Reposition kommen die Zeilen der nächsten Seite komplett *oberhalb* des Viewports an und der Leser schaut weiter auf das Ende einer Liste, durch die er nie gescrollt ist. Übergeben wird eine Template-Referenz auf den Kopf der Ergebnisregion:
+- **What applies:** Paged lists use `<app-pager [page] [totalPages] [scrollTarget] (pageChange)>` against a `PagedResult<T>` from the backend (`items/page/pageSize/totalCount/totalPages`); the pager hides itself when there is one page. `create`/`delete` reload the list instead of patching optimistically (that would otherwise shift the pagination); pure in-place changes may patch locally.
+- **A page change repositions the viewport — `[scrollTarget]` is mandatory as soon as the list can become longer than one screen.** The pager stands beneath its list, so the click always happens at the bottom end of the document; without a reposition the rows of the next page arrive entirely *above* the viewport and the reader goes on looking at the end of a list they never scrolled through. What gets passed is a template reference to the head of the results region:
 
   ```html
   <h2 #resultsTop tabindex="-1" class="scroll-mt-24 text-lg font-semibold">…</h2>
@@ -607,144 +607,144 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   <app-pager [page]="page()" [totalPages]="totalPages()" [scrollTarget]="resultsTop" … />
   ```
 
-  Drei Teile, alle notwendig:
-  - **`tabindex="-1"`** — der Pager fokussiert das Ziel (WCAG 2.4.3). Ohne Fokusverschiebung fällt der Fokus beim Seitenwechsel auf `<body>`, weil der geklickte Button samt Liste in den Lade-Zweig verschwindet.
-  - **`scroll-mt-*` = Höhe des Sticky-Stapels über der Seite** (§8.5): `scroll-mt-24` unter einer Tab-Leiste (14 + 10), `scroll-mt-14` direkt unter der Shell. Ohne das parkt `scrollIntoView` das Ziel hinter dem Header. Die Filter-Toolbar bekommt keinen Anteil — sie ist selbst sticky und pinnt an ihrem eigenen `top`.
-  - **Reposition vor dem `pageChange`-Emit**, im Pager gekapselt: der Emit setzt das Page-Signal, die Resource fällt auf ihren `defaultValue` zurück, und Liste wie Pager werden durch das Skeleton ersetzt. Alles danach liefe gegen ein totes Element.
+  Three parts, all of them necessary:
+  - **`tabindex="-1"`** — the pager focuses the target (WCAG 2.4.3). Without a focus shift the focus falls to `<body>` on a page change, because the clicked button together with the list disappears into the loading branch.
+  - **`scroll-mt-*` = height of the sticky stack above the page** (§8.5): `scroll-mt-24` under a tab bar (14 + 10), `scroll-mt-14` directly under the shell. Without that, `scrollIntoView` parks the target behind the header. The filter toolbar gets no share — it is sticky itself and pins at its own `top`.
+  - **Reposition before the `pageChange` emit**, encapsulated in the pager: the emit sets the page signal, the resource falls back to its `defaultValue`, and both list and pager are replaced by the skeleton. Anything after that would run against a dead element.
 
-  Instant, nie `behavior: 'smooth'`: das ist ein Inhaltsaustausch, kein geführter Rundgang, und mehrere Bildschirmhöhen zu animieren ist langsamer als der Leser und ein Motion-Trigger. Die Seitenzeile des Pagers ist `role="status"` und damit eine Live-Region — die Fokusverschiebung sagt *was* auf dem Schirm steht, nie *welche Seite*.
-- **Der Pager bleibt bewusst im Lade-`@else` und wird nicht während des Ladens weitergerendert.** Angulars `resource` gibt bei einem Params-Wechsel `value()` auf den `defaultValue` zurück (nur ein `reload()` mit gleichen Params behält den Stream), `totalPages()` ist während des Ladens also `0` und der Pager würde sich ohnehin selbst verstecken. Ihn stehen zu lassen bräuchte in jeder Seite einen klebrigen Zweitzustand — und der Fokus ist durch die Reposition bereits gerettet.
-- **Seite und Filter stehen in der URL, nicht in lokalen Signals** — über `listQueryState()` aus `core/routing/list-query-state.ts`. Ohne das ist „Zeile öffnen, zurück" ein Reset auf Seite 1, und ein geteilter Link zeigt eine andere Liste als die, die gemeint war. **Eine neue paginierte Seite nimmt den Helper, statt `page = signal(1)` zu schreiben.** Was er festlegt:
+  Instant, never `behavior: 'smooth'`: this is a content swap, not a guided tour, and animating several screen heights is slower than the reader and a motion trigger. The pager's page line is `role="status"` and thereby a live region — the focus shift says *what* is on the screen, never *which page*.
+- **The pager deliberately stays in the loading `@else` and is not rendered on during loading.** Angular's `resource` resets `value()` to the `defaultValue` on a params change (only a `reload()` with the same params keeps the stream), so `totalPages()` is `0` during loading and the pager would hide itself anyway. Leaving it standing would need a sticky second state in every page — and the focus is already saved by the reposition.
+- **Page and filters live in the URL, not in local signals** — via `listQueryState()` from `core/routing/list-query-state.ts`. Without that, "open row, go back" is a reset to page 1, and a shared link shows a different list from the one that was meant. **A new paginated page takes the helper instead of writing `page = signal(1)`.** What it settles:
 
-  | | Navigation | Effekt |
+  | | Navigation | Effect |
   |---|---|---|
-  | `goToPage(n)` | `replaceUrl: false` | ein echter History-Schritt — dafür ist der Zurück-Button da |
-  | `setParams(patch)` | `replaceUrl: true` | ersetzt den Eintrag, springt auf Seite 1 zurück, leert die Drafts der geschriebenen Keys |
+  | `goToPage(n)` | `replaceUrl: false` | a real history step — that is what the back button is for |
+  | `setParams(patch)` | `replaceUrl: true` | replaces the entry, jumps back to page 1, clears the drafts of the written keys |
 
-  Filter dürfen **keinen** History-Schritt erzeugen: sie greifen pro Tastenschlag, der Zurück-Button würde sonst „einen Buchstaben rückgängig" bedeuten. Der Preis ist, dass Zurück die Filterung in einem Schritt verlässt statt sie aufzudröseln — dafür gibt es den Zurücksetzen-Button.
+  Filters must produce **no** history step: they act per keystroke, so the back button would otherwise mean "undo one letter". The price is that Back leaves the filtering in one step instead of unravelling it — that is what the reset button is for.
 
-  Beide Navigationen tragen **`scroll: 'manual'`**. Das ist der Per-Navigation-Ausstieg aus der Scroll-Restoration und der Grund, warum die Anker-Reposition oben überhaupt noch greift: der Router würde sonst auf `[0, 0]` springen — bei jedem Tastenschlag, und beim Seitenwechsel *nach* dem Pager, unter Missachtung des `scroll-mt-*`.
+  Both navigations carry **`scroll: 'manual'`**. That is the per-navigation opt-out of scroll restoration and the reason why the anchor reposition above still takes effect at all: the router would otherwise jump to `[0, 0]` — on every keystroke, and on a page change *after* the pager, disregarding the `scroll-mt-*`.
 
-  Default-Werte werden aus der URL **entfernt** statt leer geschrieben (`?page=3`, nicht `?page=3&action=&channel=&actor=`); Seite 1 steht nie drin.
-- **Textfilter laufen über `query.textFilter(key, debounceMs)`, nie über ein eigenes `signal()` + `debounceTime`.** Das Tippen bleibt lokal und sofort sichtbar, die URL bekommt erst den ausgeruhten Wert — eine Router-Navigation zwischen Taste und Zeichen frisst Eingaben, und ein Wert, der mitten im Wort aus der URL zurückkommt, überschreibt den Cursor. Dass `setParams` die Drafts der Keys mitleert, die es schreibt, ist Teil des Vertrags und kein Detail: ein Wert, der noch im Debounce-Fenster hängt, hat die URL nie erreicht und würde sich sonst 300 ms später selbst zurückschreiben — unter einer Filterkombination, die die Seite gerade ausgeschlossen hat.
-- **Nicht abgedeckt:** eine Seitennummer außerhalb des Bereichs (`?page=9999`) wird durchgereicht — das Backend antwortet mit einer leeren Seite und die Liste zeigt ihren Leerzustand. Clamping bräuchte `totalPages`, das es erst *nach* der Antwort gibt, die mit diesem Zustand angefordert wird.
-- **Referenz:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`), `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`); Verwendung `admin-audit-log-page.ts` (drei Filter), `channel-activity-page.ts` (zwei), `admin-users-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (Anker ist die `<ul>` — die Seite hat über den Zeilen keine eigene Überschrift, nur das Anlege-Formular, und genau dorthin darf ein Seitenwechsel *nicht* zurückspringen). Flow-Test `web/e2e/channel-activity.e2e.spec.ts`.
+  Default values are **removed** from the URL instead of being written empty (`?page=3`, not `?page=3&action=&channel=&actor=`); page 1 never appears in it.
+- **Text filters run through `query.textFilter(key, debounceMs)`, never through a `signal()` + `debounceTime` of your own.** Typing stays local and immediately visible, the URL gets only the settled value — a router navigation between key and character eats input, and a value that comes back out of the URL mid-word overwrites the cursor. That `setParams` also clears the drafts of the keys it writes is part of the contract and not a detail: a value still hanging in the debounce window has never reached the URL and would otherwise write itself back 300 ms later — under a filter combination the page has just excluded.
+- **Not covered:** a page number outside the range (`?page=9999`) is passed through — the backend answers with an empty page and the list shows its empty state. Clamping would need `totalPages`, which only exists *after* the response that is requested with this state.
+- **Reference:** `web/src/app/shared/pagination/pager.ts` (+ `pager.spec.ts`), `web/src/app/core/routing/list-query-state.ts` (+ `list-query-state.spec.ts`); used in `admin-audit-log-page.ts` (three filters), `channel-activity-page.ts` (two), `admin-users-page.ts`, `my-votings-page.ts` (`scroll-mt-14`), `vote-session-list-page.html` (the anchor is the `<ul>` — the page has no heading of its own above the rows, only the create form, and that is exactly where a page change must *not* jump back to). Flow test `web/e2e/channel-activity.e2e.spec.ts`.
 
-### 8.4a Inhaltsbreite (eine, bewusst)
+### 8.4a Content width (one, deliberately)
 
-- **Was gilt:** Die Inhaltsspalte hat **eine** Breite, app-weit: `max-w-7xl` (80 rem). Keine Seite und keine Route setzt eine eigene.
-- **Sie steht an neun Stellen, und sie ziehen immer gemeinsam um.** `app-shell.ts` (Header-Zeile und `<main>`), `landing-page.html` (sechsmal: Navigation, Held, Schaubild, Ablauf, Abschluss, Fuß) und `usage-stats-page.html` (der Innencontainer des `.app-dock`). Die neunte ist die, die man übersieht — bleibt das Dock zurück, steht die Aktionszeile schmaler als das Blatt, über dem sie sitzt. Die `max-w-2xl`/`max-w-3xl` **innerhalb** der Landing-Page sind Prosabreiten und keine Shell-Breiten; sie bleiben, wo sie sind.
-- **Der Rahmen darf pro Route nicht springen.** Eine zweite Breite für die Sprite-Blätter (2.5) ist sachlich begründbar — dort ist Breite keine Dekoration, sondern Emote-Spalten —, aber **beim Wechsel zwischen einer Blatt- und einer Listenseite springt dann der Rahmen**, und ein Layout, das bei jeder Navigation seine Breite ändert, ist unruhiger als eine Blattseite, die 500 px verschenkt. Eine routengesteuerte Shell-Breite (`data.wideLayout` o. ä.) ist deshalb ausgeschlossen, nicht offen.
-- **Wenn ein Blatt mehr Breite braucht**, holt es sie *innerhalb* der konstanten Spalte — die Blattfläche bricht aus, die Shell-Spalte bleibt stehen.
-- **Verboten ist die zweite Zahl, nicht eine andere.** Dieser Abschnitt legt keinen Wert für alle Zeiten fest — er verlangt, dass es **einen** gibt. Ihn zu ändern heißt, ihn an allen neun Stellen zugleich zu ändern, den Audit-Harness (§12) mitzuziehen und den Grund ins Entscheidungslog zu schreiben.
-- **Referenz:** `web/src/app/features/shell/app-shell.ts` (Kommentar an der Header-Zeile).
+- **What applies:** The content column has **one** width, app-wide: `max-w-7xl` (80 rem). No page and no route sets one of its own.
+- **It stands in nine places, and they always move together.** `app-shell.ts` (header row and `<main>`), `landing-page.html` (six times: navigation, hero, diagram, walkthrough, closing, footer) and `usage-stats-page.html` (the inner container of the `.app-dock`). The ninth is the one that gets overlooked — if the dock stays behind, the action row stands narrower than the sheet it sits above. The `max-w-2xl`/`max-w-3xl` **inside** the landing page are prose widths and not shell widths; they stay where they are.
+- **The frame must not jump per route.** A second width for the sprite sheets (2.5) can be justified on the merits — there width is not decoration but emote columns —, but **when switching between a sheet page and a list page the frame then jumps**, and a layout that changes its width on every navigation is more restless than a sheet page that gives away 500 px. A route-driven shell width (`data.wideLayout` or similar) is therefore ruled out, not open.
+- **If a sheet needs more width**, it takes it *inside* the constant column — the sheet surface breaks out, the shell column stays put.
+- **What is forbidden is the second number, not a different one.** This section does not fix a value for all time — it demands that there be **one**. Changing it means changing it in all nine places at once, carrying the audit harness (§12) along and writing the reason into the decision log.
+- **Reference:** `web/src/app/features/shell/app-shell.ts` (comment on the header row).
 
-### 8.5 Sticky-Ebenen (Header · Tabs · Filter)
+### 8.5 Sticky layers (header · tabs · filters)
 
-- **Was gilt:** Die Seite scrollt als **ein Dokument** (kein App-Frame mit innerem Scroll-Container — der bräche CDK-Virtual-Scroll, Router-Scroll-Restoration und das Einklappen der Mobile-Browserleiste). Drei Ebenen bleiben dabei per `position: sticky` sichtbar, mit **festen Höhen als Vertrag**:
+- **What applies:** The page scrolls as **one document** (no app frame with an inner scroll container — that would break CDK virtual scroll, router scroll restoration and the collapsing of the mobile browser bar). Three layers stay visible in the process via `position: sticky`, with **fixed heights as a contract**:
 
-  | Ebene | Höhe | `top` | z |
+  | Layer | Height | `top` | z |
   |---|---|---|---|
-  | Shell-Header (`app-shell.ts`) | `h-14` | `top-0` | `z-30` |
-  | Tab-Leisten (§8.1) | `h-10` | `top-14` | `z-20` (via `.app-sticky-bar`) |
-  | Filter-Toolbars | variabel (darf wrappen) | `top-24` | `z-20` (via `.app-sticky-bar`) |
+  | Shell header (`app-shell.ts`) | `h-14` | `top-0` | `z-30` |
+  | Tab bars (§8.1) | `h-10` | `top-14` | `z-20` (via `.app-sticky-bar`) |
+  | Filter toolbars | variable (may wrap) | `top-24` | `z-20` (via `.app-sticky-bar`) |
 
-  Sticky-Leisten nutzen die Primitive **`.app-sticky-bar`** (`styles.css`): sticky + `z-20` + abgedunkelter Blur-Hintergrund; nur der `top`-Offset kommt als Tailwind-Klasse an der Verwendungsstelle. Filter-Toolbars bekommen zusätzlich `py-2`, damit der Blur eine Fläche hat. **Neue Seite mit Filter-Toolbar ⇒ `app-sticky-bar top-24 py-2`**, neue Tab-Leiste ⇒ Snippet aus §8.1.
-- **Virtualisierte Emote-Grids scrollen mit dem Dokument:** `<cdk-virtual-scroll-viewport scrollWindow>` — kein innerer Scroll-Container, keine feste Viewport-Höhe, kein Rahmen um das Grid. Die Zeilen laufen beim Scrollen bewusst unter den transluzenten Sticky-Leisten durch. Zum Vertrag gehört die Regel `cdk-virtual-scroll-viewport[scrollWindow] { overflow-anchor: none; }` in `styles.css` (bei `scrollWindow` wendet CDK `.cdk-virtual-scrollable` nicht an, das Scroll-Anchoring des Browsers würde sonst auf dem Dokument jittern) sowie `minBufferPx`/`maxBufferPx` ≥ 1×/2× Zeilenhöhe (die CDK-Defaults sind kleiner als eine Grid-Zeile). Die `ROW_HEIGHT_PX`-Konstanten der Seiten müssen die Zellhöhen-Arithmetik als Kommentar nennen.
-- **z-Leiter (verbindlich):** Zeilen-Action-Container/Stretched-Link `z-10` (§2.3) < Sticky-Leisten `z-20` < Shell-/Landing-Header und `.app-dock` `z-30` (das Panel von `<app-account-menu>` liegt als `z-30` **im** Header-Kontext und damit über allem). Dropdowns, die aus einer Sticky-Leiste heraus öffnen (z. B. das Zeitraum-Menü der Usage-Stats, `shared/ui/popover.ts` via `shared/datetime/date-range-menu.ts`), erben deren `z-20`-Kontext und liegen damit über dem Content; Dropdowns im Content (Datetime-Picker im Create-Formular, `z-30` im `z-10`-Zeilen-Kontext) bleiben unter den Leisten — sie öffnen nach unten, weg davon.
-- **Das Panel des Account-Menüs darf nicht beschnitten werden.** Es ist rund 320 px hoch und hängt absolut positioniert aus einem 56-px-Header, liegt also **innerhalb** des Header-Stacking-Kontexts. Das ist Absicht (`popover.ts:16-19`: Panels öffnen aus Sticky-Leisten und müssen deren Kontext erben, was ein an `<body>` gehängter CDK-Overlay-Container nicht kann). Der Preis: bekommt irgendein Vorfahr des Headers `overflow: hidden` oder `overflow: auto`, wird das Panel abgeschnitten. Heute trägt keiner davon eines. **Wer am Shell-Layout arbeitet, prüft das am Gerät nach.**
-- **Warum feste Höhen:** `sticky` braucht für gestapelte Ebenen exakte `top`-Offsets. `h-14`/`h-10` sind deshalb keine Optik, sondern Berechnungsgrundlage (`top-24` = 14 + 10) — wer sie ändert, zieht alle `top`-Werte nach. Die Filter-Toolbar selbst darf beliebig hoch wrappen, ihr eigener `top` hängt nur von den Ebenen **über** ihr ab.
-- **Selektions- und Hover-Zustände malen ausschließlich *innerhalb* der Zellfläche** — konkret `inset-ring-2 inset-ring-accent` statt `ring-2` (Tailwind v4; `ring-inset` gibt es dort nicht mehr). Grund ist genau diese Sticky-Konstruktion: Scroll-Container und Sticky-Leisten sind beide exakt die Content-Box von `<main class="mx-auto max-w-7xl px-4">`, und ein *outset* `ring-2` malt 2 px **außerhalb** der Border-Box. Bei den Zellen der ersten und letzten Grid-Spalte lägen diese 2 px links und rechts neben dem Hintergrundkasten der Leiste und schimmerten beim Durchscrollen durch. Die Leiste breiter zu machen ist keine Lösung — das verdeckt den Randeffekt, statt ihn zu vermeiden, und jede künftige Leiste müsste mitziehen. **Neuer Selektionszustand auf einer Zelle ⇒ `inset-ring-*`.**
-- **Die Fokus-Outline bleibt bewusst outset** (globaler `:focus-visible`-Ring, §10) — sie ist transient und darf an den Randspalten nicht abgeschnitten werden. Genau deshalb steht in `styles.css` weiterhin `contain: layout style` statt CDKs `contain: content` auf `.cdk-virtual-scroll-content-wrapper`: Paint-Containment würde sie kappen. Diese Regel nicht „aufräumen".
-- **Referenz:** `web/src/styles.css` (`.app-sticky-bar`, CDK-Containment-Block), `web/src/app/features/admin/admin-audit-log-page.ts` (Toolbar), `web/src/app/features/shell/app-shell.ts` (Header), `usage-stats-page.html` + `vote-session-detail-page.html` (Selektionsring).
+  Sticky bars use the primitive **`.app-sticky-bar`** (`styles.css`): sticky + `z-20` + darkened blur background; only the `top` offset comes as a Tailwind class at the point of use. Filter toolbars additionally get `py-2` so that the blur has a surface. **New page with a filter toolbar ⇒ `app-sticky-bar top-24 py-2`**, new tab bar ⇒ snippet from §8.1.
+- **Virtualised emote grids scroll with the document:** `<cdk-virtual-scroll-viewport scrollWindow>` — no inner scroll container, no fixed viewport height, no frame around the grid. The rows deliberately run underneath the translucent sticky bars while scrolling. Part of the contract is the rule `cdk-virtual-scroll-viewport[scrollWindow] { overflow-anchor: none; }` in `styles.css` (with `scrollWindow` the CDK does not apply `.cdk-virtual-scrollable`, and the browser's scroll anchoring would otherwise jitter on the document) as well as `minBufferPx`/`maxBufferPx` ≥ 1×/2× row height (the CDK defaults are smaller than a grid row). The `ROW_HEIGHT_PX` constants of the pages have to state the cell-height arithmetic as a comment.
+- **z-ladder (binding):** row action container/stretched link `z-10` (§2.3) < sticky bars `z-20` < shell/landing header and `.app-dock` `z-30` (the panel of `<app-account-menu>` sits as `z-30` **inside** the header context and thereby above everything). Dropdowns that open out of a sticky bar (e.g. the time-range menu of the usage stats, `shared/ui/popover.ts` via `shared/datetime/date-range-menu.ts`) inherit its `z-20` context and thereby lie above the content; dropdowns in the content (datetime picker in the create form, `z-30` in the `z-10` row context) stay below the bars — they open downwards, away from them.
+- **The panel of the account menu must not be clipped.** It is about 320 px high and hangs absolutely positioned out of a 56 px header, so it lies **inside** the header stacking context. That is intentional (`popover.ts:16-19`: panels open out of sticky bars and have to inherit their context, which a CDK overlay container attached to `<body>` cannot do). The price: if any ancestor of the header gets `overflow: hidden` or `overflow: auto`, the panel is clipped. Today none of them carries one. **Whoever works on the shell layout checks this on the device.**
+- **Why fixed heights:** `sticky` needs exact `top` offsets for stacked layers. `h-14`/`h-10` are therefore not aesthetics but the basis of a calculation (`top-24` = 14 + 10) — whoever changes them carries all `top` values along. The filter toolbar itself may wrap to any height, its own `top` depends only on the layers **above** it.
+- **Selection and hover states paint exclusively *inside* the cell surface** — concretely `inset-ring-2 inset-ring-accent` instead of `ring-2` (Tailwind v4; `ring-inset` no longer exists there). The reason is exactly this sticky construction: the scroll container and the sticky bars are both exactly the content box of `<main class="mx-auto max-w-7xl px-4">`, and an *outset* `ring-2` paints 2 px **outside** the border box. On the cells of the first and last grid column those 2 px would lie to the left and right of the bar's background box and would shimmer through while scrolling. Making the bar wider is not a solution — that hides the edge effect instead of avoiding it, and every future bar would have to follow suit. **New selection state on a cell ⇒ `inset-ring-*`.**
+- **The focus outline deliberately stays outset** (global `:focus-visible` ring, §10) — it is transient and must not be clipped at the edge columns. That is exactly why `styles.css` still carries `contain: layout style` instead of CDK's `contain: content` on `.cdk-virtual-scroll-content-wrapper`: paint containment would cut it off. Do not "tidy up" this rule.
+- **Reference:** `web/src/styles.css` (`.app-sticky-bar`, CDK containment block), `web/src/app/features/admin/admin-audit-log-page.ts` (toolbar), `web/src/app/features/shell/app-shell.ts` (header), `usage-stats-page.html` + `vote-session-detail-page.html` (selection ring).
 
-### 8.6 Rücknavigation (hierarchischer Up-Link)
+### 8.6 Back navigation (hierarchical up-link)
 
-- **Was gilt:** Jede Seite, die kein Wurzelknoten ist, trägt oben links genau **einen** Up-Link auf ihren Elternknoten der *Informations*-Hierarchie — als Primitive `<app-back-link [link] [label] />` (`shared/ui/back-link.ts`), nie als handgebauter Anker und nie als `history.back()`.
-- **Warum kein Verlaufs-Zurück:** Die tiefen Seiten werden regelmäßig per Deep-Link betreten und überspringen dabei ihre Liste — eine Vote-Session wird direkt nach dem Anlegen aus den Usage-Stats geöffnet, außerdem aus My-Votings und aus dem Admin-Bereich. Der Browser-Verlauf zeigt dort also gerade *nicht* nach oben; ein „Zurück" wäre sachlich falsch. Zielgenaue Up-Links sind überall konstruierbar, weil `paramsInheritanceStrategy: 'always'` (`app.config.ts`) jeder Kindroute `channelName` und `sessionId` mitgibt.
-- **Warum kein Breadcrumb:** NN/g empfiehlt Breadcrumbs ab drei Ebenen — hier bildet aber die Tab-Leiste (§8.1) die Ebenen 2/3 bereits dauerhaft ab, und nur *eine* Seite (`vote-sessions/:sessionId`) liegt überhaupt auf Ebene 4. Ein Breadcrumb hätte die Tabs verdoppelt und als vierte Leiste den Höhen-Vertrag aus §8.5 gebrochen. Der Up-Link scrollt bewusst mit dem Inhalt weg, ist also keine Sticky-Ebene.
-- **Wo er steht:** als erstes Element der Seite, in einer Zeile mit deren Überschrift (`flex flex-wrap items-center gap-x-4 gap-y-2`) — so wie es `ChannelWorkspaceLayout` vorgibt. Auf einer Detailseite steht er **außerhalb** des Lade-`@if`, damit der Ausweg auch beim Laden und nach einem Fehler existiert. Seiten unterhalb eines Layouts mit Up-Link (Usage-Stats, Vote-Session-Liste) bekommen **keinen zweiten** — sie erben den des Layouts.
-- **Label:** der Eigenname des Ziels, nicht „Zurück" — und wo das Ziel bereits einen Key hat, **derselbe** Key (die Vote-Session-Detailseite beschriftet ihren Up-Link mit `channelWorkspace.tabs.voting`, dem Namen des Tabs, auf dem sie landet). Generische Ziele stehen unter `nav.*`.
-- **Barrierefreiheit:** echter `<a routerLink>` (in neuem Tab öffenbar, kein `<button (click)="navigate()">`), der Pfeil `←` ist `aria-hidden` und damit dekorativ, der zugängliche Name wird in der Primitive auf `nav.backTo` („Zurück zu {{target}}") verbreitert — enthält den sichtbaren Text und erfüllt damit WCAG 2.5.3. Fokus über den globalen `:focus-visible`-Ring.
-- **Referenz:** `web/src/app/shared/ui/back-link.ts` (+ `back-link.spec.ts`); Verwendung `channel-workspace-layout.ts`, `admin-layout.ts`, `my-votings-page.ts`, `vote-session-detail-page.html`; Flow-Test `web/e2e/back-navigation.e2e.spec.ts`.
+- **What applies:** Every page that is not a root node carries at its top left exactly **one** up-link to its parent node in the *information* hierarchy — as the primitive `<app-back-link [link] [label] />` (`shared/ui/back-link.ts`), never as a hand-built anchor and never as `history.back()`.
+- **Why no history back:** the deep pages are regularly entered by deep link and thereby skip their list — a vote session is opened directly after being created from the usage stats, and also from My Votings and from the admin area. So the browser history there points precisely *not* upwards; a "back" would be factually wrong. Precise up-links can be constructed everywhere, because `paramsInheritanceStrategy: 'always'` (`app.config.ts`) passes `channelName` and `sessionId` to every child route.
+- **Why no breadcrumb:** NN/g recommends breadcrumbs from three levels on — but here the tab bar (§8.1) already maps levels 2/3 permanently, and only *one* page (`vote-sessions/:sessionId`) lies on level 4 at all. A breadcrumb would have duplicated the tabs and, as a fourth bar, broken the height contract from §8.5. The up-link deliberately scrolls away with the content, so it is not a sticky layer.
+- **Where it stands:** as the first element of the page, in one row with its heading (`flex flex-wrap items-center gap-x-4 gap-y-2`) — the way `ChannelWorkspaceLayout` prescribes. On a detail page it stands **outside** the loading `@if`, so that the way out exists during loading and after an error too. Pages below a layout with an up-link (usage stats, vote-session list) get **no second one** — they inherit the layout's.
+- **Label:** the proper name of the target, not "back" — and where the target already has a key, **the same** key (the vote-session detail page labels its up-link with `channelWorkspace.tabs.voting`, the name of the tab it lands on). Generic targets live under `nav.*`.
+- **Accessibility:** a real `<a routerLink>` (openable in a new tab, not a `<button (click)="navigate()">`), the arrow `←` is `aria-hidden` and thereby decorative, the accessible name is widened in the primitive to `nav.backTo` ("Back to {{target}}") — it contains the visible text and thereby satisfies WCAG 2.5.3. Focus via the global `:focus-visible` ring.
+- **Reference:** `web/src/app/shared/ui/back-link.ts` (+ `back-link.spec.ts`); used in `channel-workspace-layout.ts`, `admin-layout.ts`, `my-votings-page.ts`, `vote-session-detail-page.html`; flow test `web/e2e/back-navigation.e2e.spec.ts`.
 
-### 8.7 Aktionsflächen: welche Fläche welches Kommando trägt
+### 8.7 Action surfaces: which surface carries which command
 
-- **Geltungsbereich:** Seiten mit Mehrfachauswahl auf einem Bogen — heute die Usage-Stats-Seite und die Voting-Detail-Seite.
-- **Seitenkopf** (der Kopf *der Seite*, nicht der Shell-Header) trägt Kommandos, die ohne Auswahl vollständig sind. Jedes hat genau eine Absicht; überlappen sich zwei, wird eine umbenannt oder fallengelassen — nicht verschoben. **Überlappung heißt: zwei Kommandos mit verschiedenem Namen für dieselbe Absicht.** Dieselbe Aktion unter demselben Verb an zwei Orten ist ein zweiter Einstieg, keine Überlappung — die Gleichheit des Verbs ist dabei Bedingung, nicht Beiwerk. **Bestätigt seit #141:** „Übertragen…" und „Exportieren" waren genau dieser Grenzfall, solange „Übertragen…" auch als Datei-Ausgang taugte — seit der Ziel-Dialog sein Datei-Ziel verloren hat, sind es zwei echte Absichten (Kanal vs. Datei) statt zweier Namen für eine überlappende. Keine Regeländerung, nur der Fall, an dem sie sich jetzt sauber entscheidet.
-- **Auswahlgebundene Kommandos** — solche, die ohne Auswahl gar nicht ausführbar sind (Löschen, Zur Abstimmung stellen) — stehen **nicht** im Seitenkopf. Wo es ein Dock gibt, stehen sie dort; wo keins ist, im Fluss unter dem Bogen, wie auf der Voting-Detail-Seite (`vote-session-detail-page.html:149-157`). Das Dock ist eine Zugabe, kein Erfordernis.
-- **Das Dock trägt außerdem den Laufzustand** — Fortschritt, Protokoll, Wiederherstellen nach einem Lauf. Das kann keine andere Fläche, weil es einen *abgeschlossenen* Lauf überdauern muss.
-- **Erlaubnis, keine Pflicht:** ein Kommando, dessen Ergebnis von der Auswahl abhängt, **darf** zusätzlich als Kurzform im Dock stehen — gleiches Verb, ohne Bereichsfrage, mit der Anzahl im Text. Begründung ist Auffindbarkeit im Moment des Markierens, nicht Klick-Ersparnis: der Seitenkopf scrollt weg, das Dock nicht. **Diese Begründung ist bislang unbelegt** (n = 1); sie ist deshalb als „darf" formuliert und zwingt keine künftige Aktion in zwei Einstiege.
+- **Area of application:** pages with multiple selection on a sheet — today the usage stats page and the voting detail page.
+- **The page header** (the header *of the page*, not the shell header) carries commands that are complete without a selection. Each has exactly one intent; if two overlap, one is renamed or dropped — not moved. **Overlap means: two commands with different names for the same intent.** The same action under the same verb in two places is a second entry point, not an overlap — the sameness of the verb is a condition here, not an accessory. **Confirmed since #141:** "Transfer…" and "Export" were exactly this borderline case as long as "Transfer…" was also usable as a file exit — since the target dialog lost its file target, they are two real intents (channel vs. file) instead of two names for one overlapping intent. No rule change, only the case at which it now decides cleanly.
+- **Selection-bound commands** — those that cannot be executed at all without a selection (delete, put up for a vote) — do **not** stand in the page header. Where there is a dock, they stand there; where there is none, in the flow beneath the sheet, as on the voting detail page (`vote-session-detail-page.html:149-157`). The dock is an addition, not a requirement.
+- **The dock also carries the run state** — progress, protocol, restore after a run. No other surface can do that, because it has to outlast a *finished* run.
+- **Permission, not obligation:** a command whose result depends on the selection **may** additionally stand in the dock as a short form — same verb, without the scope question, with the count in the text. The justification is findability at the moment of marking, not saved clicks: the page header scrolls away, the dock does not. **This justification is so far unsubstantiated** (n = 1); it is therefore phrased as "may" and forces no future action into two entry points.
 
-  *Beispiel, warum „darf" und nicht „muss":* der Export trägt bewusst **keine** Kurzform. Seine Bereichsvorgabe ist `visible` (`export-dialog.ts:139-141`), gegenläufig zum Ziel-Dialog, der auf `selection` steht — §7.2 hält die Asymmetrie als Absicht fest. Eine Export-Kurzform mit erzwungenem `selection` machte aus dieser Vorgabe stillschweigend ihr Gegenteil.
-- **Reihenfolge:** zerstörende Aktionen stehen ans Ende der **konstruktiven** Gruppe, mit einem Abstand davor (NN/G zu Mengenaktionen); neutrale Ausstiege wie „Auswahl aufheben" dürfen folgen. Das ist eine Anweisung zur *Position*, nicht zur Optik: die Buttonvarianten bleiben, wie §4.2 sie vorschreibt.
-- **Referenz:** Seitenkopf `web/src/app/features/usage-stats/usage-stats-page.html`; Dock `.app-dock` (§2.5) samt der Aktionszeile, die per `ngProjectAs="[selection-actions]"` **in** `web/src/app/shared/seven-tv/mass-delete-panel.ts` projiziert wird; ohne Dock, im Fluss: `web/src/app/features/voting/vote-session-detail-page.html`.
+  *Example of why "may" and not "must":* the export deliberately carries **no** short form. Its scope default is `visible` (`export-dialog.ts:139-141`), running counter to the target dialog, which stands at `selection` — §7.2 records the asymmetry as intentional. An export short form with a forced `selection` would silently turn that default into its opposite.
+- **Order:** destructive actions stand at the end of the **constructive** group, with a gap before them (NN/G on bulk actions); neutral exits such as "clear selection" may follow. That is an instruction about *position*, not about looks: the button variants stay as §4.2 prescribes them.
+- **Reference:** page header `web/src/app/features/usage-stats/usage-stats-page.html`; dock `.app-dock` (§2.5) together with the action row that is projected via `ngProjectAs="[selection-actions]"` **into** `web/src/app/shared/seven-tv/mass-delete-panel.ts`; without a dock, in the flow: `web/src/app/features/voting/vote-session-detail-page.html`.
 
-## 9. i18n-Pflichten
+## 9. i18n duties
 
-- **Was gilt:**
-  - Jeder sichtbare Text (auch `aria-label`, Skeleton-Labels, `title`-Tooltips) ist ein Transloco-Key mit Eintrag in **beiden** Locales (`web/public/i18n/de.json` + `en.json`). Keine hartkodierten Strings im Template.
-  - Request-Fehlertexte kommen **ausschließlich** aus `apiErrorTranslationKey(error)` (`web/src/app/core/i18n/api-error.ts`): bekannter Backend-`errorCode` → `errors.api.<code>`, sonst Status-Fallback (`errors.status.*`), sonst `errors.generic`. Ein neuer Backend-`ApiErrorCode` braucht den Eintrag in `api-error.ts` **und** beiden Locales — `api-error.spec.ts` erzwingt das (CLAUDE.md Regel 7). 401 wird nie auf Seitenebene behandelt (globaler `apiAuthInterceptor`).
-  - Button-/Toggle-Labels bleiben **konstant**; Zustand kodiert `aria-pressed` + Optik, nicht ein Label-Tausch (verhindert Breiten-Sprünge und Toolbar-Umbrüche).
-  - Ungenutzte Keys werden beim Entfernen eines Features aus beiden Locales gelöscht.
-- **Referenz:** `web/src/app/core/i18n/api-error.ts` + `api-error.spec.ts`; Toggle-Muster `web/src/app/shared/emotes/emote-usage-filter.ts`.
+- **What applies:**
+  - Every visible text (including `aria-label`, skeleton labels, `title` tooltips) is a Transloco key with an entry in **both** locales (`web/public/i18n/de.json` + `en.json`). No hard-coded strings in the template.
+  - Request error texts come **exclusively** from `apiErrorTranslationKey(error)` (`web/src/app/core/i18n/api-error.ts`): known backend `errorCode` → `errors.api.<code>`, otherwise status fallback (`errors.status.*`), otherwise `errors.generic`. A new backend `ApiErrorCode` needs the entry in `api-error.ts` **and** both locales — `api-error.spec.ts` enforces that (CLAUDE.md rule 7). 401 is never handled at page level (global `apiAuthInterceptor`).
+  - Button/toggle labels stay **constant**; the state is encoded by `aria-pressed` + the look, not by swapping the label (prevents width jumps and toolbar wraps).
+  - Unused keys are deleted from both locales when a feature is removed.
+- **Reference:** `web/src/app/core/i18n/api-error.ts` + `api-error.spec.ts`; toggle pattern `web/src/app/shared/emotes/emote-usage-filter.ts`.
 
-## 10. Accessibility-Checkliste
+## 10. Accessibility checklist
 
-Basis: `web/.claude/CLAUDE.md` — **AXE-pass und WCAG-AA-Minimum sind Pflicht.** Konkret in diesem Projekt:
+Basis: `web/.claude/CLAUDE.md` — **an axe pass and the WCAG AA minimum are mandatory.** Concretely in this project:
 
-- [ ] **Fokus:** Der globale `:focus-visible`-Ring (`outline: 2px solid var(--ep-accent)` plus Offset — `styles.css`) gilt für alles Interaktive. Er trägt die Leitfarbe und folgt damit dem Modus von selbst. Nie `outline-none`/`focus:outline-none` ohne gleichwertigen Ersatz.
-- [ ] **Touch-Targets:** ≥ 24 × 24 px für alles Interaktive (WCAG 2.5.8 AA), 44 px als Komfortziel für Primäraktionen — die Vote-Buttons erreichen es unterhalb `sm` (`min-h-11 sm:min-h-6`). Ausnahme „equivalent target" (kleines Control in einer vollflächig klickbaren Zeile) ist zulässig, wird aber **im Template als Kommentar dokumentiert**.
-- [ ] **ARIA-Rollen:** `role="alert"` nur für Fehler (NoticeBanner `error`), `role="status"` für stille Meldungen und Skeleton-Wrapper; `radiogroup` + Roving-Tabindex für SegmentedControl (`shared/ui/segmented-control.ts` wiederverwenden, nicht nachbauen) — es selektiert bei Fokus und taugt deshalb nur, wenn ein Wechsel billig ist; hängt am Wechsel ein Refetch, gehört die Auswahl in ein Popover-Menü (`shared/datetime/date-range-menu.ts`), wo Pfeile nur den Fokus bewegen und Enter/Space committet (von APG für genau diesen Fall erlaubt); `ariaCurrentWhenActive="page"` auf aktiven Nav-/Tab-Links.
-- [ ] **Feldfehler:** Muster aus 5.3 (`aria-invalid` + `aria-describedby` + Fehler-`id`).
-- [ ] **Disabled erklärt sich:** Grund als sichtbarer Text neben dem Button (TypedConfirm-Hint-Muster), nicht nur Ausgrauung.
-- [ ] **Dekoratives versteckt:** Emoji-Icons und Skeleton-Schimmer `aria-hidden="true"`.
-- [ ] **Accessible Names kurz:** Stretched-Link-Zeilen lassen den Screenreader nur den kurzen Titel hören (2.3), nie die ganze Zeile als Linktext.
-- [ ] **Kontrast, in beiden Modi:** Text 4,5:1, Ränder/Fokusringe/bedeutungstragende Grafiken 3:1 — **gerechnet für hell UND dunkel, nicht geschätzt** (2.0: ein neues Token bringt beide Werte plus den Nachweis in der Commit-Message mit). Die schwächste zulässige Textstufe ist `text-fg-muted`. **Ihr engster Fall ist `text-fg-muted` auf `surface-inset`: hell 4,81:1, dunkel 5,06:1** — der Wert, der bei der nächsten Verschiebung einer Fläche zuerst reißt. Wer eine Fläche verschiebt, rechnet ihn neu und zieht ihn hier nach. Input-Ränder: `border-border-field`, s. 5.1.
-- [ ] **Hover-Zustände mitrechnen:** Ein Hover ist ein eigener Zustand und schuldet denselben Kontrast wie der Ruhezustand. **Kein Werkzeug prüft das** — axe kennt nur, was gerade gerendert ist. Für gefüllte Buttons erledigt die Regel aus 2.0 das (`*-solid-hover` immer eine Stufe dunkler); alles Handgebaute rechnet selbst nach.
-- [ ] **axe-Kontrastgate:** Der Audit-Harness (12) fährt `@axe-core/playwright` mit der Regel `color-contrast` pro Zustand und schreibt `contrastViolations`. **Gate: 0 auf `serious`/`critical`.** Grenze, die man kennen muss: axe rechnet nur, was es als Text über einer bestimmbaren Fläche erkennt — halbtransparente Stapel verweigert es, und Grafik-Kontrast (1.4.11: Ampelpunkte, Balkenfüllungen, Ränder) deckt die Regel gar nicht ab. Beides bleibt Handarbeit.
-- [ ] **Kontrast/nativ:** `color-scheme` wird **pro Theme** im Tokenblock auf `:root` gesetzt (nicht mehr fest auf `body`) — dadurch folgen `input[type="time"]`, Scrollbars und Autofill dem Modus von selbst. Farbpaare der Primitives (Badge-Tones, Banner-Varianten) nicht ad hoc neu mischen — sie sind Tokens (2.0).
+- [ ] **Focus:** The global `:focus-visible` ring (`outline: 2px solid var(--ep-accent)` plus offset — `styles.css`) applies to everything interactive. It carries the accent colour and thereby follows the mode by itself. Never `outline-none`/`focus:outline-none` without an equivalent replacement.
+- [ ] **Touch targets:** ≥ 24 × 24 px for everything interactive (WCAG 2.5.8 AA), 44 px as a comfort target for primary actions — the vote buttons reach it below `sm` (`min-h-11 sm:min-h-6`). The "equivalent target" exception (a small control in a row that is clickable across its full area) is admissible, but is **documented as a comment in the template**.
+- [ ] **ARIA roles:** `role="alert"` only for errors (NoticeBanner `error`), `role="status"` for silent messages and skeleton wrappers; `radiogroup` + roving tabindex for SegmentedControl (reuse `shared/ui/segmented-control.ts`, do not rebuild it) — it selects on focus and is therefore only suitable when a change is cheap; if a refetch hangs on the change, the choice belongs in a popover menu (`shared/datetime/date-range-menu.ts`), where arrows only move the focus and Enter/space commits (permitted by the APG for exactly this case); `ariaCurrentWhenActive="page"` on active nav/tab links.
+- [ ] **Field errors:** pattern from 5.3 (`aria-invalid` + `aria-describedby` + error `id`).
+- [ ] **Disabled explains itself:** the reason as visible text next to the button (TypedConfirm hint pattern), not merely greying out.
+- [ ] **Decorative things hidden:** emoji icons and skeleton shimmer `aria-hidden="true"`.
+- [ ] **Accessible names short:** stretched-link rows let the screen reader hear only the short title (2.3), never the whole row as link text.
+- [ ] **Contrast, in both modes:** text 4.5:1, borders/focus rings/meaning-bearing graphics 3:1 — **computed for light AND dark, not estimated** (2.0: a new token brings both values plus the proof in the commit message). The weakest permissible text step is `text-fg-muted`. **Its tightest case is `text-fg-muted` on `surface-inset`: light 4.81:1, dark 5.06:1** — the value that breaks first the next time a surface is shifted. Whoever shifts a surface recomputes it and carries it along here. Input borders: `border-border-field`, see 5.1.
+- [ ] **Count hover states in:** a hover is a state of its own and owes the same contrast as the resting state. **No tool checks this** — axe knows only what is rendered right now. For filled buttons the rule from 2.0 takes care of it (`*-solid-hover` always one step darker); everything hand-built recomputes it itself.
+- [ ] **axe contrast gate:** the audit harness (12) runs `@axe-core/playwright` with the rule `color-contrast` per state and writes `contrastViolations`. **Gate: 0 on `serious`/`critical`.** A limit you have to know: axe computes only what it recognises as text over a determinable surface — it refuses semi-transparent stacks, and graphic contrast (1.4.11: traffic-light dots, bar fills, borders) is not covered by the rule at all. Both remain manual work.
+- [ ] **Contrast/native:** `color-scheme` is set **per theme** on `:root` in the token block (no longer fixed on `body`) — that way `input[type="time"]`, scrollbars and autofill follow the mode by themselves. Do not remix the colour pairs of the primitives (badge tones, banner variants) ad hoc — they are tokens (2.0).
 
-## 11. Checkliste „Neue UI bauen"
+## 11. Checklist "Building new UI"
 
-Vor dem Abschluss jeder UI-Änderung abhaken:
+Tick off before finishing every UI change:
 
-1. [ ] **Primitives statt Utility-Ketten** — nichts davon nachbauen: `appButton` · `SegmentedControl` · `StatusBadge` · `StateDot` · `HealthMarker` · `NoticeBanner` · `EmptyState` · `SkeletonRows`/`SkeletonSections` · `Pager` · `TabLink` · `BackLink` · `Popover` · `DialogShell` + `ConfirmDialog`/`TypedConfirmDialog` + `NamePreviewList` · `DateRangeMenu`/`UsageRangeMenu` · `AccountMenu` + `DisplayPreferences` + `Avatar` · `.app-input*`.
-2. [ ] **Farbe aus Tokens** (2.0): keine Paletten-Utility unter `web/src/app/` — `npm run lint` erzwingt das. Fehlt ein Token, wird es **ergänzt**, mit Werten für **beide** Modi und gerechnetem Kontrast in der Commit-Message. Und: **beide Modi angesehen**, nicht nur den, in dem gerade gearbeitet wurde.
-3. [ ] **Flächen:** geriffelte Zeile bzw. randloser Abschnitt (2.1); `.app-card-link` + Stretched-Link-Kontrakt nur bei echter Klickbarkeit (2.3).
-4. [ ] **Typo-Skala** eingehalten (Abschnitt 3), Heading-Level folgt Dokumentstruktur.
-5. [ ] **Destruktiv-Flow:** `danger`-Auslöser → Dialog → `danger-solid`-Vollzug (4.2).
-6. [ ] **Ladezustand:** Skeleton (Seite/Liste) bzw. disabled-Button (Aktion) — kein Lade-Text (6.1).
-7. [ ] **Leerzustand:** `EmptyState` mit Warum + CTA (6.2).
-8. [ ] **Fehlerpfad:** `apiErrorTranslationKey` + `NoticeBanner error`; Feldfehler nach 5.3.
-9. [ ] **i18n:** alle Keys in **beiden** Locales, konstante Labels (9).
-10. [ ] **A11y-Checkliste** (10) durchgegangen; neue Formulare mit Label + Feldfehler-ARIA.
-11. [ ] **Audit-Harness** gelaufen, Gates grün inkl. `contrastViolations` (12); bei neuen Seiten: Szenario ergänzt.
-12. [ ] Konvention geändert/präzisiert? → DECISIONS-Eintrag im selben Commit (CLAUDE.md Regel 3) und dieses Dokument aktualisieren.
+1. [ ] **Primitives instead of utility chains** — rebuild none of these: `appButton` · `SegmentedControl` · `StatusBadge` · `StateDot` · `HealthMarker` · `NoticeBanner` · `EmptyState` · `SkeletonRows`/`SkeletonSections` · `Pager` · `TabLink` · `BackLink` · `Popover` · `DialogShell` + `ConfirmDialog`/`TypedConfirmDialog` + `NamePreviewList` · `DateRangeMenu`/`UsageRangeMenu` · `AccountMenu` + `DisplayPreferences` + `Avatar` · `.app-input*`.
+2. [ ] **Colour from tokens** (2.0): no palette utility under `web/src/app/` — `npm run lint` enforces that. If a token is missing, it is **added**, with values for **both** modes and a computed contrast in the commit message. And: **looked at both modes**, not only the one that was being worked in.
+3. [ ] **Surfaces:** ruled row or borderless section (2.1); `.app-card-link` + stretched-link contract only where really clickable (2.3).
+4. [ ] **Type scale** observed (section 3), heading level follows the document structure.
+5. [ ] **Destructive flow:** `danger` trigger → dialog → `danger-solid` execution (4.2).
+6. [ ] **Loading state:** skeleton (page/list) or disabled button (action) — no loading text (6.1).
+7. [ ] **Empty state:** `EmptyState` with a why + CTA (6.2).
+8. [ ] **Error path:** `apiErrorTranslationKey` + `NoticeBanner error`; field errors per 5.3.
+9. [ ] **i18n:** all keys in **both** locales, constant labels (9).
+10. [ ] **A11y checklist** (10) worked through; new forms with a label + field-error ARIA.
+11. [ ] **Audit harness** run, gates green including `contrastViolations` (12); for new pages: scenario added.
+12. [ ] Convention changed/made more precise? → DECISIONS entry in the same commit (CLAUDE.md rule 3) and update this document.
 
-## 12. Verifikation per UI-Audit-Harness
+## 12. Verification via the UI audit harness
 
-- **Was er ist:** Playwright-Harness getrennt von der e2e-Suite: rendert die UI-Zustands-Matrix (~30 Szenarien × 4 Viewports 360/768/1024/1536 × de/en × **dunkel/hell**, API gemockt) und schreibt pro Zustand einen Full-Page-Screenshot + JSON-Metriken.
-- **Theme ist die vierte Dimension, und sie läuft bewusst nicht voll.** Dunkel deckt alle drei Viewports ab, **hell nur 1536** — dieselbe Abwägung, die die `en`-Locale schon macht. Begründung: Layoutbrüche sind theme-unabhängig (Farbe ändert keine Kastengrößen), und was am hellen Modus wirklich zu prüfen ist, ist der Kontrast — den misst der axe-Gate in *jedem* Zustand. Das hält die Laufzeit bei ~1,3× statt 2×. **Ausnahme:** wer die Grundflächen eines Modus verschiebt oder einen Modus neu ausliefert, nimmt den Skip heraus und sieht die volle Matrix in beiden Modi durch.
-- **`mobile` emuliert einen groben Zeiger, die drei anderen einen feinen — und das ist Vertrag, keine Bequemlichkeit.** Die App entscheidet über `(pointer: coarse)` (`core/pointer/pointer-mode.service.ts`), nicht über die Breite: hinter `!isCoarse()` liegen die 7TV-Schreibwege. Ohne Emulation meldet Chromium unter Playwright **immer** `pointer: fine`, auch bei 360 px — der Harness rendert dann Bedienelemente, die auf keinem Telefon existieren, und misst deren Überlauf und Zielgrößen als Befund. Die Emulation läuft über eine CDP-Sitzung zusammen mit dem Farbschema (beides muss in **denselben** `Emulation.setEmulatedMedia`-Aufruf, weil der Aufruf den Feature-Satz ersetzt statt ihn zu ergänzen) plus `Emulation.setTouchEmulationEnabled` — die Pointer-Werte allein sind wirkungslos, Chromium leitet grob/fein aus der Touch-Emulation ab. **Zwei Prüfungen sichern das ab**, und die zweite ist die wichtige: eine vor der Navigation und eine unmittelbar **vor** der Metrikerhebung. Wer sie entfernt, nimmt dem Harness die Fähigkeit, sein eigenes Wegbrechen zu bemerken.
-- **Der Screenshot wird viewportgroß aufgenommen, nicht mit `fullPage: true`.** Playwrights Full-Page-Aufnahme verwirft die Emulation **während** der Aufnahme — belegt an einem Pixel, der im aufgenommenen Bild die Fein-Zeiger-Farbe trägt, obwohl `matchMedia` unmittelbar davor noch grob meldete. Betroffen sind Bild **und** alle danach erhobenen Metriken; eine Umsortierung hilft nicht, und über Playwright-Kontexte (`hasTouch`/`isMobile`) statt CDP tritt derselbe Verlust auf. Auch ein roher CDP-`Page.captureScreenshot({ captureBeyondViewport: true })` verliert sie — der Reset sitzt in Chromiums Aufnahmepfad, nicht in Playwrights Wrapper. Stattdessen wird der Viewport kurz auf `document.documentElement.scrollHeight` vergrößert, normal aufgenommen und wieder verkleinert. **Gegenprobe, dass das kein Artefakt einträgt:** beim Umbau änderte sich kein einziges Szenario außerhalb von `mobile` (0 von 392).
-- **Bei horizontalem Überlauf entsteht ein zweites Bild `<basis>--right.png`.** Die viewportgroße Aufnahme ist nur `vp.width` breit, überlaufender Inhalt läge also außerhalb des Rahmens — ausgerechnet der Befund, den der Audit sucht. Den Viewport zu verbreitern verbietet sich (andere Breakpoints, der Überlauf verschwindet); Scrollen dagegen ist Seitenzustand und lässt die Emulation unangetastet. Das zweite Bild wird am rechten Ende aufgenommen und nur erzeugt, wenn `scrollWidth > vp.width`. Es verschiebt keine Metrik.
-- **Zwei Desktop-Fälle, und beide werden gebraucht.** `desktop-narrow` (1024) ist `lg` an seinem engsten Punkt: der Sidecar ist da, der 80-rem-Deckel greift noch nicht, es bleiben 992 px Inhalt — dort bricht ein Umbruch zuerst. `desktop` (1536) ist der gedeckelte Zustand, also das, was auf einem großen Bildschirm ausgeliefert wird. Ein einzelner Viewport kann nur einen der beiden zeigen. **Wer die Inhaltsbreite (§8.4a) ändert, prüft beide Werte mit** — der breitere muss über dem Deckel liegen, sonst hört er auf, ihn zu messen.
-- **Wann laufen lassen:** Nach jeder Layout-/Style-Änderung mit Flächenwirkung, bei jeder neuen Seite (vorher als Szenario in `web/e2e/audit/ui-audit.audit.ts` ergänzen — Route mocken, Edge-Case-Daten mit langen Namen verwenden) und vor Abschluss jeder größeren UI-Runde.
-- **Wie:**
+- **What it is:** a Playwright harness separate from the e2e suite: it renders the UI state matrix (~30 scenarios × 4 viewports 360/768/1024/1536 × de/en × **dark/light**, API mocked) and writes a full-page screenshot + JSON metrics per state.
+- **Theme is the fourth dimension, and it deliberately does not run in full.** Dark covers all three viewports, **light only 1536** — the same trade-off the `en` locale already makes. Justification: layout breaks are theme-independent (colour does not change box sizes), and what really needs checking in light mode is the contrast — which the axe gate measures in *every* state. That keeps the runtime at ~1.3× instead of 2×. **Exception:** whoever shifts the base surfaces of a mode or ships a mode anew removes the skip and reviews the full matrix in both modes.
+- **`mobile` emulates a coarse pointer, the other three a fine one — and that is a contract, not convenience.** The app decides via `(pointer: coarse)` (`core/pointer/pointer-mode.service.ts`), not via the width: behind `!isCoarse()` lie the 7TV write paths. Without emulation Chromium under Playwright **always** reports `pointer: fine`, even at 360 px — the harness then renders controls that exist on no phone, and measures their overflow and target sizes as a finding. The emulation runs via a CDP session together with the colour scheme (both have to go into the **same** `Emulation.setEmulatedMedia` call, because the call replaces the feature set instead of extending it) plus `Emulation.setTouchEmulationEnabled` — the pointer values alone have no effect, Chromium derives coarse/fine from the touch emulation. **Two checks safeguard this**, and the second is the important one: one before the navigation and one immediately **before** the metrics are collected. Whoever removes them takes away the harness's ability to notice its own breaking away.
+- **The screenshot is taken at viewport size, not with `fullPage: true`.** Playwright's full-page capture discards the emulation **during** the capture — proven on a pixel that carries the fine-pointer colour in the captured image although `matchMedia` still reported coarse immediately before. Affected are the image **and** all metrics collected afterwards; reordering does not help, and via Playwright contexts (`hasTouch`/`isMobile`) instead of CDP the same loss occurs. A raw CDP `Page.captureScreenshot({ captureBeyondViewport: true })` loses it too — the reset sits in Chromium's capture path, not in Playwright's wrapper. Instead the viewport is briefly enlarged to `document.documentElement.scrollHeight`, captured normally and shrunk again. **Counter-check that this introduces no artefact:** during the rebuild not a single scenario outside of `mobile` changed (0 out of 392).
+- **On horizontal overflow a second image `<base>--right.png` is produced.** The viewport-sized capture is only `vp.width` wide, so overflowing content would lie outside the frame — of all things the finding the audit is looking for. Widening the viewport is out of the question (different breakpoints, the overflow disappears); scrolling, by contrast, is page state and leaves the emulation untouched. The second image is taken at the right-hand end and is only produced if `scrollWidth > vp.width`. It shifts no metric.
+- **Two desktop cases, and both are needed.** `desktop-narrow` (1024) is `lg` at its narrowest point: the sidecar is there, the 80 rem cap does not yet bite, 992 px of content remain — that is where a wrap breaks first. `desktop` (1536) is the capped state, that is what gets delivered on a large screen. A single viewport can show only one of the two. **Whoever changes the content width (§8.4a) checks both values along with it** — the wider one has to lie above the cap, otherwise it stops measuring it.
+- **When to run it:** after every layout/style change with an effect on surfaces, for every new page (add it as a scenario in `web/e2e/audit/ui-audit.audit.ts` beforehand — mock the route, use edge-case data with long names) and before finishing every larger UI round.
+- **How:**
 
   ```
   cd web
   npx playwright test --config=playwright.audit.config.ts
   ```
 
-  (Kein npm-Script; startet selbst `ng serve` auf Port 4300.) Output unter `web/.audit-out/` (gitignored): `shots/<szenario>--<viewport>--<locale>--<theme>.png`, `metrics/<szenario>--<viewport>--<locale>--<theme>.json`. **Vor einem Lauf, dessen Metriken man auswertet, `.audit-out/` leeren** — sonst bleiben Dateien früherer Läufe liegen (auch solche zu inzwischen entfernten Szenarien) und verfälschen jede Auszählung über das Verzeichnis.
-- **Metriken lesen:** Pro JSON-Datei:
-  - `horizontalOverflowPx` — horizontaler Seiten-Overflow in px. **Gate: muss 0 sein.** Auf `mobile` zählt nur, was mit grobem Zeiger überhaupt gerendert wird (s. o.) — ein Auslöser hinter `!isCoarse()` kann diese Zahl nicht mehr treiben.
-  - `smallTargetsUnder24` — interaktive Elemente < 24 px (WCAG 2.5.8). **Gate: keine neuen Einträge gegenüber dem letzten Lauf** (bestehende Einträge sind dokumentierte „equivalent target"-Ausnahmen).
-  - `targets24to43` — Elemente unter dem 44-px-Komfortziel: beobachten, kein hartes Gate.
-  - `beyondRightEdge` — Elemente jenseits der rechten Viewport-Kante: wie Overflow behandeln.
-  - `contrastViolations` — axe-Befunde der Regel `color-contrast`, gefiltert auf `serious`/`critical`. **Gate: muss leer sein.** Was axe nicht sieht, steht in §10.
-- Screenshots zusätzlich sichten (de **und** en — längere deutsche Strings sind der häufigste Umbruch-Bruch; und in der Auslieferungswelle eines Modus beide Themes).
-- **Ein Szenario, dessen `afterLoad` ein `!isCoarse()`-Bedienelement anfasst, trägt `requiresFinePointer: true`** und wird auf groben Viewports übersprungen — es beschreibt dort keinen erreichbaren Zustand. Das verkleinert die Abdeckung nicht: gemessen wurde vorher nur ein Zustand, den es nicht gibt. Die Bedingung hängt am Zeiger des Viewports, nicht an seinem Namen, damit ein künftiger zweiter grober Viewport ohne Nacharbeit mitgilt.
-- **Referenz:** `web/playwright.audit.config.ts`, `web/e2e/audit/ui-audit.audit.ts`.
+  (No npm script; it starts `ng serve` on port 4300 itself.) Output under `web/.audit-out/` (gitignored): `shots/<scenario>--<viewport>--<locale>--<theme>.png`, `metrics/<scenario>--<viewport>--<locale>--<theme>.json`. **Before a run whose metrics you evaluate, empty `.audit-out/`** — otherwise files from earlier runs stay behind (including ones for scenarios since removed) and falsify every tally over the directory.
+- **Reading the metrics:** per JSON file:
+  - `horizontalOverflowPx` — horizontal page overflow in px. **Gate: has to be 0.** On `mobile` only what is rendered at all with a coarse pointer counts (see above) — a trigger behind `!isCoarse()` can no longer drive this number.
+  - `smallTargetsUnder24` — interactive elements < 24 px (WCAG 2.5.8). **Gate: no new entries compared with the last run** (existing entries are documented "equivalent target" exceptions).
+  - `targets24to43` — elements below the 44 px comfort target: observe, no hard gate.
+  - `beyondRightEdge` — elements beyond the right viewport edge: treat like overflow.
+  - `contrastViolations` — axe findings for the rule `color-contrast`, filtered to `serious`/`critical`. **Gate: has to be empty.** What axe does not see is in §10.
+- Review the screenshots in addition (de **and** en — longer German strings are the most frequent wrap break; and in the shipping round of a mode, both themes).
+- **A scenario whose `afterLoad` touches a `!isCoarse()` control carries `requiresFinePointer: true`** and is skipped on coarse viewports — it describes no reachable state there. That does not shrink the coverage: what was measured before was only a state that does not exist. The condition hangs on the viewport's pointer, not on its name, so that a future second coarse viewport applies along without rework.
+- **Reference:** `web/playwright.audit.config.ts`, `web/e2e/audit/ui-audit.audit.ts`.
