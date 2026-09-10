@@ -1,5 +1,16 @@
 import { DIALOG_DATA, Dialog, DialogRef } from '@angular/cdk/dialog';
-import { Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+  viewChildren,
+} from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { Button } from '../ui/button';
@@ -84,6 +95,15 @@ const SOURCE_OPTIONS: SourceOption[] = [
  * grid is there. Without that, the channel step carried two forward actions at once — "Set laden" at
  * the field and a permanently disabled "Weiter" in the row below — which is what made a dialog around
  * one text input look busy.
+ *
+ * **Focus contract: entering a step puts the caret on that step's first meaningful control.** The
+ * CDK autofocuses once, when the overlay opens, and never again for a swap *inside* it — so what was
+ * previously true by accident (the file dialog opened straight onto its own file button) has to be
+ * said out loud now that the same content is step two. Without it a keyboard user picks a source and
+ * lands on nothing, then tabs the whole dialog from the top; a mouse user sees no difference at all,
+ * which is exactly why it needs a test rather than a look. Going *back* returns the caret to the
+ * source row it came from — the same courtesy a menu button does when its submenu closes, and it
+ * means "wrong branch, try the other one" costs no tabbing.
  */
 @Component({
   selector: 'app-import-source-dialog',
@@ -105,6 +125,7 @@ const SOURCE_OPTIONS: SourceOption[] = [
           >
             @for (option of sourceOptions; track option.step) {
               <button
+                #sourceOption
                 type="button"
                 class="flex min-h-11 flex-col items-start justify-center gap-0.5 border-b border-border px-2 py-3 text-left transition hover:bg-surface-inset"
                 (click)="goTo(option.step)"
@@ -165,9 +186,16 @@ export class ImportSourceDialog {
   protected readonly data = inject<ImportSourceDialogData>(DIALOG_DATA);
   protected readonly dialogRef = inject<DialogRef<ImportSourceDialogResult | undefined>>(DialogRef);
 
+  private readonly injector = inject(Injector);
+
+  private readonly fileStep = viewChild(FileImportStep);
   private readonly channelStep = viewChild(ForeignChannelStep);
+  private readonly sourceOptionButtons =
+    viewChildren<ElementRef<HTMLButtonElement>>('sourceOption');
 
   protected readonly step = signal<'choose' | ImportSourceStep>('choose');
+  /** Which branch "Zurück" came out of, so the caret can land back on the row that opened it. */
+  private readonly lastBranch = signal<ImportSourceStep | null>(null);
   protected readonly sourceOptions = SOURCE_OPTIONS;
 
   /** Each step names itself in the heading, so the dialog always says which branch you are in —
@@ -205,11 +233,14 @@ export class ImportSourceDialog {
   }
 
   protected goTo(step: ImportSourceStep): void {
+    this.lastBranch.set(step);
     this.step.set(step);
+    this.focusStepEntryAfterRender();
   }
 
   protected back(): void {
     this.step.set('choose');
+    this.focusStepEntryAfterRender();
   }
 
   protected continueWithChannel(): void {
@@ -218,6 +249,30 @@ export class ImportSourceDialog {
       return;
     }
     this.dialogRef.close({ kind: 'foreign', picked });
+  }
+
+  // Deferred, because the control to focus is only queried into existence by the render that the
+  // step change triggers — same reason and same shape as `account-menu.ts`'s panel-level swap.
+  private focusStepEntryAfterRender(): void {
+    afterNextRender(() => this.focusStepEntry(), { injector: this.injector });
+  }
+
+  private focusStepEntry(): void {
+    switch (this.step()) {
+      case 'file':
+        this.fileStep()?.focusFirstControl();
+        return;
+      case 'channel':
+        this.channelStep()?.focusFirstControl();
+        return;
+      default: {
+        const buttons = this.sourceOptionButtons();
+        const cameFrom = this.sourceOptions.findIndex(
+          (option) => option.step === this.lastBranch(),
+        );
+        buttons[cameFrom === -1 ? 0 : cameFrom]?.nativeElement.focus();
+      }
+    }
   }
 }
 

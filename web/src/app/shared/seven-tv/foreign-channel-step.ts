@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 
@@ -47,6 +47,11 @@ type LoadState =
  * *and* something is selected, and `ImportSourceDialog` renders the "Weiter" button of the shared
  * action row against it (§7 keeps the action row with the dialog, not with the step).
  *
+ * {@link focusFirstControl} is how the dialog puts the caret in the channel field on the way in —
+ * CDK's autofocus fires once when the overlay opens and never again for a swap inside it (#147), so
+ * the contract has to be spoken. Here it also earns its keep beyond mere reachability: the step
+ * exists to be typed into, and this way it can be typed into at once.
+ *
  * A fresh channel query re-renders the `@case ('loaded')` branch from scratch (`load()` moves the
  * state back through `'loading'`), which unmounts and remounts `ForeignEmoteGrid` — a new
  * `ListSelection` instance, i.e. a new query always starts unselected. That is deliberate: a
@@ -83,6 +88,7 @@ type LoadState =
            The gap is the dialog's own rhythm (12 px), not the 8 px chip spacing of a toolbar. -->
       <div class="flex gap-3">
         <input
+          #channelInput
           type="text"
           [id]="channelInputId"
           [formControl]="channelNameControl"
@@ -162,6 +168,8 @@ export class ForeignChannelStep {
 
   protected readonly channelInputId = 'foreign-channel-name';
 
+  private readonly channelInputRef = viewChild<ElementRef<HTMLInputElement>>('channelInput');
+
   protected readonly state = signal<LoadState>({ status: 'idle' });
   protected readonly selectedRows = signal<ForeignEmoteRow[]>([]);
 
@@ -200,6 +208,12 @@ export class ForeignChannelStep {
       rows,
     };
   });
+
+  /** Where the caret goes when this step is entered — see the class doc. Called by the dialog after
+   *  the step has rendered, never from a constructor (Regel 13). */
+  focusFirstControl(): void {
+    this.channelInputRef()?.nativeElement.focus();
+  }
 
   protected onFormSubmit(event: Event): void {
     event.preventDefault();

@@ -260,6 +260,51 @@ describe('ImportSourceDialog', () => {
     });
   });
 
+  describe('focus follows the step (#147)', () => {
+    // CDK autofocuses once, when the overlay opens, and never again for a swap inside it. Before
+    // #147 the file dialog opened straight onto its own file button, so this held by accident; as
+    // step two of one dialog it has to be arranged, and a mouse user would never notice it missing.
+    it('puts the caret on the file control when the file branch is entered', async () => {
+      sourceOption('Aus einer Datei').click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(button('Datei auswählen'));
+    });
+
+    it('puts the caret in the channel field when the channel branch is entered', async () => {
+      goToChannelStep();
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(host.querySelector('input[type="text"]'));
+    });
+
+    it('returns the caret to the source row it came from', async () => {
+      goToChannelStep();
+      await fixture.whenStable();
+
+      button('Zurück').click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      // The row that opened the branch, not the first one — "wrong branch, try the other" then
+      // costs no tabbing, the same courtesy a menu button does when its submenu closes.
+      expect(document.activeElement).toBe(sourceOption('Aus einem Kanal'));
+    });
+
+    it('leaves the caret where it is when the set arrives, since that control survives', async () => {
+      // "Set laden" is above the switch and is not torn down by the load, so the caret stays on a
+      // control that still means something (reload, or correct the name). Nothing to move.
+      goToChannelStep();
+      await fixture.whenStable();
+      button('Set laden').focus();
+
+      loadSet();
+
+      expect(document.activeElement).toBe(button('Set laden'));
+    });
+  });
+
   describe('the action row follows the same state as the pane', () => {
     it('offers no second forward action while the step is still a form', () => {
       // "Set laden" already carries the step forward, at the field it acts on. A permanently

@@ -697,8 +697,10 @@ test.describe('push flow: the file path', () => {
   });
 });
 
-test.describe('file import dialog: shell contract', () => {
-  test('opening the dialog focuses the file control, not the cancel button', async ({ page }) => {
+test.describe('import dialog: shell contract', () => {
+  test('entering the file branch focuses the file control, not the cancel button', async ({
+    page,
+  }) => {
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page);
     await installLiveStub(page);
@@ -711,14 +713,37 @@ test.describe('file import dialog: shell contract', () => {
 
     const fileInput = await openFileImportDialog(page);
 
-    // Plan §1.1 / design-language §7.3, open question 6: the file control is deliberately the
-    // dialog's first focusable element, so the CDK's own `first-tabbable` default lands there with
-    // no explicit `cdkFocusInitial`. A hidden `<input type="file">` cannot itself receive focus, so
-    // the visible button in front of it is what the CDK actually focuses.
+    // Design-language §7.3: entering a step puts the caret on that step's first meaningful control.
+    // This used to hold by accident — the file dialog opened straight onto this content, so the
+    // CDK's `first-tabbable` default landed here — and stopped holding when the same content became
+    // step two of one dialog (#147): CDK autofocuses once, when the overlay opens, and never again
+    // for a swap inside it. The dialog now arranges it after the step renders. A hidden
+    // `<input type="file">` cannot itself receive focus, so the visible button in front of it is the
+    // target.
     await expect(page.getByRole('button', { name: 'Datei auswählen' })).toBeFocused();
     // The input stays reachable through that button; asserted here so the two locators are not
     // silently talking about different elements.
     await expect(fileInput).toBeAttached();
+  });
+
+  test('entering the channel branch focuses the channel field', async ({ page }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    const dialog = page.getByRole('dialog');
+    await page.locator('main header button').nth(2).click();
+    await dialog.getByRole('button', { name: /^Aus einem Kanal/ }).click();
+
+    // The other half of the same contract, and here it is more than reachability: the step exists
+    // to be typed into, so it can be typed into at once.
+    await expect(dialog.getByLabel('Kanalname')).toBeFocused();
   });
 
   test('lists the three acceptable file sorts before the file control', async ({ page }) => {

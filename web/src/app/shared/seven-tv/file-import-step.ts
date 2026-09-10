@@ -28,9 +28,13 @@ export type FileImportResult =
  * banner (only on failure). There is no "weiter" step, the file pick itself is the action; the
  * dialog around this step therefore renders a cancel-only action row for it.
  *
- * The file control is deliberately the first focusable element the step renders — not
- * `cdkFocusInitial` — so the CDK's `first-tabbable` default lands there on its own. A hidden
- * `<input type="file">` cannot be that element itself, so the visible button in front of it is.
+ * The file control is the step's entry point for the keyboard, and {@link focusFirstControl} is how
+ * the dialog puts the caret there on the way in. It used to happen by itself — the file dialog
+ * opened straight onto this content, so the CDK's `first-tabbable` default landed on the button —
+ * and that stopped being true the moment this became step two of a dialog that opens on the source
+ * choice (#147): CDK autofocuses once, when the overlay opens, and never again for a swap *inside*
+ * it. A hidden `<input type="file">` cannot take focus itself, so the visible button in front of it
+ * is what gets it.
  *
  * The file input has to live inside the open dialog rather than behind it: a programmatic click on
  * an `<input type="file">` *after* a CDK dialog's `closed` runs outside the user gesture and the
@@ -47,7 +51,7 @@ export type FileImportResult =
     </ul>
 
     <div>
-      <button type="button" appButton="outline" (click)="openFilePicker()">
+      <button #pickerButton type="button" appButton="outline" (click)="openFilePicker()">
         {{ 'restore.import.fileLabel' | transloco }}
       </button>
       <input
@@ -83,7 +87,14 @@ export class FileImportStep {
   // out of: inside the template the bare name resolves to the reference (the raw element), which is
   // not callable — AOT rejects it.
   private readonly fileInputRef = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
+  private readonly pickerButtonRef = viewChild<ElementRef<HTMLButtonElement>>('pickerButton');
   protected readonly errorKey = signal<string | null>(null);
+
+  /** Where the caret goes when this step is entered — see the class doc. Called by the dialog after
+   *  the step has rendered, never from a constructor. */
+  focusFirstControl(): void {
+    this.pickerButtonRef()?.nativeElement.focus();
+  }
 
   protected openFilePicker(): void {
     this.fileInputRef().nativeElement.click();

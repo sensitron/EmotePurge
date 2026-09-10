@@ -436,10 +436,9 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
      Satz mit Kommas — die deutschen Fassungen brächen sonst auf 360 px an willkürlicher Stelle
      (§12).
   2. Das **Datei-Bedienelement**: sichtbar beschrifteter Knopf plus verstecktes
-     `<input type="file" accept="application/json">`. Der Knopf ist das **erste fokussierbare
-     Element** des Schritts, damit der `first-tabbable`-Default des CDK von selbst darauf landet —
-     kein `cdkFocusInitial`. §7 „Abbrechen steht immer zuerst" gilt für die Aktionszeile und bleibt
-     davon unberührt.
+     `<input type="file" accept="application/json">`. Der Knopf ist das erste sinnvolle
+     Bedienelement des Schritts und bekommt beim Betreten den Fokus (s. den Fokusvertrag unten).
+     §7 „Abbrechen steht immer zuerst" gilt für die Aktionszeile und bleibt davon unberührt.
   3. Das Fehlerbanner (`NoticeBanner` `error`) — nur im Fehlerfall.
 
   Es gibt in diesem Zweig **keinen** „Weiter"-Knopf: die Dateiauswahl selbst ist der Vollzug.
@@ -447,6 +446,20 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   beschriftetes Kanalfeld (§5.2 gilt hier voll — es ist keine Filterleiste) plus „Set laden", danach
   Ladezustand/Fehlerbanner und das `ForeignEmoteGrid`. Der Schritt schließt nichts; er meldet sein
   Ergebnis als Signal, gegen das der Dialog sein „Weiter" sperrt.
+- **Fokusvertrag: Wer einen Schritt betritt, landet auf dessen erstem sinnvollen Bedienelement.**
+  Konkret: Datei-Zweig → „Datei auswählen" (das versteckte `<input type="file">` kann selbst keinen
+  Fokus nehmen), Kanal-Zweig → das Kanalfeld, „Zurück" → die Quellenzeile, aus der man kam (dieselbe
+  Höflichkeit, die ein Menü-Button beim Schließen seines Untermenüs erweist — „falscher Zweig, dann
+  eben der andere" kostet so kein Tabben). **Das erledigt das CDK nicht:** sein Autofokus läuft
+  **einmal**, beim Öffnen des Overlays, und nie wieder für einen Wechsel **innerhalb** desselben
+  Dialogs. Bis #147 galt der Vertrag zufällig — der Datei-Dialog öffnete direkt auf seinen eigenen
+  Knopf —, seither muss er ausgesprochen und gesetzt werden, und zwar **nach** dem Rendern des neuen
+  Schritts (`afterNextRender`, Muster wie `account-menu.ts`), weil das Ziel erst durch dieses
+  Rendern existiert. Ein Mausnutzer merkt von einer Verletzung nichts; per Tastatur landet der Fokus
+  im Nichts und der Dialog wird von vorn durchgetabt. Deshalb hängt daran ein E2E-Fall je Zweig und
+  nicht bloß ein Blick. Erscheint nach „Set laden" das Raster, **bleibt** der Fokus auf „Set laden":
+  der Knopf steht über dem Umschaltpunkt, wird also nicht abgeräumt, und meint dort weiterhin etwas
+  (neu laden, Namen korrigieren) — nichts zu bewegen.
 - **Es gibt genau einen Scroll-Container im Kanal-Zweig, und das ist das Raster.** Die Pane scrollt
   sonst mit (§7) und zwei ineinandergeschachtelte Balken über derselben Liste waren der gemeldete
   Defekt. Erreicht wird das nicht durch eine Prozent-Höhenkette — die überlebt die beiden

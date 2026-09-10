@@ -79,7 +79,17 @@ der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebau
    Engzusammengehörendes seine eigene Spalte), statt in gleichem Abstand zwischen beiden zu schweben
    und für keines von beiden als Bildunterschrift zu lesen. Der Raster-Host bekam dafür überhaupt
    erst eine Flex-Spalte; vorher stapelten seine Kinder als nackte Blöcke ganz ohne Abstand.
-8. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
+8. **Der Fokus folgt dem Schritt — und das musste ausgesprochen werden.** Ein E2E-Fall hielt fest,
+   dass der Datei-Knopf den Fokus bekommt, und begründete das mit CDKs `first-tabbable`-Default. Die
+   Prämisse ist durch den Umbau tot: CDKs Autofokus läuft einmal beim Öffnen des Overlays und nie
+   wieder für einen Wechsel **innerhalb** desselben Dialogs. Seit der Dialog auf der Quellenwahl
+   öffnet, landete der Fokus nach „Aus einer Datei" im Nichts — für einen Mausnutzer unsichtbar, per
+   Tastatur wird der Dialog von vorn durchgetabt. Der Vertrag lautet jetzt: **wer einen Schritt
+   betritt, landet auf dessen erstem sinnvollen Bedienelement** (Datei-Knopf, Kanalfeld, bei
+   „Zurück" die Quellenzeile, aus der man kam), gesetzt per `afterNextRender` nach dem Rendern des
+   neuen Schritts. Beim Übergang vom Formular zum Raster bleibt der Fokus auf „Set laden" — der
+   Knopf überlebt den Wechsel und meint dort weiterhin etwas; nachgeprüft, nicht angenommen.
+9. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
    einzelner Emotes ist der Name die Entscheidungsgrundlage — er landet im Zielset und der
    Kollisionshinweis handelt von ihm. Sichtbar steht der **Alias** des Quellsets; der globale
    Basisname kommt dort dazu, wo er abweicht (296 von 956 bei HandOfBlood), und zwar im zugänglichen
