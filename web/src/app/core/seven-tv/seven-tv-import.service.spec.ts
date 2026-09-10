@@ -367,6 +367,72 @@ describe('SevenTvImportService', () => {
     });
   });
 
+  // #149 P2 (independent review): a fully-refused (all-duplicates) startImport leaves no run/queue
+  // behind, so this transient flag is what lets `dockVisible()` (`usage-stats-page.ts`, via
+  // `action-dock.ts`) mount the notice at all — and what lets it clear on its own afterwards rather
+  // than requiring a dismiss control that, in that refused case, has nothing to attach to.
+  describe('duplicateNoticePending (#149 P2)', () => {
+    it('defaults to false when the caller omits skip info entirely', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS);
+
+      expect(service.duplicateNoticePending()).toBe(false);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('becomes true when the call reports a skip count, even for a refused (all-duplicates) run', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+
+      expect(service.duplicateNoticePending()).toBe(true);
+    });
+
+    it('becomes true when the call reports the check unavailable, even with nothing skipped', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, ROWS, 0, false);
+
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      runTwoRowsToDone();
+      httpMock.expectOne(SYNC_IMPORTED_B).flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectOne(RESYNC_B).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('clears itself after DUPLICATE_NOTICE_MS without any dismiss call', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(3999);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(1);
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+
+    it("a second call within the window restarts it, rather than the first call's timer cutting the new notice short", () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      vi.advanceTimersByTime(3000);
+
+      service.startImport(TARGET_C, CHANNEL_ORIGIN, [], 3);
+      vi.advanceTimersByTime(2000);
+
+      // 5000 ms after the first call, but only 2000 ms after the second — still pending.
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(2000);
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+
+    it('reset() clears it immediately, without waiting out the timer', () => {
+      service.startImport(TARGET_B, CHANNEL_ORIGIN, [], 2);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      service.reset();
+
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+  });
+
   // R15: the engine sets isRunning false *before* the closing calls go out, so a second run can be
   // started while the first one's follow-up is still in flight. Everything the follow-up needs hangs
   // off the run record it closed over, and a late answer that no longer matches run() is dropped.

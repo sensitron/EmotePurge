@@ -238,6 +238,9 @@ Zwei Eingriffe, beide klein:
 
 - **Restore filtert wie der Import.** Der Wiederherstellungs-Pfad gleicht die Protokollzeilen gegen
   den aktuellen Zielset-Bestand ab (Schlüssel `sevenTvEmoteId`) und überspringt, was schon drin ist.
+  **Nachtrag nach dem Codex-Review:** der Abgleich fragt **7TV selbst**, nicht unsere Datenbank —
+  gegen unsere Postgres gemessen hätte er nach einem fehlgeschlagenen `sync-deleted` genau die
+  Zeilen weggefiltert, die der Nutzer wiederherstellen will.
   Der Nutzer erfährt die Zahl der übersprungenen Zeilen, wie beim Import.
 - **Der Import zieht frisch.** Der Bestandsabgleich passiert unmittelbar vor dem Lauf, nicht nur gegen
   den Dialog-Schnappschuss.

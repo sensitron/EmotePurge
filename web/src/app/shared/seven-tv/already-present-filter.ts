@@ -1,6 +1,84 @@
-import { Observable, catchError, map, of } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
+import { Observable, catchError, map, of, switchMap, throwError } from 'rxjs';
 
-import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+/** Host-absolute, same endpoint the write mutations already use (`seven-tv-run-engine.ts`) —
+ *  reading a set's contents is public on `v4`, so unlike the mutations this needs no
+ *  `Authorization` header and no 7TV token. */
+const SEVEN_TV_GQL_ENDPOINT = 'https://7tv.io/v4/gql';
+
+// Mirrors SevenTvApiClient.cs's GqlEmoteSetPreviewQuery/SetEntriesPerPage/MaxSetEntryPages
+// (`src/EmotePurge.Infrastructure/SevenTv/SevenTvApiClient.cs`): 500 per page keeps even a
+// subscriber-sized set (capacity can exceed 1000) at a handful of requests, and the 10-page cap is
+// a runaway guard, not an expected limit — nothing in this codebase has ever seen a set anywhere
+// near 5000 entries. Only `emote.id` is requested: unlike the backend's preview query (which also
+// needs alias/name/scores for a human-facing list), this only ever compares ids.
+const SET_ENTRIES_PER_PAGE = 500;
+const MAX_SET_ENTRY_PAGES = 10;
+
+const GQL_EMOTE_SET_IDS_QUERY =
+  'query($id: Id!, $page: Int!, $perPage: Int!) { emoteSets { emoteSet(id: $id) { emotes(page: $page, perPage: $perPage) { totalCount pageCount items { emote { id } } } } } }';
+
+interface SevenTvGqlEmoteSetIdsResponse {
+  data?: {
+    emoteSets?: {
+      emoteSet?: {
+        emotes?: {
+          pageCount: number;
+          items: { emote: { id: string } }[];
+        } | null;
+      } | null;
+    } | null;
+  };
+  // 7TV can answer a GraphQL-level rejection (e.g. an unknown set id) with HTTP 200 — presence of
+  // this array, regardless of content, is what `loadAllSevenTvEmoteIds` treats as "no usable data".
+  errors?: unknown[];
+}
+
+function fetchEmoteSetIdsPage(
+  httpClient: HttpClient,
+  targetSetId: string,
+  page: number,
+): Observable<SevenTvGqlEmoteSetIdsResponse> {
+  return httpClient.post<SevenTvGqlEmoteSetIdsResponse>(SEVEN_TV_GQL_ENDPOINT, {
+    query: GQL_EMOTE_SET_IDS_QUERY,
+    variables: { id: targetSetId, page, perPage: SET_ENTRIES_PER_PAGE },
+  });
+}
+
+/** Walks every page of `targetSetId`'s current contents and collects the 7TV emote ids in it.
+ *  Errors (network, HTTP, or a GraphQL-level rejection) all become a thrown error here — a single
+ *  place for `filterAlreadyPresent`'s `catchError` below to fail open from, rather than each page
+ *  reporting failure its own way. Stops early once a page reports it was the last one
+ *  (`page >= pageCount`), and unconditionally at `MAX_SET_ENTRY_PAGES` — a set that size has never
+ *  been seen in this codebase, so stopping there and using what was gathered so far mirrors the
+ *  backend's own truncation behaviour (`GetEmoteSetPreviewAsync`) rather than failing the whole
+ *  check over it. */
+function loadAllSevenTvEmoteIds(
+  httpClient: HttpClient,
+  targetSetId: string,
+): Observable<Set<string>> {
+  const ids = new Set<string>();
+
+  function loadPage(page: number): Observable<Set<string>> {
+    return fetchEmoteSetIdsPage(httpClient, targetSetId, page).pipe(
+      switchMap((response) => {
+        const emotes = response.data?.emoteSets?.emoteSet?.emotes;
+        if ((response.errors?.length ?? 0) > 0 || !emotes) {
+          return throwError(() => new Error('7TV emote set read failed'));
+        }
+        for (const item of emotes.items) {
+          ids.add(item.emote.id);
+        }
+        if (page >= emotes.pageCount || page >= MAX_SET_ENTRY_PAGES) {
+          return of(ids);
+        }
+        return loadPage(page + 1);
+      }),
+    );
+  }
+
+  return loadPage(1);
+}
 
 export interface AlreadyPresentFilterResult<T> {
   /** `rows` minus every entry already present in the target set. What the run should actually send —
@@ -33,11 +111,20 @@ export interface AlreadyPresentFilterResult<T> {
  * instead of it: that filter can already be stale by the time the user actually confirms (another
  * editor, another tab, a long-open dialog), so this re-checks right before anything is sent.
  *
- * What this check can and cannot see: it asks our own API, which serves our database, not 7TV
- * live. That closes the dialog-snapshot gap — the rows are compared against something fetched
- * seconds ago rather than whenever the dialog opened — but it does not close the gap between our
- * mirror and 7TV itself, which is only ever as fresh as the last resync. An emote added to the set
- * at 7TV since then is invisible here.
+ * What this check can and cannot see: it asks **7TV itself**, not our database — a P1 review finding
+ * on the first version of this filter caught it asking `EmoteAdminService.listEmotes`, which serves
+ * our Postgres mirror (`ListActiveAsync`, `!IsArchived`). That is wrong specifically for restore:
+ * restore is the operation run *because* something already went wrong, most often right after a
+ * delete whose closing `sync-deleted` report to our own backend is still pending, failed, or only
+ * partially applied. In exactly that window our database still lists the just-deleted emotes as
+ * active, while 7TV has already dropped them — so a check against our own API would misclassify the
+ * rows the user is trying to restore as "already present", hand `startRestore` an empty or partial
+ * queue, and silently not roll back the very thing the user is here to undo. Reading 7TV's live
+ * `emoteSet` contents instead has no such staleness relative to our own mirror; it is the
+ * authoritative source for what asking the alias-collision question is really about. Reading it also
+ * costs nothing extra worth worrying about: this draws on 7TV's *global* rate-limit bucket
+ * (5000/60s, HTTP-layer), not the far tighter `emote_set_change` bucket the mutations themselves
+ * share — one read per run is negligible against it.
  *
  * And even against a perfectly fresh view, a window remains between this check and each individual
  * `addEmote` call, in which another editor could write to the set. That race cannot be closed
@@ -55,13 +142,12 @@ export interface AlreadyPresentFilterResult<T> {
  * run is worse than a visible one, so the failure has to reach the caller, not just the log.
  */
 export function filterAlreadyPresent<T extends { sevenTvEmoteId: string }>(
-  emoteAdminService: EmoteAdminService,
-  channelName: string,
+  httpClient: HttpClient,
+  targetSetId: string,
   rows: readonly T[],
 ): Observable<AlreadyPresentFilterResult<T>> {
-  return emoteAdminService.listEmotes(channelName).pipe(
-    map((targetEmotes) => {
-      const targetIds = new Set(targetEmotes.map((emote) => emote.sevenTvEmoteId));
+  return loadAllSevenTvEmoteIds(httpClient, targetSetId).pipe(
+    map((targetIds) => {
       const filtered = rows.filter((row) => !targetIds.has(row.sevenTvEmoteId));
       return { rows: filtered, skipped: rows.length - filtered.length, available: true };
     }),

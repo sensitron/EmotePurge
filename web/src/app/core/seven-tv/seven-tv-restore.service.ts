@@ -40,6 +40,12 @@ const ADD_OPERATION: RunOperation = {
   }),
 };
 
+// #149 P2 (independent review): how long `duplicateNoticePending` stays true after a `startRestore`
+// call that had something to report. Same 4000 ms convention as every other transient status in
+// this app (docs/UI-Designsprache.md §4.5). See the identical constant in
+// `seven-tv-import.service.ts` for why this lives on the service rather than on a page.
+const DUPLICATE_NOTICE_MS = 4000;
+
 /** Outcome of the closing resync trigger. 'cooldown' is not a failure: the per-channel cooldown
  *  (429) means a sync just ran or is about to — the periodic worker heals the view within its
  *  60s tick either way. */
@@ -112,6 +118,21 @@ export class SevenTvRestoreService {
    *  skip". */
   readonly duplicateCheckAvailable = signal(true);
 
+  /** #149 P2 (independent review): whether the notice built from the two signals above should
+   *  currently be shown — true for `DUPLICATE_NOTICE_MS` after any `startRestore` call that had
+   *  something to report (`skippedDuplicates > 0 || !duplicateCheckAvailable`), including a refused
+   *  (all-duplicates) call. `dockVisible()` (`usage-stats-page.ts`, via `action-dock.ts`) treats this
+   *  exactly like an active restore, which is what lets `MassDeletePanel` mount at all in that
+   *  refused case — without it the panel's own gate (`isRunning() || queue().length > 0`) would
+   *  never fire, since a refused call leaves both false, and the notice that is the run's *only*
+   *  outcome would be unreachable. Self-clearing rather than requiring a manual dismiss for the same
+   *  reason `usage-stats-page`'s `selectionPrunedFeedback` is (design doc §4.5): a refused call has
+   *  no run/queue for a dismiss button to attach to, and a persistent flag would otherwise be able
+   *  to sit next to an unrelated *later* run's details with nothing to clear it. */
+  readonly duplicateNoticePending = signal(false);
+
+  private duplicateNoticeTimeout: ReturnType<typeof setTimeout> | undefined;
+
   /** `skippedDuplicates` is the caller's own count from filtering `emotes` *before* this call —
    *  this method does no filtering of its own (see `already-present-filter.ts`, which every current
    *  caller runs first). Defaults to 0 so existing callers/tests that pass only three arguments are
@@ -126,6 +147,7 @@ export class SevenTvRestoreService {
   ): void {
     this.skippedDuplicates.set(skippedDuplicates);
     this.duplicateCheckAvailable.set(duplicateCheckAvailable);
+    this.showDuplicateNotice(skippedDuplicates > 0 || !duplicateCheckAvailable);
     // Same key-mirrors-emoteId reasoning as the delete service (see R3 in docs/DECISIONS.md).
     const queueEmotes: RunQueueEmote[] = emotes.map((emote) => ({ ...emote, key: emote.emoteId }));
     const started: RestoreRunInfo = { channelName, result: null };
@@ -154,6 +176,7 @@ export class SevenTvRestoreService {
     this.resyncTrigger.set('idle');
     this.skippedDuplicates.set(0);
     this.duplicateCheckAvailable.set(true);
+    this.showDuplicateNotice(false);
     this.run = null;
   }
 
@@ -244,5 +267,21 @@ export class SevenTvRestoreService {
       return;
     }
     apply();
+  }
+
+  /** #149 P2: `hasSomethingToReport` clears any earlier timer first — a second call within
+   *  `DUPLICATE_NOTICE_MS` of the first must not let the first timer's clear race the new one and
+   *  hide a still-current notice out from under it. */
+  private showDuplicateNotice(hasSomethingToReport: boolean): void {
+    clearTimeout(this.duplicateNoticeTimeout);
+    if (!hasSomethingToReport) {
+      this.duplicateNoticePending.set(false);
+      return;
+    }
+    this.duplicateNoticePending.set(true);
+    this.duplicateNoticeTimeout = setTimeout(
+      () => this.duplicateNoticePending.set(false),
+      DUPLICATE_NOTICE_MS,
+    );
   }
 }

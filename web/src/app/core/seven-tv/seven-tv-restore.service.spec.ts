@@ -323,6 +323,74 @@ describe('SevenTvRestoreService', () => {
     });
   });
 
+  // #149 P2 (independent review): a fully-refused (all-duplicates) startRestore leaves no run/queue
+  // behind, so this transient flag is what lets `dockVisible()` (`usage-stats-page.ts`, via
+  // `action-dock.ts`) mount the notice at all — and what lets it clear on its own afterwards rather
+  // than requiring a dismiss control that, in that refused case, has nothing to attach to.
+  describe('duplicateNoticePending (#149 P2)', () => {
+    it('defaults to false when the caller omits skip info entirely', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]]);
+
+      expect(service.duplicateNoticePending()).toBe(false);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('becomes true when the call reports a skip count, even for a refused (all-duplicates) run', () => {
+      service.startRestore('set-1', 'sensitron', [], 2);
+
+      expect(service.duplicateNoticePending()).toBe(true);
+    });
+
+    it('becomes true when the call reports the check unavailable, even with nothing skipped', () => {
+      service.startRestore('set-1', 'sensitron', [EMOTES[0]], 0, false);
+
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      httpMock.expectOne(GQL_ENDPOINT).flush({});
+      vi.advanceTimersByTime(RUN_DELAY_MS);
+      httpMock.expectOne(SYNC_RESTORED_ENDPOINT).flush({ restoredCount: 1, notFoundIds: [] });
+      httpMock.expectOne(RESYNC_ENDPOINT).flush(null, { status: 202, statusText: 'Accepted' });
+    });
+
+    it('clears itself after DUPLICATE_NOTICE_MS without any dismiss call', () => {
+      service.startRestore('set-1', 'sensitron', [], 2);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(3999);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(1);
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+
+    it("a second call within the window restarts it, rather than the first call's timer cutting the new notice short", () => {
+      service.startRestore('set-1', 'sensitron', [], 2);
+      vi.advanceTimersByTime(3000);
+
+      service.startRestore('set-2', 'other-channel', [], 3);
+      vi.advanceTimersByTime(2000);
+
+      // 5000 ms after the first call, but only 2000 ms after the second — still pending.
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      vi.advanceTimersByTime(2000);
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+
+    it('reset() clears it immediately, without waiting out the timer', () => {
+      service.startRestore('set-1', 'sensitron', [], 2);
+      expect(service.duplicateNoticePending()).toBe(true);
+
+      service.reset();
+
+      expect(service.duplicateNoticePending()).toBe(false);
+    });
+  });
+
   // R15 (#72, T12): finish() flips isRunning() to false *before* the two closing calls resolve, so
   // a second run can legitimately start while the first one's report/resync are still in flight.
   // Their late answers must not land on the second run's state.

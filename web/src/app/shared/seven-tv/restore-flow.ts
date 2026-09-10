@@ -1,4 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { HttpClient } from '@angular/common/http';
 import { signal } from '@angular/core';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
@@ -22,6 +23,9 @@ import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 export interface RestoreFlowDeps {
   dialog: Dialog;
   emoteAdminService: EmoteAdminService;
+  /** Only for `filterAlreadyPresent`'s direct read against 7TV (#149 P1 fix) — every other read in
+   *  this flow goes through `emoteAdminService`. */
+  httpClient: HttpClient;
   tokenService: SevenTvTokenService;
   restoreService: SevenTvRestoreService;
   arbiter: SevenTvRunArbiter;
@@ -81,10 +85,21 @@ export function startRestoreFlow(
         name: row.name,
       }));
       // #149/T5: a restore never had any duplicate protection at all — filter it fresh, right here,
-      // against the target set's current contents. See `filterAlreadyPresent` for why this sits at
-      // confirm-time rather than dialog-open-time and for the residual race it does not close.
-      filterAlreadyPresent(deps.emoteAdminService, channelName, emotes).subscribe(
+      // against the target set's current contents, read from 7TV itself rather than our database
+      // (see `filterAlreadyPresent`'s doc — asking our own mirror is exactly wrong for restore,
+      // which runs *because* something already went wrong and our mirror may still be stale) for
+      // why this sits at confirm-time rather than dialog-open-time and for the residual race it
+      // does not close.
+      filterAlreadyPresent(deps.httpClient, setId, emotes).subscribe(
         ({ rows: toRestore, skipped, available }) => {
+          // #149 P2 review fix: the arbiter check above ran *before* this fetch, outside the
+          // mutual-exclusion contract (design doc §4.3) it is meant to enforce — another run can
+          // start in that window. Re-checked here, right before the only remaining call that
+          // actually starts anything; silent on a block for the same reason as the check above,
+          // the run that got there first is already visible in the dock.
+          if (deps.arbiter.activeRun() !== null) {
+            return;
+          }
           deps.restoreService.startRestore(setId, channelName, toRestore, skipped, available);
         },
       );

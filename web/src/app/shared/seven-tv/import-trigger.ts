@@ -1,4 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { HttpClient } from '@angular/common/http';
 import { Component, computed, inject, input } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 
@@ -67,6 +68,9 @@ export class ImportTrigger {
   private readonly arbiter = inject(SevenTvRunArbiter);
   private readonly dialog = inject(Dialog);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  /** Only for `filterAlreadyPresent`'s direct read against 7TV (#149 P1 fix) — every other read
+   *  reached from here goes through `emoteAdminService`. */
+  private readonly httpClient = inject(HttpClient);
   private readonly tokenService = inject(SevenTvTokenService);
   private readonly restoreService = inject(SevenTvRestoreService);
   private readonly importService = inject(SevenTvImportService);
@@ -94,6 +98,7 @@ export class ImportTrigger {
           {
             dialog: this.dialog,
             emoteAdminService: this.emoteAdminService,
+            httpClient: this.httpClient,
             tokenService: this.tokenService,
             restoreService: this.restoreService,
             arbiter: this.arbiter,
@@ -107,6 +112,7 @@ export class ImportTrigger {
       const importDeps = {
         dialog: this.dialog,
         emoteAdminService: this.emoteAdminService,
+        httpClient: this.httpClient,
         tokenService: this.tokenService,
         importService: this.importService,
         arbiter: this.arbiter,

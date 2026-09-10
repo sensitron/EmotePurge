@@ -1,4 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { HttpClient } from '@angular/common/http';
 import { WritableSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
@@ -54,6 +55,24 @@ function importSource(overrides: Partial<ImportSource> = {}): ImportSource {
   };
 }
 
+/** A `filterAlreadyPresent` GQL page response (`already-present-filter.ts`) containing exactly the
+ *  given 7TV emote ids, as the single (and last) page. */
+function emoteSetPage(ids: string[] = []) {
+  return {
+    data: {
+      emoteSets: {
+        emoteSet: {
+          emotes: {
+            totalCount: ids.length,
+            pageCount: 1,
+            items: ids.map((id) => ({ emote: { id } })),
+          },
+        },
+      },
+    },
+  };
+}
+
 function readyStatus(overrides: Partial<EmoteSetStatus> = {}): EmoteSetStatus {
   return {
     activeEmoteSetId: CURRENT_SET,
@@ -79,6 +98,11 @@ describe('ImportTrigger', () => {
   let getSetStatus: ReturnType<typeof vi.fn>;
   let listEmotes: ReturnType<typeof vi.fn>;
   let getSetWarning: ReturnType<typeof vi.fn>;
+  /** The fresh #149/T5 duplicate check (`already-present-filter.ts`) — since the P1 fix this is a
+   *  raw `HttpClient.post` straight to 7TV, not `emoteAdminService`/`listEmotes`. Defaults to an
+   *  empty target set, i.e. every existing expectation below (skip count 0, available true) still
+   *  holds unless a test overrides it. */
+  let httpPost: ReturnType<typeof vi.fn>;
   let startRestore: ReturnType<typeof vi.fn>;
   let startImport: ReturnType<typeof vi.fn>;
   let hasToken: WritableSignal<boolean>;
@@ -96,6 +120,7 @@ describe('ImportTrigger', () => {
         otherModeratedChannelsSharingSet: [],
       }),
     );
+    httpPost = vi.fn(() => of(emoteSetPage()));
     startRestore = vi.fn();
     startImport = vi.fn();
     hasToken = signal(true);
@@ -115,6 +140,7 @@ describe('ImportTrigger', () => {
           provide: EmoteAdminService,
           useValue: { getSetStatus, listEmotes, getSetWarning } as unknown as EmoteAdminService,
         },
+        { provide: HttpClient, useValue: { post: httpPost } as unknown as HttpClient },
         {
           provide: SevenTvRestoreService,
           useValue: { startRestore } as unknown as SevenTvRestoreService,
@@ -203,8 +229,9 @@ describe('ImportTrigger', () => {
       closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
       closedAt<boolean>(1).next(true);
 
-      // Fourth argument is the #149/T5 duplicate-check skip count — 0 because `listEmotes`
-      // defaults to an empty target set. Fifth is whether that check actually ran (#149).
+      // Fourth argument is the #149/T5 duplicate-check skip count — 0 because the fresh 7TV read
+      // (`httpPost`) defaults to an empty target set. Fifth is whether that check actually ran
+      // (#149).
       expect(startRestore).toHaveBeenCalledWith(
         'set-a',
         'channel-a',

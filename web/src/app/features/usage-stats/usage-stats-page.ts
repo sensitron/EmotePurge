@@ -1,4 +1,4 @@
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Dialog } from '@angular/cdk/dialog';
 import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
 import {
@@ -238,6 +238,9 @@ export class UsageStatsPage {
 
   private readonly usageStatService = inject(UsageStatService);
   private readonly emoteAdminService = inject(EmoteAdminService);
+  /** Only for `filterAlreadyPresent`'s direct read against 7TV (#149 P1 fix, via `import-flow.ts`)
+   *  — every other read on this page goes through `emoteAdminService`. */
+  private readonly httpClient = inject(HttpClient);
   private readonly channelService = inject(ChannelService);
   private readonly languageService = inject(LanguageService);
   private readonly deleteService = inject(SevenTvDeleteService);
@@ -718,6 +721,13 @@ export class UsageStatsPage {
    * see actionDockHasContent for why the bar would otherwise render empty. The import clause repeats
    * `app-import-progress-section`'s gate exactly, `run()` included, since that component draws
    * nothing without a run to name.
+   *
+   * `importNoticePending`/`restoreNoticePending` (#149 P2, independent review) cover the one case
+   * neither `deleteShown`/`restoreShown`/`importShown` can: a fresh pre-run duplicate check
+   * (`already-present-filter.ts`) that filtered away *every* row. The engine then refuses to start
+   * — no run, no queue — so without these two flags the dock (and the notice-carrying section/panel
+   * inside it) would never mount for exactly the outcome the notice exists to report, and a user who
+   * confirmed a restore of duplicates-only rows would see nothing happen at all.
    */
   protected readonly dockVisible = computed(() =>
     actionDockHasContent({
@@ -732,6 +742,8 @@ export class UsageStatsPage {
       importShown:
         this.importService.run() !== null &&
         (this.importService.isRunning() || this.importService.queue().length > 0),
+      importNoticePending: this.importService.duplicateNoticePending(),
+      restoreNoticePending: this.restoreService.duplicateNoticePending(),
     }),
   );
 
@@ -1388,6 +1400,7 @@ export class UsageStatsPage {
     const deps: ImportFlowDeps = {
       dialog: this.dialog,
       emoteAdminService: this.emoteAdminService,
+      httpClient: this.httpClient,
       tokenService: this.tokenService,
       importService: this.importService,
       arbiter: this.arbiter,

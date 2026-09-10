@@ -1151,8 +1151,21 @@ test.describe('running import: a token without write rights', () => {
     // 7TV v4's real shape for a token that may not write the set: a GQL error inside a 200, with
     // `extensions.code` carrying the structured reason `abortsForMissingPrivileges` actually reads —
     // not a message substring.
+    //
+    // #149 P1: the fresh pre-run duplicate check (`already-present-filter.ts`) now reads 7TV
+    // directly too, over this same endpoint, right before the run starts — so this handler must
+    // tell that read apart from the real `addEmote` attempt it exists to count. A read the token
+    // *can* make even without write rights (reading a set is public, no token at all is even sent —
+    // see that file's doc), so it gets a clean empty-set answer here rather than the same
+    // privilege error, keeping `mutationCount` exactly what its name says: attempts at the actual
+    // mutation, not at the read in front of it.
     let mutationCount = 0;
-    await mockSevenTvGql(page, () => {
+    await mockSevenTvGql(page, (request) => {
+      if (!request.query.includes('addEmote')) {
+        return {
+          data: { emoteSets: { emoteSet: { emotes: { totalCount: 0, pageCount: 1, items: [] } } } },
+        };
+      }
       mutationCount += 1;
       return {
         errors: [

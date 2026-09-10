@@ -1,5 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { signal, WritableSignal } from '@angular/core';
 import { of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
@@ -31,6 +31,24 @@ function source(rows: ImportRow[] = [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }]
   };
 }
 
+/** A `filterAlreadyPresent` GQL page response (`already-present-filter.ts`) containing exactly the
+ *  given 7TV emote ids, as the single (and last) page. */
+function emoteSetPage(ids: string[] = []) {
+  return {
+    data: {
+      emoteSets: {
+        emoteSet: {
+          emotes: {
+            totalCount: ids.length,
+            pageCount: 1,
+            items: ids.map((id) => ({ emote: { id } })),
+          },
+        },
+      },
+    },
+  };
+}
+
 function readyStatus(overrides: Partial<EmoteSetStatus> = {}): EmoteSetStatus {
   return {
     activeEmoteSetId: 'set-1',
@@ -52,10 +70,14 @@ interface Harness {
    *  request kept under manual control; `listEmotes`/`getSetWarning` resolve synchronously so only
    *  this subject gates when a load settles (needed to pin down the generation counter). */
   statusSubjects: Subject<EmoteSetStatus>[];
-  /** Backs both `loadImportTarget`'s dialog-open-time fetch (used to build the preview) *and*
-   *  the fresh #149/T5 re-check run right before `startImport` — resolves synchronously to an
-   *  empty target set by default, i.e. neither one filters anything, unless a test overrides it. */
+  /** `loadImportTarget`'s dialog-open-time fetch (used to build the preview) — resolves
+   *  synchronously to an empty target set by default, unless a test overrides it. Unrelated to the
+   *  fresh #149/T5 re-check below since #149 P1: that one no longer asks our database at all. */
   listEmotes: ReturnType<typeof vi.fn>;
+  /** The fresh #149/T5 re-check run right before `startImport` — since the P1 fix, this is a raw
+   *  `HttpClient.post` straight to 7TV's `v4` GQL endpoint (`already-present-filter.ts`), not
+   *  `emoteAdminService`. Resolves synchronously to an empty target set by default. */
+  httpPost: ReturnType<typeof vi.fn>;
   startImport: ReturnType<typeof vi.fn>;
   hasToken: WritableSignal<boolean>;
   activeRun: WritableSignal<SevenTvRunKind | null>;
@@ -83,6 +105,9 @@ function setup(): Harness {
     ),
   } as unknown as EmoteAdminService;
 
+  const httpPost = vi.fn(() => of(emoteSetPage()));
+  const httpClient = { post: httpPost } as unknown as HttpClient;
+
   const hasToken = signal(true);
   const tokenService = { hasToken } as unknown as SevenTvTokenService;
 
@@ -96,10 +121,11 @@ function setup(): Harness {
   const dialog = { open: dialogOpen } as unknown as Dialog;
 
   return {
-    deps: { dialog, emoteAdminService, tokenService, importService, arbiter },
+    deps: { dialog, emoteAdminService, httpClient, tokenService, importService, arbiter },
     dialogOpen,
     statusSubjects,
     listEmotes,
+    httpPost,
     startImport,
     hasToken,
     activeRun,
@@ -217,8 +243,8 @@ describe('startImportFlow', () => {
     confirmClosed(dialogOpen).next(outcome);
 
     // Fourth argument is the fresh #149/T5 re-check's skip count — 0 here because the harness's
-    // default `listEmotes` reports an empty target set, so nothing gets filtered a second time.
-    // Fifth is whether that check actually ran — true, since the fetch succeeded (#149).
+    // default 7TV read (`httpPost`) reports an empty target set, so nothing gets filtered a second
+    // time. Fifth is whether that check actually ran — true, since the fetch succeeded (#149).
     expect(startImport).toHaveBeenCalledWith(
       { setId: 'set-1', channelName: 'target-channel' },
       src.origin,
@@ -235,32 +261,37 @@ describe('startImportFlow', () => {
   // duplicate only after the dialog opened (another editor, another tab, a long-open dialog).
   describe('fresh pre-send duplicate check (#149/T5)', () => {
     it('re-checks the target set fresh at confirm time, not reusing the dialog-open snapshot', () => {
-      const { deps, dialogOpen, listEmotes } = setup();
+      const { deps, dialogOpen, listEmotes, httpPost } = setup();
       startImportFlow(deps, source(), 'target-channel');
 
-      // The dialog-open-time fetch (for the preview) has already happened by now.
+      // The dialog-open-time fetch (for the preview) has already happened by now — and the fresh
+      // check has not, since nothing has been confirmed yet.
       expect(listEmotes).toHaveBeenCalledTimes(1);
+      expect(httpPost).not.toHaveBeenCalled();
 
       confirmClosed(dialogOpen).next({
         targetSetId: 'set-1',
         rows: [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }],
       });
 
-      // A second, independent fetch — the fresh check — runs right here, at confirm time.
-      expect(listEmotes).toHaveBeenCalledTimes(2);
-      expect(listEmotes).toHaveBeenLastCalledWith('target-channel');
+      // The fresh check runs right here, at confirm time — against 7TV directly (#149 P1), not
+      // `emoteAdminService` again.
+      expect(listEmotes).toHaveBeenCalledTimes(1);
+      expect(httpPost).toHaveBeenCalledTimes(1);
+      expect(httpPost).toHaveBeenCalledWith('https://7tv.io/v4/gql', {
+        query: expect.stringContaining('emoteSets'),
+        variables: { id: 'set-1', page: 1, perPage: 500 },
+      });
     });
 
     it('drops a row that appeared in the target set only after the dialog opened, and reports it as skipped', () => {
-      const { deps, dialogOpen, startImport, listEmotes } = setup();
+      const { deps, dialogOpen, startImport, httpPost } = setup();
       startImportFlow(deps, source(), 'target-channel');
 
       // Between the dialog opening (still-empty target, from setup()'s default) and the user
       // confirming, another editor added this exact emote to the target set under a different
       // alias — the dialog-time preview never saw it.
-      listEmotes.mockReturnValue(
-        of<EmoteListItem[]>([{ sevenTvEmoteId: '7tv-1', name: 'SomeAlias' }]),
-      );
+      httpPost.mockReturnValue(of(emoteSetPage(['7tv-1'])));
 
       confirmClosed(dialogOpen).next({
         targetSetId: 'set-1',
@@ -280,10 +311,10 @@ describe('startImportFlow', () => {
     // must not read as a clean all-clear — the flow forwards `available: false` from the filter
     // straight into `startImport`'s fifth argument rather than swallowing it.
     it('fails open on a failed duplicate check and reports it as unavailable rather than a clean skip', () => {
-      const { deps, dialogOpen, startImport, listEmotes } = setup();
+      const { deps, dialogOpen, startImport, httpPost } = setup();
       startImportFlow(deps, source(), 'target-channel');
 
-      listEmotes.mockReturnValue(throwError(() => new Error('network error')));
+      httpPost.mockReturnValue(throwError(() => new Error('network error')));
 
       confirmClosed(dialogOpen).next({
         targetSetId: 'set-1',
@@ -298,6 +329,30 @@ describe('startImportFlow', () => {
         false,
       );
     });
+  });
+
+  // #149 P2 (independent review): the arbiter's mutual-exclusion check ran before the fresh
+  // duplicate check's async fetch — a second run could start in that window and would have
+  // overlapped this one. Pinned as behaviour, not implementation: confirming while the fetch is
+  // still in flight, then having another run claim the arbiter before it answers, must abandon
+  // this start.
+  it('abandons the start when another run claims the arbiter while the fresh check is still in flight', () => {
+    const { deps, dialogOpen, startImport, httpPost, activeRun } = setup();
+    const fetch = new Subject<ReturnType<typeof emoteSetPage>>();
+    httpPost.mockReturnValue(fetch);
+    startImportFlow(deps, source(), 'target-channel');
+
+    confirmClosed(dialogOpen).next({
+      targetSetId: 'set-1',
+      rows: [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }],
+    });
+
+    // A delete run starts elsewhere while this import's own fresh check is still awaiting 7TV.
+    activeRun.set('delete');
+    fetch.next(emoteSetPage());
+    fetch.complete();
+
+    expect(startImport).not.toHaveBeenCalled();
   });
 
   it('starts nothing when the confirm dialog is dismissed without an outcome', () => {

@@ -27,16 +27,23 @@ import { RunProgressPanel } from './run-progress-panel';
   selector: 'app-import-progress-section',
   imports: [Button, NoticeBanner, RouterLink, RunProgressPanel, TranslocoPipe],
   template: `
-    @if (importService.skippedDuplicates() > 0) {
-      <p class="text-sm text-fg-secondary">
+    <!-- #149 P2 (independent review): gated on duplicateNoticePending, not just skippedDuplicates() >
+         0 — a transient notice (design doc §4.5), not a persistent one, so it never sits attached to
+         a *later*, unrelated run's details with nothing to clear it. See that signal's doc for why
+         it also has to be what keeps the dock (and this section) mounted for a fully-refused
+         (all-duplicates) run, which leaves no run/queue behind of its own. -->
+    @if (importService.duplicateNoticePending() && importService.skippedDuplicates() > 0) {
+      <p class="text-sm text-fg-secondary" role="status">
         {{ skippedDuplicatesKey() | transloco: { count: importService.skippedDuplicates() } }}
       </p>
     }
     <!-- The fresh pre-send duplicate check's fetch failed (already-present-filter.ts) — every row
          still went through, so a duplicate may have slipped in undetected. A quiet notice, not an
          alarm: the run is still expected to succeed, this only says the guard could not run. -->
-    @if (!importService.duplicateCheckAvailable()) {
-      <p class="text-sm text-fg-secondary">{{ 'import.duplicateCheckUnavailable' | transloco }}</p>
+    @if (importService.duplicateNoticePending() && !importService.duplicateCheckAvailable()) {
+      <p class="text-sm text-fg-secondary" role="status">
+        {{ 'import.duplicateCheckUnavailable' | transloco }}
+      </p>
     }
     @if (importService.isRunning() || importService.queue().length > 0) {
       @if (importService.run(); as run) {

@@ -15,6 +15,15 @@ import { ResyncTriggerState } from './seven-tv-restore.service';
 import { RunOperation, RunQueueEmote, RunResult, SevenTvRunEngine } from './seven-tv-run-engine';
 import { SevenTvTokenService } from './seven-tv-token.service';
 
+// #149 P2 (independent review): how long `duplicateNoticePending` stays true after a `startImport`
+// call that had something to report. Same 4000 ms convention as every other transient status in
+// this app (docs/UI-Designsprache.md §4.5 — usage-stats-page's SELECTION_PRUNED_FEEDBACK_MS,
+// channel-workspace-layout's RESYNC_FEEDBACK_MS). Lives here rather than on the page that renders
+// it because the *visibility* of the page's own dock depends on this flag (see
+// `dockVisible`/`action-dock.ts`) — a refused, all-duplicates run leaves no run/queue for the dock
+// to mount on otherwise, which is exactly the bug this exists to fix.
+const DUPLICATE_NOTICE_MS = 4000;
+
 /** The same ADD the restore run uses — an import *is* an ADD, only with rows that come from
  *  somewhere else. `alias` carries the source alias so the copy keeps the name the source channel
  *  knew it by; without it 7TV would fall back to the emote's default name. It travels *inside* the
@@ -154,6 +163,21 @@ export class SevenTvImportService {
    *  it keep reading as "checked, nothing to skip". */
   readonly duplicateCheckAvailable = signal(true);
 
+  /** #149 P2 (independent review): whether the notice built from the two signals above should
+   *  currently be shown — true for `DUPLICATE_NOTICE_MS` after any `startImport` call that had
+   *  something to report (`skippedDuplicates > 0 || !duplicateCheckAvailable`), including a refused
+   *  (all-duplicates) call. `dockVisible()` (`usage-stats-page.ts`, via `action-dock.ts`) treats this
+   *  exactly like an active run, which is what lets `import-progress-section` mount at all in that
+   *  refused case — without it the section's own gate (`isRunning() || queue().length > 0`) would
+   *  never fire, since a refused call leaves both false, and the notice that is the run's *only*
+   *  outcome would be unreachable. Self-clearing rather than requiring a manual dismiss for the same
+   *  reason `usage-stats-page`'s `selectionPrunedFeedback` is (design doc §4.5): a refused call has
+   *  no run/queue for a dismiss button to attach to, and a persistent flag would otherwise be able
+   *  to sit next to an unrelated *later* run's details with nothing to clear it. */
+  readonly duplicateNoticePending = signal(false);
+
+  private duplicateNoticeTimeout: ReturnType<typeof setTimeout> | undefined;
+
   /** `rows` are expected deduplicated (`dedupeImportRows`) and already filtered against the
    *  dialog-time target snapshot (`buildImportPreview`); this method does no filtering of its own.
    *  `skippedDuplicates` is the caller's own count from the *fresh* re-check it ran just before this
@@ -169,6 +193,7 @@ export class SevenTvImportService {
   ): void {
     this.skippedDuplicates.set(skippedDuplicates);
     this.duplicateCheckAvailable.set(duplicateCheckAvailable);
+    this.showDuplicateNotice(skippedDuplicates > 0 || !duplicateCheckAvailable);
     // The 7TV id is the only identity an imported row has — the emote does not exist in our
     // database yet, so there is no internal `emoteId` to mirror the key from.
     const queueEmotes: RunQueueEmote[] = rows.map((row) => ({
@@ -213,6 +238,7 @@ export class SevenTvImportService {
     this.abortedForPrivileges.set(false);
     this.skippedDuplicates.set(0);
     this.duplicateCheckAvailable.set(true);
+    this.showDuplicateNotice(false);
   }
 
   /** Manual retry for the closing report — the 7TV adds are long done, so this only re-sends the
@@ -302,5 +328,21 @@ export class SevenTvImportService {
       return;
     }
     apply();
+  }
+
+  /** #149 P2: `hasSomethingToReport` clears any earlier timer first — a second call within
+   *  `DUPLICATE_NOTICE_MS` of the first must not let the first timer's clear race the new one and
+   *  hide a still-current notice out from under it. */
+  private showDuplicateNotice(hasSomethingToReport: boolean): void {
+    clearTimeout(this.duplicateNoticeTimeout);
+    if (!hasSomethingToReport) {
+      this.duplicateNoticePending.set(false);
+      return;
+    }
+    this.duplicateNoticePending.set(true);
+    this.duplicateNoticeTimeout = setTimeout(
+      () => this.duplicateNoticePending.set(false),
+      DUPLICATE_NOTICE_MS,
+    );
   }
 }

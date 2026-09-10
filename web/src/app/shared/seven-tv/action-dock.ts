@@ -26,9 +26,26 @@ export interface ActionDockState {
   /** An import run is in flight or settled-but-still-shown. Independent of `hasActiveSet` on
    *  purpose — see above. */
   readonly importShown: boolean;
+  /** #149 P2 (independent review): the fresh pre-run duplicate check (`already-present-filter.ts`)
+   *  just reported something and the transient notice for it is still showing
+   *  (`SevenTvImportService.duplicateNoticePending`). Independent of `hasActiveSet`, same reasoning
+   *  as `importShown` — an all-duplicates *refused* import leaves no run/queue behind, so without
+   *  this the dock (and the section that renders the notice) would never mount for exactly the
+   *  outcome the notice exists to report. */
+  readonly importNoticePending: boolean;
+  /** Same as `importNoticePending`, for the restore side (`SevenTvRestoreService.duplicateNoticePending`)
+   *  — covers both restore entry points (`MassDeletePanel`'s own confirm, and a file-based restore
+   *  reached via `ImportTrigger`, which need not have anything marked in this channel's grid at
+   *  all). */
+  readonly restoreNoticePending: boolean;
 }
 
 export function actionDockHasContent(state: ActionDockState): boolean {
   const markingShown = state.markedCount > 0 || state.deleteShown || state.restoreShown;
-  return (state.hasActiveSet && markingShown) || state.importShown;
+  return (
+    (state.hasActiveSet && markingShown) ||
+    state.importShown ||
+    state.importNoticePending ||
+    state.restoreNoticePending
+  );
 }

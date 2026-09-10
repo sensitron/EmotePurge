@@ -1,4 +1,5 @@
 import { Dialog } from '@angular/cdk/dialog';
+import { provideHttpClient } from '@angular/common/http';
 import { Component, WritableSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TranslocoService, TranslocoTestingModule } from '@jsverse/transloco';
@@ -117,6 +118,7 @@ describe('MassDeletePanel row composition', () => {
         }),
       ],
       providers: [
+        provideHttpClient(),
         {
           provide: EmoteAdminService,
           useValue: {} as unknown as EmoteAdminService,
@@ -141,6 +143,7 @@ describe('MassDeletePanel row composition', () => {
             resyncTrigger: signal('idle'),
             skippedDuplicates: signal(0),
             duplicateCheckAvailable: signal(true),
+            duplicateNoticePending: signal(false),
           } as unknown as SevenTvRestoreService,
         },
         {
@@ -252,6 +255,7 @@ describe('MassDeletePanel — protocol export choice handling (#141)', () => {
         }),
       ],
       providers: [
+        provideHttpClient(),
         { provide: EmoteAdminService, useValue: {} as unknown as EmoteAdminService },
         {
           provide: SevenTvDeleteService,
@@ -273,6 +277,7 @@ describe('MassDeletePanel — protocol export choice handling (#141)', () => {
             resyncTrigger: signal('idle'),
             skippedDuplicates: signal(0),
             duplicateCheckAvailable: signal(true),
+            duplicateNoticePending: signal(false),
           } as unknown as SevenTvRestoreService,
         },
         {
@@ -341,7 +346,11 @@ describe('MassDeletePanel — protocol export choice handling (#141)', () => {
  * #149: the notice for a pre-run duplicate check that could not run at all
  * (`already-present-filter.ts`'s `available: false`) — distinct from, and independent of, the
  * `skippedDuplicates` notice above it. Mounts `MassDeletePanel` directly so `duplicateCheckAvailable`
- * can be driven straight from the test, same style as the protocol-export block above.
+ * and `duplicateNoticePending` can be driven straight from the test, same style as the
+ * protocol-export block above. The real service always sets both together (`startRestore` calls
+ * `showDuplicateNotice` right after setting `duplicateCheckAvailable`) — these tests drive them
+ * independently on purpose, to pin the P2 fix (design doc §4.5's transient-notice convention) as its
+ * own behaviour rather than assuming the coupling.
  */
 describe('MassDeletePanel — duplicate-check-unavailable notice (#149)', () => {
   const DUPLICATE_CHECK_TRANSLATIONS = {
@@ -354,9 +363,11 @@ describe('MassDeletePanel — duplicate-check-unavailable notice (#149)', () => 
 
   let fixture: ComponentFixture<MassDeletePanel>;
   let duplicateCheckAvailable: WritableSignal<boolean>;
+  let duplicateNoticePending: WritableSignal<boolean>;
 
   beforeEach(async () => {
     duplicateCheckAvailable = signal(true);
+    duplicateNoticePending = signal(true);
 
     await TestBed.configureTestingModule({
       imports: [
@@ -367,6 +378,7 @@ describe('MassDeletePanel — duplicate-check-unavailable notice (#149)', () => 
         }),
       ],
       providers: [
+        provideHttpClient(),
         { provide: EmoteAdminService, useValue: {} as unknown as EmoteAdminService },
         {
           provide: SevenTvDeleteService,
@@ -388,6 +400,7 @@ describe('MassDeletePanel — duplicate-check-unavailable notice (#149)', () => 
             resyncTrigger: signal('idle'),
             skippedDuplicates: signal(0),
             duplicateCheckAvailable,
+            duplicateNoticePending,
           } as unknown as SevenTvRestoreService,
         },
         {
@@ -426,5 +439,18 @@ describe('MassDeletePanel — duplicate-check-unavailable notice (#149)', () => 
     expect(fixture.nativeElement.textContent).toContain(
       'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
     );
+  });
+
+  // #149 P2 (independent review): the notice is transient (design doc §4.5), not a persistent flag
+  // — once its window has elapsed (duplicateNoticePending flips back to false, e.g. a later,
+  // unrelated run has since settled), it must not keep showing just because duplicateCheckAvailable
+  // still happens to read false from a stale earlier run.
+  it('hides the notice again once its pending window has elapsed, even while duplicateCheckAvailable still reads false', () => {
+    duplicateCheckAvailable.set(false);
+    duplicateNoticePending.set(false);
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Wir konnten gerade nicht prüfen');
   });
 });
