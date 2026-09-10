@@ -167,23 +167,38 @@ describe('ImportSourceDialog', () => {
     fixture.detectChanges();
   }
 
-  /** Loads a set in the channel step and marks one emote in it — what unlocks "Weiter". */
-  function markOneEmote(): void {
-    const step = fixture.debugElement.query(By.directive(ForeignChannelStep))
-      .componentInstance as ForeignChannelStep;
-    const internals = step as unknown as {
+  function channelStep(): {
+    channelNameControl: { setValue(value: string): void };
+    submit(): void;
+    onSelectionChange(rows: unknown[]): void;
+  } {
+    return fixture.debugElement.query(By.directive(ForeignChannelStep))
+      .componentInstance as unknown as {
       channelNameControl: { setValue(value: string): void };
       submit(): void;
       onSelectionChange(rows: unknown[]): void;
     };
+  }
 
+  /** Answers "Set laden" with a set — the moment the grid appears. */
+  function loadSet(): void {
+    const internals = channelStep();
     internals.channelNameControl.setValue('handofblood');
     internals.submit();
     httpMock.expectOne('/api/seventv/channels/handofblood/emotes').flush(FOREIGN_SET);
     fixture.detectChanges();
+  }
 
-    internals.onSelectionChange(FOREIGN_SET.emotes);
+  /** Marks one emote in the loaded grid — what unlocks "Weiter". */
+  function markOneEmote(): void {
+    channelStep().onSelectionChange(FOREIGN_SET.emotes);
     fixture.detectChanges();
+  }
+
+  function actionRowLabels(): string[] {
+    return Array.from(host.querySelectorAll('[dialog-actions]')).map(
+      (candidate) => candidate.textContent?.trim() ?? '',
+    );
   }
 
   describe('the source choice is the first step (spec E1)', () => {
@@ -234,7 +249,7 @@ describe('ImportSourceDialog', () => {
 
     it('widens when the set arrives and narrows again when it is gone', () => {
       goToChannelStep();
-      markOneEmote();
+      loadSet();
       expect(addPanelClass).toHaveBeenCalledWith('app-dialog-panel-wide');
 
       // The one resize coincides with "Set laden"; going back takes the width with it.
@@ -242,6 +257,28 @@ describe('ImportSourceDialog', () => {
       fixture.detectChanges();
 
       expect(removePanelClass).toHaveBeenLastCalledWith('app-dialog-panel-wide');
+    });
+  });
+
+  describe('the action row follows the same state as the pane', () => {
+    it('offers no second forward action while the step is still a form', () => {
+      // "Set laden" already carries the step forward, at the field it acts on. A permanently
+      // disabled "Weiter" beside it made one text input look like it needed four buttons.
+      goToChannelStep();
+
+      expect(actionRowLabels()).toEqual(['Abbrechen', 'Zurück']);
+    });
+
+    it('gains "Weiter" when the grid arrives, without disturbing what stood before it', () => {
+      goToChannelStep();
+      loadSet();
+
+      // §7: cancel stays first, so the CDK's first-tabbable default keeps landing on it.
+      expect(actionRowLabels()).toEqual(['Abbrechen', 'Zurück', 'Weiter']);
+    });
+
+    it('carries only the cancel way out on the source choice', () => {
+      expect(actionRowLabels()).toEqual(['Abbrechen']);
     });
   });
 
@@ -259,6 +296,7 @@ describe('ImportSourceDialog', () => {
 
     it('keeps "Weiter" locked until the channel step has something to carry forward', () => {
       goToChannelStep();
+      loadSet();
       expect(button('Weiter').disabled).toBe(true);
 
       markOneEmote();
@@ -268,6 +306,7 @@ describe('ImportSourceDialog', () => {
 
     it('closes with the foreign source and its picked rows', () => {
       goToChannelStep();
+      loadSet();
       markOneEmote();
 
       button('Weiter').click();
@@ -287,6 +326,7 @@ describe('ImportSourceDialog', () => {
 
     it('cancel closes with no result, from any step', () => {
       goToChannelStep();
+      loadSet();
 
       button('Abbrechen').click();
 

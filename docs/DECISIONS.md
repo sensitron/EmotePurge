@@ -63,12 +63,23 @@ der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebau
    „7TV-Verbreitung (gesamt)"/„(Trend)"; und, solange eine Score-Sortierung aktiv ist, ein stiller
    Satz, der sagt, was die Zahl auf der Kachel **nicht** ist. Die beiden Auflagen aus dem Konzept
    (P5') gelten unverändert: nie die Vorbelegung, nie bloß „Beliebtheit".
-6. **Der Hinweis zur Zahl auf der Kachel gehört zum Raster**, nicht an die Sortierzeile geklebt: er
+6. **Der Kanal-Schritt hatte zwei Vorwärts-Aktionen.** „Set laden" bringt weiter, das daneben
+   liegende, bis dahin gesperrte „Weiter" auch — vier Knöpfe um **ein** Textfeld, zwei davon mit
+   derselben Grundbedeutung, und die Feldzeile konkurrierte sichtbar mit der Aktionszeile darunter.
+   Entschieden (Nutzer, 2026-09-10, aus drei Varianten): „Set laden" bleibt am Feld, weil es auf die
+   Eingabe daneben wirkt und nicht auf den Dialog; „Weiter" erscheint **erst mit dem Raster** —
+   gekoppelt an `showsGrid()`, denselben Zustand wie die Pane-Breite, nicht an einen zweiten. §7s
+   „Abbrechen zuerst" bleibt unberührt, ein hinten fehlender Knopf ordnet nichts um. Dazu die
+   Metrik der Feldzeile: Dialog-Abstand statt Toolbar-Abstand, Feld und Knopf beide auf dem
+   44-px-Boden von `buttonSize="lg"` (am Feld **gesagt**, nicht vom Nachbarn geerbt), und kein
+   `flex-wrap` — sonst rutscht der Knopf in der jetzt schmalen Pane unter das Feld und das Feld
+   verliert dabei seine Höhe; es schrumpft stattdessen.
+7. **Der Hinweis zur Zahl auf der Kachel gehört zum Raster**, nicht an die Sortierzeile geklebt: er
    wickelt sich mit dem Raster in eine eigene, engere Flex-Spalte (§7 — Abstände macht die Shell,
    Engzusammengehörendes seine eigene Spalte), statt in gleichem Abstand zwischen beiden zu schweben
    und für keines von beiden als Bildunterschrift zu lesen. Der Raster-Host bekam dafür überhaupt
    erst eine Flex-Spalte; vorher stapelten seine Kinder als nackte Blöcke ganz ohne Abstand.
-7. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
+8. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
    einzelner Emotes ist der Name die Entscheidungsgrundlage — er landet im Zielset und der
    Kollisionshinweis handelt von ihm. Sichtbar steht der **Alias** des Quellsets; der globale
    Basisname kommt dort dazu, wo er abweicht (296 von 956 bei HandOfBlood), und zwar im zugänglichen

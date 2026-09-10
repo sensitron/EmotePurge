@@ -76,7 +76,12 @@ type LoadState =
       <label class="text-sm text-fg-secondary" [for]="channelInputId">
         {{ 'import.foreignChannel.channelLabel' | transloco }}
       </label>
-      <div class="flex flex-wrap gap-2">
+      <!-- No wrap, on purpose rather than by inheritance: in the narrow (pre-grid) pane the button
+           would drop under the field, and with it the field's height would fall back from the 44 px
+           line to the plain input height — a control that changes size at a breakpoint nobody chose.
+           A min-width of zero lets the field shrink instead, so the pair stays one line at any width.
+           The gap is the dialog's own rhythm (12 px), not the 8 px chip spacing of a toolbar. -->
+      <div class="flex gap-3">
         <input
           type="text"
           [id]="channelInputId"
@@ -90,8 +95,12 @@ type LoadState =
               ? 'foreign-channel-name-error'
               : null
           "
-          class="app-input flex-1"
+          class="app-input min-h-11 min-w-0 flex-1"
         />
+        <!-- The 44 px floor on the field above is the very floor this size tier defines (button.ts
+             SIZE_CLASSES.lg), stated rather than inherited from the sibling's height: the two are
+             then the same height because both say so, not because flexbox happened to stretch one
+             of them to the other. -->
         <button
           type="submit"
           appButton="outline"

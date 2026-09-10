@@ -399,8 +399,17 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
      Aktion, es bleibt also nichts zu bestätigen.
   2. Der gewählte Zweig, **im selben Dialog**. Er öffnet keinen zweiten.
 - **Die Aktionszeile gehört dem Dialog, nicht dem Schritt:** Abbrechen zuerst (§7), danach
-  „Zurück", sobald man einen Zweig betreten hat, und nur im Kanal-Zweig ein „Weiter", dessen Sperre
-  am Ergebnis des Schritts hängt.
+  „Zurück", sobald man einen Zweig betreten hat, und „Weiter" **erst, wenn das Raster steht** —
+  gekoppelt an denselben Zustand wie die Pane-Breite, nicht an einen zweiten. Der Kanal-Zweig hat
+  vor dem Laden bereits eine Vorwärts-Aktion, nämlich „Set laden" am Feld, auf das sie wirkt; ein
+  zweites, dauerhaft gesperrtes „Weiter" daneben ließ einen Dialog um **ein** Textfeld nach vier
+  Knöpfen aussehen und konkurrierte mit der Aktionszeile. Ein hinten fehlender Knopf rührt die
+  Reihenfolge der übrigen nicht an — „Abbrechen zuerst" gilt unverändert.
+- **Die Feldzeile des Kanal-Schritts ist ein Paar, kein Umbruch:** Feld und „Set laden" stehen auf
+  derselben Höhe (beide auf dem 44-px-Boden, den `buttonSize="lg"` definiert — am Feld **gesagt**,
+  nicht vom Nachbarn geerbt), im Dialog-Abstand statt im Toolbar-Abstand, und **ohne** `flex-wrap`:
+  bräche der Knopf unter das Feld, verlöre das Feld zugleich seine Höhe. Es schrumpft stattdessen
+  (`min-w-0`).
 - **Der Kopf nennt den Zweig:** „Emotes importieren" auf dem ersten Schritt, „Datei importieren" bzw.
   „Aus einem Kanal importieren" darunter. Das ist die einzige Ortsangabe, die ein Ein-Dialog-Fluss
   neben „Zurück" hat.

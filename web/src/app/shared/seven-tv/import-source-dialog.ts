@@ -79,6 +79,11 @@ const SOURCE_OPTIONS: SourceOption[] = [
  * reader is already watching, which is the one moment a size change reads as consequence rather than
  * caprice. Nothing else moves. The trigger is therefore the grid's visibility, not the step: entering
  * the channel branch changes nothing until the set is there.
+ *
+ * **The action row's cast follows the same state**, and only that one: "Weiter" is absent until the
+ * grid is there. Without that, the channel step carried two forward actions at once — "Set laden" at
+ * the field and a permanently disabled "Weiter" in the row below — which is what made a dialog around
+ * one text input look busy.
  */
 @Component({
   selector: 'app-import-source-dialog',
@@ -136,7 +141,12 @@ const SOURCE_OPTIONS: SourceOption[] = [
           {{ 'import.source.back' | transloco }}
         </button>
       }
-      @if (step() === 'channel') {
+      <!-- "Weiter" appears with the grid, not with the step. Before the set is loaded the channel
+           branch already has a forward action — "Set laden", at the field it acts on — and a second,
+           permanently disabled one beside it made a single text input look like it needed four
+           buttons. Same condition as the pane width, deliberately: one state, one visible change.
+           §7's "Abbrechen zuerst" is untouched by a trailing button that is sometimes absent. -->
+      @if (gridVisible()) {
         <button
           dialog-actions
           type="button"
@@ -175,9 +185,10 @@ export class ImportSourceDialog {
 
   protected readonly channelResult = computed(() => this.channelStep()?.result() ?? null);
 
-  /** The one thing that decides the pane's width — see the class doc. `false` on every step that
-   *  has no grid on it, including the channel step before its first successful load. */
-  private readonly gridVisible = computed(() => this.channelStep()?.showsGrid() ?? false);
+  /** The one state this dialog changes shape around — see the class doc. `false` on every step that
+   *  has no grid on it, including the channel step before its first successful load. It drives both
+   *  the pane width and whether the action row carries a "Weiter" at all. */
+  protected readonly gridVisible = computed(() => this.channelStep()?.showsGrid() ?? false);
 
   constructor() {
     // The overlay ref is CDK's own handle on the pane element, and the pane is where a width has to
