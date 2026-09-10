@@ -1,30 +1,30 @@
 # EmotePurge — Frontend
 
-Angular 22 (Standalone Components + Signals, kein NgModule), Tailwind CSS, Transloco für i18n. Wird im Produktions-Image in `src/EmotePurge.Api/wwwroot/` gebaut und von der Api selbst ausgeliefert — es gibt **keinen** eigenen Frontend-Container und keinen eigenen Port.
+Angular 22 (standalone components + signals, no NgModule), Tailwind CSS, Transloco for i18n. Built into `src/EmotePurge.Api/wwwroot/` as part of the production image and served by the Api itself — there is **no** separate frontend container and no separate port.
 
-**Setup, Twitch-App-Registrierung und wie man den Stack hochzieht, steht in der [Root-README](../README.md).** Hier stehen nur die `web/`-eigenen Kommandos.
+**Setup, Twitch app registration, and how to bring up the stack are in the [root README](../README.md).** This file covers only the `web/`-specific commands.
 
 ```bash
 npm install
-npm start                    # ng serve auf :4200, proxied /api -> :5151
+npm start                    # ng serve on :4200, proxies /api -> :5151
 npm run build
 npm test -- --watch=false    # Vitest
-npm run e2e                  # Playwright, /api/** gemockt
+npm run e2e                  # Playwright, /api/** mocked
 npm run format               # Prettier
 npm run lint                 # ESLint
 ```
 
-`npm start` erwartet die Api parallel auf Port **5151** (`dotnet run --project src/EmotePurge.Api`) — nicht die VS-Code-Launch-Config `Api`, die hart auf `:8080` bindet und damit den lokal registrierten Twitch-Redirect bricht.
+`npm start` expects the Api running in parallel on port **5151** (`dotnet run --project src/EmotePurge.Api`) — not the VS Code launch config `Api`, which binds hard to `:8080` and thereby breaks the locally registered Twitch redirect.
 
-## Verbindlich vor jeder Änderung
+## Binding before every change
 
-- [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — Frontend-Konventionen: Member-Reihenfolge, Signals, Auth-Modell, SSE über `EVENT_SOURCE_FACTORY`
-- [`../docs/UI-Designsprache.md`](../docs/UI-Designsprache.md) — Primitives, Typo-Skala, A11y-Checkliste. Nicht neu bauen, was `shared/ui/` schon hat.
+- [`.claude/CLAUDE.md`](.claude/CLAUDE.md) — Frontend conventions: member order, signals, auth model, SSE via `EVENT_SOURCE_FACTORY`
+- [`../docs/UI-Designsprache.md`](../docs/UI-Designsprache.md) — Primitives, type scale, accessibility checklist. Do not rebuild what `shared/ui/` already provides.
 
-## Aufbau
+## Structure
 
-| Ordner | Inhalt | Darf importieren |
+| Folder | Contents | May import |
 |---|---|---|
-| `core/` | Services, Guards, Models, Interceptors | nichts aus `shared/` oder `features/` |
-| `shared/` | wiederverwendbare Bausteine | nur `core/` |
-| `features/` | geroutete Seiten | `core/` + `shared/` |
+| `core/` | Services, guards, models, interceptors | nothing from `shared/` or `features/` |
+| `shared/` | reusable building blocks | only `core/` |
+| `features/` | routed pages | `core/` + `shared/` |

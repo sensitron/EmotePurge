@@ -1,53 +1,54 @@
-# Branding-Quelldateien
+# Branding source files
 
-## Stand seit 2026-08-06: die Quelle ist ein Vektor
+## As of 2026-08-06: the source is a vector
 
-**`web/public/logo.svg` ist die Marke.** Eine Datei, flaches Guide-Türkis, trägt auf Graphit und auf
-Papierweiß gleichermaßen — es gibt keine helle Zweitfassung mehr und keine vereinfachte Icon-Version
-neben einer Hero-Version. Alle ausgelieferten Rasterdateien werden daraus abgeleitet.
+**`web/public/logo.svg` is the brand mark.** One file, flat Guide turquoise, works equally well on
+graphite and on paper white — there is no longer a separate light version and no simplified icon
+version alongside a hero version. All shipped raster files are derived from it.
 
-Der Vektor ist **nicht neu gezeichnet**, sondern aus `logo-full.png` gewonnen: Klassifikation je
-Pixel in Silhouette und fast-schwarze Gesichtszüge, Konturen per Marching Squares, Vereinfachung mit
-Ramer-Douglas-Peucker bei ~1 px auf einem 512er-Raster. Es ist derselbe Wirbel, dasselbe Zwinkern,
-dieselben drei abgeworfenen Kacheln — nur der Verlauf von Violett nach Magenta ist einer flachen
-Farbe gewichen.
+The vector is **not redrawn from scratch**, but derived from `logo-full.png`: per-pixel
+classification into silhouette and near-black facial features, contours via marching squares,
+simplification with Ramer-Douglas-Peucker at ~1 px on a 512 grid. It is the same swirl, the same
+wink, the same three tiles flying off — only the gradient from violet to magenta has given way to
+a flat colour.
 
-## Ausgelieferte Assets und wie sie entstehen
+## Shipped assets and how they are produced
 
-| Datei | Größe | Rand | Fläche |
+| File | Size | Margin | Background |
 |---|---|---|---|
-| `logo.svg` | vektoriell | 6 % (im Pfad) | transparent |
-| `icon-192/512.png` | 192 / 512 | 10 % | `#0d0f12` |
-| `icon-maskable-192/512.png` | 192 / 512 | 21 % | `#0d0f12` |
-| `apple-touch-icon.png` | 180 | 13 % | `#0d0f12`, **ohne Alphakanal** |
+| `logo.svg` | vector | 6% (in the path) | transparent |
+| `icon-192/512.png` | 192 / 512 | 10% | `#0d0f12` |
+| `icon-maskable-192/512.png` | 192 / 512 | 21% | `#0d0f12` |
+| `apple-touch-icon.png` | 180 | 13% | `#0d0f12`, **no alpha channel** |
 | `favicon.ico` | 48 / 32 / 16 | 0 | transparent |
 | `og-image.png` | 1200 × 630 | — | `#0d0f12` |
 
-Erzeugt wurden sie durch Rendern des SVG in einem headless Chromium auf ein Canvas der Zielgröße
-(`drawImage` mit `imageSmoothingQuality: 'high'`), das `favicon.ico` als PNG-eingebetteter
-ICO-Container aus den drei kleinen Größen. Es gibt dafür bewusst **kein** eingechecktes Skript: die
-Ableitung passiert einmal pro Markenänderung, und ein Skript, das eine Browser-Engine als
-Rasterisierer braucht, ist mehr Wartungslast als der Handgriff wert. Die Assets sind das Artefakt,
-das SVG die Quelle.
+They were produced by rendering the SVG in a headless Chromium instance onto a canvas of the
+target size (`drawImage` with `imageSmoothingQuality: 'high'`), with `favicon.ico` as a
+PNG-embedded ICO container built from the three small sizes. There is deliberately **no**
+checked-in script for this: the derivation happens once per brand change, and a script that needs
+a browser engine as its rasterizer is more maintenance burden than the manual step is worth. The
+assets are the artefact, the SVG is the source.
 
-**Zur maskable-Größe, ehrlich:** die 21 % sind ein fester, konservativer Wert. Der Mark füllt damit
-rund 58 % der Kantenlänge und liegt sicher im 80-%-Safe-Zone-Kreis jeder Launcher-Maske. Die frühere
-Ableitung hat stattdessen den größten Abstand vom Mittelpunkt zu einem deckenden Pixel gemessen und
-kam damit auf 78,8 % — das ging, weil die Marke eine Scheibe mit leeren Box-Ecken ist. Seit der
-Vektorfassung stehen die drei Kacheln rechts weiter außen, der Vorteil ist also kleiner; ausgereizt
-ist er trotzdem nicht. Wer das Icon größer haben will, misst den Radius nach, statt zu raten.
+**On the maskable size, honestly:** the 21% is a fixed, conservative value. The mark thereby fills
+around 58% of the edge length and sits safely within the 80% safe-zone circle of every launcher
+mask. The earlier derivation instead measured the largest distance from the centre to an opaque
+pixel and arrived at 78.8% — that worked because the mark is a disc with empty box corners. Since
+the vector version, the three tiles sit further out to the right, so the margin is smaller; it is
+still not maxed out, though. Anyone who wants the icon bigger should measure the radius, not
+guess.
 
-## Historische Quellen
+## Historical sources
 
-Die KI-generierten Originale (ChatGPT, 1254×1254, Hintergrund eingebrannt) liegen weiterhin hier
-und werden **nicht** ausgeliefert:
+The AI-generated originals (ChatGPT, 1254×1254, background baked in) still live here and are
+**not** shipped:
 
-- `logo-full.png` — Hauptversion mit den wegfliegenden Pixel-Quadraten. **Quelle des Vektors.**
-- `logo-mark.png` — vereinfachte Icon-Version. Ohne Funktion, seit eine Datei alle Größen trägt.
-- `logo-full-light.png`, `logo-mark-light.png` — das helle Paar vom 2026-08-02. Ohne Funktion, seit
-  die Marke einfarbig ist und keinen Modus-Zwilling mehr braucht.
+- `logo-full.png` — main version with the flying-off pixel squares. **Source of the vector.**
+- `logo-mark.png` — simplified icon version. No longer used, since one file now covers all sizes.
+- `logo-full-light.png`, `logo-mark-light.png` — the light pair from 2026-08-02. No longer used,
+  since the mark is now a single colour and no longer needs a mode twin.
 
-`make-icons.ps1` ist **entfernt** (2026-08-06). Das Skript leitete die Assets aus dem violetten Paar
-ab und hätte bei einem Lauf die neuen Dateien wieder mit der alten Marke überschrieben — ein Skript,
-das den Bestand still zurückdreht, ist gefährlicher als keins. Es steht in der Historie, falls die
-Flood-Fill-Freistellung je wieder gebraucht wird: `git log -- web/branding/make-icons.ps1`.
+`make-icons.ps1` has been **removed** (2026-08-06). The script derived the assets from the violet
+pair and, on a run, would have overwritten the new files with the old mark again — a script that
+silently reverts the current state is more dangerous than none at all. It remains in history in
+case the flood-fill background removal is ever needed again: `git log -- web/branding/make-icons.ps1`.

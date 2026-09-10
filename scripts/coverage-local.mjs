@@ -48,7 +48,7 @@
 // A changed file that never appears in either report at all (no test imports it, e.g. a brand
 // new component with no spec yet) is NOT silently treated as 0% or 100% — it is listed
 // separately as "not measured", and its presence forces the overall verdict to stay cautious
-// (see the "unvollständig" handling in main()) even when the measured files alone would clear
+// (see the "incomplete" handling in main()) even when the measured files alone would clear
 // the threshold. Deliberately no heuristic tries to guess which unmeasured files are "probably
 // fine" (e.g. type-only/interface files with nothing to execute) — such a heuristic would
 // eventually misclassify a file that DOES have real logic, and it would do so silently, exactly
@@ -156,16 +156,16 @@ function parseArgs(argv) {
     } else if (arg === "--base") {
       const value = argv[i + 1];
       if (!value)
-        throw new Error("--base braucht einen Wert, z. B. --base origin/main");
+        throw new Error("--base requires a value, e.g. --base origin/main");
       args.base = value;
       i += 1;
     } else {
-      throw new Error(`Unbekannte Option: ${arg} (siehe --help)`);
+      throw new Error(`Unknown option: ${arg} (see --help)`);
     }
   }
   if (args.backendOnly && args.frontendOnly) {
     throw new Error(
-      "--backend-only und --frontend-only schließen sich gegenseitig aus.",
+      "--backend-only and --frontend-only are mutually exclusive.",
     );
   }
   return args;
@@ -174,15 +174,15 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(
     [
-      "Lokale Näherung an SonarCloud's Quality-Gate-Bedingung 'Coverage on New Code >= 80%'.",
+      "Local approximation of SonarCloud's Quality Gate condition 'Coverage on New Code >= 80%'.",
       "",
       "Usage:",
       "  node scripts/coverage-local.mjs [--base <ref>] [--skip-tests] [--backend-only|--frontend-only]",
       "",
-      "  --base <ref>      Basis-Ref für den Diff (Drei-Punkt: <ref>...HEAD). Default: origin/main.",
-      "  --skip-tests      Testläufe überspringen, nur vorhandene Reports auswerten.",
-      "  --backend-only    Nur die .NET/OpenCover-Seite.",
-      "  --frontend-only   Nur die Angular/lcov-Seite.",
+      "  --base <ref>      Base ref to diff against (three-dot: <ref>...HEAD). Default: origin/main.",
+      "  --skip-tests      Skip running the test suites, just evaluate existing reports.",
+      "  --backend-only    Only the .NET/OpenCover side.",
+      "  --frontend-only   Only the Angular/lcov side.",
     ].join("\n"),
   );
 }
@@ -192,11 +192,11 @@ function runInherited(command, commandArgs, cwd) {
   if (result.error) {
     if (result.error.code === "ENOENT") {
       throw new Error(
-        `Befehl "${command}" wurde nicht gefunden — ist er installiert und im PATH?`,
+        `Command "${command}" was not found — is it installed and on PATH?`,
       );
     }
     throw new Error(
-      `Befehl "${command} ${commandArgs.join(" ")}" konnte nicht gestartet werden: ${result.error.message}`,
+      `Command "${command} ${commandArgs.join(" ")}" could not be started: ${result.error.message}`,
     );
   }
   return result.status ?? 1;
@@ -209,16 +209,16 @@ function resolveRepoRoot() {
   if (result.error) {
     if (result.error.code === "ENOENT") {
       throw new Error(
-        '"git" wurde nicht gefunden — ist es installiert und im PATH?',
+        '"git" was not found — is it installed and on PATH?',
       );
     }
     throw new Error(
-      `"git rev-parse --show-toplevel" konnte nicht gestartet werden: ${result.error.message}`,
+      `"git rev-parse --show-toplevel" could not be started: ${result.error.message}`,
     );
   }
   if (result.status !== 0) {
     throw new Error(
-      `"git rev-parse --show-toplevel" ist fehlgeschlagen (Exit ${result.status}). Läuft dieses Skript in einem Git-Repository?\n${(result.stderr ?? "").trim()}`,
+      `"git rev-parse --show-toplevel" failed (exit ${result.status}). Is this script running inside a Git repository?\n${(result.stderr ?? "").trim()}`,
     );
   }
   return result.stdout.trim();
@@ -232,9 +232,9 @@ function isDockerRunning() {
 function runBackendTests(repoRoot) {
   if (!isDockerRunning()) {
     throw new Error(
-      "Docker läuft nicht (oder ist nicht erreichbar) — dotnet test EmotePurge.slnx braucht einen laufenden " +
-        "Docker-Daemon für die Testcontainers-Integrationstests in EmotePurge.Infrastructure.Tests. " +
-        "Docker starten und erneut versuchen, oder --frontend-only nutzen.",
+      "Docker is not running (or not reachable) — dotnet test EmotePurge.slnx needs a running " +
+        "Docker daemon for the Testcontainers integration tests in EmotePurge.Infrastructure.Tests. " +
+        "Start Docker and try again, or use --frontend-only.",
     );
   }
   console.log(
@@ -251,7 +251,7 @@ function runBackendTests(repoRoot) {
   );
   if (exitCode !== 0) {
     throw new Error(
-      `dotnet test ist mit Exit-Code ${exitCode} fehlgeschlagen — siehe Ausgabe oberhalb.`,
+      `dotnet test failed with exit code ${exitCode} — see the output above.`,
     );
   }
 }
@@ -283,7 +283,7 @@ function runFrontendTests(repoRoot) {
   );
   if (exitCode !== 0) {
     throw new Error(
-      `npm test ist mit Exit-Code ${exitCode} fehlgeschlagen — siehe Ausgabe oberhalb.`,
+      `npm test failed with exit code ${exitCode} — see the output above.`,
     );
   }
 }
@@ -582,18 +582,18 @@ function getChangedFiles(repoRoot, base) {
   if (result.error) {
     if (result.error.code === "ENOENT") {
       throw new Error(
-        '"git" wurde nicht gefunden — ist es installiert und im PATH?',
+        '"git" was not found — is it installed and on PATH?',
       );
     }
     throw new Error(
-      `"git diff --name-only ${diffRange}" konnte nicht gestartet werden: ${result.error.message}`,
+      `"git diff --name-only ${diffRange}" could not be started: ${result.error.message}`,
     );
   }
   if (result.status !== 0) {
     throw new Error(
-      `Basis-Ref "${base}" konnte nicht aufgelöst werden (git diff --name-only ${diffRange} ist fehlgeschlagen). ` +
-        `Prüfe den Wert von --base (Standard: origin/main) und ob ein "git fetch" nötig ist.\n` +
-        `Git-Fehlermeldung:\n${result.stderr.trim()}`,
+      `Base ref "${base}" could not be resolved (git diff --name-only ${diffRange} failed). ` +
+        `Check the value of --base (default: origin/main) and whether a "git fetch" is needed.\n` +
+        `Git error message:\n${result.stderr.trim()}`,
     );
   }
   return result.stdout
@@ -654,26 +654,26 @@ function formatPercent(percent) {
 // inside otherwise-executed code, which a single blended percentage would hide.
 function printFileTable(measured) {
   if (measured.length === 0) {
-    console.log("  (keine gemessenen Dateien)");
+    console.log("  (no measured files)");
     return;
   }
   const pathWidth = Math.max(
     ...measured.map((row) => row.filePath.length),
-    "Datei".length,
+    "File".length,
   );
   const linesWidth = Math.max(
     ...measured.map((row) => `${row.coveredLines}/${row.totalLines}`.length),
-    "Zeilen".length,
+    "Lines".length,
   );
   const branchesWidth = Math.max(
     ...measured.map(
       (row) => `${row.coveredBranches}/${row.totalBranches}`.length,
     ),
-    "Zweige".length,
+    "Branches".length,
   );
   const header =
-    `  ${"Datei".padEnd(pathWidth)}  ${"Zeilen".padStart(linesWidth)}  ` +
-    `${"Zweige".padStart(branchesWidth)}  Anteil`;
+    `  ${"File".padEnd(pathWidth)}  ${"Lines".padStart(linesWidth)}  ` +
+    `${"Branches".padStart(branchesWidth)}  Share`;
   console.log(header);
   console.log(`  ${"-".repeat(header.length - 2)}`);
   for (const row of measured) {
@@ -706,13 +706,13 @@ async function main() {
     if (runFrontend) runFrontendTests(repoRoot);
   } else {
     console.log(
-      "--skip-tests gesetzt — werte nur vorhandene Coverage-Reports aus, ohne Tests neu laufen zu lassen.",
+      "--skip-tests set — evaluating only existing coverage reports, without re-running tests.",
     );
   }
 
   console.log("");
   console.log(
-    `Ermittle geänderte Dateien gegenüber ${args.base} (git diff --name-only ${args.base}...HEAD)...`,
+    `Determining changed files against ${args.base} (git diff --name-only ${args.base}...HEAD)...`,
   );
   const changedFiles = getChangedFiles(repoRoot, args.base);
 
@@ -721,8 +721,8 @@ async function main() {
     .filter((filePath) => !isExcludedFromCoverage(filePath));
 
   console.log(
-    `${changedFiles.length} geänderte Datei(en) insgesamt, davon ${relevantFiles.length} relevant ` +
-      "(.cs/.ts, keine .spec.ts, nicht ausgeschlossen).",
+    `${changedFiles.length} changed file(s) total, ${relevantFiles.length} of which relevant ` +
+      "(.cs/.ts, no .spec.ts, not excluded).",
   );
 
   let backendCoverage = new Map();
@@ -736,9 +736,9 @@ async function main() {
     backendReportCount = backend.reportCount;
     if (backendReportCount === 0) {
       throw new Error(
-        `Kein OpenCover-Report gefunden (Muster **/${OPENCOVER_GLOB_MARKER}/**/${OPENCOVER_REPORT_FILENAME}). ` +
-          'Wurde dotnet test mit --collect:"XPlat Code Coverage;Format=opencover" schon einmal ausgeführt? ' +
-          "Ohne --skip-tests sollte das automatisch passiert sein — prüfe die Ausgabe oberhalb auf Fehler.",
+        `No OpenCover report found (pattern **/${OPENCOVER_GLOB_MARKER}/**/${OPENCOVER_REPORT_FILENAME}). ` +
+          'Has dotnet test been run before with --collect:"XPlat Code Coverage;Format=opencover"? ' +
+          "Without --skip-tests this should have happened automatically — check the output above for errors.",
       );
     }
   }
@@ -748,9 +748,9 @@ async function main() {
     frontendReportCount = frontend.reportCount;
     if (frontendReportCount === 0) {
       throw new Error(
-        `Kein lcov-Report gefunden unter ${LCOV_REPORT_PATH}. Wurde ` +
-          '"npm --prefix web test -- --watch=false --coverage --coverage-reporters=lcov" schon einmal ausgeführt? ' +
-          "Ohne --skip-tests sollte das automatisch passiert sein — prüfe die Ausgabe oberhalb auf Fehler.",
+        `No lcov report found at ${LCOV_REPORT_PATH}. Has ` +
+          '"npm --prefix web test -- --watch=false --coverage --coverage-reporters=lcov" been run before? ' +
+          "Without --skip-tests this should have happened automatically — check the output above for errors.",
       );
     }
   }
@@ -791,20 +791,20 @@ async function main() {
   );
 
   console.log(
-    "\n=== Coverage je geänderter Datei (dateigenaue Näherung, aufsteigend nach Anteil) ===",
+    "\n=== Coverage per changed file (file-granular approximation, ascending by share) ===",
   );
   printFileTable(measured);
 
   if (unmeasured.length > 0) {
     console.log(
-      "\n=== Nicht gemessen (keine Coverage-Daten gefunden — Report fehlt oder keine Tests) ===",
+      "\n=== Not measured (no coverage data found — report missing or no tests) ===",
     );
     for (const filePath of unmeasured) console.log(`  - ${filePath}`);
   }
 
   if (relevantFiles.length === 0) {
     console.log(
-      "\nKeine relevanten geänderten Dateien (.cs/.ts, keine .spec.ts, nicht ausgeschlossen) — nichts zu bewerten.",
+      "\nNo relevant changed files (.cs/.ts, no .spec.ts, not excluded) — nothing to evaluate.",
     );
     return;
   }
@@ -828,23 +828,23 @@ async function main() {
     totalUnits > 0 ? (totalCovered / totalUnits) * 100 : null;
   const incomplete = unmeasured.length > 0;
 
-  console.log("\n=== Gesamturteil ===");
+  console.log("\n=== Overall verdict ===");
   if (overallPercent === null) {
     console.log(
-      "Keine der relevanten Dateien hat Coverage-Daten — Gesamtquote nicht berechenbar.",
+      "None of the relevant files have coverage data — overall percentage cannot be computed.",
     );
     process.exitCode = 1;
     return;
   }
 
   console.log(
-    `Gesamtquote über ${measured.length} gemessene Datei(en): ${totalCovered}/${totalUnits} ` +
-      `(${totalCoveredLines}/${totalLines} Zeilen, ${totalCoveredBranches}/${totalBranches} Zweige) ` +
+    `Overall percentage across ${measured.length} measured file(s): ${totalCovered}/${totalUnits} ` +
+      `(${totalCoveredLines}/${totalLines} lines, ${totalCoveredBranches}/${totalBranches} branches) ` +
       `= ${formatPercent(overallPercent)}.`,
   );
   if (incomplete) {
     console.log(
-      `Zusätzlich ${unmeasured.length} nicht gemessene Datei(en) — die Gesamtquote sagt über diese nichts aus.`,
+      `Additionally ${unmeasured.length} unmeasured file(s) — the overall percentage says nothing about these.`,
     );
   }
 
@@ -854,24 +854,24 @@ async function main() {
   // clean verdict either way: a passing percentage computed only over the files that DID report
   // data says nothing about the ones that didn't, so this can never resolve to a plain "✓"/exit 0.
   if (incomplete) {
-    const relation = belowThreshold ? "unter" : "über";
+    const relation = belowThreshold ? "below" : "above";
     console.log(
-      `\n⚠ Quote ${formatPercent(overallPercent)} liegt ${relation} der ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}%-Schwelle, ` +
-        `ABER ${unmeasured.length} Datei(en) ohne Coverage-Daten — Urteil unvollständig. Diese Dateien von Hand ` +
-        "prüfen (im Zweifel: hat ein Test sie überhaupt importiert?), bevor der Branch als gedeckt gilt.",
+      `\n⚠ Percentage ${formatPercent(overallPercent)} is ${relation} the ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}% threshold, ` +
+        `BUT ${unmeasured.length} file(s) have no coverage data — verdict incomplete. Check these files by ` +
+        "hand (when in doubt: did any test even import them?) before treating this branch as covered.",
     );
   } else if (belowThreshold) {
     console.log(
-      `\n⚠ WARNUNG: ${formatPercent(overallPercent)} liegt unter der ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}%-Schwelle. ` +
-        "Das ist ein deutliches Signal, dass SonarClouds Quality Gate diesen Branch ablehnen könnte — aber auch " +
-        "diese Richtung ist nur eine dateigenaue Näherung, keine Garantie: Sonar zählt nur tatsächlich neue/" +
-        "geänderte Zeilen, nicht die ganze Datei, und kann im Einzelfall auch günstiger ausfallen als diese Zahl.",
+      `\n⚠ WARNING: ${formatPercent(overallPercent)} is below the ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}% threshold. ` +
+        "That's a clear signal that SonarCloud's Quality Gate might reject this branch — but this direction, too, " +
+        "is only a file-granular approximation, not a guarantee: Sonar only counts actually new/" +
+        "changed lines, not the whole file, and can in individual cases turn out more favorable than this number.",
     );
   } else {
     console.log(
-      `\n✓ ${formatPercent(overallPercent)} liegt über der ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}%-Schwelle — aber das ist ` +
-        "eine dateigenaue Näherung, keine Garantie: SonarCloud misst zeilengenau auf tatsächlich neuen/geänderten " +
-        "Zeilen und kann bei kleinen Änderungen in großen, alten Dateien strenger urteilen als diese Zahl.",
+      `\n✓ ${formatPercent(overallPercent)} is above the ${NEW_CODE_COVERAGE_THRESHOLD_PERCENT}% threshold — but this is ` +
+        "a file-granular approximation, not a guarantee: SonarCloud measures line-accurately on actually new/changed " +
+        "lines and can judge more strictly than this number for small changes in large, old files.",
     );
   }
 
@@ -888,7 +888,7 @@ const isDirectRun =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   main().catch((error) => {
-    console.error(`Abbruch mit Fehler: ${error.message}`);
+    console.error(`Aborted with error: ${error.message}`);
     process.exitCode = 1;
   });
 }
