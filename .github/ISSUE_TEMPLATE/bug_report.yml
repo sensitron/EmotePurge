@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in Emote Purge is broken.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. A bug report that names the mechanism
+        — not just the symptom — gets fixed faster: file:line references, what you already
+        ruled out, and what made you suspect the cause you suspect are all worth including,
+        even if you're not certain.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences. What's broken, in plain terms.
+      placeholder: "e.g. Vote session results page shows a stale keep/delete count after a silent reload"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does this happen
+      description: Which part of the system is involved. Pick "Not sure" if you can't tell yet — that's fine.
+      options:
+        - Frontend (Angular)
+        - API
+        - Worker
+        - Infrastructure / Docker
+        - Docs / CI
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact sequence that triggers it. Include timing/ordering if that matters (e.g. "reload while the dialog is still open").
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected vs. actual behaviour
+      description: What should have happened, and what happened instead. If you've traced it to a mechanism (a race, a missing check, a wrong assumption about a third-party contract), say so here.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Where you observed this.
+      options:
+        - Production (emotepurge.app)
+        - Local Docker Compose
+        - Local dev (dotnet run + ng serve)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / error output
+      description: Relevant log lines, stack trace, or console/network output. Trim to what's relevant, but don't paraphrase error text.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: browser-os
+    attributes:
+      label: Browser + OS
+      description: Only relevant for frontend bugs. Include browser version if the bug looks layout- or event-related.
+      placeholder: "e.g. Firefox 131 on Windows 11, or Safari on iOS 18 (touch)"
+    validations:
+      required: false
