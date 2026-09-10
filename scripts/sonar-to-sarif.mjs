@@ -53,7 +53,7 @@ const CE_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 function readEnv() {
   const sonarProjectKey = process.env.SONAR_PROJECT_KEY;
   if (!sonarProjectKey) {
-    throw new Error("Fehlende Umgebungsvariable: SONAR_PROJECT_KEY");
+    throw new Error("Missing environment variable: SONAR_PROJECT_KEY");
   }
   const sonarHostUrl = (process.env.SONAR_HOST_URL || "https://sonarcloud.io").replace(/\/$/, "");
   const reportTaskFile = process.env.SONAR_REPORT_TASK_FILE || ".sonarqube/out/.sonar/report-task.txt";
@@ -76,9 +76,9 @@ function authHeaders(token) {
 async function httpJson(url, options, context) {
   const response = await fetch(url, options);
   if (!response.ok) {
-    const body = await response.text().catch(() => "<kein Body lesbar>");
+    const body = await response.text().catch(() => "<body not readable>");
     throw new Error(
-      `HTTP-Fehler bei ${context}: ${response.status} ${response.statusText}\n${url}\n${body}`,
+      `HTTP error for ${context}: ${response.status} ${response.statusText}\n${url}\n${body}`,
     );
   }
   return response.json();
@@ -101,9 +101,9 @@ function parseCeTaskId(reportTaskContent) {
 async function waitForComputeEngineTask(env) {
   if (env.skipCeWait) {
     console.log(
-      "SONAR_SKIP_CE_WAIT=true gesetzt — Compute-Engine-Wartelauf wird übersprungen. " +
-        "NUR für Tests/Debugging gedacht: im echten CI-Lauf muss der Scanner-`end`-Schritt " +
-        "vorher gelaufen sein und die Analyse muss abgeschlossen sein, sonst wird ein veralteter Stand exportiert.",
+      "SONAR_SKIP_CE_WAIT=true is set — skipping the Compute Engine wait loop. " +
+        "Intended ONLY for tests/debugging: in a real CI run the scanner's `end` step must " +
+        "have run beforehand and the analysis must be complete, otherwise a stale state would be exported.",
     );
     return;
   }
@@ -117,41 +117,41 @@ async function waitForComputeEngineTask(env) {
     content = await readFile(resolvedPath, "utf8");
   } catch {
     throw new Error(
-      `report-task.txt nicht gefunden unter ${resolvedPath}. Der Scanner-\`end\`-Schritt ` +
-        `(z. B. \`dotnet-sonarscanner end\`) muss vorher erfolgreich gelaufen sein — sonst gibt es keinen ` +
-        `Compute-Engine-Task, auf den gewartet werden könnte, und ein Export ohne Wartelauf würde ` +
-        `stillschweigend den alten Analysestand liefern. Zum lokalen Testen ohne echten Scanner-Lauf ` +
-        `SONAR_SKIP_CE_WAIT=true setzen.`,
+      `report-task.txt not found at ${resolvedPath}. The scanner's \`end\` step ` +
+        `(e.g. \`dotnet-sonarscanner end\`) must have run successfully before this — otherwise there is no ` +
+        `Compute Engine task to wait for, and an export without the wait loop would ` +
+        `silently deliver the old analysis state. To test locally without a real scanner run, ` +
+        `set SONAR_SKIP_CE_WAIT=true.`,
     );
   }
 
   const ceTaskId = parseCeTaskId(content);
   if (!ceTaskId) {
-    throw new Error(`report-task.txt unter ${resolvedPath} enthält keine "ceTaskId="-Zeile.`);
+    throw new Error(`report-task.txt at ${resolvedPath} does not contain a "ceTaskId=" line.`);
   }
 
-  console.log(`Warte auf Compute-Engine-Task ${ceTaskId}...`);
+  console.log(`Waiting for Compute Engine task ${ceTaskId}...`);
   const headers = authHeaders(env.sonarToken);
   const deadline = Date.now() + CE_POLL_TIMEOUT_MS;
   for (;;) {
     const url = new URL(`${env.sonarHostUrl}${SONAR_CE_TASK_API}`);
     url.searchParams.set("id", ceTaskId);
-    const data = await httpJson(url, { headers }, `Compute-Engine-Task ${ceTaskId} abfragen`);
+    const data = await httpJson(url, { headers }, `querying Compute Engine task ${ceTaskId}`);
     const status = data.task?.status;
     if (status === "SUCCESS") {
-      console.log(`Compute-Engine-Task ${ceTaskId} abgeschlossen (SUCCESS).`);
+      console.log(`Compute Engine task ${ceTaskId} completed (SUCCESS).`);
       return;
     }
     if (status === "FAILED" || status === "CANCELED") {
-      throw new Error(`Compute-Engine-Task ${ceTaskId} hat Status ${status} — Analyse fehlgeschlagen oder abgebrochen.`);
+      throw new Error(`Compute Engine task ${ceTaskId} has status ${status} — analysis failed or was canceled.`);
     }
     if (status !== "PENDING" && status !== "IN_PROGRESS") {
-      throw new Error(`Compute-Engine-Task ${ceTaskId} hat unerwarteten Status "${status}".`);
+      throw new Error(`Compute Engine task ${ceTaskId} has unexpected status "${status}".`);
     }
     if (Date.now() >= deadline) {
       throw new Error(
-        `Timeout beim Warten auf Compute-Engine-Task ${ceTaskId} nach ${CE_POLL_TIMEOUT_MS / 1000}s ` +
-          `(letzter Status: ${status}).`,
+        `Timed out waiting for Compute Engine task ${ceTaskId} after ${CE_POLL_TIMEOUT_MS / 1000}s ` +
+          `(last status: ${status}).`,
       );
     }
     await sleep(CE_POLL_INTERVAL_MS);
@@ -173,12 +173,12 @@ async function fetchAllSonarIssues(env) {
     url.searchParams.set("resolved", "false");
     url.searchParams.set("ps", String(pageSize));
     url.searchParams.set("p", String(page));
-    const data = await httpJson(url, { headers }, `SonarCloud-Suche (Seite ${page})`);
+    const data = await httpJson(url, { headers }, `SonarCloud search (page ${page})`);
     total = data.paging?.total ?? data.total ?? 0;
     if (total > 10000) {
       throw new Error(
-        `SonarCloud meldet ${total} offene Findings — das liegt über der API-Deckelung von 10.000 Treffern ` +
-          `pro Suche. Ein Weiterpaginieren würde still unvollständige Ergebnisse liefern. Abbruch.`,
+        `SonarCloud reports ${total} open findings — that is above the API cap of 10,000 results ` +
+          `per search. Continuing to paginate would silently return incomplete results. Aborting.`,
       );
     }
     issues.push(...(data.issues ?? []));
@@ -187,7 +187,7 @@ async function fetchAllSonarIssues(env) {
   }
   if (issues.length !== total) {
     throw new Error(
-      `Paginierung inkonsistent: ${issues.length} Findings geladen, aber SonarCloud meldet total=${total}.`,
+      `Pagination inconsistent: ${issues.length} findings loaded, but SonarCloud reports total=${total}.`,
     );
   }
   return issues;
@@ -224,11 +224,11 @@ async function fetchRuleMetadata(env, ruleKeys) {
     url.searchParams.set("f", "name,htmlDesc,severity,sysTags");
     let data;
     try {
-      data = await httpJson(url, { headers }, "Regelmetadaten laden");
+      data = await httpJson(url, { headers }, "loading rule metadata");
     } catch (error) {
       console.warn(
-        `Warnung: Regelmetadaten für einen Block (${keyChunk.length} Regeln) konnten nicht geladen werden ` +
-          `(${error.message}). Diese Regeln degradieren auf Regel-ID als Name.`,
+        `Warning: rule metadata for one block (${keyChunk.length} rules) could not be loaded ` +
+          `(${error.message}). These rules degrade to their rule ID as name.`,
       );
       continue;
     }
@@ -419,7 +419,7 @@ function buildMarkdownSummary({ issues, results, skippedNoFile, sarifOutput, war
     [...counts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([key, count]) => `| ${key} | ${count} |`)
-      .join("\n") || "| _(keine)_ | 0 |";
+      .join("\n") || "| _(none)_ | 0 |";
 
   const byType = groupCount(issues, (issue) => issue.type);
   const bySeverity = groupCount(issues, (issue) => issue.severity);
@@ -428,30 +428,30 @@ function buildMarkdownSummary({ issues, results, skippedNoFile, sarifOutput, war
   return [
     "## SonarCloud → SARIF Export",
     "",
-    `- Findings insgesamt: **${issues.length}**`,
-    `- SARIF-Results geschrieben: **${results.length}**`,
-    `- Ausgelassen (kein Dateipfad): **${skippedNoFile}**`,
-    `- Ausgabedatei: \`${sarifOutput}\``,
+    `- Findings total: **${issues.length}**`,
+    `- SARIF results written: **${results.length}**`,
+    `- Skipped (no file path): **${skippedNoFile}**`,
+    `- Output file: \`${sarifOutput}\``,
     "",
-    "### Nach Typ",
+    "### By type",
     "",
-    "| Typ | Anzahl |",
+    "| Type | Count |",
     "| --- | --- |",
     rows(byType),
     "",
-    "### Nach Severity",
+    "### By severity",
     "",
-    "| Severity | Anzahl |",
+    "| Severity | Count |",
     "| --- | --- |",
     rows(bySeverity),
     "",
-    "### Nach Sprache",
+    "### By language",
     "",
-    "| Sprache | Anzahl |",
+    "| Language | Count |",
     "| --- | --- |",
     rows(byLanguage),
     "",
-    ...(warnings.length > 0 ? ["### Warnungen", "", ...warnings.map((w) => `- ${w}`), ""] : []),
+    ...(warnings.length > 0 ? ["### Warnings", "", ...warnings.map((w) => `- ${w}`), ""] : []),
   ].join("\n");
 }
 
@@ -460,21 +460,21 @@ async function main() {
 
   await waitForComputeEngineTask(env);
 
-  console.log(`Lade offene SonarCloud-Findings für Projekt "${env.sonarProjectKey}"...`);
+  console.log(`Loading open SonarCloud findings for project "${env.sonarProjectKey}"...`);
   const issues = await fetchAllSonarIssues(env);
-  console.log(`${issues.length} offene Findings geladen.`);
+  console.log(`${issues.length} open findings loaded.`);
 
   env.organization = issues[0]?.organization;
 
   // Explicit comparator: the default sort is lexicographic, which is what these rule keys want,
   // but saying so keeps the intent readable and satisfies javascript:S2871.
   const uniqueRuleKeys = [...new Set(issues.map((issue) => issue.rule))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  console.log(`Lade Regelmetadaten für ${uniqueRuleKeys.length} eindeutige Regeln...`);
+  console.log(`Loading rule metadata for ${uniqueRuleKeys.length} unique rules...`);
   const ruleMetadata = uniqueRuleKeys.length > 0 ? await fetchRuleMetadata(env, uniqueRuleKeys) : new Map();
   const rulesMissingMetadata = uniqueRuleKeys.filter((key) => !ruleMetadata.has(key) || !ruleMetadata.get(key)?.name);
   if (rulesMissingMetadata.length > 0) {
     console.warn(
-      `Warnung: ${rulesMissingMetadata.length} Regel(n) ohne Namen aus der Rules-API, degradiere auf Regel-ID: ` +
+      `Warning: ${rulesMissingMetadata.length} rule(s) without a name from the rules API, degrading to rule ID: ` +
         rulesMissingMetadata.join(", "),
     );
   }
@@ -503,25 +503,25 @@ async function main() {
   const warnings = [];
   if (ruleEntries.length > GITHUB_LIMITS.maxRulesPerRun) {
     warnings.push(
-      `${ruleEntries.length} Regeln überschreiten GitHubs Hard-Limit von ${GITHUB_LIMITS.maxRulesPerRun} Regeln pro Run.`,
+      `${ruleEntries.length} rules exceed GitHub's hard limit of ${GITHUB_LIMITS.maxRulesPerRun} rules per run.`,
     );
   }
   if (results.length > GITHUB_LIMITS.maxResultsPerRunHard) {
     warnings.push(
-      `${results.length} Results überschreiten GitHubs Hard-Limit von ${GITHUB_LIMITS.maxResultsPerRunHard} Results ` +
-        `pro Run — der Upload würde von GitHub abgelehnt.`,
+      `${results.length} results exceed GitHub's hard limit of ${GITHUB_LIMITS.maxResultsPerRunHard} results ` +
+        `per run — the upload would be rejected by GitHub.`,
     );
   } else if (results.length > GITHUB_LIMITS.maxResultsPerRunDisplayed) {
     warnings.push(
-      `${results.length} Results überschreiten GitHubs Soft-Limit von ${GITHUB_LIMITS.maxResultsPerRunDisplayed} — ` +
-        `nur die Top ${GITHUB_LIMITS.maxResultsPerRunDisplayed} nach Severity werden priorisiert angezeigt.`,
+      `${results.length} results exceed GitHub's soft limit of ${GITHUB_LIMITS.maxResultsPerRunDisplayed} — ` +
+        `only the top ${GITHUB_LIMITS.maxResultsPerRunDisplayed} by severity will be shown as prioritized.`,
     );
   }
   for (const rule of ruleEntries) {
     if (rule.properties.tags.length > GITHUB_LIMITS.maxTagsPerRule) {
       warnings.push(
-        `Regel ${rule.id} hat ${rule.properties.tags.length} Tags, GitHub zeigt davon nur die ersten 10 an ` +
-          `(Hard-Limit ${GITHUB_LIMITS.maxTagsPerRule}).`,
+        `Rule ${rule.id} has ${rule.properties.tags.length} tags, GitHub only shows the first 10 of these ` +
+          `(hard limit ${GITHUB_LIMITS.maxTagsPerRule}).`,
       );
     }
   }
@@ -546,15 +546,15 @@ async function main() {
   const sarifJson = JSON.stringify(sarif, null, 2);
   await writeFile(env.sarifOutput, sarifJson, "utf8");
   const fileStats = await stat(env.sarifOutput);
-  console.log(`SARIF-Datei geschrieben: ${env.sarifOutput} (${fileStats.size} Bytes).`);
+  console.log(`SARIF file written: ${env.sarifOutput} (${fileStats.size} bytes).`);
 
   if (fileStats.size > GITHUB_LIMITS.maxFileSizeBytes) {
     warnings.push(
-      `Datei ist ${fileStats.size} Bytes groß und überschreitet GitHubs 10-MB-Upload-Limit — der Upload würde abgelehnt.`,
+      `File is ${fileStats.size} bytes, exceeding GitHub's 10 MB upload limit — the upload would be rejected.`,
     );
   } else if (fileStats.size > GITHUB_LIMITS.maxFileSizeBytes * 0.8) {
     warnings.push(
-      `Datei nähert sich mit ${fileStats.size} Bytes GitHubs 10-MB-Upload-Limit.`,
+      `File is approaching GitHub's 10 MB upload limit at ${fileStats.size} bytes.`,
     );
   }
 
@@ -562,19 +562,19 @@ async function main() {
   const bySeverity = groupCount(issues, (issue) => issue.severity);
   const byLanguage = groupCount(issues, (issue) => ruleLanguage(issue.rule));
 
-  console.log("\n=== Zusammenfassung ===");
-  console.log(`Findings insgesamt: ${issues.length}`);
-  console.log(`SARIF-Results geschrieben: ${results.length}`);
-  console.log(`Ausgelassen (kein Dateipfad): ${skippedNoFile}`);
-  console.log("Nach Typ:");
-  console.log(formatCountsTable(byType) || "  (keine)");
-  console.log("Nach Severity:");
-  console.log(formatCountsTable(bySeverity) || "  (keine)");
-  console.log("Nach Sprache:");
-  console.log(formatCountsTable(byLanguage) || "  (keine)");
-  console.log(`Ausgabepfad: ${env.sarifOutput}`);
+  console.log("\n=== Summary ===");
+  console.log(`Findings total: ${issues.length}`);
+  console.log(`SARIF results written: ${results.length}`);
+  console.log(`Skipped (no file path): ${skippedNoFile}`);
+  console.log("By type:");
+  console.log(formatCountsTable(byType) || "  (none)");
+  console.log("By severity:");
+  console.log(formatCountsTable(bySeverity) || "  (none)");
+  console.log("By language:");
+  console.log(formatCountsTable(byLanguage) || "  (none)");
+  console.log(`Output path: ${env.sarifOutput}`);
   if (warnings.length > 0) {
-    console.log("\nWarnungen:");
+    console.log("\nWarnings:");
     for (const warning of warnings) console.log(`  - ${warning}`);
   }
 
@@ -584,7 +584,7 @@ async function main() {
       summaryPath,
       buildMarkdownSummary({ issues, results, skippedNoFile, sarifOutput: env.sarifOutput, warnings }),
     );
-    console.log(`\nBericht zusätzlich nach GITHUB_STEP_SUMMARY (${summaryPath}) geschrieben.`);
+    console.log(`\nSummary additionally written to GITHUB_STEP_SUMMARY (${summaryPath}).`);
   }
 }
 
@@ -595,7 +595,7 @@ async function main() {
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
   main().catch((error) => {
-    console.error(`Abbruch mit Fehler: ${error.message}`);
+    console.error(`Aborted with error: ${error.message}`);
     process.exitCode = 1;
   });
 }

@@ -46,21 +46,21 @@ log() {
 }
 
 fail() {
-  printf '[%s] FEHLER: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >&2
+  printf '[%s] ERROR: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >&2
   exit 1
 }
 
 # --- Preconditions --------------------------------------------------------
 
 if ! command -v docker >/dev/null 2>&1; then
-  fail "'docker' wurde nicht gefunden. Dieses Skript muss auf dem VPS-Host laufen, nicht in einem Container."
+  fail "'docker' was not found. This script must run on the VPS host, not inside a container."
 fi
 
 # Explicit running-check with a clear message instead of letting `docker exec`
 # fail cryptically further down.
 container_state="$(docker inspect -f '{{.State.Running}}' "$POSTGRES_CONTAINER" 2>/dev/null || true)"
 if [ "$container_state" != "true" ]; then
-  fail "Postgres-Container '$POSTGRES_CONTAINER' läuft nicht (oder existiert nicht). Kein Backup erstellt."
+  fail "Postgres container '$POSTGRES_CONTAINER' is not running (or does not exist). No backup created."
 fi
 
 mkdir -p "$BACKUP_DIR"
@@ -81,22 +81,22 @@ find "$BACKUP_DIR" -maxdepth 1 -type f -name "${BACKUP_FILE_PREFIX}-*.sql.gz.tmp
 # real safety net regardless of shell pipefail semantics. Nothing under
 # $final_file's name exists until both checks have passed.
 
-log "Starte Backup von Datenbank '$POSTGRES_DB' aus Container '$POSTGRES_CONTAINER' nach '$tmp_file'..."
+log "Starting backup of database '$POSTGRES_DB' from container '$POSTGRES_CONTAINER' to '$tmp_file'..."
 
 if ! docker exec "$POSTGRES_CONTAINER" pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=plain | gzip -c > "$tmp_file"; then
   rm -f "$tmp_file"
-  fail "pg_dump oder gzip ist fehlgeschlagen. Kein Backup-Archiv wurde hinterlassen."
+  fail "pg_dump or gzip failed. No backup archive was left behind."
 fi
 
 if [ ! -s "$tmp_file" ]; then
   rm -f "$tmp_file"
-  fail "Dump-Datei ist 0 Byte groß. Kein Backup-Archiv wurde hinterlassen."
+  fail "Dump file is 0 bytes. No backup archive was left behind."
 fi
 
 mv "$tmp_file" "$final_file"
 
 file_size="$(du -h "$final_file" | cut -f1)"
-log "Backup erfolgreich erstellt: $final_file ($file_size)"
+log "Backup created successfully: $final_file ($file_size)"
 
 # --- Rotation ---------------------------------------------------------------
 #
@@ -104,35 +104,35 @@ log "Backup erfolgreich erstellt: $final_file ($file_size)"
 # `find "$BACKUP_DIR" -mtime +N -delete`, which would also remove unrelated
 # files someone might have dropped into the same directory.
 
-log "Entferne Backups älter als $RETENTION_DAYS Tage (Muster: ${BACKUP_FILE_PREFIX}-*.sql.gz)..."
+log "Removing backups older than $RETENTION_DAYS days (pattern: ${BACKUP_FILE_PREFIX}-*.sql.gz)..."
 deleted_count=0
 while IFS= read -r -d '' old_file; do
   rm -f "$old_file"
   deleted_count=$((deleted_count + 1))
-  log "  gelöscht: $old_file"
+  log "  deleted: $old_file"
 done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name "${BACKUP_FILE_PREFIX}-*.sql.gz" -mtime "+${RETENTION_DAYS}" -print0)
-log "Rotation abgeschlossen: $deleted_count altes/alte Backup(s) entfernt."
+log "Rotation complete: $deleted_count old backup(s) removed."
 
 # --- Optional off-site copy -------------------------------------------------
 
 if [ "$OFFSITE_ENABLED" = "1" ]; then
   if ! command -v rclone >/dev/null 2>&1; then
-    log "WARNUNG: OFFSITE_ENABLED=1, aber 'rclone' ist nicht installiert. Off-Site-Kopie übersprungen."
+    log "WARNING: OFFSITE_ENABLED=1, but 'rclone' is not installed. Off-site copy skipped."
   elif [ -z "$OFFSITE_RCLONE_REMOTE" ]; then
-    log "WARNUNG: OFFSITE_ENABLED=1, aber OFFSITE_RCLONE_REMOTE ist nicht gesetzt. Off-Site-Kopie übersprungen."
+    log "WARNING: OFFSITE_ENABLED=1, but OFFSITE_RCLONE_REMOTE is not set. Off-site copy skipped."
   else
-    log "Kopiere Backup off-site nach '$OFFSITE_RCLONE_REMOTE'..."
+    log "Copying backup off-site to '$OFFSITE_RCLONE_REMOTE'..."
     if rclone copy "$final_file" "$OFFSITE_RCLONE_REMOTE"; then
-      log "Off-Site-Kopie erfolgreich."
+      log "Off-site copy succeeded."
     else
       # Deliberately non-fatal: the local backup above already succeeded and
       # must not be reported as failed just because the off-site leg had a
       # transient problem (network, quota, credentials).
-      log "WARNUNG: Off-Site-Kopie fehlgeschlagen. Das lokale Backup ist trotzdem vorhanden."
+      log "WARNING: Off-site copy failed. The local backup still exists."
     fi
   fi
 else
-  log "Off-Site-Kopie deaktiviert (OFFSITE_ENABLED != 1)."
+  log "Off-site copy disabled (OFFSITE_ENABLED != 1)."
 fi
 
-log "Fertig."
+log "Done."
