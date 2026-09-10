@@ -10,6 +10,73 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-10 — Anything with an outward effect becomes English; thinking tools stay German (#152)
+
+**Betrifft:** `README.md` · `CONTRIBUTING.md` (new) · `SECURITY.md` (new) ·
+`.github/ISSUE_TEMPLATE/bug_report.yml` + `feature_request.yml` + `config.yml` (new) ·
+`.github/PULL_REQUEST_TEMPLATE.md` (new) · `.github/workflows/publish.yml` ·
+`.github/workflows/sonarcloud.yml` · `CLAUDE.md` (the "Sprache" section) · `docs/DECISIONS.md` ·
+GitHub repository description and topics
+
+This is the first entry written in English, and it records why. From here on, every artefact with
+an outward effect is written in English so that contributors who do not read German can take part.
+The line does **not** run between code and documentation any more — it runs between what a stranger
+reads and what the maintainer writes in order to think.
+
+**English from now on:** identifiers and public APIs, comments in new code, log and `throw`
+messages, commit messages, issue and PR titles and bodies, release notes, `README.md`,
+`CONTRIBUTING.md`, `SECURITY.md`, the GitHub templates, the comments in `.github/workflows/`, the
+repository description and topics, and **new** entries in this log.
+
+**German from now on:** `CLAUDE.md`, `PRODUCT.md`, and the plans, concepts, specs, design and
+investigation documents under `docs/`. Those are the maintainer's thinking tools. Writing them in a
+second language costs precision and buys nobody anything, because nobody outside the project reads
+them.
+
+**Two rules changed, and both are reversals.**
+
+The first: log and `throw` messages were explicitly required to be **German**. They are now English.
+Whoever debugs a Worker fault reads exactly those lines, and a stranger does so as often as the
+maintainer — a German log line is a wall placed at the one moment somebody is already in trouble.
+The ~111 German log messages and 7 German exception texts already in `src/` are **not** rewritten;
+only new ones follow the new rule.
+
+The second: "Projektdokumentation deutsch" was a blanket statement. It is now split along the
+outward/inward line above.
+
+**What this deliberately does not do.** The 25 open German issues stay as they are. So do the 45
+plan, concept and investigation files under `docs/` (~36,000 lines of project history), and so do
+the 6,106 existing lines of this log. Translating history buys nothing: a contributor needs to
+build and change the project, not to re-read how it got here.
+
+**The cost that has no way around it.** `CLAUDE.md` sends every "why is X built this way?" reader
+to this file. New entries in English therefore make it permanently bilingual, and a contributor
+will hit German reasoning the moment they look further back than today. The only alternative was
+translating 6,106 lines, which is not worth it; the bilingual seam is the accepted price.
+
+**The `**Betrifft:**` marker stays German on purpose.** It is a structural field, not prose: it is
+what `grep <dateiname> docs/DECISIONS.md` and the eye scan for, and one uniform marker across all
+entries is worth more than a translated label on the newest few.
+
+**Measured before deciding, on 2026-09-10, because the cost was assumed to be much higher than it
+is.** Only 48 of 7,984 C# comment lines and 6 of 2,017 TypeScript comment lines are still German —
+the "new comments in English" rule from wave A had already done its work, so the code itself needed
+nothing. An earlier estimate of 17 % was a measuring error: the word list matched `order`, `render`,
+`exists` and `database` as substrings. `en.json` already carries all 1,095 keys of `de.json`, the
+12 GitHub labels are already English, and `LICENSE` is the AGPL text. Of the 51 files under `docs/`
+totalling 38,217 lines, six are ones a contributor actually needs. What was genuinely missing was
+not translation but substance: the repository had no description, no topics, no `CONTRIBUTING.md`,
+no `SECURITY.md` and no issue or PR templates at all.
+
+The German colour token names in `DESIGN.md` (`leuchtlinie`, `tiefes-teal`, `markierung-flaeche`)
+looked like they would force a rename across `web/`. They do not: `grep` finds them in no CSS or TS
+file. The normative custom properties in `web/src/styles.css` have always been English
+(`--color-accent`, `--color-surface`, …), so `DESIGN.md` is a one-file change whenever it is taken
+on. It, `docs/Architectur.md`, `docs/UI-Designsprache.md` and the three operations guides are
+outward-facing and still German; they are tracked as the recommended half of #152.
+
+---
+
 ### 2026-09-10 — Die Quellenwahl ist der erste Schritt des einen Import-Dialogs (#147)
 
 **Betrifft:** `web/src/app/shared/seven-tv/import-source-dialog.ts` ·
