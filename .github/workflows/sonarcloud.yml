@@ -1,12 +1,12 @@
 name: SonarCloud analysis
 
-# Ersetzt den von GitHub generierten Marketplace-Stub (SonarSource/sonarcloud-github-action, deprecated,
-# scheitert an Java 17): der Scanner läuft jetzt als eigenständiges dotnet-Tool mit echter Backend- UND
-# Frontend-Coverage, statt nur den Quellcode ohne Testergebnisse hochzuladen.
+# Replaces the GitHub-generated marketplace stub (SonarSource/sonarcloud-github-action, deprecated,
+# fails on Java 17): the scanner now runs as a standalone dotnet tool with real backend AND
+# frontend coverage, instead of just uploading the source code without test results.
 #
-# pull_request-Typen bewusst eingeschränkt (opened/synchronize/reopened): das sind die drei Ereignisse,
-# bei denen sich der zu analysierende Diff tatsächlich ändert — ein "labeled" o.ä. würde sonst einen
-# weiteren, unveränderten Scan auslösen.
+# pull_request types deliberately restricted (opened/synchronize/reopened): these are the three events
+# where the diff to be analyzed actually changes — a "labeled" or similar would otherwise trigger
+# another, unchanged scan.
 on:
   push:
     branches: [main]
@@ -17,25 +17,25 @@ on:
 
 jobs:
   analyze:
-    # ubuntu-latest ist Pflicht, nicht nur Vorliebe: EmotePurge.Infrastructure.Tests nutzt Testcontainers
-    # gegen echte, ephemere Postgres-/Redis-Container und braucht damit den Docker-Daemon, den nur die
-    # ubuntu-Runner mitbringen (Windows/macOS-Runner haben keinen).
+    # ubuntu-latest is mandatory, not just a preference: EmotePurge.Infrastructure.Tests uses Testcontainers
+    # against real, ephemeral Postgres/Redis containers and therefore needs the Docker daemon that only the
+    # ubuntu runners bring along (Windows/macOS runners don't have one).
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read # erlaubt SonarCloud, PRs mit den Analyseergebnissen zu kommentieren
-      security-events: write # für den SARIF-Upload nach GitHub Code Scanning weiter unten
+      pull-requests: read # allows SonarCloud to comment on PRs with the analysis results
+      security-events: write # for the SARIF upload to GitHub Code Scanning further below
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Sonars Blame- und New-Code-Zuordnung braucht die volle Commit-Historie — mit einem flachen
-          # Checkout (Default: nur der letzte Commit) hält Sonar jede Zeile für "neu" und die
-          # New-Code-Metriken (Coverage-on-new-code, Quality Gate) werden bedeutungslos.
+          # Sonar's blame and new-code attribution needs the full commit history — with a shallow
+          # checkout (default: only the latest commit) Sonar treats every line as "new" and the
+          # new-code metrics (coverage-on-new-code, quality gate) become meaningless.
           fetch-depth: 0
 
-      - name: Setup JDK 21 (für den Sonar-Scanner)
+      - name: Setup JDK 21 (for the Sonar scanner)
         uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: zulu
@@ -44,13 +44,13 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # Liest die SDK-Version aus global.json (10.0.300) statt sie hier zu duplizieren — ein Bump
-          # dort greift damit automatisch auch hier.
+          # Reads the SDK version from global.json (10.0.300) instead of duplicating it here — a bump
+          # there therefore takes effect here automatically too.
           global-json-file: global.json
 
-      # Muss vor dem Sonar-"begin" laufen: der Scanner liest beim "end"-Schritt die Angular-lcov-Datei
-      # ein, die es zu diesem Zeitpunkt schon geben muss — Node/npm also hier hochziehen und den
-      # Angular-Testlauf VOR den .NET-Scanner-Schritten ausführen, nicht danach.
+      # Must run before the Sonar "begin": the scanner reads the Angular lcov file during the "end"
+      # step, which must already exist by then — so bring up Node/npm here and run the
+      # Angular test run BEFORE the .NET scanner steps, not after.
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -62,10 +62,10 @@ jobs:
         run: npm ci --ignore-scripts
         working-directory: web
 
-      # Coverage bewusst per Flag statt fest in angular.json: dort verdrahtet würde sie jeden lokalen
-      # "npm test"-Lauf mitrechnen, obwohl sie nur die CI interessiert. Der Report landet unter
-      # web/coverage/web/lcov.info — den Projektnamen "web" hängt der Builder selbst an den Pfad an
-      # (real nachgemessen, nicht abgeleitet).
+      # Coverage deliberately via flag instead of hardwired in angular.json: wired in there it would
+      # run on every local "npm test" too, even though only CI cares about it. The report ends up under
+      # web/coverage/web/lcov.info — the builder appends the project name "web" to the path itself
+      # (measured for real, not inferred).
       - name: Run Angular unit tests with coverage (lcov)
         run: npm test -- --watch=false --coverage --coverage-reporters=lcov
         working-directory: web
@@ -85,44 +85,44 @@ jobs:
           path: ./.sonar/scanner
           key: ${{ runner.os }}-sonar-scanner
 
-      # "update" läuft bewusst auch bei einem Cache-Treffer. Mit einem unveränderlichen Cache-Key und
-      # einer Bedingung darauf bliebe der einmal gecachte Scanner sonst für immer liegen — genau das
-      # Versagensmuster, das diesen Workflow überhaupt nötig gemacht hat (der alte Scanner wurde vom
-      # Server wegen Java 17 abgewiesen). Der Cache bleibt als Warmstart erhalten, entscheidet aber
-      # nicht mehr über die Version.
+      # "update" deliberately also runs on a cache hit. With an immutable cache key and a condition
+      # on it, a once-cached scanner would otherwise sit there forever — exactly the failure mode
+      # that made this workflow necessary in the first place (the old scanner was rejected by the
+      # server because of Java 17). The cache still serves as a warm start, but no longer decides
+      # the version.
       - name: Install Sonar Scanner
         run: dotnet tool update dotnet-sonarscanner --tool-path ./.sonar/scanner
 
-      # Der Token kommt über die Umgebung, nicht als /d:sonar.token=. In der Kommandozeile stünde er in
-      # der Prozessliste des Runners und in jedem Echo des Schritts; der Scanner liest SONAR_TOKEN von
-      # sich aus. (Sonar-Regel githubactions:S7636, am eigenen Workflow gefunden.)
-      # multicriteria e1 filtert javascript:S4036 ("Make sure the PATH variable only contains fixed,
-      # unwriteable directories") für die Hilfsskripte. Die Regel trifft dort jeden spawnSync-Aufruf
-      # auf ein Werkzeug aus dem PATH — also genau das, wozu ein lokales Entwicklerskript da ist. Wer
-      # den PATH manipulieren kann, ist ohnehin auf der Maschine. Drei solche Befunde in
-      # coverage-local.mjs haben new_security_rating von A auf B gedrückt und damit die Quality Gate
-      # gerissen (PR #86, der erste Lauf mit scharfem Gate überhaupt). Gefiltert wird gezielt EINE
-      # Regel für EIN Verzeichnis — scripts/** bleibt in der Analyse, analog zur Roslyn-Entscheidung
-      # vom 2026-09-06: filtern, nicht abschalten. Alle anderen Regeln greifen dort weiterhin.
+      # The token comes in via the environment, not as /d:sonar.token=. On the command line it would
+      # show up in the runner's process list and in every echo of the step; the scanner reads
+      # SONAR_TOKEN on its own. (Sonar rule githubactions:S7636, found on this very workflow.)
+      # multicriteria e1 filters javascript:S4036 ("Make sure the PATH variable only contains fixed,
+      # unwriteable directories") for the helper scripts. The rule flags every spawnSync call there
+      # against a tool from the PATH — which is exactly what a local developer script is for. Anyone
+      # who can manipulate the PATH is already on the machine. Three such findings in
+      # coverage-local.mjs pushed new_security_rating from A to B and thereby broke the Quality Gate
+      # (PR #86, the first run with a sharp gate at all). What's filtered is deliberately ONE
+      # rule for ONE directory — scripts/** stays in the analysis, analogous to the Roslyn decision
+      # from 2026-09-06: filter, don't disable. All other rules still apply there.
       #
-      # Der Unterparameter heißt resourceKey, nicht resourcePattern — der erste Versuch scheiterte
-      # daran mit "Issue patterns are misconfigured. File pattern is mandatory for each entry".
-      # SonarSource dokumentiert diesen Weg nicht mehr ("strongly advised to configure these features
-      # in SonarQube UI ... not documented in this guide") und rät zur Weboberfläche. Hier steht er
-      # trotzdem, weil eine Server-Einstellung weder im Repo sichtbar ist noch eine Projekt-Migration
-      # überlebt. Der Preis: Bricht ein Scanner-Update die undokumentierte Property, tauchen die drei
-      # S4036-Befunde wieder auf und reißen das Gate — dann ist der Rückfallweg
+      # The sub-parameter is called resourceKey, not resourcePattern — the first attempt failed
+      # with "Issue patterns are misconfigured. File pattern is mandatory for each entry".
+      # SonarSource no longer documents this path ("strongly advised to configure these features
+      # in SonarQube UI ... not documented in this guide") and points to the web UI instead. It's
+      # here anyway because a server setting is neither visible in the repo nor survives a project
+      # migration. The price: if a scanner update breaks the undocumented property, the three
+      # S4036 findings resurface and break the gate — the fallback then is
       # Project Settings → Analysis Scope → Ignore Issues on Multiple Criteria.
-      # sonar.coverage.exclusions nimmt seit dem 2026-09-09 zwei Worker-Dateien auf. Das ist keine
-      # Bequemlichkeit, sondern die Kehrseite von Regel 11: TwitchChatManager und TwitchConnectionWatchdog
-      # sind die TwitchLib-Transporte, und ihre Verifikation ist ausdrücklich live gegen echtes Twitch-IRC
-      # angelegt, nicht gegen Fakes (Regel 16). Ein Unit-Test dafür müsste TwitchLib nachbauen und prüfte
-      # dann die Nachbildung statt den Transport — genau die Alibi-Tests, gegen die das Gate nicht scharf
-      # gestellt wurde. Die pure Entscheidungslogik ist aus beiden herausgezogen und wird sehr wohl
-      # gemessen: TwitchWatchdogPolicy, TwitchReconnectBackoffPolicy, TwitchReconnectSignalSlot.
-      # Der Preis: In diesen beiden Dateien meldet das Gate künftig nie wieder fehlende Coverage — auch
-      # dann nicht, wenn dort später testbare Logik einzieht. Wer solche Logik hinzufügt, zieht sie in
-      # eine eigene Klasse, statt sich auf diese Zeile zu verlassen.
+      # sonar.coverage.exclusions has included two worker files since 2026-09-09. That's not a
+      # convenience, it's the flip side of Rule 11: TwitchChatManager and TwitchConnectionWatchdog
+      # are the TwitchLib transports, and their verification is deliberately set up live against real
+      # Twitch IRC, not against fakes (Rule 16). A unit test for it would have to rebuild TwitchLib and
+      # would then be testing the rebuild instead of the transport — exactly the alibi tests the gate
+      # was not made strict to catch. The pure decision logic has been pulled out of both and is very
+      # much measured: TwitchWatchdogPolicy, TwitchReconnectBackoffPolicy, TwitchReconnectSignalSlot.
+      # The price: in these two files the gate will never again report missing coverage — even
+      # if testable logic moves in there later. Anyone adding such logic should pull it into
+      # its own class instead of relying on this line.
       - name: Sonar Scanner begin
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -140,66 +140,68 @@ jobs:
           /d:sonar.issue.ignore.multicriteria.e1.ruleKey="javascript:S4036"
           /d:sonar.issue.ignore.multicriteria.e1.resourceKey="scripts/**/*.mjs"
 
-      # --no-incremental ist Pflicht, nicht Stil: MSBuild überspringt sonst bereits gebaute Projekte
-      # inkrementell (z.B. aus einem vorherigen Cache-Restore), und der Sonar-Scanner-MSBuild-Hook sieht
-      # nur Projekte, die tatsächlich neu kompiliert wurden — übersprungene Projekte fehlen dann komplett
-      # im Analyse-Report, ohne dass der Build-Schritt selbst einen Fehler zeigt.
-      - name: Build (ohne Inkrementalität, damit der Scanner alle Projekte sieht)
+      # --no-incremental is mandatory, not style: MSBuild otherwise skips already-built projects
+      # incrementally (e.g. from a previous cache restore), and the Sonar-Scanner-MSBuild hook sees
+      # only projects that were actually recompiled — skipped projects are then missing entirely
+      # from the analysis report, without the build step itself showing an error.
+      - name: Build (non-incremental, so the scanner sees every project)
         run: dotnet build EmotePurge.slnx --configuration Release --no-incremental
 
-      # coverlet.collector (s. tests/*/*.csproj) schreibt je Testprojekt/Run einen eigenen
-      # coverage.opencover.xml unter einem GUID-Unterordner in TestResults/ — daher der Glob oben statt
-      # eines festen Pfads.
-      - name: Test mit Coverage (OpenCover)
+      # coverlet.collector (see tests/*/*.csproj) writes its own coverage.opencover.xml per test
+      # project/run under a GUID subfolder in TestResults/ — hence the glob above instead of
+      # a fixed path.
+      - name: Test with coverage (OpenCover)
         run: dotnet test EmotePurge.slnx --no-build --configuration Release --collect:"XPlat Code Coverage;Format=opencover"
 
-      # sonar.qualitygate.wait (s. begin) wirkt erst hier: ohne den Parameter lädt "end" nur hoch und
-      # kehrt sofort zurück — die Auswertung der Compute Engine kommt danach, und ein rotes Gate blieb
-      # folgenlos, weil der Job da längst grün beendet war. Mit dem Parameter pollt "end" bis zum
-      # Ergebnis und fällt bei rotem Gate mit Exit != 0 aus. Der Aufpreis ist klein: an PR #86 gemessen
-      # rund sechs Sekunden zwischen "Check Quality Gate status" und dem Ergebnis, in beide Richtungen
-      # (rot wie grün). Dafür sagt dieser Job als required check überhaupt etwas aus.
+      # sonar.qualitygate.wait (see begin) only takes effect here: without the parameter "end" just
+      # uploads and returns immediately — the Compute Engine's evaluation comes afterwards, and a red
+      # gate had no consequence because the job had long since finished green by then. With the
+      # parameter, "end" polls until the result and exits with a non-zero code on a red gate. The extra
+      # cost is small: measured on PR #86, around six seconds between "Check Quality Gate status" and
+      # the result, in both directions (red as well as green). In return, this job as a required check
+      # actually means something.
       - name: Sonar Scanner end
         id: sonar_end
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: ./.sonar/scanner/dotnet-sonarscanner end
 
-      # Die ref-Prüfung ist kein Gürtel-und-Hosenträger: workflow_dispatch lässt einen beliebigen Branch
-      # wählen, der Scanner analysiert dann diesen Ref — aber sonar-to-sarif.mjs fragt die Issues-API ohne
-      # Branch-Parameter und bekäme die Findings des Default-Branch. Ohne die Prüfung hingen mains
-      # Ergebnisse an einem fremden Ref.
+      # The ref check isn't belt-and-suspenders: workflow_dispatch lets you pick any branch,
+      # the scanner then analyzes that ref — but sonar-to-sarif.mjs queries the issues API without
+      # a branch parameter and would get the default branch's findings. Without the check, main's
+      # results would depend on a foreign ref.
       #
-      # Bewusst NICHT bei pull_request: ein SARIF-Upload liefe dort gegen den Merge-Ref und würde die
-      # Alert-Historie von main durcheinanderbringen (Alerts "verschwänden" beim Merge und tauchten
-      # unter neuen Fingerprints wieder auf). PR-Uploads können bei Bedarf später gezielt nachgerüstet
-      # werden; für jetzt reicht ein main-Push oder ein bewusst manuell angestoßener Lauf.
+      # Deliberately NOT on pull_request: a SARIF upload there would run against the merge ref and
+      # would scramble main's alert history (alerts would "disappear" on merge and reappear
+      # under new fingerprints). PR uploads can be added later in a targeted way if needed;
+      # for now a main push or a deliberately manually triggered run is enough.
       #
-      # Läuft im selben Job wie die Analyse (kein eigener Job mit needs): das Skript braucht
-      # .sonarqube/out/.sonar/report-task.txt, das der "end"-Schritt im Arbeitsverzeichnis hinterlässt —
-      # das über Job-Grenzen als Artifact zu reichen wäre unnötiger Aufwand für denselben Runner-Checkout.
+      # Runs in the same job as the analysis (no separate job with needs): the script needs
+      # .sonarqube/out/.sonar/report-task.txt, which the "end" step leaves behind in the working
+      # directory — passing that across job boundaries as an artifact would be unnecessary effort
+      # for the same runner checkout.
       #
-      # Die Bedingung trägt seit sonar.qualitygate.wait eine Statusfunktion: Ohne sie gilt implizit
-      # success(), und ein rotes Gate ließe den "end"-Schritt fehlschlagen — die beiden SARIF-Schritte
-      # würden übersprungen und Code Scanning bliebe auf der VORIGEN Analyse stehen, ausgerechnet im
-      # einzigen Fall, in dem die Befunde interessieren. `!cancelled()` hebt den impliziten Guard auf,
-      # `steps.sonar_end.conclusion != 'skipped'` fängt den Gegenfall ab: Scheitert schon Build oder
-      # Test, lief "end" nie, es gibt kein report-task.txt, und das Skript bräche mit einem zweiten,
-      # irreführenden Fehler ab. Der Job bleibt in beiden Fällen rot.
-      - name: SARIF-Report erzeugen
+      # The condition has carried a status function since sonar.qualitygate.wait: without it,
+      # success() applies implicitly, and a red gate would make the "end" step fail — the two SARIF
+      # steps would be skipped and Code Scanning would stay on the PREVIOUS analysis, in precisely
+      # the one case where the findings actually matter. `!cancelled()` lifts the implicit guard,
+      # `steps.sonar_end.conclusion != 'skipped'` catches the counter-case: if Build or Test already
+      # failed, "end" never ran, there is no report-task.txt, and the script would abort with a
+      # second, misleading error. The job stays red in both cases.
+      - name: Generate SARIF report
         if: ${{ !cancelled() && steps.sonar_end.conclusion != 'skipped' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         run: node scripts/sonar-to-sarif.mjs
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: sensitron_EmotePurge
 
-      # Seit sonar.qualitygate.wait wartet bereits der "end"-Schritt auf SonarClouds Auswertung; das
-      # eigene Warten in scripts/sonar-to-sarif.mjs (es pollt die ceTaskId aus report-task.txt) bleibt
-      # trotzdem nötig — es ist der Guard dagegen, die Findings des VORIGEN Laufs zu exportieren, und
-      # deckt auch den Fall ab, dass "end" wegen eines roten Gates abbricht. Hochgeladen wird sein
-      # Ergebnis (sonar.sarif). Eine eigene "category" trennt die Alerts von denen anderer Scanner
-      # (z.B. CodeQL selbst), falls das Repo die später zusätzlich einsetzt.
-      - name: Nach GitHub Code Scanning hochladen
+      # Since sonar.qualitygate.wait, the "end" step already waits for SonarCloud's evaluation; the
+      # script's own wait in scripts/sonar-to-sarif.mjs (it polls the ceTaskId from report-task.txt)
+      # is still necessary — it's the guard against exporting the PREVIOUS run's findings, and it
+      # also covers the case where "end" aborts because of a red gate. What gets uploaded is its
+      # result (sonar.sarif). A dedicated "category" separates these alerts from those of other
+      # scanners (e.g. CodeQL itself), should the repo also use those later.
+      - name: Upload to GitHub Code Scanning
         if: ${{ !cancelled() && steps.sonar_end.conclusion != 'skipped' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
