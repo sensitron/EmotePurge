@@ -726,6 +726,63 @@ test.describe('import dialog: shell contract', () => {
     await expect(fileInput).toBeAttached();
   });
 
+  test('the grid shrinks on a short window instead of handing the pane a second scrollbar', async ({
+    page,
+  }) => {
+    // The pane is `overflow-y: auto` by design (§7), so it will happily grow a bar of its own the
+    // moment the dialog's content outgrows it — which is exactly the double-scrollbar defect the
+    // grid's dvh-based height exists to prevent. jsdom has no layout, so this is the only level the
+    // arithmetic can be checked on. 500 px is a zoomed window, not an exotic device.
+    await page.setViewportSize({ width: 1280, height: 500 });
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.route('**/api/seventv/channels/handofblood/emotes*', (route) =>
+      route.fulfill({
+        json: {
+          channelName: 'handofblood',
+          sevenTvUserId: '7tv-user-1',
+          emoteSetId: 'set-source',
+          totalCount: 60,
+          truncated: false,
+          emotes: Array.from({ length: 60 }, (_, index) => ({
+            sevenTvEmoteId: `foreign-${index}`,
+            name: `ForeignEmote${index}`,
+            defaultName: `ForeignEmote${index}`,
+            imageUrl: `https://cdn.7tv.app/emote/foreign-${index}/2x.webp`,
+            topAllTime: null,
+            trending: null,
+          })),
+        },
+      }),
+    );
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    const dialog = page.getByRole('dialog');
+    await page.locator('main header button').nth(2).click();
+    await dialog.getByRole('button', { name: /^Aus einem Kanal/ }).click();
+    await dialog.getByLabel('Kanalname').fill('handofblood');
+    await dialog.getByRole('button', { name: 'Set laden' }).click();
+    await expect(dialog.getByRole('group', { name: 'Emote-Auswahl' })).toBeVisible();
+
+    // One scroll container, and it is the grid's. Measured on the pane itself rather than by
+    // looking for a scrollbar, which is a rendering detail the platform may hide.
+    const paneOverflow = await page
+      .locator('.cdk-overlay-pane.app-dialog-panel')
+      .evaluate((pane) => pane.scrollHeight - pane.clientHeight);
+    expect(paneOverflow).toBeLessThanOrEqual(1);
+
+    const gridScrolls = await dialog
+      .locator('cdk-virtual-scroll-viewport')
+      .evaluate((viewport) => viewport.scrollHeight > viewport.clientHeight);
+    expect(gridScrolls).toBe(true);
+  });
+
   test('entering the channel branch focuses the channel field', async ({ page }) => {
     await mockAuthMe(page, AUTH_USER);
     await mockWorkerHealth(page);

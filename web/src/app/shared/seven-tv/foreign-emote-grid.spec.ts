@@ -19,10 +19,11 @@ const DE_TRANSLATIONS = {
       sort: {
         label: 'Sortieren nach',
         none: 'Set-Reihenfolge',
-        topAllTime: '7TV-Verbreitung (gesamt)',
-        trending: '7TV-Verbreitung (Trend)',
+        topAllTime: '7TV-Score (gesamt)',
+        trending: '7TV-Score (Trend)',
+        noScore: 'kein Wert',
         scoreHint:
-          'Die Zahl auf jeder Kachel sagt, in wie vielen 7TV-Sets das Emote steckt — nicht, wie oft es in diesem Kanal benutzt wird.',
+          'Die Zahl auf jeder Kachel ist 7TVs netzwerkweiter Vergleichswert für dieses eine Emote — kein Maß dafür, wie oft es in diesem Kanal benutzt wird.',
       },
     },
   },
@@ -136,7 +137,7 @@ describe('ForeignEmoteGrid', () => {
     render([row()]);
     const hint = () =>
       Array.from(host.querySelectorAll('p')).some((p) =>
-        p.textContent?.includes('in wie vielen 7TV-Sets'),
+        p.textContent?.includes('netzwerkweiter Vergleichswert'),
       );
 
     expect(hint()).toBe(false);
@@ -216,6 +217,32 @@ describe('ForeignEmoteGrid', () => {
 
     expect(component['cellLabel'](aliased)).toBe('PogChamp2 (PogChamp)');
     expect(component['cellLabel'](plain)).toBe('catJAM');
+  });
+
+  it('names the active score in the cell label — an aria-label replaces the tile text', () => {
+    // The number printed on the tile is exactly what the user is sorting by, and an explicit
+    // aria-label wipes the descendant text out of the accessibility tree: without this it does not
+    // exist for a screen reader. It is announced under the sort control's own label, which is what
+    // gives a bare number its meaning without claiming a unit for it.
+    render([row()]);
+    component['sortMode'].set('topAllTime');
+    fixture.detectChanges();
+
+    expect(component['cellLabel'](row({ name: 'catJAM', topAllTime: 12400 }))).toBe(
+      'catJAM, 7TV-Score (gesamt): 12,4k',
+    );
+  });
+
+  it('says the missing score as a word, where the tile only has room for a dash', () => {
+    render([row()]);
+    component['sortMode'].set('trending');
+    fixture.detectChanges();
+
+    expect(component['cellLabel'](row({ name: 'catJAM', trending: null }))).toBe(
+      'catJAM, 7TV-Score (Trend): kein Wert',
+    );
+    // The tile itself keeps the typographic placeholder — it has 64 px, not a sentence.
+    expect(component['scoreBadge'](row({ trending: null }))).toBe('–');
   });
 
   it('formats the active 7TV-global score compactly, and a missing score as a dash', () => {

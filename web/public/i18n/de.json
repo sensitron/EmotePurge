@@ -955,9 +955,10 @@
       "sort": {
         "label": "Sortieren nach",
         "none": "Set-Reihenfolge",
-        "topAllTime": "7TV-Verbreitung (gesamt)",
-        "trending": "7TV-Verbreitung (Trend)",
-        "scoreHint": "Die Zahl auf jeder Kachel sagt, in wie vielen 7TV-Sets das Emote steckt — nicht, wie oft es in diesem Kanal benutzt wird."
+        "topAllTime": "7TV-Score (gesamt)",
+        "trending": "7TV-Score (Trend)",
+        "noScore": "kein Wert",
+        "scoreHint": "Die Zahl auf jeder Kachel ist 7TVs netzwerkweiter Vergleichswert für dieses eine Emote — kein Maß dafür, wie oft es in diesem Kanal benutzt wird."
       }
     },
     "confirm": {

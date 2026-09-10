@@ -464,7 +464,16 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   sonst mit (§7) und zwei ineinandergeschachtelte Balken über derselben Liste waren der gemeldete
   Defekt. Erreicht wird das nicht durch eine Prozent-Höhenkette — die überlebt die beiden
   `display: inline`-Component-Hosts nicht —, sondern indem das virtualisierte Viewport gegen `dvh`
-  bemessen ist und der Dialoginhalt damit kürzer bleibt als die Pane.
+  bemessen ist und der Dialoginhalt damit kürzer bleibt als die Pane:
+  `min(34rem, max(4rem, 100dvh - 26rem))`.
+  **Die Untergrenze ist dabei der gefährliche Teil, nicht die Obergrenze.** Eine Untergrenze F holt
+  den Doppelbalken für jedes Fenster unter `F + 22rem` zurück (22 rem = gemessene Chrome-Höhe plus
+  der 2-rem-Rand der Pane) — mit den ursprünglichen 16 rem also für jedes Fenster unter ~608 px, und
+  das ist ein 1366×768-Laptop oder ein gezoomtes Fenster, keine Exotik: bei 500 px lief die Pane um
+  gemessene 107 px über. Bei 4 rem liegt das Band unter ~416 px, also unterhalb der Chrome selbst.
+  Ganz beseitigen ließe es sich nur mit einer echten Höhenkette ab der Pane, und die hieße,
+  `DialogShell`s Host für alle zwölf Dialoge zur Flex-Spalte zu machen — bewusst nicht getan. Die
+  Zahlen hängen an einem E2E-Fall, weil jsdom kein Layout hat.
 - **Ergebnisvertrag:** Der Dialog schließt bei Erfolg mit einem diskriminierten Ergebnis —
   „Restore" mit den restaurierbaren Zeilen des Protokolls, „Import" mit der `ImportSource` aus der
   Datei oder „Foreign" mit den im Raster markierten Zeilen —, bei Abbrechen/Escape/Backdrop mit
@@ -487,13 +496,27 @@ Nutzungsseite und Stimmzettel sind keine Listen, sondern **ein Bogen gleichartig
   Browser öffnet das Dateifenster dann stumm nicht. Innerhalb des offenen Dialogs ist der Klick
   (oder Enter/Leertaste auf dem Knopf) eine frische Aktivierung.
 - **Die Sortierung im Raster benennt eine Eigenschaft des einzelnen Emotes, nie die Herkunft der
-  Liste.** „7TV global · Top aller Zeiten" in einer Reiterleiste hatte den Betreiber schließen
-  lassen, das Raster zeige 7TVs globale Emotes statt des Sets des eingegebenen Kanals. Verbindlich
-  seither: ein beschriftetes `<select>` („Sortieren nach"), keine Reiterleiste; die Option heißt
-  „7TV-Verbreitung (gesamt)"/„(Trend)"; die Zahl auf der Kachel bekommt, solange eine Score-Sortierung
-  aktiv ist, einen stillen Satz, der sagt, was sie **nicht** ist. Unverändert gelten die beiden
-  Auflagen aus dem Konzept (P5'): eine Score-Sortierung ist **nie** die Vorbelegung, und sie heißt
-  **nie** bloß „Beliebtheit" — eine kanalbezogene Beliebtheit gibt es für einen fremden Kanal nicht.
+  Liste — und behauptet keine Einheit.** Drei Auflagen, alle drei aus einem Fehler entstanden:
+  1. *Keine Aussage über die Liste.* „7TV global · Top aller Zeiten" in einer Reiterleiste hatte den
+     Betreiber schließen lassen, das Raster zeige 7TVs globale Emotes statt des Sets des
+     eingegebenen Kanals. Verbindlich seither: ein beschriftetes `<select>` („Sortieren nach"), keine
+     Reiterleiste.
+  2. *Keine erfundene Einheit.* Der Wert ist `Emote.scores.topAllTime`/`trendingDay`, ein
+     Ranking-Score — **nicht** `Emote.channels.totalCount`, das dieses Feature ausdrücklich nicht
+     abfragt, weil es an 7TVs Such-Eimer hängt und dessen Überziehung uns rund eine Stunde sperrt.
+     „Verbreitung" und „in wie vielen 7TV-Sets" haben die erste Fehldeutung gegen eine Mengenangabe
+     getauscht, die niemand belegt hat. Die Optionen heißen deshalb „7TV-Score (gesamt)"/„(Trend)",
+     und der stille Satz unter der Sortierzeile sagt nur zweierlei: netzwerkweit, für dieses **eine**
+     Emote — und **nicht** die Nutzung in diesem Kanal. Ein Vergleichswert ohne Einheit ist ehrlich,
+     eine erfundene Einheit nicht.
+  3. *Nie Vorbelegung, nie „Beliebtheit"* (Konzept P5') — eine kanalbezogene Beliebtheit gibt es für
+     einen fremden Kanal nicht.
+- **Der aktive Score steht im zugänglichen Namen der Kachel.** Ein explizites `aria-label` **ersetzt**
+  den Nachfahrentext im Accessibility-Baum, die sichtbare Zahl existiert für Screenreader also sonst
+  gar nicht — und sie ist genau das, wonach gerade sortiert wird. Angesagt wird sie unter derselben
+  Beschriftung, die das Sortier-Control trägt; das gibt der nackten Zahl ihre Bedeutung, ohne eine
+  Einheit zu erfinden. Einziger Unterschied zur Kachel: der fehlende Wert wird zum Wort, weil die
+  Kachel dafür nur einen Gedankenstrich hat und ein Screenreader den gar nicht ausspricht.
 - **Referenz:** `web/src/app/shared/seven-tv/import-source-dialog.ts`, `file-import-step.ts`,
   `foreign-channel-step.ts`, `foreign-emote-grid.ts`, `import-trigger.ts`, `import-trigger-gate.ts`,
   `restore-flow.ts`; Parser `shared/export/read-envelope.ts`, `purge-run-export.ts`,

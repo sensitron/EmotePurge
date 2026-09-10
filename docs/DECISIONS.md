@@ -89,7 +89,34 @@ der Fremdkanal war als **Quelle** entworfen, aber als **eigener Einstieg** gebau
    „Zurück" die Quellenzeile, aus der man kam), gesetzt per `afterNextRender` nach dem Rendern des
    neuen Schritts. Beim Übergang vom Formular zum Raster bleibt der Fokus auf „Set laden" — der
    Knopf überlebt den Wechsel und meint dort weiterhin etwas; nachgeprüft, nicht angenommen.
-9. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3). Beim Aussuchen
+9. **Namen unter den Zellen**, plus sichtbares Label am Kanalfeld (Codex P3).
+
+**Drei Befunde der zweiten Codex-Sol-Zweitmeinung, alle P2, alle im Raster:**
+
+10. **Die Hinweiszeile behauptete eine Einheit, die nie geprüft wurde.** „in wie vielen 7TV-Sets das
+    Emote steckt" — der Wert ist aber `Emote.scores.topAllTime`/`trendingDay`, ein Ranking-Score, und
+    ausdrücklich **nicht** `Emote.channels.totalCount`: das fragt dieses Feature nie ab, weil es an
+    7TVs Such-Eimer hängt, dessen Überziehung rund eine Stunde sperrt. Wir hatten die Fehldeutung
+    „das sind globale Emotes" gegen eine unbelegte Mengenangabe getauscht. Neu, in beiden Sprachen:
+    der Satz sagt netzwerkweit + dieses eine Emote + **nicht** die Kanalnutzung, und **keine
+    Einheit**. Die Optionsbeschriftungen sind mitgeändert — „Verbreitung" klang genauso nach Menge —,
+    sie heißen jetzt „7TV-Score (gesamt)"/„(Trend)".
+11. **Screenreader hörten die Zahl nie.** Das explizite `aria-label` der Kachel ersetzt ihren
+    Nachfahrentext im Accessibility-Baum, und es trug nur Alias und Basisnamen — die sichtbare Zahl
+    existierte für Screenreader nicht, obwohl genau nach ihr sortiert wird (WCAG-AA-Auflage in
+    `web/.claude/CLAUDE.md`). `cellLabel` hängt den aktiven Score jetzt unter der Beschriftung des
+    Sortier-Controls an, mit derselben Vorsicht wie oben; der fehlende Wert wird dabei zum Wort, weil
+    die Kachel nur einen Gedankenstrich zeigt und ein Screenreader den nicht ausspricht.
+12. **Der Doppel-Scrollbalken kam auf niedrigen Fenstern zurück.** Die Untergrenze von 16 rem am
+    Raster-Viewport passte unterhalb von rund 608 px CSS-Höhe nicht mehr neben Titel, Formular,
+    Sortierzeile und Aktionszeile — bei 500 px lief die Pane um **gemessene 107 px** über, also genau
+    der Zustand aus Runde eins. Eine Untergrenze F holt den Defekt für jedes Fenster unter
+    `F + 22rem` zurück (22 rem = gemessene Chrome-Höhe plus 2-rem-Pane-Rand); ganz beseitigen ließe
+    ihn nur eine echte Höhenkette ab der Pane, und die hieße `DialogShell`s Host für alle zwölf
+    Dialoge umzubauen. Stattdessen ist die Untergrenze auf 4 rem gesenkt, womit das Band unter
+    ~416 px liegt — unterhalb der Chrome selbst, wo nichts mehr hilft. Der Fall hängt jetzt an einem
+    E2E-Test (500-px-Viewport, Pane-Overflow ≤ 1 px, Raster scrollt): jsdom hat kein Layout, das ist
+    die einzige Ebene, auf der er sichtbar wird. Beim Aussuchen
    einzelner Emotes ist der Name die Entscheidungsgrundlage — er landet im Zielset und der
    Kollisionshinweis handelt von ihm. Sichtbar steht der **Alias** des Quellsets; der globale
    Basisname kommt dort dazu, wo er abweicht (296 von 956 bei HandOfBlood), und zwar im zugänglichen

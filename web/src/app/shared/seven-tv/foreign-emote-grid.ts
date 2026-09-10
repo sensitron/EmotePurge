@@ -10,7 +10,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 import { ForeignEmoteRow } from '../../core/seven-tv/foreign-emote-set.model';
 import { LanguageService } from '../../core/i18n/language.service';
@@ -46,12 +46,17 @@ interface SortOption {
 }
 
 /**
- * The sort options, in menu order. The wording is load-bearing and was changed after the operator
- * read the old labels ("7TV global · Top aller Zeiten") as a statement about the *list* and
- * concluded the grid was showing 7TV's global emotes rather than this channel's set. Two things
- * follow, and both are contracts rather than copy:
- *  - the option names the property of a **single emote** ("wie verbreitet es auf 7TV ist"), never a
- *    source of the list;
+ * The sort options, in menu order. The wording is load-bearing and has now been wrong twice, in
+ * opposite directions, so all three constraints are contracts rather than copy:
+ *  - it names a property of a **single emote**, never the origin of the list. "7TV global · Top
+ *    aller Zeiten" in a tab-bar-shaped control had the operator conclude the grid was showing 7TV's
+ *    global emotes rather than this channel's set;
+ *  - it claims **no unit**. The replacement wording ("Verbreitung", "in wie vielen 7TV-Sets") traded
+ *    that misreading for an invented quantity: the value is `Emote.scores.topAllTime`/`trendingDay`,
+ *    a ranking score, and emphatically NOT `Emote.channels.totalCount` — this feature never asks for
+ *    that field, because it hangs off 7TV's search bucket and overrunning it locks us out for about
+ *    an hour (spec, score contract). A comparison value without a unit is honest; a made-up unit is
+ *    not;
  *  - and never plain "Beliebtheit" — a channel-relative popularity does not exist for a channel
  *    nobody here has a role in, and the word would promise one (spec P5').
  */
@@ -93,12 +98,28 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
  * known flicker (see `usage-stats-page.ts`'s `trackRow`; this repo has hit that bug once already
  * on a virtualized grid without a stable trackBy).
  *
- * **This viewport is the only scroll container in the dialog.** The pane around it scrolls too by
- * default (`.app-dialog-panel`), and two nested scrollbars over the same list was the reported
- * defect: the viewport is therefore sized against `dvh` with a ceiling, so the dialog's own content
- * stays shorter than the pane and the pane never grows a bar of its own. The ceiling is what keeps
- * a tall desktop screen from turning the sheet into a wall of emotes; the floor keeps a short one
- * usable.
+ * **This viewport is the only scroll container in the dialog**, and the height expression is what
+ * keeps it that way. The pane around it scrolls too by default (`.app-dialog-panel`), and two nested
+ * scrollbars over the same list was the reported defect; a percentage height chain is not available
+ * as a fix, because it dies on the two `display: inline` component hosts between the pane and this
+ * element (design language §7). So the viewport is measured against `dvh` instead:
+ * `min(34rem, max(4rem, 100dvh - 26rem))`.
+ *
+ *  - `34rem` is the ceiling — a tall desktop screen should not turn the dialog into a wall of emotes.
+ *  - `26rem` is the allowance for everything else in the pane. Measured at 22rem (the dialog chrome
+ *    plus the pane's own 2rem margin), so this carries about 4rem of slack. As long as this term
+ *    dominates, the content is by construction shorter than the pane and the pane cannot grow a bar.
+ *  - `4rem` is a **floor, not a minimum useful size**, and it was deliberately lowered from 16rem:
+ *    a floor of F re-creates the double scrollbar for every viewport below `F + 22rem`, so 16rem put
+ *    the defect back on any window under ~608 px — a 1366×768 laptop, or any zoomed one. Measured at
+ *    500 px the pane overflowed by 107 px. At 4rem the band is under ~416 px, i.e. shorter than the
+ *    dialog's own chrome, where nothing can help.
+ *
+ * No positive floor removes that band entirely; only a real height chain from the pane could, and
+ * that would mean making `DialogShell`'s host a flex column for all twelve of its dialogs. Not worth
+ * it for a band this small — but that is the fix if the floor ever has to rise again. The numbers
+ * above are pinned by an E2E case ("the grid shrinks on a short window…", `emote-import.e2e.spec.ts`)
+ * because jsdom has no layout and nothing else here can see them.
  */
 @Component({
   selector: 'app-foreign-emote-grid',
@@ -141,7 +162,7 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
       </div>
 
       <!-- The hint belongs to the TILES, not to the sort row: it explains the number printed on
-           each of them. So it wraps together with the grid in its own tight column (§7 — spacing is
+           each of them, and says what it is not — network-wide, this one emote, no unit claimed. So it wraps together with the grid in its own tight column (§7 — spacing is
            the shell's flex gap, and what belongs together more closely than that rhythm wraps
            itself in its own tighter flex column), instead of floating at equal distance between the two
            and reading as a caption for neither. It appears only while a score sort is active; with
@@ -160,7 +181,7 @@ function chunkIntoRows<T>(items: readonly T[], columns: number): T[][] {
         >
           <cdk-virtual-scroll-viewport
             [itemSize]="rowPx"
-            class="h-[clamp(16rem,calc(100dvh-26rem),34rem)]"
+            class="h-[min(34rem,max(4rem,calc(100dvh-26rem)))]"
           >
             <div
               *cdkVirtualFor="let row of rows(); trackBy: trackRowIndex"
@@ -237,6 +258,9 @@ export class ForeignEmoteGrid {
   readonly selectionChange = output<ForeignEmoteRow[]>();
 
   private readonly languageService = inject(LanguageService);
+  // Needed in `cellLabel`, which builds a string rather than rendering one — the tile's accessible
+  // name has to carry the score, and an aria-label cannot be assembled by the template pipe.
+  private readonly transloco = inject(TranslocoService);
 
   private readonly gridContainerRef = viewChild<ElementRef<HTMLElement>>('gridContainer');
   private readonly containerWidth = signal(0);
@@ -274,6 +298,15 @@ export class ForeignEmoteGrid {
       return scoreB - scoreA;
     });
   });
+
+  /** The option currently sorted by, or `null` for the set's own order — the one place that maps
+   *  the mode back onto its label, so the tile's accessible name and the control agree by
+   *  construction. */
+  protected readonly activeSortOption = computed<SortOption | null>(
+    () =>
+      SORT_OPTIONS.find((option) => option.value === this.sortMode() && option.value !== 'none') ??
+      null,
+  );
 
   protected readonly columns = computed(() => columnsForWidth(this.containerWidth()));
   protected readonly rows = computed(() => chunkIntoRows(this.sortedEmotes(), this.columns()));
@@ -322,9 +355,23 @@ export class ForeignEmoteGrid {
    * truncated at 64 px. The alias comes first because that is the name being copied; the global
    * default name follows in brackets only where the two differ, which they do in 296 of
    * HandOfBlood's 956 entries.
+   *
+   * **The active score belongs in here too.** An explicit `aria-label` *replaces* the descendant
+   * text in the accessibility tree, so the number printed on the tile simply does not exist for a
+   * screen reader unless it is named here — and it is the very thing the user is sorting by.
+   * It is announced under the same label the sort control carries, which is what gives the bare
+   * number its meaning without inventing a unit for it. The number itself is the same compact text
+   * the tile shows; only the *missing* case differs, because the tile's dash is a typographic
+   * placeholder and reads as nothing at all when spoken.
    */
   protected cellLabel(emote: ForeignEmoteRow): string {
-    return emote.name === emote.defaultName ? emote.name : `${emote.name} (${emote.defaultName})`;
+    const names =
+      emote.name === emote.defaultName ? emote.name : `${emote.name} (${emote.defaultName})`;
+    const active = this.activeSortOption();
+    if (active === null) {
+      return names;
+    }
+    return `${names}, ${this.transloco.translate(active.labelKey)}: ${this.spokenScore(emote)}`;
   }
 
   protected scoreBadge(emote: ForeignEmoteRow): string {
@@ -336,5 +383,14 @@ export class ForeignEmoteGrid {
     return value >= 1000
       ? `${(value / 1000).toLocaleString(locale, { maximumFractionDigits: 1 })}k`
       : value.toLocaleString(locale);
+  }
+
+  /** The score as it is announced: the tile's own text, except that the typographic dash it uses
+   *  for "no score" becomes a word — a screen reader says nothing at all for the dash. */
+  private spokenScore(emote: ForeignEmoteRow): string {
+    const value = emote[this.sortMode() as Exclude<ForeignEmoteSortMode, 'none'>];
+    return value === null || value === undefined
+      ? this.transloco.translate('import.foreignChannel.sort.noScore')
+      : this.scoreBadge(emote);
   }
 }

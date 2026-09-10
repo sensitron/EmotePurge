@@ -955,9 +955,10 @@
       "sort": {
         "label": "Sort by",
         "none": "Set order",
-        "topAllTime": "7TV spread (all-time)",
-        "trending": "7TV spread (trending)",
-        "scoreHint": "The number on each tile says how many 7TV sets the emote sits in — not how often it is used in this channel."
+        "topAllTime": "7TV score (all-time)",
+        "trending": "7TV score (trending)",
+        "noScore": "no value",
+        "scoreHint": "The number on each tile is 7TV's network-wide comparison value for that one emote — not a measure of how often it is used in this channel."
       }
     },
     "confirm": {
