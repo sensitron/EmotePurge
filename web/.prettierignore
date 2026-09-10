@@ -1,14 +1,14 @@
-# Build- und Tooling-Artefakte. node_modules ignoriert Prettier bereits selbst.
+# Build and tooling artifacts. Prettier already ignores node_modules itself.
 /.angular
 /dist
 /coverage
 /test-results
 /.audit-out
 
-# Wird von npm erzeugt und verwaltet — Formatierung wäre reiner Diff-Lärm.
+# Generated and managed by npm — formatting would be pure diff noise.
 /package-lock.json
 
-# Markdown bleibt repoweit handgepflegt: die Projektdoku liegt in docs/ und damit
-# außerhalb dieses Prettier-Scopes. Nur web/**/*.md zu formatieren würde die Doku
-# in zwei Formatierungswelten teilen.
+# Markdown stays hand-maintained repo-wide: the project docs live in docs/ and thus
+# outside this Prettier scope. Formatting only web/**/*.md would split the docs
+# into two formatting worlds.
 *.md

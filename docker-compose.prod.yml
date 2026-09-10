@@ -1,18 +1,18 @@
 name: emote-purge
 
-# Produktions-Stack für Portainer: zieht vorgebaute Images aus ghcr.io (per
-# .github/workflows/publish.yml) statt lokal zu bauen. Für lokale Entwicklung
-# weiterhin docker-compose.yml (docker compose up -d --build) verwenden.
+# Production stack for Portainer: pulls prebuilt images from ghcr.io (via
+# .github/workflows/publish.yml) instead of building locally. For local development
+# keep using docker-compose.yml (docker compose up -d --build).
 
 services:
   redis:
     image: redis:7.2-alpine
     container_name: emotepurge-redis
     restart: unless-stopped
-    # maxmemory + Eviction-Policy: Ohne Obergrenze wächst Redis bis der Host-Speicher ausgeht, und
-    # dann fällt nicht nur der Rollen-Cache aus, sondern auch channel:bot:commands und
-    # worker:health:twitch — der Bot verlöre seine Steuerung. Alle Keys hier sind Cache-Einträge mit
-    # TTL bzw. kurzlebige Pub/Sub-Nachrichten, allkeys-lru ist daher unkritisch.
+    # maxmemory + eviction policy: without an upper bound, Redis grows until the host runs out of
+    # memory, and then not just the role cache fails, but also channel:bot:commands and
+    # worker:health:twitch — the bot would lose its control channel. All keys here are cache
+    # entries with a TTL, or short-lived pub/sub messages, so allkeys-lru is therefore uncritical.
     command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "127.0.0.1:6380:6379"
@@ -69,8 +69,8 @@ services:
       # Comma-separated. Overrides the appsettings.json array — without this the admin area is
       # reachable only by the login hardcoded there.
       - Auth__AdminTwitchLogins=${ADMIN_TWITCH_LOGINS}
-      # Ohne persistierten Schlüsselring erzeugt jeder Container-Neustart einen neuen und wirft alle
-      # eingeloggten Nutzer heraus; mit zwei Api-Replicas würden Logins sporadisch fehlschlagen.
+      # Without a persisted key ring, every container restart generates a new one and throws out
+      # all logged-in users; with two Api replicas, logins would fail sporadically.
       - DataProtection__KeyPath=/keys
     volumes:
       - dataprotection-keys:/keys
@@ -86,13 +86,12 @@ services:
     image: ghcr.io/sensitron/emotepurge-worker:latest
     container_name: emotepurge-worker
     restart: unless-stopped
-    # #122: Docker-Default für den Stopp sind 10 s bis zum SIGKILL. Der .NET-`ShutdownTimeout` des
-    # Hosts bleibt bewusst beim Default von 30 s (ein zweites Budget im Code kauft nichts, solange
-    # Docker das größere hält) — aber Hosted Services stoppen sequenziell in umgekehrter
-    # Registrierungsreihenfolge (WorkerServiceRegistration.cs), und vor dem als zweiten
-    # registrierten UsageFlushWorker stoppen sieben andere Dienste. 60 s decken die 30 s mit
-    # Reserve ab, damit der Abschluss-Flush planbar drankommt statt vom SIGKILL abgeschnitten zu
-    # werden (Konzept 4.6, G3).
+    # #122: Docker's default for stop is 10 s until SIGKILL. The .NET `ShutdownTimeout` of the
+    # host deliberately stays at the default of 30 s (a second budget in code buys nothing as long
+    # as Docker holds the larger one) — but hosted services stop sequentially in reverse
+    # registration order (WorkerServiceRegistration.cs), and seven other services stop before the
+    # UsageFlushWorker, which is registered second. 60 s covers the 30 s with margin, so the final
+    # flush arrives predictably instead of being cut off by SIGKILL (Concept 4.6, G3).
     stop_grace_period: 60s
     deploy:
       resources:
@@ -102,16 +101,16 @@ services:
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
-      # 7TV-EventAPI-Live-Updates (Default aus): Rollout/Rollback per Env-Wechsel ohne Rebuild.
+      # 7TV EventAPI live updates (default off): rollout/rollback via env change without a rebuild.
       - SevenTv__EventApi__Enabled=${SEVENTV_EVENTAPI_ENABLED:-false}
       - SevenTv__ResyncIntervalSeconds=${SEVENTV_RESYNC_INTERVAL_SECONDS:-60}
-      # Client-Credentials für den Helix-Live-Poll (A10) — dieselbe Twitch-App wie die Api,
-      # aber ein eigener App-Access-Token (kein User-Token, keine Scopes).
+      # Client credentials for the Helix live poll (A10) — the same Twitch app as the Api,
+      # but its own App Access Token (no user token, no scopes).
       - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
       - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
       - Twitch__LivePollIntervalSeconds=${TWITCH_LIVE_POLL_INTERVAL_SECONDS:-300}
-      # Channel-eigene Bots, die in keiner Fremdliste stehen (s. IBotChatterDetector) —
-      # kommagetrennte Twitch-User-IDs, ergänzt die eingebaute statische Liste ohne Release.
+      # Channel-specific bots that appear on no third-party list (see IBotChatterDetector) —
+      # comma-separated Twitch user IDs, supplements the built-in static list without a release.
       - Twitch__AdditionalBotAccountIds=${TWITCH_ADDITIONAL_BOT_ACCOUNT_IDS:-}
     networks:
       - emotepurge-network
@@ -121,21 +120,21 @@ services:
       redis:
         condition: service_healthy
 
-  # #69: die Akkuratheits-Sonde des Chat-Log-Backfills, ein zweiter Einstiegspunkt desselben
-  # Worker-Images, kein Hosted Service (s. DECISIONS "Der Harness ist ein zweiter Einstiegspunkt
-  # des Worker-Images, kein Hosted Service"). Läuft nie durch `up`, nur durch
-  # `docker compose -f docker-compose.prod.yml --profile harness run --rm harness <kanal> [--days <n>]`,
-  # nach einem vorherigen `pull harness` (sonst fährt `:latest` still alt).
+  # #69: the accuracy probe of the chat-log backfill, a second entry point of the same
+  # Worker image, not a hosted service (see DECISIONS "Der Harness ist ein zweiter Einstiegspunkt
+  # des Worker-Images, kein Hosted Service"). Never runs through `up`, only through
+  # `docker compose -f docker-compose.prod.yml --profile harness run --rm harness <channel> [--days <n>]`,
+  # after a prior `pull harness` (otherwise `:latest` quietly keeps running the old one).
   harness:
     image: ghcr.io/sensitron/emotepurge-worker:latest
     profiles: ["harness"]
     restart: "no"
-    # `docker compose run` hängt seine Argumente an den entrypoint an, nicht an command — ein
-    # `command` hier würde ersetzt, und ein `run` ohne Argumente landete beim vollen Worker-Start
-    # statt in HarnessCommandLine.Parse's Invalid-Zweig (Codex-adversarial "Fail-open CLI").
+    # `docker compose run` appends its arguments to the entrypoint, not to command — a
+    # `command` here would be replaced, and a `run` without arguments would land at the full worker
+    # startup instead of in HarnessCommandLine.Parse's invalid branch (Codex adversarial "Fail-open CLI").
     entrypoint: ["dotnet", "EmotePurge.Worker.dll", "harness"]
     healthcheck:
-      # Der Heartbeat-Check des Images misst WorkerHealthPublisher; den gibt es hier nicht.
+      # The image's heartbeat check measures WorkerHealthPublisher; that doesn't exist here.
       disable: true
     deploy:
       resources:
@@ -144,22 +143,22 @@ services:
           memory: 512M
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Database=emotepurge;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
-      # Der Harness veröffentlicht und abonniert selbst nie etwas über Redis (Regel 4) — aber
-      # IChannelService hängt über IRedisPublisher am selben eager verbindenden
-      # IConnectionMultiplexer-Singleton wie der Worker (ServiceCollectionExtensions, kein
-      # abortConnect=false); ohne erreichbaren Redis beim Start bricht schon die Auflösung von
-      # HarnessRunner, bevor der eigentliche Lauf beginnt.
+      # The harness itself never publishes or subscribes to anything over Redis (Rule 4) — but
+      # IChannelService hangs, via IRedisPublisher, off the same eagerly-connecting
+      # IConnectionMultiplexer singleton as the Worker (ServiceCollectionExtensions, no
+      # abortConnect=false); without reachable Redis at startup, resolving HarnessRunner already
+      # fails before the actual run begins.
       - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
       - SevenTv__EventApi__Enabled=${SEVENTV_EVENTAPI_ENABLED:-false}
       - SevenTv__ResyncIntervalSeconds=${SEVENTV_RESYNC_INTERVAL_SECONDS:-60}
       - Auth__Twitch__ClientId=${TWITCH_CLIENT_ID}
       - Auth__Twitch__ClientSecret=${TWITCH_CLIENT_SECRET}
       - Twitch__LivePollIntervalSeconds=${TWITCH_LIVE_POLL_INTERVAL_SECONDS:-300}
-      # Anders als die übrigen Zeilen hier oben (SevenTv__*, Twitch__LivePollIntervalSeconds,
-      # Auth__Twitch__*) ist diese Zeile für den Harness NICHT tot: BotChatterDetector liest sie
-      # ein, und die Menge geht über KnownBotAccountIds direkt in die Lauf-Identität
-      # (HarnessRunIdentity.BotAccountIds) ein. Eine spätere Aufräum-Runde, die die toten Zeilen
-      # entfernt, ändert hier still die Bot-Klassifikation und damit die gemessene Zahl.
+      # Unlike the other lines above (SevenTv__*, Twitch__LivePollIntervalSeconds,
+      # Auth__Twitch__*), this line is NOT dead for the harness: BotChatterDetector reads it
+      # in, and the set flows directly into the run identity via KnownBotAccountIds
+      # (HarnessRunIdentity.BotAccountIds). A later cleanup round that removes the dead lines
+      # would silently change the bot classification here, and thus the measured number.
       - Twitch__AdditionalBotAccountIds=${TWITCH_ADDITIONAL_BOT_ACCOUNT_IDS:-}
       - Harness__OutputDirectory=/data/harness
       - Harness__MaxMegabytesPerRun=${HARNESS_MAX_MEGABYTES_PER_RUN:-200}

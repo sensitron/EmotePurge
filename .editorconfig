@@ -6,26 +6,26 @@ insert_final_newline = true
 charset = utf-8
 trim_trailing_whitespace = true
 
-# .NET-Analyzer-Schweregrade.
+# .NET analyzer severity levels.
 #
-# Diese Diagnosen sind Info-Level: ein normaler `dotnet build` druckt sie nicht, aber der
-# Sonar-Scanner liest sie aus dem Build und importiert sie als Befunde. Der erste vollständige Scan
-# bestand deshalb zu zwei Dritteln aus ihnen (95 von 142). Gefiltert wird hier statt am Import,
-# denn Sonar kennt nur ganz an oder ganz aus — und ganz aus hätte auch die wenigen Roslyn-Befunde
-# verschluckt, die etwas taugen (ein nicht weitergereichter CancellationToken war darunter).
+# These diagnostics are info-level: a normal `dotnet build` doesn't print them, but the
+# Sonar scanner reads them from the build and imports them as findings. The first full scan
+# therefore consisted two-thirds of them (95 of 142). Filtering happens here instead of at import,
+# because Sonar only knows fully on or fully off — and fully off would also have swallowed the few
+# Roslyn findings that are actually worth something (an unpropagated CancellationToken was among them).
 #
-# Was hier auf `none` steht, ist bewusst abgewählt und nicht bloß lästig. Alles ohne Eintrag bleibt
-# aktiv und taucht damit weiterhin im Scan auf, auch wenn es neu dazukommt.
+# What's set to `none` here was deliberately deselected, not just annoying. Everything without an
+# entry stays active and therefore keeps showing up in the scan, even when it's newly added.
 [*.cs]
 
-# 72 Fundstellen. Trifft den Logging-Stil des Projekts systematisch, nicht einzelne Ausrutscher;
-# die Meldung einzeln abzuarbeiten hieße, das Log-Muster überall umzubauen.
+# 72 findings. Hits the project's logging style systematically, not individual slip-ups;
+# addressing the finding one by one would mean rebuilding the logging pattern everywhere.
 dotnet_diagnostic.CA1873.severity = none
 
-# Mikro-Optimierungen ohne Bezug zu einem beobachteten Problem.
+# Micro-optimizations with no relation to an observed problem.
 dotnet_diagnostic.CA1859.severity = none
 dotnet_diagnostic.CA1822.severity = none
 
-# Stilempfehlungen der ASP.NET-Core- bzw. Regex-Analyzer.
+# Style recommendations from the ASP.NET Core and regex analyzers, respectively.
 dotnet_diagnostic.ASP0015.severity = none
 dotnet_diagnostic.SYSLIB1045.severity = none

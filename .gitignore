@@ -53,14 +53,14 @@ src/EmotePurge.Api/wwwroot/
 # and the direction contract in web/src/index.html.
 .impeccable/
 
-# Superpowers-Arbeitsverzeichnis je Plan: Ledger, Task-Briefs, Reports, Review-Pakete.
-# Sitzungs-Scratch — die dauerhafte Spur eines Plans sind seine Commits und die Plandatei
-# unter docs/superpowers/plans/.
+# Superpowers working directory per plan: ledger, task briefs, reports, review packages.
+# Session scratch — the durable trace of a plan is its commits and the plan file
+# under docs/superpowers/plans/.
 .superpowers/
 
-# Angular-CLI-Cache, wenn ng vom Repo-Root statt aus web/ läuft (web/.gitignore deckt nur web/.angular/cache).
+# Angular CLI cache when ng runs from the repo root instead of from web/ (web/.gitignore only covers web/.angular/cache).
 .angular/
 
-# Bind-Mount-Ziel des `harness`-Compose-Services (#69): JSONL-Protokoll und Markdown-Bericht
-# eines Akkuratheits-Laufs. Werden per scp vom VPS geholt, nie committet.
+# Bind-mount target of the `harness` compose service (#69): JSONL log and markdown report
+# of an accuracy run. Fetched from the VPS via scp, never committed.
 harness-reports/
