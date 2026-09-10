@@ -845,7 +845,12 @@
         "wrongSet": "The protocol belongs to a different emote set — the channel switched its active set.",
         "noRestorableRows": "The protocol contains no successfully deleted emotes to restore."
       }
-    }
+    },
+    "skippedDuplicates": {
+      "one": "{{ count }} emote is already in the target set and was skipped.",
+      "other": "{{ count }} emotes are already in the target set and were skipped."
+    },
+    "duplicateCheckUnavailable": "We couldn't check right now whether these emotes are already in the target set — duplicate entries are possible."
   },
   "export": {
     "button": "Export",
@@ -1027,7 +1032,12 @@
     "leaveWhileRunning": {
       "message": "The copy run is still going. It continues in the background, but its progress is only visible on the emote-usage page. Leave the page anyway?",
       "confirm": "Leave"
-    }
+    },
+    "skippedDuplicates": {
+      "one": "{{ count }} emote was already in the target set by the time the run started and was skipped.",
+      "other": "{{ count }} emotes were already in the target set by the time the run started and were skipped."
+    },
+    "duplicateCheckUnavailable": "We couldn't check right now whether these emotes are already in the target set — duplicate entries are possible."
   },
   "sevenTvToken": {
     "tokenSet": "7TV token set",

@@ -129,10 +129,15 @@ describe('startForeignChannelImportFlow', () => {
       rows: [{ sevenTvEmoteId: 'e1', name: 'Kappa' }],
     });
 
+    // Fourth argument is the #149/T5 fresh duplicate-check skip count — 0 because `listEmotes`
+    // defaults to an empty target set. Fifth is whether that check actually ran — true, since the
+    // fetch succeeded (#149).
     expect(startImport).toHaveBeenCalledWith(
       { setId: 'set-target', channelName: 'my_channel' },
       { kind: 'seventv-channel', channelName: 'handofblood' },
       [{ sevenTvEmoteId: 'e1', name: 'Kappa' }],
+      0,
+      true,
     );
   });
 

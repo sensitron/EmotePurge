@@ -845,7 +845,12 @@
         "wrongSet": "Das Protokoll gehört zu einem anderen Emote-Set — der Channel hat das aktive Set gewechselt.",
         "noRestorableRows": "Das Protokoll enthält keine erfolgreich gelöschten Emotes zum Wiederherstellen."
       }
-    }
+    },
+    "skippedDuplicates": {
+      "one": "{{ count }} Emote ist bereits im Zielset und wurde übersprungen.",
+      "other": "{{ count }} Emotes sind bereits im Zielset und wurden übersprungen."
+    },
+    "duplicateCheckUnavailable": "Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen."
   },
   "export": {
     "button": "Exportieren",
@@ -1027,7 +1032,12 @@
     "leaveWhileRunning": {
       "message": "Der Kopierlauf läuft noch. Er läuft im Hintergrund weiter, sein Fortschritt ist aber nur auf der Emote-Nutzungsseite sichtbar. Seite trotzdem verlassen?",
       "confirm": "Verlassen"
-    }
+    },
+    "skippedDuplicates": {
+      "one": "{{ count }} Emote war beim Start bereits im Zielset und wurde übersprungen.",
+      "other": "{{ count }} Emotes waren beim Start bereits im Zielset und wurden übersprungen."
+    },
+    "duplicateCheckUnavailable": "Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen."
   },
   "sevenTvToken": {
     "tokenSet": "7TV-Token gesetzt",

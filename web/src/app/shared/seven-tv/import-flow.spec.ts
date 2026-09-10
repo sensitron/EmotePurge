@@ -1,10 +1,11 @@
 import { Dialog } from '@angular/cdk/dialog';
 import { HttpErrorResponse } from '@angular/common/http';
 import { signal, WritableSignal } from '@angular/core';
-import { of, Subject } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+import { EmoteListItem } from '../../core/emotes/emote-list-item.model';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { ImportRow, ImportSource } from '../../core/seven-tv/import-source';
 import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
@@ -51,6 +52,10 @@ interface Harness {
    *  request kept under manual control; `listEmotes`/`getSetWarning` resolve synchronously so only
    *  this subject gates when a load settles (needed to pin down the generation counter). */
   statusSubjects: Subject<EmoteSetStatus>[];
+  /** Backs both `loadImportTarget`'s dialog-open-time fetch (used to build the preview) *and*
+   *  the fresh #149/T5 re-check run right before `startImport` — resolves synchronously to an
+   *  empty target set by default, i.e. neither one filters anything, unless a test overrides it. */
+  listEmotes: ReturnType<typeof vi.fn>;
   startImport: ReturnType<typeof vi.fn>;
   hasToken: WritableSignal<boolean>;
   activeRun: WritableSignal<SevenTvRunKind | null>;
@@ -58,15 +63,16 @@ interface Harness {
 
 function setup(): Harness {
   const statusSubjects: Subject<EmoteSetStatus>[] = [];
+  const listEmotes = vi.fn(() => of<EmoteListItem[]>([]));
   const emoteAdminService = {
     getSetStatus: vi.fn(() => {
       const subject = new Subject<EmoteSetStatus>();
       statusSubjects.push(subject);
       return subject;
     }),
-    // Both resolve synchronously and are irrelevant to every test below beyond letting forkJoin
-    // settle as soon as the status subject does — only that one is kept under manual control.
-    listEmotes: vi.fn(() => of([])),
+    // Resolves synchronously and is irrelevant to every test below beyond letting forkJoin settle
+    // as soon as the status subject does — only that one is kept under manual control.
+    listEmotes,
     getSetWarning: vi.fn(() =>
       of({
         available: true,
@@ -93,6 +99,7 @@ function setup(): Harness {
     deps: { dialog, emoteAdminService, tokenService, importService, arbiter },
     dialogOpen,
     statusSubjects,
+    listEmotes,
     startImport,
     hasToken,
     activeRun,
@@ -209,13 +216,88 @@ describe('startImportFlow', () => {
     };
     confirmClosed(dialogOpen).next(outcome);
 
+    // Fourth argument is the fresh #149/T5 re-check's skip count — 0 here because the harness's
+    // default `listEmotes` reports an empty target set, so nothing gets filtered a second time.
+    // Fifth is whether that check actually ran — true, since the fetch succeeded (#149).
     expect(startImport).toHaveBeenCalledWith(
       { setId: 'set-1', channelName: 'target-channel' },
       src.origin,
       outcome.rows,
+      0,
+      true,
     );
     // No second dialog — the token prompt is only for a missing token.
     expect(dialogOpen).toHaveBeenCalledTimes(1);
+  });
+
+  // #149/T5: `outcome.rows` already passed `buildImportPreview`'s dialog-open-time filter — this
+  // pins the *second*, fresh check that runs right before the send, catching a row that became a
+  // duplicate only after the dialog opened (another editor, another tab, a long-open dialog).
+  describe('fresh pre-send duplicate check (#149/T5)', () => {
+    it('re-checks the target set fresh at confirm time, not reusing the dialog-open snapshot', () => {
+      const { deps, dialogOpen, listEmotes } = setup();
+      startImportFlow(deps, source(), 'target-channel');
+
+      // The dialog-open-time fetch (for the preview) has already happened by now.
+      expect(listEmotes).toHaveBeenCalledTimes(1);
+
+      confirmClosed(dialogOpen).next({
+        targetSetId: 'set-1',
+        rows: [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }],
+      });
+
+      // A second, independent fetch — the fresh check — runs right here, at confirm time.
+      expect(listEmotes).toHaveBeenCalledTimes(2);
+      expect(listEmotes).toHaveBeenLastCalledWith('target-channel');
+    });
+
+    it('drops a row that appeared in the target set only after the dialog opened, and reports it as skipped', () => {
+      const { deps, dialogOpen, startImport, listEmotes } = setup();
+      startImportFlow(deps, source(), 'target-channel');
+
+      // Between the dialog opening (still-empty target, from setup()'s default) and the user
+      // confirming, another editor added this exact emote to the target set under a different
+      // alias — the dialog-time preview never saw it.
+      listEmotes.mockReturnValue(
+        of<EmoteListItem[]>([{ sevenTvEmoteId: '7tv-1', name: 'SomeAlias' }]),
+      );
+
+      confirmClosed(dialogOpen).next({
+        targetSetId: 'set-1',
+        rows: [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }],
+      });
+
+      expect(startImport).toHaveBeenCalledWith(
+        { setId: 'set-1', channelName: 'target-channel' },
+        source().origin,
+        [],
+        1,
+        true,
+      );
+    });
+
+    // #149: a failed check must fail open (every row still goes through, the run still starts) but
+    // must not read as a clean all-clear — the flow forwards `available: false` from the filter
+    // straight into `startImport`'s fifth argument rather than swallowing it.
+    it('fails open on a failed duplicate check and reports it as unavailable rather than a clean skip', () => {
+      const { deps, dialogOpen, startImport, listEmotes } = setup();
+      startImportFlow(deps, source(), 'target-channel');
+
+      listEmotes.mockReturnValue(throwError(() => new Error('network error')));
+
+      confirmClosed(dialogOpen).next({
+        targetSetId: 'set-1',
+        rows: [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }],
+      });
+
+      expect(startImport).toHaveBeenCalledWith(
+        { setId: 'set-1', channelName: 'target-channel' },
+        source().origin,
+        [{ sevenTvEmoteId: '7tv-1', name: 'Kappa' }],
+        0,
+        false,
+      );
+    });
   });
 
   it('starts nothing when the confirm dialog is dismissed without an outcome', () => {

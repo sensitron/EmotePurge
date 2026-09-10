@@ -3,6 +3,7 @@ import { Component, computed, effect, inject, input, output, signal } from '@ang
 import { TranslocoPipe } from '@jsverse/transloco';
 
 import { EmoteAdminService, EmoteSetWarning } from '../../core/emotes/emote-admin.service';
+import { pluralKey } from '../../core/i18n/plural';
 import {
   DeleteQueueEmote,
   SevenTvDeleteService,
@@ -22,6 +23,7 @@ import {
   purgeRunJson,
 } from '../export/purge-run-export';
 import { Button } from '../ui/button';
+import { filterAlreadyPresent } from './already-present-filter';
 import { DeleteConfirmDialogData, openDeleteConfirmDialog } from './delete-confirm-dialog';
 import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
 import { RunProgressPanel } from './run-progress-panel';
@@ -124,6 +126,21 @@ export interface DeletableEmote {
         </app-run-progress-panel>
       }
 
+      @if (restoreService.skippedDuplicates() > 0) {
+        <p class="text-sm text-fg-secondary">
+          {{
+            restoreSkippedDuplicatesKey() | transloco: { count: restoreService.skippedDuplicates() }
+          }}
+        </p>
+      }
+      <!-- The pre-run duplicate check's fetch failed (already-present-filter.ts) — every row still
+           went through, so a duplicate may have slipped in undetected. A quiet notice, not an
+           alarm: the run is still expected to succeed, this only says the guard could not run. -->
+      @if (!restoreService.duplicateCheckAvailable()) {
+        <p class="text-sm text-fg-secondary">
+          {{ 'restore.duplicateCheckUnavailable' | transloco }}
+        </p>
+      }
       @if (restoreService.isRunning() || restoreService.queue().length > 0) {
         <app-run-progress-panel
           [items]="restoreService.queue()"
@@ -211,6 +228,15 @@ export class MassDeletePanel {
         return null;
     }
   });
+
+  /** #149/T5: wording for how many rows the pre-run duplicate check (`already-present-filter.ts`)
+   *  dropped — shown independently of the run-progress panel below, because a run where *every*
+   *  row was already present queues nothing and would otherwise leave that panel hidden (its own
+   *  gate is `isRunning() || queue().length > 0`), silently swallowing the one thing the user needs
+   *  to see in that case. */
+  protected readonly restoreSkippedDuplicatesKey = computed(() =>
+    pluralKey(this.restoreService.skippedDuplicates(), 'restore.skippedDuplicates'),
+  );
 
   constructor() {
     // The queue settling is not on its own a reason to tell the host page anything: the backend only
@@ -378,17 +404,28 @@ export class MassDeletePanel {
       slots: this.restoreSlots.asReadonly(),
     };
     openRestoreConfirmDialog(this.dialog, data).closed.subscribe((confirmed) => {
-      if (confirmed) {
-        this.restoreService.startRestore(
-          this.setId(),
-          this.channelName(),
-          doneItems.map((item) => ({
-            emoteId: item.emoteId,
-            sevenTvEmoteId: item.sevenTvEmoteId,
-            name: item.name,
-          })),
-        );
+      if (!confirmed) {
+        return;
       }
+      const emotes: DeleteQueueEmote[] = doneItems.map((item) => ({
+        emoteId: item.emoteId,
+        sevenTvEmoteId: item.sevenTvEmoteId,
+        name: item.name,
+      }));
+      // #149/T5: a restore never had any duplicate protection at all — filter it fresh, right here,
+      // against the target set's current contents. See `filterAlreadyPresent` for why this sits at
+      // confirm-time rather than dialog-open-time and for the residual race it does not close.
+      filterAlreadyPresent(this.emoteAdminService, this.channelName(), emotes).subscribe(
+        ({ rows: toRestore, skipped, available }) => {
+          this.restoreService.startRestore(
+            this.setId(),
+            this.channelName(),
+            toRestore,
+            skipped,
+            available,
+          );
+        },
+      );
     });
   }
 

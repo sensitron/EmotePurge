@@ -203,9 +203,15 @@ describe('ImportTrigger', () => {
       closedAt<FileImportResult | undefined>(0).next({ kind: 'restore', rows: rows() });
       closedAt<boolean>(1).next(true);
 
-      expect(startRestore).toHaveBeenCalledWith('set-a', 'channel-a', [
-        { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
-      ]);
+      // Fourth argument is the #149/T5 duplicate-check skip count — 0 because `listEmotes`
+      // defaults to an empty target set. Fifth is whether that check actually ran (#149).
+      expect(startRestore).toHaveBeenCalledWith(
+        'set-a',
+        'channel-a',
+        [{ emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' }],
+        0,
+        true,
+      );
     });
   });
 
@@ -231,9 +237,13 @@ describe('ImportTrigger', () => {
 
       closedAt<boolean>(2).next(true);
 
-      expect(startRestore).toHaveBeenCalledWith(CURRENT_SET, CURRENT_CHANNEL, [
-        { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
-      ]);
+      expect(startRestore).toHaveBeenCalledWith(
+        CURRENT_SET,
+        CURRENT_CHANNEL,
+        [{ emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' }],
+        0,
+        true,
+      );
     });
 
     it('goes straight to the confirmation when a token is already stored', () => {
@@ -308,6 +318,8 @@ describe('ImportTrigger', () => {
         { setId: CURRENT_SET, channelName: CURRENT_CHANNEL },
         expect.objectContaining({ kind: 'file' }),
         [{ sevenTvEmoteId: '7tv-9', name: 'Kappa' }],
+        0,
+        true,
       );
     });
 
@@ -386,6 +398,8 @@ describe('ImportTrigger', () => {
         { setId: CURRENT_SET, channelName: CURRENT_CHANNEL },
         { kind: 'seventv-channel', channelName: 'handofblood' },
         [{ sevenTvEmoteId: '7tv-1', name: 'HandLuL' }],
+        0,
+        true,
       );
     });
   });

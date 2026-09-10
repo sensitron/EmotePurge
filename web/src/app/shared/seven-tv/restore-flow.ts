@@ -7,6 +7,7 @@ import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.serv
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
 import { PurgeRunRow } from '../export/purge-run-export';
+import { filterAlreadyPresent } from './already-present-filter';
 import { RestoreConfirmDialogData, openRestoreConfirmDialog } from './restore-confirm-dialog';
 import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
@@ -79,7 +80,14 @@ export function startRestoreFlow(
         sevenTvEmoteId: row.sevenTvEmoteId,
         name: row.name,
       }));
-      deps.restoreService.startRestore(setId, channelName, emotes);
+      // #149/T5: a restore never had any duplicate protection at all — filter it fresh, right here,
+      // against the target set's current contents. See `filterAlreadyPresent` for why this sits at
+      // confirm-time rather than dialog-open-time and for the residual race it does not close.
+      filterAlreadyPresent(deps.emoteAdminService, channelName, emotes).subscribe(
+        ({ rows: toRestore, skipped, available }) => {
+          deps.restoreService.startRestore(setId, channelName, toRestore, skipped, available);
+        },
+      );
     });
   };
 

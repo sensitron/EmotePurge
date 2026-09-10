@@ -7,6 +7,7 @@ import { ImportSource } from '../../core/seven-tv/import-source';
 import { SevenTvImportService } from '../../core/seven-tv/seven-tv-import.service';
 import { SevenTvRunArbiter } from '../../core/seven-tv/seven-tv-run-arbiter';
 import { SevenTvTokenService } from '../../core/seven-tv/seven-tv-token.service';
+import { filterAlreadyPresent } from './already-present-filter';
 import { ImportConfirmOutcome, openImportConfirmDialog } from './import-confirm-dialog';
 import { openSevenTvTokenPromptDialog } from './seven-tv-token-prompt-dialog';
 
@@ -67,10 +68,21 @@ export function startImportFlow(
     if (deps.arbiter.activeRun() !== null) {
       return;
     }
-    deps.importService.startImport(
-      { setId: outcome.targetSetId, channelName: targetChannelName },
-      source.origin,
-      outcome.rows,
+    // #149/T5: `outcome.rows` already passed `buildImportPreview`'s filter against the target set's
+    // contents as of when the confirm dialog opened — that snapshot can be stale by the time the
+    // user actually confirms (another editor, another tab, a long-open dialog). Re-check fresh,
+    // right here, immediately before anything is sent. See `filterAlreadyPresent` for the residual
+    // race it does not close.
+    filterAlreadyPresent(deps.emoteAdminService, targetChannelName, outcome.rows).subscribe(
+      ({ rows, skipped, available }) => {
+        deps.importService.startImport(
+          { setId: outcome.targetSetId, channelName: targetChannelName },
+          source.origin,
+          rows,
+          skipped,
+          available,
+        );
+      },
     );
   };
 

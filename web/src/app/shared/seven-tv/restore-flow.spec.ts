@@ -1,9 +1,10 @@
 import { Dialog } from '@angular/cdk/dialog';
 import { signal, WritableSignal } from '@angular/core';
-import { of, Subject } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
 import { EmoteAdminService } from '../../core/emotes/emote-admin.service';
+import { EmoteListItem } from '../../core/emotes/emote-list-item.model';
 import { EmoteSetStatus } from '../../core/emotes/emote-set-status.model';
 import { SevenTvRestoreService } from '../../core/seven-tv/seven-tv-restore.service';
 import { SevenTvRunArbiter, SevenTvRunKind } from '../../core/seven-tv/seven-tv-run-arbiter';
@@ -48,6 +49,9 @@ interface Harness {
   deps: RestoreFlowDeps;
   dialogOpen: ReturnType<typeof vi.fn>;
   getSetStatus: ReturnType<typeof vi.fn>;
+  /** The pre-run duplicate check (#149/T5) — defaults to reporting an empty target set, i.e. no
+   *  row gets filtered, unless a test overrides it. */
+  listEmotes: ReturnType<typeof vi.fn>;
   startRestore: ReturnType<typeof vi.fn>;
   hasToken: WritableSignal<boolean>;
   activeRun: WritableSignal<SevenTvRunKind | null>;
@@ -55,7 +59,8 @@ interface Harness {
 
 function setup(): Harness {
   const getSetStatus = vi.fn(() => of(readyStatus()));
-  const emoteAdminService = { getSetStatus } as unknown as EmoteAdminService;
+  const listEmotes = vi.fn(() => of<EmoteListItem[]>([]));
+  const emoteAdminService = { getSetStatus, listEmotes } as unknown as EmoteAdminService;
 
   const hasToken = signal(true);
   const tokenService = { hasToken } as unknown as SevenTvTokenService;
@@ -73,6 +78,7 @@ function setup(): Harness {
     deps: { dialog, emoteAdminService, tokenService, restoreService, arbiter },
     dialogOpen,
     getSetStatus,
+    listEmotes,
     startRestore,
     hasToken,
     activeRun,
@@ -130,9 +136,81 @@ describe('startRestoreFlow', () => {
     startRestoreFlow(deps, CHANNEL, SET_ID, theRows);
     firstClosed<boolean>(dialogOpen).next(true);
 
-    expect(startRestore).toHaveBeenCalledWith(SET_ID, CHANNEL, [
-      { emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' },
-    ]);
+    // Fourth argument is the duplicate check's skip count (#149/T5) — 0 here because the harness's
+    // default `listEmotes` reports an empty target set, so nothing gets filtered. Fifth is whether
+    // that check actually ran — true, since the fetch succeeded (#149).
+    expect(startRestore).toHaveBeenCalledWith(
+      SET_ID,
+      CHANNEL,
+      [{ emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' }],
+      0,
+      true,
+    );
+  });
+
+  // #149/T5: restore never had any duplicate protection — these two pin the fix in from the flow
+  // layer down (the filtering logic itself is `already-present-filter.spec.ts`'s job).
+  describe('duplicate protection (#149/T5)', () => {
+    it('checks the target set fresh, right at confirm time, not from an earlier snapshot', () => {
+      const { deps, dialogOpen, listEmotes } = setup();
+
+      startRestoreFlow(deps, CHANNEL, SET_ID, rows());
+      // The set-status fetch for the slot preview runs on dialog-open — the duplicate check must
+      // not have run yet at that point, only once the user actually confirms.
+      expect(listEmotes).not.toHaveBeenCalled();
+
+      firstClosed<boolean>(dialogOpen).next(true);
+
+      expect(listEmotes).toHaveBeenCalledWith(CHANNEL);
+    });
+
+    it('drops a row already present in the target set and reports it as skipped, queuing nothing else', () => {
+      const { deps, dialogOpen, listEmotes, startRestore } = setup();
+      listEmotes.mockReturnValue(of<EmoteListItem[]>([{ sevenTvEmoteId: '7tv-1', name: 'PogU' }]));
+
+      startRestoreFlow(deps, CHANNEL, SET_ID, rows());
+      firstClosed<boolean>(dialogOpen).next(true);
+
+      expect(startRestore).toHaveBeenCalledWith(SET_ID, CHANNEL, [], 1, true);
+    });
+
+    // A second restore over the exact same protocol rows — e.g. the user runs restore, then runs
+    // it again without anything having changed in between. Everything is already back in the set,
+    // so nothing should be queued the second time.
+    it('queues nothing on a second restore over rows already restored', () => {
+      const { deps, dialogOpen, listEmotes, startRestore } = setup();
+      const theRows = rows();
+      listEmotes.mockReturnValue(
+        of<EmoteListItem[]>(
+          theRows.map((row) => ({ sevenTvEmoteId: row.sevenTvEmoteId, name: row.name })),
+        ),
+      );
+
+      startRestoreFlow(deps, CHANNEL, SET_ID, theRows);
+      firstClosed<boolean>(dialogOpen).next(true);
+
+      expect(startRestore).toHaveBeenCalledWith(SET_ID, CHANNEL, [], theRows.length, true);
+    });
+
+    // #149: a failed check must fail open (every row still goes through, the run still starts) but
+    // must not read as a clean all-clear — the flow forwards `available: false` from the filter
+    // straight into `startRestore`'s fifth argument rather than swallowing it.
+    it('fails open on a failed duplicate check and reports it as unavailable rather than a clean skip', () => {
+      const { deps, dialogOpen, listEmotes, startRestore } = setup();
+      listEmotes.mockReturnValue(throwError(() => new Error('network error')));
+      const theRows = rows();
+
+      startRestoreFlow(deps, CHANNEL, SET_ID, theRows);
+      firstClosed<boolean>(dialogOpen).next(true);
+
+      expect(startRestore).toHaveBeenCalledWith(
+        SET_ID,
+        CHANNEL,
+        [{ emoteId: 'e1', sevenTvEmoteId: '7tv-1', name: 'PogU' }],
+        0,
+        false,
+      );
+    });
   });
 
   it('never opens the confirmation and never runs when the token prompt is cancelled', () => {

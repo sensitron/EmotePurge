@@ -139,6 +139,8 @@ describe('MassDeletePanel row composition', () => {
             syncReport: signal('idle'),
             rateLimitPauseSeconds: signal(0),
             resyncTrigger: signal('idle'),
+            skippedDuplicates: signal(0),
+            duplicateCheckAvailable: signal(true),
           } as unknown as SevenTvRestoreService,
         },
         {
@@ -269,6 +271,8 @@ describe('MassDeletePanel — protocol export choice handling (#141)', () => {
             syncReport: signal('idle'),
             rateLimitPauseSeconds: signal(0),
             resyncTrigger: signal('idle'),
+            skippedDuplicates: signal(0),
+            duplicateCheckAvailable: signal(true),
           } as unknown as SevenTvRestoreService,
         },
         {
@@ -330,5 +334,97 @@ describe('MassDeletePanel — protocol export choice handling (#141)', () => {
 
     expect(downloads).toHaveLength(0);
     expect(panel['protocolSaved']()).toBe(false);
+  });
+});
+
+/**
+ * #149: the notice for a pre-run duplicate check that could not run at all
+ * (`already-present-filter.ts`'s `available: false`) — distinct from, and independent of, the
+ * `skippedDuplicates` notice above it. Mounts `MassDeletePanel` directly so `duplicateCheckAvailable`
+ * can be driven straight from the test, same style as the protocol-export block above.
+ */
+describe('MassDeletePanel — duplicate-check-unavailable notice (#149)', () => {
+  const DUPLICATE_CHECK_TRANSLATIONS = {
+    ...DE_TRANSLATIONS,
+    restore: {
+      duplicateCheckUnavailable:
+        'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
+    },
+  };
+
+  let fixture: ComponentFixture<MassDeletePanel>;
+  let duplicateCheckAvailable: WritableSignal<boolean>;
+
+  beforeEach(async () => {
+    duplicateCheckAvailable = signal(true);
+
+    await TestBed.configureTestingModule({
+      imports: [
+        MassDeletePanel,
+        TranslocoTestingModule.forRoot({
+          langs: { de: DUPLICATE_CHECK_TRANSLATIONS },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        { provide: EmoteAdminService, useValue: {} as unknown as EmoteAdminService },
+        {
+          provide: SevenTvDeleteService,
+          useValue: {
+            isRunning: signal(false),
+            queue: signal([]),
+            syncReport: signal('idle'),
+            rateLimitPauseSeconds: signal(0),
+            lastRun: signal(null),
+          } as unknown as SevenTvDeleteService,
+        },
+        {
+          provide: SevenTvRestoreService,
+          useValue: {
+            isRunning: signal(false),
+            queue: signal([]),
+            syncReport: signal('idle'),
+            rateLimitPauseSeconds: signal(0),
+            resyncTrigger: signal('idle'),
+            skippedDuplicates: signal(0),
+            duplicateCheckAvailable,
+          } as unknown as SevenTvRestoreService,
+        },
+        {
+          provide: SevenTvRunArbiter,
+          useValue: {
+            activeRun: signal<SevenTvRunKind | null>(null),
+          } as unknown as SevenTvRunArbiter,
+        },
+        {
+          provide: SevenTvTokenService,
+          useValue: { hasToken: signal(true) } as unknown as SevenTvTokenService,
+        },
+        { provide: Dialog, useValue: { open: vi.fn() } as unknown as Dialog },
+      ],
+    }).compileComponents();
+
+    await TestBed.inject(TranslocoService).load('de');
+
+    fixture = TestBed.createComponent(MassDeletePanel);
+    fixture.componentRef.setInput('setId', 'set-1');
+    fixture.componentRef.setInput('channelName', 'somechannel');
+    fixture.componentRef.setInput('selectedEmotes', []);
+  });
+
+  it('shows nothing while the check is available (the default, and every run that verified fine)', () => {
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Wir konnten gerade nicht prüfen');
+  });
+
+  it('shows the quiet notice once the check is reported unavailable, stating the consequence', () => {
+    duplicateCheckAvailable.set(false);
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
+    );
   });
 });

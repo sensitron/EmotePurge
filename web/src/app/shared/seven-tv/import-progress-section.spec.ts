@@ -16,6 +16,8 @@ import { ImportProgressSection } from './import-progress-section';
 const DE_TRANSLATIONS = {
   common: { cancel: 'Abbrechen', close: 'Schließen' },
   import: {
+    duplicateCheckUnavailable:
+      'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
     progress: '{{ finished }} / {{ total }} kopiert',
     deleteFailedFallback: 'Kopieren fehlgeschlagen',
     rateLimitPaused: '7TV-Rate-Limit erreicht.',
@@ -59,6 +61,8 @@ interface FakeImportService {
   syncReport: WritableSignal<SyncReportState>;
   resyncTrigger: WritableSignal<ResyncTriggerState>;
   abortedForPrivileges: WritableSignal<boolean>;
+  skippedDuplicates: WritableSignal<number>;
+  duplicateCheckAvailable: WritableSignal<boolean>;
   cancel: ReturnType<typeof vi.fn>;
   reset: ReturnType<typeof vi.fn>;
   retrySyncReport: ReturnType<typeof vi.fn>;
@@ -73,6 +77,8 @@ function createFakeImportService(): FakeImportService {
     syncReport: signal<SyncReportState>('idle'),
     resyncTrigger: signal<ResyncTriggerState>('idle'),
     abortedForPrivileges: signal(false),
+    skippedDuplicates: signal(0),
+    duplicateCheckAvailable: signal(true),
     cancel: vi.fn(),
     reset: vi.fn(),
     retrySyncReport: vi.fn(),
@@ -202,6 +208,27 @@ describe('ImportProgressSection', () => {
     const withBanner = render();
     expect(withBanner.nativeElement.textContent).toContain(
       'Das 7TV-Token hat im Zielset kein Schreibrecht.',
+    );
+  });
+
+  // #149: the fresh pre-send duplicate check's own fetch can fail — this notice is what tells the
+  // user a duplicate may have slipped in undetected, independent of the run-progress panel (shown
+  // even while idle, same reasoning as skippedDuplicatesKey above it).
+  it('shows nothing while the duplicate check is available (the default)', () => {
+    importService.duplicateCheckAvailable.set(true);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).not.toContain('Wir konnten gerade nicht prüfen');
+  });
+
+  it('shows the quiet notice once the duplicate check is reported unavailable, stating the consequence', () => {
+    importService.duplicateCheckAvailable.set(false);
+
+    const fixture = render();
+
+    expect(fixture.nativeElement.textContent).toContain(
+      'Wir konnten gerade nicht prüfen, ob diese Emotes schon im Zielset sind — es können doppelte Einträge entstehen.',
     );
   });
 });
