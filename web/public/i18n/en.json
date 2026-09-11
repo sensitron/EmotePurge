@@ -744,7 +744,12 @@
       "dialogTitle": "Create a vote from the selection",
       "selectedCount": "{{count}} emotes selected",
       "startPrefillHint": "Prefilled with the start of the selected time range.",
-      "submit": "Create voting session"
+      "submit": "Create voting session",
+      "selectionShrunk": {
+        "one": "One selected emote is no longer in the set and is no longer up for a vote. {{remaining}} remain on the ballot.",
+        "other": "{{count}} selected emotes are no longer in the set and are no longer up for a vote. {{remaining}} remain on the ballot."
+      },
+      "selectionEmpty": "None of the selected emotes are in the set anymore — there is nothing left to put to a vote."
     },
     "detail": {
       "endConfirm": "End the voting session \"{{ title }}\"? No further votes can be cast afterwards.",

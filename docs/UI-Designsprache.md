@@ -211,7 +211,8 @@ The usage page and the ballot are not lists but **one sheet of uniform cells**. 
 - **What applies:** Every page-wide message is an `<app-notice-banner>`; no ad-hoc error boxes or coloured paragraphs. `variant="error"` renders `role="alert"` (is read out), `info`/`warning` stay `role="status"` (silent). Action button into the `[notice-action]` slot (right-aligned).
 - **When to apply:** `error` = failed request (text via `apiErrorTranslationKey`, see 9), `warning` = degraded state (reauth needed, bot inactive), `info` = benign waiting state (sync pending).
 - **Not for something the app frame already says** (4.3). A banner is for what concerns **this page**; everything app-wide is carried by the header area, and by it alone.
-- **Reference:** `web/src/app/shared/ui/notice-banner.ts`; used in `overview-page.html`, `usage-stats-page.html`.
+- **A `warning`/`info` banner that mounts together with its content announces nothing** — same defect and same fix as 4.5 bullet 4, not specific to the transient pattern: `role="status"` only exists once the surrounding `@if` is true, and most screen reader/browser pairings announce only a *mutation inside* an already-mounted region. Where the banner's own arrival is the thing that has to be heard (a live value shrinking under the user while a dialog stays open, e.g. `create-vote-session-dialog.ts`, #132), pair it with a permanently mounted `sr-only role="status"` twin carrying the same text and mark the visible banner `aria-hidden="true"`. Unlike 4.5's instances this one does **not** self-clear — the condition it names persists for as long as it is true (here: while the dialog's live ballot is smaller than when it opened), per this section's own persisting-state rule above.
+- **Reference:** `web/src/app/shared/ui/notice-banner.ts`; used in `overview-page.html`, `usage-stats-page.html`, `create-vote-session-dialog.ts`.
 
 ### 4.5 Transient status message
 

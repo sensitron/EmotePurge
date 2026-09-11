@@ -10,6 +10,83 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-11 — Create-vote-session dialog follows the live selection instead of freezing it at open time (#132, #133)
+
+**Betrifft:** `web/src/app/features/usage-stats/create-vote-session-dialog.ts` ·
+`web/src/app/features/usage-stats/usage-stats-page.ts` ·
+`web/src/app/features/voting/vote-session-detail-page.ts` ·
+`web/public/i18n/{de,en}.json` · `docs/UI-Designsprache.md`
+
+Two follow-ups from #94/PR #131, deliberately held out of that PR: the create-vote-session dialog
+still froze the ballot at open time, and the vote-session detail page never reconciled its own
+selection against a silent reload at all.
+
+**#132 — the dialog now reads `emoteIds` as a `Signal<readonly string[]>`, the host page's own
+`selection.selectedKeys`, instead of a snapshot array.** A silent `usage.flushed`/`channel.synced`
+reload can still prune a marked emote while the dialog sits on top of the page — the whole point of
+#94 was that the page keeps reconciling while mounted, and mounting a dialog does not pause that.
+Freezing the ballot at open time meant a shrink during that window was invisible until the backend's
+all-or-nothing check (`VoteSessionService.CreateAsync`) rejected the submit with
+`emote_ids_invalid`, and a retry resent the exact same, still-rejected array — the dialog had no way
+to ever recover on its own. `create()` now reads `this.data.emoteIds()` fresh at submit time, so a
+retry sends whatever the ballot actually looks like. The 400 backstop stays; this closes the window
+it used to catch every time, not just some of the time.
+
+A shrink while the dialog is open is not silently absorbed, on purpose — #94 rejected silent pruning
+for the identical reason (a selection shrinking while the user is not looking is the same class of
+lie regardless of direction), and the same holds a fortiori here: the count on the submit button is
+the count of a *ballot the user is actively titling*, not a background list. The dialog computes
+`removedCount` against `initialCount` (captured once, at construction) rather than against the
+previous live value, so the notice's own number is monotonic and does not wobble if an emote comes
+back. Reuses the exact two-element live-region split `d014a50` established for #94's own notice (a
+permanently mounted `role="status"` span plus an `aria-hidden` visible sibling) — a live region that
+only exists together with its content is not announced by most screen reader/browser pairings, which
+only announce a *mutation inside* an already-mounted region, so the sr-only span has to already be
+there before the shrink happens. At zero remaining, submit is disabled and the notice switches to a
+dedicated `selectionEmpty` key rather than `selectionShrunk` with `remaining: 0` — "0 remain" is a
+number where "nothing left to vote on, and here is why the button is locked" is the actual sentence
+needed. New i18n keys `voting.create.selectionShrunk` (pluralized) and `voting.create.selectionEmpty`
+in both locales.
+
+**#133 — `VoteSessionDetailPage.applyResults()` now calls `this.selection.retainAmong(results.emotes)`
+on every reload, not just on the frozen-order branch.** The page had `ListSelection.retainAmong()`
+available since #94 but never called it: `selection.clear()` was deliberately skipped (a vote must
+not discard a 50-emote selection), but nothing replaced it with reconciliation, so a dead key stayed
+in the selected set forever. That was invisible day to day, because the page reads `selectedItems()`
+(which already resolves only against present rows) everywhere a count or a delete payload is built —
+but archiving is not one-directional here: `SevenTvSyncService`/`EmoteService` un-archive an emote
+that reappears on 7TV, and a dynamic (whole-set) session's results filter is `!IsArchived` on the
+server, so the emote's row — and its dead selection key — both come back verbatim. Without
+reconciliation, a moderator who marked an emote for deletion, watched it get archived, then watched
+someone re-add it, would find it silently re-selected on their next visit, never having re-marked it.
+
+**Argument choice: `results.emotes`, not `retainVisible()`/`emotes()`.** `retainVisible()` prunes
+against this page's own *filtered* view (`usageFilter.apply(orderedEmotes())`), which is right for an
+actual filter change (its own `onChange` already calls it) and wrong for a reload — a reload can move
+usage numbers under an active min/max filter and knock a still-present row out of `emotes()` without
+it having left the ballot, and reconciling against the filtered view would prune a selection the user
+never lost. `results.emotes` is the reload's own unfiltered payload, matching #94's identical choice
+on `usage-stats-page.ts` for the identical reason.
+
+**Fixed-ballot (subset) sessions need no special case, and that is the point, not an oversight.**
+Their `results.emotes` keeps a mid-session-archived member listed throughout (badged, voting locked —
+see the 2026-08-01 entry below), so `retainAmong` never drops it: a selected fixed-ballot member
+stays selected across every reload, archived or not, exactly as before this fix. The divergence from
+the dynamic case is entirely the backend's — the frontend fix is one line that reads correctly for
+both because it reconciles against whatever the server actually sent.
+
+Silent on this page, deliberately unlike #132/#94: nothing here reads `selectedKeys()` directly, so
+there is no visible counter that would read wrong for four seconds and then correct itself — the
+first symptom users could ever have hit was the stale-reappearance bug itself, and that no longer
+happens.
+
+`web/src/app/features/voting/vote-session-detail-page.spec.ts` is new (the page had none before
+this) and pins the archive → reload → un-archive → reload sequence for a dynamic session, the
+fixed-ballot session keeping a selected archived member, and the filtered-but-not-removed case that
+motivates `results.emotes` over `emotes()`.
+
+---
+
 ### 2026-09-10 — The infrastructure guides leave the repository; what every operator needs stays as `Operations.md` (#152)
 
 **Betrifft:** `docs/Operations.md` (new) · `docs/Backup-und-Restore.md` (removed) ·

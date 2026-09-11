@@ -1287,3 +1287,84 @@ test.describe('running import: leaving the page', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });
+
+/**
+ * #132: the create-vote-session dialog used to freeze `emoteIds` at open time
+ * (`openCreateVoteSession()`), so a silent reload that pruned a marked emote WHILE the dialog was
+ * open went unnoticed there — the dialog kept offering the stale list, and the backend's
+ * all-or-nothing check (`VoteSessionService.CreateAsync`) rejected the submit with
+ * `emote_ids_invalid`. Same silent-reload mechanism as the #94 block above (re-registering
+ * `/usage-stats/totals` before `emitLive`), the only difference being that here the reload has to
+ * land while the create dialog — not the grid itself — is what is on screen.
+ */
+test.describe('create-vote-session dialog: follows the live selection (#132)', () => {
+  test('a silent reload that removes a selected emote while the dialog is open updates the ballot, shows a notice, and excludes the id from the POST body', async ({
+    page,
+  }) => {
+    await mockAuthMe(page, AUTH_USER);
+    await mockWorkerHealth(page);
+    await installLiveStub(page);
+    await mockMyChannels(page, [
+      { channelName: SOURCE_CHANNEL, isBroadcaster: true, isTracked: true },
+    ]);
+    await mockWorkspace(page, SOURCE_CHANNEL, SOURCE_EMOTES);
+    await page.clock.install();
+
+    let createRequestBody: { emoteIds?: string[] } | null = null;
+    await page.route(`**/api/channels/${SOURCE_CHANNEL}/vote-sessions`, async (route) => {
+      if (route.request().method() !== 'POST') {
+        return route.fallback();
+      }
+      createRequestBody = route.request().postDataJSON();
+      return route.fulfill({
+        json: {
+          id: 99,
+          title: 'Test session',
+          allowedVoterRoles: 1,
+          isActive: true,
+          startedAt: '2026-09-11T00:00:00Z',
+          endedAt: null,
+          emoteCount: 2,
+          hideResultsUntilEnd: false,
+        },
+      });
+    });
+
+    await gotoUsageStats(page, SOURCE_CHANNEL);
+
+    // Marks all three rows.
+    await cell(page, 'CatJAM').click();
+    await cell(page, 'KEKW').click({ modifiers: ['Shift'] });
+    await cell(page, 'Pog').click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: /^Zur Abstimmung stellen/ }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.locator('#app-dialog-title')).toHaveText(
+      'Abstimmung aus Auswahl erstellen',
+    );
+    await expect(dialog.getByText('3 Emotes ausgewählt')).toBeVisible();
+
+    // KEKW gets archived on 7TV from outside this tab while the dialog is still open — the same
+    // silent usage.flushed reload the #94 block above drives, only now with the dialog on top.
+    await mockUsageTotals(page, SOURCE_CHANNEL, [SOURCE_EMOTES[0], SOURCE_EMOTES[2]]);
+    await emitLive(page, { type: 'usage.flushed', channel: SOURCE_CHANNEL });
+    await page.clock.runFor(1_500);
+
+    // The dialog's own header count follows the live selection...
+    await expect(dialog.getByText('2 Emotes ausgewählt')).toBeVisible();
+    // ...and the in-dialog notice says so. Scoped to the visible banner, not a bare text match: the
+    // permanently mounted sr-only role="status" twin (create-vote-session-dialog.ts, #132) carries
+    // the identical text and would otherwise make this a strict-mode violation — same shape as the
+    // #94 notice's own `visiblePrunedNotice` helper above.
+    await expect(dialog.locator('app-notice-banner').getByText(/nicht mehr im Set/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Abstimmung erstellen' })).toBeEnabled();
+
+    await dialog.locator('#create-vote-session-title-input').fill('Test session');
+    await dialog.getByRole('button', { name: 'Abstimmung erstellen' }).click();
+
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // CatJAM (e1) and Pog (e3) — KEKW (e2), pruned by the live reload, never went out.
+    expect(createRequestBody).not.toBeNull();
+    expect((createRequestBody as { emoteIds?: string[] }).emoteIds?.sort()).toEqual(['e1', 'e3']);
+  });
+});

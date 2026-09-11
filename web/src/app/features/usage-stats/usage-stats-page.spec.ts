@@ -50,6 +50,7 @@ import { CSV_MIME } from '../../shared/export/csv';
 import { ExportDialogData } from '../../shared/export/export-dialog';
 import { JSON_MIME } from '../../shared/export/export-envelope';
 import { ExportPurposeId } from '../../shared/export/usage-export-purposes';
+import { CreateVoteSessionDialogData } from './create-vote-session-dialog';
 import { UsageStatsPage } from './usage-stats-page';
 
 /**
@@ -946,5 +947,113 @@ describe('UsageStatsPage — openExport() (#141)', () => {
     // The filename embeds from/to verbatim (usageExportFilename) — proves the download describes
     // the range the rows actually came from, not '2026-03-01'/'2026-03-31' set above.
     expect(downloads[0].filename).toBe(`emotepurge_a_usage_${loadedFrom}_${loadedTo}.csv`);
+  });
+});
+
+/**
+ * `openCreateVoteSession()` (#132): the dialog now receives the LIVE `selection.selectedKeys`
+ * signal itself, not a snapshot array copied out of it at call time — see that method's own comment
+ * and `create-vote-session-dialog.ts`'s class doc. What the dialog does with a signal that shrinks
+ * while it is open is `create-vote-session-dialog.spec.ts`'s job; this only pins what this page
+ * hands it and when it clears the selection afterwards. Same `Dialog`-spy pattern as the
+ * `openExport()` block above.
+ */
+describe('UsageStatsPage — openCreateVoteSession() (#132)', () => {
+  let fixture: ComponentFixture<UsageStatsPage>;
+  let component: UsageStatsPage;
+  let httpMock: HttpTestingController;
+  let openSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    vi.useFakeTimers();
+    openSpy = vi.fn();
+
+    TestBed.configureTestingModule({
+      imports: [
+        TranslocoTestingModule.forRoot({
+          langs: { de: {} },
+          translocoConfig: { availableLangs: ['de'], defaultLang: 'de' },
+        }),
+      ],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: EVENT_SOURCE_FACTORY,
+          useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
+        },
+        { provide: Dialog, useValue: { open: openSpy } as unknown as Dialog },
+      ],
+    });
+
+    TestBed.overrideComponent(UsageStatsPage, {
+      set: { template: '<div #sheet></div><div #stickyBar></div>' },
+    });
+
+    fixture = TestBed.createComponent(UsageStatsPage);
+    component = fixture.componentInstance;
+    httpMock = TestBed.inject(HttpTestingController);
+
+    fixture.componentRef.setInput('channelName', 'a');
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function mount(totals: EmoteUsageTotal[]): void {
+    httpMock
+      .expectOne('/api/channels/a/permissions')
+      .flush({ canManage: true, canViewUsageStats: true });
+    httpMock
+      .expectOne('/api/channels/a/emotes/active-set')
+      .flush(setStatus({ activeEmoteSetId: 'set-a', trackedSince: '2026-01-01T00:00:00Z' }));
+    fixture.detectChanges();
+    flushByPath(httpMock, '/api/channels/a/usage-stats/totals', totals);
+    flushByPath(httpMock, '/api/channels/a/usage-stats/series', {
+      from: '2026-01-01',
+      to: '2026-09-08',
+      liveDays: [],
+      emotes: [],
+    });
+  }
+
+  it('does nothing when nothing is selected', () => {
+    mount([emote('a', 'PeepoA')]);
+
+    component['openCreateVoteSession']();
+
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('hands the dialog the LIVE selection signal, not a snapshot — a later prune is visible through it', () => {
+    const a = emote('a', 'PeepoA');
+    const b = emote('b', 'PeepoB');
+    mount([a, b]);
+    component['selection'].onRowClick(a, { shiftKey: false } as MouseEvent);
+    component['selection'].onRowClick(b, { shiftKey: false } as MouseEvent);
+    expect(component['selection'].selectedKeys().sort()).toEqual(['a', 'b']);
+
+    openSpy.mockReturnValue({ closed: of(undefined) });
+    component['openCreateVoteSession']();
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const data = openSpy.mock.calls[0][1].data as CreateVoteSessionDialogData;
+    // The exact same signal reference the page's own selection exposes — not a copy taken at call
+    // time — is what makes a later prune of the selection visible to an already-open dialog.
+    expect(data.emoteIds).toBe(component['selection'].selectedKeys);
+    expect(data.emoteIds()).toEqual(['a', 'b']);
+
+    // A silent reload that prunes 'b' (e.g. archived on 7TV) after the dialog has already opened —
+    // ListSelection.retainAmong() directly, the same call loadTotals()'s preserveSelection branch
+    // makes; the full live-event pipeline that reaches it is #94's own describe block's job.
+    component['selection'].retainAmong([a]);
+
+    expect(data.emoteIds()).toEqual(['a']);
   });
 });

@@ -1162,17 +1162,20 @@ export class UsageStatsPage {
     this.selection.clear();
   }
 
-  // Captures the selection at open time: loadTotals clears it on channel/date-range changes, so
-  // the dialog holds its own copy of the ballot rather than a live view of the selection.
+  // Hands the dialog a LIVE view of the selection (#132), not a snapshot: this page keeps reloading
+  // while the dialog is open (usageFlushed/channel.synced can prune a marked emote that was archived
+  // from outside the tab), and a frozen array would keep offering ids the backend's all-or-nothing
+  // check would reject on every retry. loadTotals still clears the whole selection outright on a
+  // channel/date-range change — that path is unreachable while a modal dialog has focus, so it is
+  // not a case the dialog itself needs to guard against.
   protected openCreateVoteSession(): void {
-    const emoteIds = [...this.selection.selectedKeys()];
-    if (emoteIds.length === 0) {
+    if (this.selection.selectedKeys().length === 0) {
       return;
     }
 
     const data: CreateVoteSessionDialogData = {
       channelName: this.channelName(),
-      emoteIds,
+      emoteIds: this.selection.selectedKeys,
       // The dialog turns this into the session's "count usage from" prefill. On the "all time"
       // preset from() already equals the tracking start (the constructor effect keeps it there),
       // so it is a date a human would recognise on every path.

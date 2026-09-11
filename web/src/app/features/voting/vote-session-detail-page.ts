@@ -778,6 +778,14 @@ export class VoteSessionDetailPage {
     // No selection.clear() here on purpose: ListSelection keys by emote id, so the freshly
     // deserialized objects this assigns resolve back to the same selection. Clearing would
     // throw away a 50-emote selection on every single vote, since vote() reloads through here.
+
+    // #133: reconcile against unfiltered `results.emotes`, not usageFilter's filtered view —
+    // retainVisible() would wrongly drop rows a filter (not a reload) pushed out; same choice as
+    // usage-stats-page.ts's #94 fix (see DECISIONS.md for both). Fixed-ballot sessions keep
+    // archived members listed and thus selected; dynamic sessions drop them from `results.emotes`
+    // and get pruned here. Silent by design: this page only reads selection.selectedItems(),
+    // which already excludes a dead key.
+    this.selection.retainAmong(results.emotes);
   }
 
   /**

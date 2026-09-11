@@ -744,7 +744,12 @@
       "dialogTitle": "Abstimmung aus Auswahl erstellen",
       "selectedCount": "{{count}} Emotes ausgewählt",
       "startPrefillHint": "Vorbelegt mit dem Beginn des gewählten Zeitraums.",
-      "submit": "Abstimmung erstellen"
+      "submit": "Abstimmung erstellen",
+      "selectionShrunk": {
+        "one": "Ein ausgewähltes Emote ist nicht mehr im Set und steht nicht mehr zur Wahl. {{remaining}} bleiben auf dem Stimmzettel.",
+        "other": "{{count}} ausgewählte Emotes sind nicht mehr im Set und stehen nicht mehr zur Wahl. {{remaining}} bleiben auf dem Stimmzettel."
+      },
+      "selectionEmpty": "Keines der ausgewählten Emotes ist noch im Set — es gibt nichts mehr, das zur Abstimmung gestellt werden könnte."
     },
     "detail": {
       "endConfirm": "Abstimmung „{{ title }}“ beenden? Danach können keine Stimmen mehr abgegeben werden.",
