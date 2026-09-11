@@ -64,7 +64,10 @@ when, and only when, the id belongs to the caller's own login — which drops th
 Kestrel immediately, independent of whatever grace Cloudflare or nginx would otherwise have held it
 for. `LiveUpdateService` remembers each stream's id off `MessageEvent.lastEventId` (browsers repeat
 the last `id:` on every later frame of the same stream; a new stream's own first frame overwrites it
-with its own id). When the SPA closes a stream on purpose — the last subscriber for that URL going
+with its own id). When the browser's own reconnect brings a new id on that same `EventSource` (a
+transient drop, or the server's 10-minute stream lifetime ending — not a purposeful close), the
+client releases the previous id first, since the proxy chain may still be holding that old upstream
+stream and its quota slot. When the SPA closes a stream on purpose — the last subscriber for that URL going
 away on navigation — it closes the `EventSource` first, then fires the `DELETE` behind the new
 `LIVE_CONNECTION_RELEASE_FACTORY` injection token
 (`web/src/app/core/live/live-connection-release.factory.ts`) as

@@ -97,12 +97,14 @@ export class LiveUpdateService {
    * — the one thing {@link connect}'s per-closure state cannot answer on its own, which is exactly
    * what `pagehide` below needs: "release everything this tab currently holds", not just one URL.
    *
-   * An id enters here the moment its stream's first frame carries one, and leaves again either when
-   * that stream's connection is replaced (a fresh reconnect gets its own id from its own first
-   * frame) or ends — fatally (the server already refused/ended it, so there is nothing left to
-   * release) or on purpose (the id is released on the way out, see {@link connect}'s teardown). A
-   * connection that closes fatally before ever receiving a frame with an id simply never appears
-   * here, which is also why `pagehide` never fires a release for one.
+   * An id enters here the moment its stream's first frame carries one, and leaves again in one of
+   * three ways: replaced by a different id on the same EventSource — the browser's own transient
+   * reconnect, whose old id is released right there in `onmessage` before being forgotten, since the
+   * proxy chain can still be holding that old upstream stream and its quota slot; a fatal close
+   * (the server already refused/ended it, so there is nothing left to release); or on purpose (the
+   * id is released on the way out, see {@link connect}'s teardown). A connection that closes fatally
+   * before ever receiving a frame with an id simply never appears here, which is also why `pagehide`
+   * never fires a release for one.
    */
   private readonly openConnectionIds = new Set<string>();
 
@@ -188,7 +190,8 @@ export class LiveUpdateService {
       // releasable: a fatal close, because the server already ended it, or this closure's own
       // teardown, right after the release fires. A fresh EventSource — our own reconnect, or the
       // browser's transient auto-reconnect after a `pagehide` release — gets its own id from its own
-      // first frame, which replaces whatever was remembered before (see `onmessage` below).
+      // first frame, which replaces (and, for the browser's own reconnect on this same EventSource,
+      // also releases) whatever was remembered before — see `onmessage` below.
       let connectionId: string | null = null;
       let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
       let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
@@ -219,15 +222,23 @@ export class LiveUpdateService {
           // the SSE spec the browser's "last event ID buffer" is sticky: every later dispatched
           // MessageEvent repeats that same `lastEventId` until a frame with a new one replaces it
           // (and, after a browser auto-reconnect, resends it as the `Last-Event-ID` request header,
-          // which the server ignores — the reconnected stream's own first frame brings the fresh id
-          // that matters). Re-remembering the same id on every later frame is harmless — it just
-          // deletes and re-adds itself in the set below. The `event.lastEventId` guard stays anyway:
-          // a fake EventSource in tests, or a browser that never sent an id at all, can still leave
-          // it empty, and an empty id must never overwrite a remembered one. `event.lastEventId` is
-          // read independently of parsing below, since a malformed body must still not cost us it.
-          if (event.lastEventId) {
+          // which the server ignores). The `!==` guard is what makes a mere repeat a no-op — nothing
+          // to release, nothing to re-track — and is also what makes the branch below correct: the
+          // only way to reach a *different*, non-null `connectionId` here is the browser's own,
+          // transient reconnect of this same EventSource (this service's own reconnect always nulls
+          // `connectionId` first, in the fatal-close branch of `onerror` below, so it never lands
+          // here with one still set). That old upstream stream can still be held by the proxy chain
+          // for another 15-25 s and keep counting against the quota (issue #128 follow-up), and
+          // nothing else will ever release it — so release it now, before forgetting it. If the
+          // server had already ended it itself (its own 10-minute lifetime cap), this DELETE is a
+          // harmless, idempotent 204. The `event.lastEventId` guard on the outside stays for the
+          // defensive case of an empty one — a fake EventSource in tests, or a browser that never
+          // sent an id at all — read independently of parsing below, since a malformed body must
+          // still not cost us the id.
+          if (event.lastEventId && event.lastEventId !== connectionId) {
             if (connectionId) {
               this.openConnectionIds.delete(connectionId);
+              this.releaseConnection(connectionId);
             }
             connectionId = event.lastEventId;
             this.openConnectionIds.add(connectionId);

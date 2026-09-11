@@ -572,6 +572,37 @@ describe('LiveUpdateService', () => {
     });
   });
 
+  describe('native EventSource reconnect brings a new id (issue #128 follow-up, Codex P2)', () => {
+    it('releases the previous id exactly once when the same EventSource delivers a new one', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'old-id');
+
+      // The browser's own transient reconnect (network switch, edge reset, or the server's 10-min
+      // stream lifetime cap) reuses this same EventSource instance and eventually delivers a new id
+      // right here in `onmessage` — never through this service's own reconnect path, which always
+      // goes through a fatal close first and a brand-new EventSource.
+      source.emit(JSON.stringify({ type: 'ping' }), 'new-id');
+
+      expect(releaseConnection).toHaveBeenCalledExactlyOnceWith('old-id');
+      subscription.unsubscribe();
+    });
+
+    it('tracks only the new id afterwards — pagehide and teardown release just that one', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'old-id');
+      source.emit(JSON.stringify({ type: 'ping' }), 'new-id');
+      releaseConnection.mockClear(); // drop the old-id release already covered by the test above
+
+      fakeDocument.defaultView.dispatchPagehide();
+      subscription.unsubscribe();
+
+      expect(releaseConnection).toHaveBeenCalledTimes(2);
+      expect(releaseConnection).toHaveBeenNthCalledWith(1, 'new-id'); // pagehide
+      expect(releaseConnection).toHaveBeenNthCalledWith(2, 'new-id'); // teardown
+      expect(releaseConnection).not.toHaveBeenCalledWith('old-id');
+    });
+  });
+
   describe('pagehide releases every currently open connection (issue #128 follow-up: bfcache)', () => {
     it('releases every currently open connection id without closing the EventSources', () => {
       // Two separate URLs on purpose — `subscribe()` always hands back `instances[0]`, so a second
