@@ -1,6 +1,7 @@
+import { DOCUMENT } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
 import { Subscription } from 'rxjs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVENT_SOURCE_FACTORY } from './event-source.factory';
 import { LiveEvent } from './live-event.model';
@@ -42,20 +43,56 @@ class FakeEventSource {
   }
 }
 
+/**
+ * Stands in for `DOCUMENT` so tests can drive `visibilityState` and the `visibilitychange`
+ * listener the service registers — jsdom's real document exposes `visibilityState` as a read-only
+ * getter that cannot be reassigned from a test.
+ */
+class FakeDocument {
+  visibilityState: 'visible' | 'hidden' = 'visible';
+
+  private readonly listeners = new Set<() => void>();
+
+  addEventListener(type: string, listener: () => void): void {
+    if (type === 'visibilitychange') {
+      this.listeners.add(listener);
+    }
+  }
+
+  removeEventListener(type: string, listener: () => void): void {
+    if (type === 'visibilitychange') {
+      this.listeners.delete(listener);
+    }
+  }
+
+  setVisibility(state: 'visible' | 'hidden'): void {
+    this.visibilityState = state;
+    this.listeners.forEach((listener) => listener());
+  }
+}
+
 describe('LiveUpdateService', () => {
   let service: LiveUpdateService;
+  let fakeDocument: FakeDocument;
 
   beforeEach(() => {
     FakeEventSource.instances = [];
+    fakeDocument = new FakeDocument();
+    vi.useFakeTimers();
     TestBed.configureTestingModule({
       providers: [
         {
           provide: EVENT_SOURCE_FACTORY,
           useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
         },
+        { provide: DOCUMENT, useValue: fakeDocument },
       ],
     });
     service = TestBed.inject(LiveUpdateService);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   function subscribe(url = '/api/admin/live'): {
@@ -138,7 +175,7 @@ describe('LiveUpdateService', () => {
     subscription.unsubscribe();
   });
 
-  it('does not rebuild the connection after a fatal error', () => {
+  it('does not rebuild the connection immediately after a fatal error', () => {
     const { source, subscription } = subscribe();
 
     source.fail(READY_STATE_CLOSED); // e.g. 401 after the session was revoked
@@ -220,5 +257,183 @@ describe('LiveUpdateService', () => {
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(FakeEventSource.instances[1].url).toBe(url);
     again.unsubscribe();
+  });
+
+  describe('reconnect after a fatal close (issue #128)', () => {
+    it('does not reconnect before the 10 second delay elapses', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+
+      vi.advanceTimersByTime(9999);
+
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('reconnects 10 seconds after a fatal close', () => {
+      const { source, subscription } = subscribe('/api/channels/sensitron/live');
+      source.fail(READY_STATE_CLOSED);
+
+      vi.advanceTimersByTime(10_000);
+
+      expect(FakeEventSource.instances).toHaveLength(2);
+      expect(FakeEventSource.instances[1].url).toBe('/api/channels/sensitron/live');
+      expect(service.status()).toBe('connecting');
+      subscription.unsubscribe();
+    });
+
+    it('grows the backoff exponentially and caps it at 60 seconds', () => {
+      const { source, subscription } = subscribe();
+
+      source.fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(10_000);
+      expect(FakeEventSource.instances).toHaveLength(2); // 10s attempt
+
+      FakeEventSource.instances[1].fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(19_999);
+      expect(FakeEventSource.instances).toHaveLength(2); // 20s not elapsed yet
+      vi.advanceTimersByTime(1);
+      expect(FakeEventSource.instances).toHaveLength(3); // 20s attempt
+
+      FakeEventSource.instances[2].fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(40_000);
+      expect(FakeEventSource.instances).toHaveLength(4); // 40s attempt
+
+      FakeEventSource.instances[3].fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(60_000);
+      expect(FakeEventSource.instances).toHaveLength(5); // 60s attempt — the cap, not 80s
+
+      FakeEventSource.instances[4].fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(60_000);
+      expect(FakeEventSource.instances).toHaveLength(6); // stays at the 60s cap, does not keep growing
+
+      subscription.unsubscribe();
+    });
+
+    it('resets the backoff to 10 seconds after a successful open', () => {
+      const { source, subscription } = subscribe();
+
+      source.fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(10_000);
+      const second = FakeEventSource.instances[1];
+      second.onopen?.(); // the reconnect succeeded
+
+      second.fail(READY_STATE_CLOSED);
+      vi.advanceTimersByTime(9_999);
+      expect(FakeEventSource.instances).toHaveLength(2); // not yet — still short of the reset 10s
+      vi.advanceTimersByTime(1);
+      expect(FakeEventSource.instances).toHaveLength(3); // 10s again, not 20s — the backoff was reset
+
+      subscription.unsubscribe();
+    });
+
+    it('clears the pending reconnect timer when the last subscriber unsubscribes', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+
+      subscription.unsubscribe();
+      vi.advanceTimersByTime(60_000);
+
+      // No reconnect may open an EventSource for a URL nobody listens to any more, and the timer
+      // must not have leaked either (fake timers would otherwise still report it as pending).
+      expect(FakeEventSource.instances).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('defers a reconnect while the tab is hidden and fires it once visible again', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      fakeDocument.setVisibility('hidden');
+
+      vi.advanceTimersByTime(10_000);
+      expect(FakeEventSource.instances).toHaveLength(1); // backgrounded — no attempt spent on it
+
+      fakeDocument.setVisibility('visible');
+      expect(FakeEventSource.instances).toHaveLength(2); // honoured immediately, no further delay
+
+      subscription.unsubscribe();
+    });
+
+    it('does not reconnect on a visibility change with nothing pending', () => {
+      // The one reconnect path is the backoff timer; a plain tab-focus with a healthy connection
+      // (or no fatal close at all) must not become a second, duplicate trigger.
+      const { subscription } = subscribe();
+
+      fakeDocument.setVisibility('hidden');
+      fakeDocument.setVisibility('visible');
+
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('does not reconnect twice for one fatal close (timer and visibility never race)', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      fakeDocument.setVisibility('hidden');
+
+      vi.advanceTimersByTime(10_000); // delay elapses hidden — hands off to the visibility listener
+      fakeDocument.setVisibility('visible'); // fires the deferred reconnect exactly once
+
+      expect(FakeEventSource.instances).toHaveLength(2);
+      subscription.unsubscribe();
+    });
+  });
+
+  describe('suspendReconnecting (issue #128 follow-up: a revoked session)', () => {
+    it('cancels a pending reconnect timer outright, not just a future guard', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      expect(vi.getTimerCount()).toBe(1);
+
+      service.suspendReconnecting();
+
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(60_000);
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('cancels the hidden-tab reconnectDue hand-off, not just a live timer', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      fakeDocument.setVisibility('hidden');
+      vi.advanceTimersByTime(10_000); // the delay elapses hidden — reconnectDue is now pending
+
+      service.suspendReconnecting();
+      fakeDocument.setVisibility('visible');
+
+      // Without the cancellation, becoming visible again would fire the deferred reconnect.
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('blocks scheduling a new reconnect on any later fatal close while suspended', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      service.suspendReconnecting();
+
+      source.fail(READY_STATE_CLOSED); // a further spurious close while still suspended
+      vi.advanceTimersByTime(60_000);
+
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('resumes reconnecting once any connection opens successfully, even a different one', () => {
+      const { source, subscription } = subscribe('/api/channels/a/live');
+      source.fail(READY_STATE_CLOSED); // schedules a(n about-to-be-cancelled) reconnect
+      service.suspendReconnecting();
+
+      const otherSubscription = service.stream('/api/channels/b/live').subscribe();
+      FakeEventSource.instances[1].onopen?.(); // a wholly different stream reconnects successfully
+
+      source.fail(READY_STATE_CLOSED); // A's session is fine again too — the flag was global
+      vi.advanceTimersByTime(20_000); // A's own backoff had already grown from the first fail
+
+      expect(FakeEventSource.instances).toHaveLength(3);
+      expect(FakeEventSource.instances[2].url).toBe('/api/channels/a/live');
+      subscription.unsubscribe();
+      otherSubscription.unsubscribe();
+    });
   });
 });

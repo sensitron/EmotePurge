@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveQuotaService } from './live-quota.service';
 import { LiveStatus, LiveUpdateService } from './live-update.service';
@@ -12,20 +12,27 @@ describe('LiveQuotaService', () => {
   let httpMock: HttpTestingController;
   let fatalCloseCount: WritableSignal<number>;
   let status: WritableSignal<LiveStatus>;
+  let suspendReconnecting: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     fatalCloseCount = signal(0);
     status = signal<LiveStatus>('idle');
+    suspendReconnecting = vi.fn();
 
     TestBed.configureTestingModule({
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         {
-          // Only the two signals this service reads — driving the real one would mean driving an
-          // EventSource fake through a fatal close just to move a counter.
+          // The two signals this service reads, plus the one method it calls on a 401 — driving
+          // the real thing would mean driving an EventSource fake through a fatal close just to
+          // move a counter.
           provide: LiveUpdateService,
-          useValue: { fatalCloseCount, status } as unknown as LiveUpdateService,
+          useValue: {
+            fatalCloseCount,
+            status,
+            suspendReconnecting,
+          } as unknown as LiveUpdateService,
         },
       ],
     });
@@ -86,6 +93,9 @@ describe('LiveQuotaService', () => {
       .flush(null, { status: 503, statusText: 'Service Unavailable' });
 
     expect(service.perSubscriberLimitReached()).toBe(false);
+    // A 503 (Redis away, or the probe route itself unreachable) is not a revoked session — the
+    // reconnect backoff keeps running exactly as it did before this method existed.
+    expect(suspendReconnecting).not.toHaveBeenCalled();
   });
 
   it('clears the hint as soon as a stream opens again', () => {
@@ -175,5 +185,57 @@ describe('LiveQuotaService', () => {
       .flush({ openConnections: 6, maxPerSubscriber: 6, perSubscriberLimitReached: true });
 
     expect(service.perSubscriberLimitReached()).toBe(true);
+  });
+
+  describe('suspending the reconnect backoff on a revoked session (issue #128 follow-up)', () => {
+    it('tells LiveUpdateService to stop reconnecting when the probe itself answers 401', () => {
+      // /api/live/status is exempt from apiAuthInterceptor's session redirect on purpose (see that
+      // interceptor's EXPECTED_401_PATHS doc) — this is the one place left to notice the session is
+      // actually gone, since the interceptor here deliberately will not.
+      fatalCloseCount.set(1);
+      TestBed.tick();
+
+      httpMock
+        .expectOne('/api/live/status')
+        .flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      expect(suspendReconnecting).toHaveBeenCalledOnce();
+    });
+
+    it('does not suspend when the quota probe succeeds, whatever it answers', () => {
+      fatalCloseCount.set(1);
+      TestBed.tick();
+      httpMock
+        .expectOne('/api/live/status')
+        .flush({ openConnections: 6, maxPerSubscriber: 6, perSubscriberLimitReached: true });
+
+      expect(suspendReconnecting).not.toHaveBeenCalled();
+    });
+
+    it('does not suspend on a 429 (quota full) probe response', () => {
+      fatalCloseCount.set(1);
+      TestBed.tick();
+      httpMock.expectOne('/api/live/status').flush(null, { status: 429, statusText: 'Too Many' });
+
+      expect(suspendReconnecting).not.toHaveBeenCalled();
+    });
+
+    it('suspends on a 401 even for a stale probe generation', () => {
+      // Unlike the quota reading, "the session is gone" is not something a later, newer probe can
+      // contradict — only a fresh successful `open` does that, and LiveUpdateService owns deciding
+      // that on its own. So this is deliberately not gated by probeGeneration the way quotaSignal is.
+      fatalCloseCount.set(1);
+      TestBed.tick();
+      const first = httpMock.expectOne('/api/live/status');
+
+      fatalCloseCount.set(2);
+      TestBed.tick();
+      const second = httpMock.expectOne('/api/live/status');
+
+      second.flush({ openConnections: 1, maxPerSubscriber: 6, perSubscriberLimitReached: false });
+      first.flush(null, { status: 401, statusText: 'Unauthorized' });
+
+      expect(suspendReconnecting).toHaveBeenCalledOnce();
+    });
   });
 });

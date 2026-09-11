@@ -10,6 +10,89 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-11 — An Api-level 5 s keepalive replaces the single visibility-retry: Cloudflare only releases an abandoned SSE slot on the next write (#128)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/LiveEndpoints.cs` ·
+`src/EmotePurge.Api/Endpoints/AdminEndpoints.cs` · `src/EmotePurge.Api/Program.cs` ·
+`tests/EmotePurge.Api.Tests/LiveStreamKeepaliveTests.cs` ·
+`tests/EmotePurge.Api.Tests/LiveStreamAsyncDisposalTests.cs` ·
+`web/src/app/core/live/live-update.service.ts` ·
+`web/src/app/core/live/live-update.service.spec.ts` · `docs/Operations.md` ·
+`docs/Architectur.md`
+
+Root cause of the "Live-Updates pausiert" badge with a single browser tab, measured on 2026-09-11.
+Every SPA route change closes one SSE stream and opens another (`/mine` → `/api/channels/live-events`,
+the channel workspace → `/api/channels/{c}/live`, every admin route change → `/api/admin/live`).
+Behind Cloudflare, the browser's cancel only reaches the origin when the origin next writes — and
+the SSE endpoints wrote nothing, not even headers (`TypedResults.ServerSentEvents` flushes only on
+an item write), until Infrastructure's 15 s heartbeat from the 2026-07-31 entry below fired. Every
+abandoned stream therefore held its per-login slot (`MaxPerSubscriber = 6`, raised from 3 by the
+2026-08-05 entry) for 15–30 s, and six quick page changes produced a 429. The 429 hint itself
+(`Retry-After`/`retryAfterSeconds`) was the fixed 30 s heuristic the 2026-09-01 entry below
+introduced — and after a 429, `LiveUpdateService` did not reconnect on its own (the single retry on
+tab visibility, documented as existing behaviour in that same 2026-09-01 entry and again in the
+2026-09-05 entry below, only fires *on* a visibility change). A stream came back only once a later
+tab-visibility change happened, or a navigation opened a fresh stream elsewhere — until then, the
+badge stayed stuck.
+
+**Evidence.** Prod nginx `access.log` (format `combined`; a line is written at request end). Repro
+on 2026-09-11: a 429 at 10:46:14 UTC with exactly six streams open, and the five abandoned streams
+ended between 10:46:22 and 10:46:27 — four of them carrying exactly 23 bytes (one
+`data: {"type":"ping"}\n\n` frame), the fifth 60 bytes. Locally without a proxy in front, slots are
+released instantly (curl and headless-Chromium probes). Measuring through a VS Code Remote-SSH port
+forward is misleading and was ruled out as a method: the tunnel keeps the forwarded connection open
+regardless of the browser tab, so a closed tab held its slot for the full 10-minute
+`MaxConnectionLifetime` instead of the true release latency.
+
+**Fix, Api and web only — Infrastructure/Core untouched on purpose.** `LiveEndpoints.StreamAsync`
+now yields a heartbeat immediately when a stream opens (headers plus first bytes flush together, so
+`onopen` fires right away) and an Api-level keepalive heartbeat whenever the subscription is idle
+for `LiveStreamKeepaliveOptions.KeepaliveInterval` (default 5 s, a plain DI singleton, overridable in
+tests). An abandoned stream is thus noticed by the proxy chain within roughly 5 s regardless of
+Cloudflare's on-next-write release behaviour. Infrastructure's 15 s heartbeat
+(`RedisLiveEventStream.HeartbeatInterval`) stays exactly as it was — it now rarely fires, but its own
+purpose (keeping proxies from timing out an idle connection) is still covered, just from the more
+frequent of the two. `LiveStreamQuotaRetryAfterSeconds` is lowered from 30 s to 10 s, because the
+slot-release latency the 30 s value was hedging against is now bounded by the keepalive instead of by
+Cloudflare's next-write behaviour. `LiveUpdateService` replaces the single visibility retry with a
+capped exponential backoff (10 s, 20 s, 40 s, 60 s cap) after a fatal close, reset after the next
+successful `open`; a hidden tab does not reconnect on its own, the elapsed reconnect runs when the
+tab becomes visible again. A 401 does not loop, but not because of a redirect: `/api/live/status`
+stays exempt from the auth interceptor's session redirect exactly as the 2026-09-05 entry set up
+(a refused stream must not itself bounce the tab to `/login`). Instead, when that probe answers
+401, `LiveQuotaService` calls a new `LiveUpdateService.suspendReconnecting()`, which cancels every
+pending reconnect timer and hidden-tab hand-off across every stream this tab holds and schedules no
+further ones until some connection opens successfully again. The expiry still surfaces — on the
+next real API request, exactly as before this fix existed.
+
+**Rejected/deferred alternatives.** An explicit release endpoint called via `pagehide`/`sendBeacon`
+was considered and rejected: more code for a best-effort signal that becomes unnecessary once the
+proxy chain notices an abandonment within ~5 s anyway. Lowering Infrastructure's own
+`HeartbeatInterval` instead of adding an Api-level keepalive was considered and deferred: it is
+hardcoded in `src/EmotePurge.Infrastructure/Redis/RedisLiveEventStream.cs`, and an
+Infrastructure/Core change rebuilds the worker image — which the measurement window of Epic #118
+(see the entry of that name) forbids until 2026-10-08.
+
+**Consequences.** Each open stream now costs roughly one 23-byte frame every 5 s instead of every
+15 s — negligible at the current channel/tab count, the same order of magnitude the 2026-07-31 entry
+already accepted for the 15 s case. Prod verification is the same nginx-log method as above, after
+deploy: an abandoned stream's access-log line should appear within ~5 s of the tab/route change
+instead of 15–30 s, still carrying a handful of bytes rather than zero.
+
+**What this supersedes or amends, all below:** the 2026-09-05 entry's implicit assumption that a
+freed slot is "zeitnah" reusable once a tab closes — that held only because nobody had yet measured
+the release latency behind Cloudflare; the `/api/live/status` endpoint and its quota badge from that
+entry are otherwise unchanged and still correct. The 2026-09-01 entry's 30 s `retryAfterSeconds`
+heuristic is retuned to 10 s; its reasoning (a fixed heuristic, not a measured remaining time) still
+holds, only the number changes. The 2026-07-31 entry's proxy contract gains a second, more frequent
+write on top of the unchanged 15 s Infrastructure heartbeat — that entry's own acceptance test
+(`curl -N .../api/admin/live`, pings arriving individually over time) still passes, just with a
+shorter interval on the wire. The 2026-08-05 entry's `MaxPerSubscriber = 6` is not changed by this
+fix; this entry explains why even six slots were exhausted by ordinary single-tab navigation once the
+release latency is accounted for.
+
+---
+
 ### 2026-09-11 — Create-vote-session dialog follows the live selection instead of freezing it at open time (#132, #133)
 
 **Betrifft:** `web/src/app/features/usage-stats/create-vote-session-dialog.ts` ·
