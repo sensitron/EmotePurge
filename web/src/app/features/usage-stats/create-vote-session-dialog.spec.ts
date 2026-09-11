@@ -273,6 +273,25 @@ describe('CreateVoteSessionDialog', () => {
       httpMock.expectNone('/api/channels/sensitron/vote-sessions');
     });
 
+    it('connects the submit button to a text explanation once blocked, and drops it again once re-enabled (docs/UI-Designsprache.md §7)', () => {
+      const dialog = render(['a']);
+
+      dialog.emoteIds.set([]);
+      dialog.detect();
+
+      const button = dialog.submitButton();
+      const describedById = button.getAttribute('aria-describedby');
+      expect(describedById).toBeTruthy();
+      const hint = dialog.fixture.nativeElement.querySelector(`#${describedById}`);
+      expect(hint).not.toBeNull();
+      expect(hint.textContent.trim().length).toBeGreaterThan(0);
+
+      dialog.emoteIds.set(['a']);
+      dialog.detect();
+
+      expect(button.getAttribute('aria-describedby')).toBeNull();
+    });
+
     it('re-enables if the live list gains entries back before submit (e.g. the page reloaded again)', () => {
       const dialog = render(['a']);
       dialog.emoteIds.set([]);

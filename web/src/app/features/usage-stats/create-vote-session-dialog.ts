@@ -148,6 +148,18 @@ export interface CreateVoteSessionDialogData {
       @if (errorMessage(); as message) {
         <app-notice-banner variant="error">{{ message | transloco }}</app-notice-banner>
       }
+      <!-- The reason submit is blocked, in text next to it (docs/UI-Designsprache.md §7) — same
+           pattern as TypedConfirmDialog's mr-auto hint, connected to the button via
+           aria-describedby instead of leaving the greyed-out state as the only signal. -->
+      @if (currentCount() === 0) {
+        <p
+          dialog-actions
+          id="create-vote-session-blocked-hint"
+          class="mr-auto text-xs text-fg-muted"
+        >
+          {{ 'voting.create.selectionEmpty' | transloco }}
+        </p>
+      }
       <button
         dialog-actions
         type="button"
@@ -163,6 +175,7 @@ export interface CreateVoteSessionDialogData {
         appButton="primary"
         buttonSize="lg"
         [disabled]="isSubmitting() || currentCount() === 0"
+        [attr.aria-describedby]="currentCount() === 0 ? 'create-vote-session-blocked-hint' : null"
         (click)="create()"
       >
         {{ 'voting.create.submit' | transloco }}
