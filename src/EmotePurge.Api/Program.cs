@@ -123,6 +123,9 @@ rateLimits.Validate();
 // effective, already-validated configuration without binding the section a second time.
 builder.Services.AddSingleton<IOptions<RateLimitingOptions>>(Options.Create(rateLimits));
 
+// Plain singleton, not configuration-bound: see LiveStreamKeepaliveOptions for why (issue #128).
+builder.Services.AddSingleton<LiveStreamKeepaliveOptions>();
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

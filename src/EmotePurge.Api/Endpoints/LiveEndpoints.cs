@@ -29,10 +29,16 @@ public static class LiveEndpoints
     /// A fixed heuristic, not a measured value: unlike <c>ResyncCooldownActive</c>'s cooldown timer,
     /// neither the process-wide nor the per-login connection limit has a natural expiry to report —
     /// a slot frees the moment a browser tab closes or a stream hits <see cref="MaxConnectionLifetime"/>.
-    /// 30 s balances two things: long enough that a reconnect storm does not retry every second, short
-    /// enough that a freed slot (the common case — tabs close constantly) is usable again promptly.
+    /// Lowered from 30 s to 10 s alongside issue #128's keepalive fix: an abandoned stream's slot used
+    /// to sit held for up to 30 s (Infrastructure's heartbeat cadence) before a proxy in front of it
+    /// ever noticed the browser had cancelled, and only that noticing releases the slot. With
+    /// <see cref="StreamAsync"/> now writing within one <see cref="LiveStreamKeepaliveOptions"/>
+    /// interval (default 5 s) of a stream going idle, a slot exhausted right now is very likely free
+    /// again well inside 10 s — the number still balances the same two things: long enough that a
+    /// reconnect storm does not retry every second, short enough that the common case (a slot freed
+    /// by the keepalive noticing an abandoned tab) is usable again promptly.
     /// </summary>
-    private const int LiveStreamQuotaRetryAfterSeconds = 30;
+    private const int LiveStreamQuotaRetryAfterSeconds = 10;
 
     public static void MapLiveEndpoints(this WebApplication app)
     {
@@ -45,6 +51,7 @@ public static class LiveEndpoints
             string channelName,
             HttpContext httpContext,
             ILiveEventStream liveEventStream,
+            LiveStreamKeepaliveOptions keepaliveOptions,
             CancellationToken ct) =>
         {
             // Only "logged in and a well-formed name" — no usage-stats or vote filter. The events
@@ -54,6 +61,7 @@ public static class LiveEndpoints
             return OpenAsync(
                 httpContext,
                 liveEventStream,
+                keepaliveOptions,
                 liveEvent => LiveEvents.ChannelTypes.Contains(liveEvent.Type)
                     && string.Equals(liveEvent.Channel, normalized, StringComparison.Ordinal),
                 ct);
@@ -69,10 +77,12 @@ public static class LiveEndpoints
         app.MapGet("/api/channels/live-events", (
             HttpContext httpContext,
             ILiveEventStream liveEventStream,
+            LiveStreamKeepaliveOptions keepaliveOptions,
             CancellationToken ct) =>
             OpenAsync(
                 httpContext,
                 liveEventStream,
+                keepaliveOptions,
                 liveEvent => string.Equals(liveEvent.Type, LiveEvents.LiveChanged, StringComparison.Ordinal),
                 ct))
         .RequireAuthorization();
@@ -112,12 +122,19 @@ public static class LiveEndpoints
     internal static Task<IResult> OpenAdminAsync(
         HttpContext httpContext,
         ILiveEventStream liveEventStream,
+        LiveStreamKeepaliveOptions keepaliveOptions,
         CancellationToken ct)
-        => OpenAsync(httpContext, liveEventStream, liveEvent => LiveEvents.AdminTypes.Contains(liveEvent.Type), ct);
+        => OpenAsync(
+            httpContext,
+            liveEventStream,
+            keepaliveOptions,
+            liveEvent => LiveEvents.AdminTypes.Contains(liveEvent.Type),
+            ct);
 
     private static async Task<IResult> OpenAsync(
         HttpContext httpContext,
         ILiveEventStream liveEventStream,
+        LiveStreamKeepaliveOptions keepaliveOptions,
         Func<LiveEvent, bool> filter,
         CancellationToken ct)
     {
@@ -160,7 +177,7 @@ public static class LiveEndpoints
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(httpContext.RequestAborted);
         lifetime.CancelAfter(MaxConnectionLifetime);
 
-        return TypedResults.ServerSentEvents(StreamAsync(subscription, lifetime, lifetime.Token));
+        return TypedResults.ServerSentEvents(StreamAsync(subscription, lifetime, keepaliveOptions, lifetime.Token));
     }
 
     /// <summary>
@@ -191,22 +208,124 @@ public static class LiveEndpoints
     /// discriminator lives inside the JSON body, so a client's <c>onmessage</c> sees every event and
     /// can ignore types it does not know — with a named event type an unknown type would instead be
     /// silently undeliverable.
+    /// <para>
+    /// Two additions beyond framing, both from issue #128: a proxy chain (Cloudflare -&gt; nginx) only
+    /// propagates a browser's cancel to us when we next write, and until this fix nothing was written
+    /// until Infrastructure's own 15 s heartbeat — so an abandoned stream held its connection-budget
+    /// slot for up to that long. First, the very first yielded item is an immediate heartbeat: per
+    /// <c>SseFormatter.WriteAsync</c>'s documented behaviour ("the destination stream is flushed
+    /// after each event is written"), yielding gets headers and the first bytes onto the wire the
+    /// instant the stream opens, rather than waiting on the first real event or the first
+    /// Infrastructure heartbeat. Second, an Api-level keepalive fires whenever the inner subscription
+    /// stays quiet for <see cref="LiveStreamKeepaliveOptions.KeepaliveInterval"/> (default 5 s, far
+    /// shorter than Infrastructure's 15 s — that one exists to keep proxies from timing out an idle
+    /// connection, not for slot-release speed) — so an abandoned stream now writes, and therefore
+    /// flushes, within one interval of being abandoned instead of up to 15 s later.
+    /// </para>
     /// </summary>
-    private static async IAsyncEnumerable<SseItem<string>> StreamAsync(
+    internal static async IAsyncEnumerable<SseItem<string>> StreamAsync(
         ILiveEventSubscription subscription,
         CancellationTokenSource lifetime,
+        LiveStreamKeepaliveOptions keepaliveOptions,
         [EnumeratorCancellation] CancellationToken ct)
     {
         try
         {
             await using (subscription)
             {
-                await foreach (var liveEvent in subscription.Events.WithCancellation(ct))
+                // Immediate first frame — see the class doc above. Yielded from inside the
+                // await-using block (not before it) so that disposing the enumerator right after this
+                // one item — the client-abort case, before a single real event or keepalive tick — still
+                // runs the subscription's disposal through the ordinary await-using unwind, exactly as
+                // for every later exit path.
+                yield return new SseItem<string>(LiveEvent.Heartbeat.Serialize());
+
+                var enumerator = subscription.Events.GetAsyncEnumerator(ct);
+
+                // Declared outside the try so the finally below can see whether a MoveNextAsync is
+                // still in flight when we get there — see the finally's own comment for why that
+                // matters.
+                Task<bool>? pendingMoveNext = null;
+                try
                 {
-                    // SseItem<string> rather than SseItem<LiveEvent>: strings are written verbatim,
-                    // so the bytes on the wire are exactly LiveEvent.Serialize() and cannot drift
-                    // with the host's JSON options.
-                    yield return new SseItem<string>(liveEvent.Serialize());
+                    // The pending MoveNextAsync is kept across loop iterations and raced against a
+                    // keepalive delay rather than re-issued on every tick: IAsyncEnumerator forbids
+                    // overlapping MoveNextAsync calls, and restarting it after a delay "wins" the race
+                    // would do exactly that on the next loop pass. AsTask() is called (and the result
+                    // kept, never re-awaited as a ValueTask) because a ValueTask may only be consumed
+                    // once, and this same pending task is awaited again below.
+                    pendingMoveNext = enumerator.MoveNextAsync().AsTask();
+                    while (true)
+                    {
+                        // A standalone CTS, not linked to ct: cancellation of the stream itself
+                        // (client abort, MaxConnectionLifetime) is observed by pendingMoveNext instead
+                        // — the subscription's Events enumerator already reacts to ct and ends the
+                        // enumeration cleanly (see RedisLiveEventStream.ReadAsync) — so this delay only
+                        // ever needs cancelling by us, when the real event side of the race wins.
+                        using var keepaliveCts = new CancellationTokenSource();
+                        var keepaliveDelay = Task.Delay(keepaliveOptions.KeepaliveInterval, keepaliveCts.Token);
+
+                        var winner = await Task.WhenAny(pendingMoveNext, keepaliveDelay).ConfigureAwait(false);
+
+                        if (winner == keepaliveDelay)
+                        {
+                            yield return new SseItem<string>(LiveEvent.Heartbeat.Serialize());
+                            continue;
+                        }
+
+                        // pendingMoveNext won: cancel the now-pointless delay so its timer is released
+                        // immediately rather than firing later, and observe the resulting
+                        // OperationCanceledException right here so it can never surface as an
+                        // unobserved task exception once this loop iteration lets the task go.
+                        keepaliveCts.Cancel();
+                        try
+                        {
+                            await keepaliveDelay;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected: the delay lost the race and was cancelled deliberately.
+                        }
+
+                        if (!await pendingMoveNext)
+                        {
+                            yield break;
+                        }
+
+                        // SseItem<string> rather than SseItem<LiveEvent>: strings are written verbatim,
+                        // so the bytes on the wire are exactly LiveEvent.Serialize() and cannot drift
+                        // with the host's JSON options.
+                        yield return new SseItem<string>(enumerator.Current.Serialize());
+                        pendingMoveNext = enumerator.MoveNextAsync().AsTask();
+                    }
+                }
+                finally
+                {
+                    // If the consumer stopped enumerating right after a keepalive yield — the write of
+                    // that heartbeat failing because the client is gone is exactly how SseFormatter
+                    // learns of an abort, and it disposes our iterator in response — pendingMoveNext is
+                    // still in flight at that point: the keepalive branch above yields without
+                    // reassigning it. Disposing a compiler-generated async-iterator enumerator
+                    // (Events => ReadAsync() in RedisLiveEventStream) while a MoveNextAsync on it is
+                    // still pending throws, which would replace the real "client aborted" story with an
+                    // unrelated exception in the logs. Cancelling the stream's own token first is safe —
+                    // the stream is ending here regardless of why — and unblocks whatever ReadAsync is
+                    // awaiting (it already reacts to this same token), so the pending call completes on
+                    // its own instead of DisposeAsync running into it.
+                    if (pendingMoveNext is not null)
+                    {
+                        lifetime.Cancel();
+                        try
+                        {
+                            await pendingMoveNext;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected: this is exactly the cancellation just requested above.
+                        }
+                    }
+
+                    await enumerator.DisposeAsync();
                 }
             }
         }
@@ -215,4 +334,26 @@ public static class LiveEndpoints
             lifetime.Dispose();
         }
     }
+}
+
+/// <summary>
+/// The Api-level idle keepalive <see cref="LiveEndpoints.StreamAsync"/> uses to make an abandoned SSE
+/// stream write — and therefore flush, and therefore let a proxy chain notice the client cancelled —
+/// promptly (issue #128). A plain DI singleton rather than a configuration-bound
+/// <c>IOptions&lt;RateLimitingOptions&gt;</c>-style type: nothing here needs an operator-tunable value
+/// or an admin-visible snapshot, only a seam <c>WebApplicationFactory</c> tests can replace with a
+/// short interval without a configuration round-trip — the same reasoning
+/// <c>LiveEventStreamOptions</c> already uses on the Infrastructure side for its own (much longer,
+/// and unrelated) heartbeat.
+/// </summary>
+public sealed class LiveStreamKeepaliveOptions
+{
+    /// <summary>
+    /// How long <see cref="LiveEndpoints.StreamAsync"/> waits for a real event before writing a
+    /// heartbeat of its own. Deliberately far shorter than Infrastructure's 15 s
+    /// <c>LiveEventStreamOptions.HeartbeatInterval</c>, which exists to keep a proxy from timing out
+    /// an idle connection — a different concern from releasing a connection-budget slot quickly once
+    /// its stream has been abandoned.
+    /// </summary>
+    public TimeSpan KeepaliveInterval { get; init; } = TimeSpan.FromSeconds(5);
 }

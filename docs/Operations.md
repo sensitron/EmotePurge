@@ -22,10 +22,15 @@ code in `src/EmotePurge.Api/`:
   compatible proxies honour, but set the equivalent explicitly too (`proxy_buffering off` for
   `/api/`). Without it the live stream stays invisible until a buffer fills — which looks like
   a broken feature, not a proxy setting.
-- **The read timeout has to outlast an idle stream.** The broker injects a heartbeat every 15
-  seconds (`HeartbeatInterval` in `Infrastructure/Redis/RedisLiveEventStream.cs`); nginx
-  defaults to 60. Raise it generously for the SSE paths rather than relying on the heartbeat
-  staying under a default somebody may lower.
+- **The read timeout has to outlast an idle stream.** The API itself writes at least every 5
+  seconds (`LiveStreamKeepaliveOptions.KeepaliveInterval` in `Endpoints/LiveEndpoints.cs`) —
+  immediately on open, then whenever the subscription has been idle that long; the broker's own
+  15-second heartbeat (`HeartbeatInterval` in `Infrastructure/Redis/RedisLiveEventStream.cs`)
+  still exists underneath but rarely fires first. nginx defaults to 60. Raise it generously for
+  the SSE paths rather than relying on either heartbeat staying under a default somebody may
+  lower. Behind a proxy like Cloudflare, an abandoned stream is only released on the origin's
+  *next* write, not when the browser cancels — which is why the keepalive is kept short rather
+  than relying on the broker's slower one.
 - **`X-Forwarded-Proto` and `X-Forwarded-For` must be set.** The auth cookie uses
   `CookieSecurePolicy.Always`, the OAuth state cookie in `Endpoints/AuthEndpoints.cs` uses
   `Secure = Request.IsHttps`. Dropping `X-Forwarded-Proto` makes login fail visibly — the
