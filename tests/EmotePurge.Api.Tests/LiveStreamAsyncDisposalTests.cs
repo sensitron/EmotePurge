@@ -22,9 +22,23 @@ namespace EmotePurge.Api.Tests;
 /// <c>lifetime</c> first to unblock it) before disposing the inner enumerator; both tests below drive
 /// the enumerator to exactly that suspension point and then dispose.
 /// </para>
+/// <para>
+/// A second, related finding (also issue #128): disposing the enumerator while it is suspended at the
+/// very first <c>yield return</c> — the id-carrying first frame, before the inner try/finally above is
+/// ever entered — used to leave <c>lifetime</c> uncancelled: the outer finally only disposed it, and
+/// the inner finally's <c>lifetime.Cancel()</c> never ran because execution never reached it.
+/// <see cref="LiveStreamConnectionRegistry.Register"/> wires its cleanup to <c>lifetime</c> being
+/// cancelled, not disposed, so that path leaked the registry entry forever. The fix makes the outer
+/// finally cancel <c>lifetime</c> unconditionally before disposing it; the last two tests below drive
+/// the enumerator to exactly that earlier suspension point (one <c>MoveNextAsync</c>, then dispose
+/// with no second one) and assert the registry entry is gone either way.
+/// </para>
 /// </summary>
 public sealed class LiveStreamAsyncDisposalTests
 {
+    /// <summary>Arbitrary — only the two registry-leak tests below use it, and only to prove ownership.</summary>
+    private const string SubscriberKey = "subscriber-1";
+
     [Fact]
     public async Task Dispose_RightAfterAKeepaliveYield_DoesNotThrow_AndDisposesTheSubscriptionExactlyOnce()
     {
@@ -32,7 +46,7 @@ public sealed class LiveStreamAsyncDisposalTests
         using var lifetime = new CancellationTokenSource();
         var keepaliveOptions = new LiveStreamKeepaliveOptions { KeepaliveInterval = TimeSpan.FromMilliseconds(30) };
 
-        var enumerable = LiveEndpoints.StreamAsync(subscription, lifetime, keepaliveOptions, lifetime.Token);
+        var enumerable = LiveEndpoints.StreamAsync(subscription, lifetime, keepaliveOptions, "test-connection-id", lifetime.Token);
         var enumerator = enumerable.GetAsyncEnumerator();
 
         // The immediate first frame — yielded before the inner enumerator even exists.
@@ -57,7 +71,7 @@ public sealed class LiveStreamAsyncDisposalTests
         using var lifetime = new CancellationTokenSource();
         var keepaliveOptions = new LiveStreamKeepaliveOptions { KeepaliveInterval = TimeSpan.FromMilliseconds(30) };
 
-        var enumerable = LiveEndpoints.StreamAsync(subscription, lifetime, keepaliveOptions, lifetime.Token);
+        var enumerable = LiveEndpoints.StreamAsync(subscription, lifetime, keepaliveOptions, "test-connection-id", lifetime.Token);
         var enumerator = enumerable.GetAsyncEnumerator();
 
         Assert.True(await enumerator.MoveNextAsync()); // immediate first frame
@@ -71,6 +85,63 @@ public sealed class LiveStreamAsyncDisposalTests
         await enumerator.DisposeAsync();
 
         Assert.Equal(1, subscription.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Dispose_RightAfterTheFirstYield_WhenNothingCancelsTheLifetimeExternally_StillRemovesTheRegistryEntry()
+    {
+        var subscription = new BlockingChannelSubscription();
+        var registry = new LiveStreamConnectionRegistry();
+        using var lifetime = new CancellationTokenSource();
+        var connectionId = registry.Register(SubscriberKey, lifetime);
+        var keepaliveOptions = new LiveStreamKeepaliveOptions { KeepaliveInterval = TimeSpan.FromMilliseconds(30) };
+
+        var enumerable = LiveEndpoints.StreamAsync(subscription, lifetime, keepaliveOptions, connectionId, lifetime.Token);
+        var enumerator = enumerable.GetAsyncEnumerator();
+
+        // The id-carrying first frame — nothing has entered the inner try/finally yet, so before the
+        // fix nothing here would ever call lifetime.Cancel().
+        Assert.True(await enumerator.MoveNextAsync());
+
+        // Dispose right there, with no second MoveNextAsync and — the point of this variant — without
+        // this test (standing in for RequestAborted or MaxConnectionLifetime) ever cancelling
+        // `lifetime` itself. Only the outer finally's own unconditional Cancel() can make this work.
+        await enumerator.DisposeAsync();
+
+        Assert.Equal(1, subscription.DisposeCount);
+
+        // The direct check, not just TryRelease's return value: TryRelease also answers false when the
+        // entry is still present but Cancel() throws on an already-disposed CTS (see its own comment),
+        // so that return value alone cannot tell "removed" apart from "leaked but unreleasable" — which
+        // is exactly the distinction this test exists to make.
+        Assert.False(registry.Contains(connectionId));
+        Assert.False(registry.TryRelease(connectionId, SubscriberKey));
+    }
+
+    [Fact]
+    public async Task Dispose_RightAfterTheFirstYield_WhenTheLifetimeWasAlreadyCancelledExternally_StillRemovesTheRegistryEntryExactlyOnce()
+    {
+        var subscription = new BlockingChannelSubscription();
+        var registry = new LiveStreamConnectionRegistry();
+        using var lifetime = new CancellationTokenSource();
+        var connectionId = registry.Register(SubscriberKey, lifetime);
+        var keepaliveOptions = new LiveStreamKeepaliveOptions { KeepaliveInterval = TimeSpan.FromMilliseconds(30) };
+
+        var enumerable = LiveEndpoints.StreamAsync(subscription, lifetime, keepaliveOptions, connectionId, lifetime.Token);
+        var enumerator = enumerable.GetAsyncEnumerator();
+
+        Assert.True(await enumerator.MoveNextAsync()); // the id-carrying first frame
+
+        // Stands in for a real client abort landing at exactly this suspension point, before the
+        // consumer calls DisposeAsync — proving the outer finally's Cancel() is safe (a documented
+        // no-op) even when something external already cancelled the same token.
+        await lifetime.CancelAsync();
+
+        await enumerator.DisposeAsync();
+
+        Assert.Equal(1, subscription.DisposeCount);
+        Assert.False(registry.Contains(connectionId));
+        Assert.False(registry.TryRelease(connectionId, SubscriberKey));
     }
 
     /// <summary>

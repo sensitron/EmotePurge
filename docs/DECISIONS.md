@@ -10,7 +10,109 @@ Zwei Dinge sind beim Verschieben hinzugekommen, beide außerhalb des historische
 
 ---
 
+### 2026-09-11 — Explicit `DELETE /api/live/connections/{id}` release replaces the next-write assumption: the proxy chain holds an abandoned SSE slot regardless of write frequency (#128)
+
+**Betrifft:** `src/EmotePurge.Api/Endpoints/LiveStreamConnectionRegistry.cs` ·
+`src/EmotePurge.Api/Endpoints/LiveEndpoints.cs` ·
+`src/EmotePurge.Api/Endpoints/AdminEndpoints.cs` · `src/EmotePurge.Api/Program.cs` ·
+`tests/EmotePurge.Api.Tests/LiveStreamConnectionReleaseTests.cs` ·
+`tests/EmotePurge.Api.Tests/LiveStreamAsyncDisposalTests.cs` ·
+`tests/EmotePurge.Api.Tests/AuthFilterMatrixTests.cs` ·
+`web/src/app/core/live/live-connection-release.factory.ts` ·
+`web/src/app/core/live/live-connection-release.factory.spec.ts` ·
+`web/src/app/core/live/live-update.service.ts` ·
+`web/src/app/core/live/live-update.service.spec.ts` · `docs/Operations.md` ·
+`docs/Architectur.md`
+
+Corrects the diagnosis in the entry immediately below (also dated 2026-09-11, #128, PR #163):
+production measurement taken after that fix deployed shows the "next write" mental model is
+wrong, and so is its "within ~5 s" consequence.
+
+**Evidence.** Prod nginx `access.log`, 2026-09-11 14:12–14:15 UTC, five fast `/mine` ↔
+channel-workspace round trips (each one closes one SSE stream and opens another, per the entry
+below). Every abandoned stream still wrote 3–4 more frames after the tab navigated away — 92 or
+115 bytes, i.e. 4–5 frames of 23 bytes each (the immediate first frame plus a keepalive every 5 s)
+— and its access-log line closed 15–25 s after the navigation, against 15–30 s before that fix. The
+run still produced six 429s. A keepalive every 5 s instead of every 15–30 s did not change when the
+proxy chain actually let go of the connection; it only changed how many small frames landed inside
+the grace period before the release.
+
+**Corrected understanding.** The proxy chain — Cloudflare, or the Cloudflare→nginx hop; the two
+cannot be told apart without direct access to the origin's own socket state — keeps accepting
+writes for roughly 10–15 s after the browser cancels a request, independent of how often the
+origin writes into that window. Only a write issued after that grace has elapsed ends the stream; a
+write during the grace is accepted and counted, but does not shorten it. The keepalive interval was
+never the lever: shortening it further would only fill the grace period with more frames without
+releasing the slot any sooner. What #163 did establish and this entry keeps: the immediate first
+frame (so `onopen` fires at once), and, after a 429, `LiveUpdateService` now reconnects on its own
+via the capped backoff and `suspendReconnecting()` on a 401 — in the same test the badge cleared
+roughly 6 s after the 429, and a revoked session stopped the reconnect loop instead of retrying
+forever.
+
+**Decision: release the slot explicitly, do not wait for the proxy to notice.**
+`LiveEndpoints.StreamAsync`'s first frame — sent immediately, same as before — now also carries an
+SSE `id:` field holding a fresh connection id (`Guid.NewGuid().ToString("N")`).
+`LiveStreamConnectionRegistry` (`src/EmotePurge.Api/Endpoints/LiveStreamConnectionRegistry.cs`,
+Api-only singleton, no interface: it is request-lifetime plumbing internal to the Api process, not a
+service Core/Infrastructure need to know about, and Infrastructure/Core stay untouched for the same
+Epic #118 measurement-window reason the entry below gives, until 2026-10-08) maps that id to the
+subscriber's login and the stream's own lifetime `CancellationTokenSource`; every stream exit path
+(normal completion, client abort, fatal error) removes its entry so the registry never outlives a
+connection. `DELETE /api/live/connections/{connectionId}` (route constraint `^[0-9a-f]{32}$`,
+`RequireAuthorization`, rate-limited under the `Bookkeeping` policy) cancels that lifetime token
+when, and only when, the id belongs to the caller's own login — which drops the connection in
+Kestrel immediately, independent of whatever grace Cloudflare or nginx would otherwise have held it
+for. `LiveUpdateService` remembers each stream's id off `MessageEvent.lastEventId` (browsers repeat
+the last `id:` on every later frame of the same stream; a new stream's own first frame overwrites it
+with its own id). When the SPA closes a stream on purpose — the last subscriber for that URL going
+away on navigation — it closes the `EventSource` first, then fires the `DELETE` behind the new
+`LIVE_CONNECTION_RELEASE_FACTORY` injection token
+(`web/src/app/core/live/live-connection-release.factory.ts`) as
+`fetch(url, { method: 'DELETE', keepalive: true, credentials: 'same-origin' })`, fire-and-forget.
+This deliberately bypasses `HttpClient`, for the same reason `EVENT_SOURCE_FACTORY` already does
+(see `web/.claude/CLAUDE.md`): `apiAuthInterceptor` would redirect a 401 to `/login` mid-navigation,
+and `HttpClient` has no `keepalive` option to survive the page already tearing the request context
+down. On `pagehide`, every still-open id known to the tab is released without closing its
+`EventSource` — bfcache may resurrect the tab, and the browser's own reconnect then rebuilds the
+streams; a stream that closed fatally, rather than on purpose, is never released, since its slot is
+already gone by then.
+
+**Security properties.** The endpoint always answers `204` for any authenticated caller — own id,
+someone else's, an unknown id, an already-ended id alike — so a connection id is not a usable probe
+for whether a given id, or indirectly a given login, currently holds a stream open; only ownership
+gates the actual cancellation, silently. An unauthenticated caller gets `401`. The registry lives in
+Api-process memory, which is fine for the single Api replica exactly as the in-process token-refresh
+lock already is (2026-07-30 entry) — a second replica would need the same cross-replica fix both
+would then need.
+
+**Rejected/deferred alternatives.** Shortening the keepalive further, down toward sub-second —
+rejected: the measurement above shows the release grace does not depend on write frequency, so a
+shorter keepalive would only produce more frames for no shorter a release. One multiplexed SSE
+stream per tab carrying every event type instead of one stream per route — deferred, not rejected:
+it would remove the navigation churn that causes the abandoned-stream problem in the first place,
+structurally rather than by racing an explicit release, but it is a new wire contract (`live:events`
+fan-out per tab instead of per URL) and a materially bigger rework than this fix; nothing here
+forecloses it.
+
+**Remaining limit.** A tab that disappears without firing `pagehide` — a crash, an OS-level kill, a
+hard power-off — still falls back to the plain proxy grace measured above, 15–25 s, because nothing
+runs client-side to send the `DELETE`. This is accepted, not fixed: it is bounded, matches the
+badge's existing "stale for a few seconds" UX during any reconnect, and a synchronous unload-time
+guarantee is not available in a browser this app supports.
+
+**How to verify in prod, after deploy.** Same nginx `access.log` method as the entry below. A single
+fast navigation should now produce a `DELETE /api/live/connections/<id>` line answered `204`,
+immediately followed by the abandoned `/live` (or `/live-events`) line ending right there and
+carrying only its first few frames — not growing for another 15–25 s. Repeating the five-round-trip
+repro from the Evidence section above should not reproduce the six 429s, since slots free up as fast
+as the SPA navigates rather than 10–15 s behind it.
+
+---
+
 ### 2026-09-11 — An Api-level 5 s keepalive replaces the single visibility-retry: Cloudflare only releases an abandoned SSE slot on the next write (#128)
+
+> **Corrected the same day:** the "next write" diagnosis and the ~5 s release claim below were
+> refuted by production measurement — see the entry above.
 
 **Betrifft:** `src/EmotePurge.Api/Endpoints/LiveEndpoints.cs` ·
 `src/EmotePurge.Api/Endpoints/AdminEndpoints.cs` · `src/EmotePurge.Api/Program.cs` ·

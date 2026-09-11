@@ -126,6 +126,10 @@ builder.Services.AddSingleton<IOptions<RateLimitingOptions>>(Options.Create(rate
 // Plain singleton, not configuration-bound: see LiveStreamKeepaliveOptions for why (issue #128).
 builder.Services.AddSingleton<LiveStreamKeepaliveOptions>();
 
+// The DELETE /api/live/connections/{connectionId} endpoint's backing store (issue #128) — one
+// instance shared by every request, like the options above. See LiveStreamConnectionRegistry.
+builder.Services.AddSingleton<LiveStreamConnectionRegistry>();
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
