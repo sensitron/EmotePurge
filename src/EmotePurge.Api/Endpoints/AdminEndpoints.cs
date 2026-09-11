@@ -302,7 +302,8 @@ public static class AdminEndpoints
             HttpContext httpContext,
             ILiveEventStream liveEventStream,
             LiveStreamKeepaliveOptions keepaliveOptions,
-            CancellationToken ct) => LiveEndpoints.OpenAdminAsync(httpContext, liveEventStream, keepaliveOptions, ct));
+            LiveStreamConnectionRegistry connectionRegistry,
+            CancellationToken ct) => LiveEndpoints.OpenAdminAsync(httpContext, liveEventStream, keepaliveOptions, connectionRegistry, ct));
 
         group.MapGet("/channels", async (
             IAdminChannelQueryService channelQueryService,

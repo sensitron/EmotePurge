@@ -28,9 +28,13 @@ code in `src/EmotePurge.Api/`:
   15-second heartbeat (`HeartbeatInterval` in `Infrastructure/Redis/RedisLiveEventStream.cs`)
   still exists underneath but rarely fires first. nginx defaults to 60. Raise it generously for
   the SSE paths rather than relying on either heartbeat staying under a default somebody may
-  lower. Behind a proxy like Cloudflare, an abandoned stream is only released on the origin's
-  *next* write, not when the browser cancels — which is why the keepalive is kept short rather
-  than relying on the broker's slower one.
+  lower. Behind a proxy like Cloudflare, an abandoned stream keeps its per-login slot for roughly
+  15–25 s regardless of how often the origin writes — the keepalive alone does not make the proxy
+  chain notice a cancelled browser tab promptly (measured 2026-09-11, see the DECISIONS entry of
+  that date correcting the diagnosis, #128). That is why the SPA releases a stream explicitly, via
+  `DELETE /api/live/connections/{id}`, the moment it closes an `EventSource` on purpose, instead of
+  waiting on the proxy. A reverse proxy in front of `/api/` must pass the `DELETE` method through
+  like any other verb — ordinary configurations already do this without extra setup.
 - **`X-Forwarded-Proto` and `X-Forwarded-For` must be set.** The auth cookie uses
   `CookieSecurePolicy.Always`, the OAuth state cookie in `Endpoints/AuthEndpoints.cs` uses
   `Secure = Request.IsHttps`. Dropping `X-Forwarded-Proto` makes login fail visibly — the

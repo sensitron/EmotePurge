@@ -76,6 +76,10 @@ public class AuthFilterMatrixTests : IClassFixture<ApiFactory>
     // authenticated as the streams it counts — an anonymous caller would otherwise all share the
     // "unknown" subscriber key and read each other's number.
     [InlineData("GET", "/api/live/status")]
+    // Issue #128: releasing a stream on request must be as authenticated as opening one — an
+    // anonymous caller would otherwise all share the "unknown" subscriber key and could release
+    // anyone else's "unknown"-keyed connection.
+    [InlineData("DELETE", "/api/live/connections/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
     public async Task EveryProtectedEndpoint_Answers401_ForAnAnonymousCaller(string method, string path)
     {
         // The authorization middleware short-circuits before any endpoint filter, so this is the one

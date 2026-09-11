@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
+using EmotePurge.Api.RateLimiting;
 using EmotePurge.Api.Validation;
 using EmotePurge.Core.Entities;
 using EmotePurge.Core.Messaging;
@@ -52,6 +53,7 @@ public static class LiveEndpoints
             HttpContext httpContext,
             ILiveEventStream liveEventStream,
             LiveStreamKeepaliveOptions keepaliveOptions,
+            LiveStreamConnectionRegistry connectionRegistry,
             CancellationToken ct) =>
         {
             // Only "logged in and a well-formed name" — no usage-stats or vote filter. The events
@@ -62,6 +64,7 @@ public static class LiveEndpoints
                 httpContext,
                 liveEventStream,
                 keepaliveOptions,
+                connectionRegistry,
                 liveEvent => LiveEvents.ChannelTypes.Contains(liveEvent.Type)
                     && string.Equals(liveEvent.Channel, normalized, StringComparison.Ordinal),
                 ct);
@@ -78,11 +81,13 @@ public static class LiveEndpoints
             HttpContext httpContext,
             ILiveEventStream liveEventStream,
             LiveStreamKeepaliveOptions keepaliveOptions,
+            LiveStreamConnectionRegistry connectionRegistry,
             CancellationToken ct) =>
             OpenAsync(
                 httpContext,
                 liveEventStream,
                 keepaliveOptions,
+                connectionRegistry,
                 liveEvent => string.Equals(liveEvent.Type, LiveEvents.LiveChanged, StringComparison.Ordinal),
                 ct))
         .RequireAuthorization();
@@ -113,6 +118,36 @@ public static class LiveEndpoints
             });
         })
         .RequireAuthorization();
+
+        // Issue #128, the other half of the keepalive fix: lets the client tell the Api directly that
+        // it is done with a stream, instead of the slot release depending on a proxy chain noticing a
+        // cancelled request on its own. See LiveStreamConnectionRegistry for the connection-id
+        // lifecycle and StreamAsync's doc comment for where the id is handed out.
+        //
+        // The route constraint keeps a malformed id from ever reaching the handler — routing itself
+        // answers with whatever it answers for no match (currently a bare 404), which is fine here:
+        // nothing about this route needs the language-neutral errorCode contract, because there is
+        // nothing for a legitimate caller to act on differently.
+        //
+        // RequireRateLimiting(Bookkeeping): a mutation against purely in-process state, no downstream
+        // cost at all — even cheaper than the "writes against our own database" shape Bookkeeping was
+        // named for, and a normal SPA route change can legitimately fire this a few times in a row.
+        // No dedicated policy: this is not shaped like ChannelResync (an unconditional external call)
+        // or Voting (partitioned per session), and giving it its own budget would buy nothing over
+        // reusing an existing one.
+        app.MapDelete("/api/live/connections/{connectionId:regex(^[0-9a-f]{{32}}$)}", (
+            string connectionId,
+            HttpContext httpContext,
+            LiveStreamConnectionRegistry connectionRegistry) =>
+        {
+            // Always 204 — the caller's own id, someone else's id, an unknown id, or one that already
+            // ended — so a connection id can never be probed for existence by watching the status
+            // code. TryRelease's bool return exists only for LiveStreamConnectionRegistry's own tests.
+            connectionRegistry.TryRelease(connectionId, SubscriberKeyOf(httpContext));
+            return Results.NoContent();
+        })
+        .RequireAuthorization()
+        .RequireRateLimiting(RateLimitPolicyNames.Bookkeeping);
     }
 
     /// <summary>
@@ -123,11 +158,13 @@ public static class LiveEndpoints
         HttpContext httpContext,
         ILiveEventStream liveEventStream,
         LiveStreamKeepaliveOptions keepaliveOptions,
+        LiveStreamConnectionRegistry connectionRegistry,
         CancellationToken ct)
         => OpenAsync(
             httpContext,
             liveEventStream,
             keepaliveOptions,
+            connectionRegistry,
             liveEvent => LiveEvents.AdminTypes.Contains(liveEvent.Type),
             ct);
 
@@ -135,10 +172,12 @@ public static class LiveEndpoints
         HttpContext httpContext,
         ILiveEventStream liveEventStream,
         LiveStreamKeepaliveOptions keepaliveOptions,
+        LiveStreamConnectionRegistry connectionRegistry,
         Func<LiveEvent, bool> filter,
         CancellationToken ct)
     {
-        var result = await liveEventStream.SubscribeAsync(SubscriberKeyOf(httpContext), filter, ct);
+        var subscriberKey = SubscriberKeyOf(httpContext);
+        var result = await liveEventStream.SubscribeAsync(subscriberKey, filter, ct);
         if (result.Status != LiveEventSubscribeStatus.Ok)
         {
             // Before a single byte of the body: once an SSE response has started there is no status
@@ -177,7 +216,12 @@ public static class LiveEndpoints
         var lifetime = CancellationTokenSource.CreateLinkedTokenSource(httpContext.RequestAborted);
         lifetime.CancelAfter(MaxConnectionLifetime);
 
-        return TypedResults.ServerSentEvents(StreamAsync(subscription, lifetime, keepaliveOptions, lifetime.Token));
+        // Registered right away, before a single frame is written: DELETE /api/live/connections/{id}
+        // (issue #128) must be able to find this connection as soon as the client has read the first
+        // frame's id — see LiveStreamConnectionRegistry for the rest of the lifecycle.
+        var connectionId = connectionRegistry.Register(subscriberKey, lifetime);
+
+        return TypedResults.ServerSentEvents(StreamAsync(subscription, lifetime, keepaliveOptions, connectionId, lifetime.Token));
     }
 
     /// <summary>
@@ -222,11 +266,20 @@ public static class LiveEndpoints
     /// connection, not for slot-release speed) — so an abandoned stream now writes, and therefore
     /// flushes, within one interval of being abandoned instead of up to 15 s later.
     /// </para>
+    /// <para>
+    /// A third addition from issue #128's second half: that same first frame also carries an SSE
+    /// <c>id:</c> field — <paramref name="connectionId"/>, handed out by
+    /// <see cref="LiveStreamConnectionRegistry.Register"/> — so the client can later ask
+    /// <c>DELETE /api/live/connections/{connectionId}</c> to end this exact stream on its own
+    /// initiative rather than merely aborting the request and hoping a proxy notices promptly. No
+    /// later frame carries an id: only the very first one identifies the connection.
+    /// </para>
     /// </summary>
     internal static async IAsyncEnumerable<SseItem<string>> StreamAsync(
         ILiveEventSubscription subscription,
         CancellationTokenSource lifetime,
         LiveStreamKeepaliveOptions keepaliveOptions,
+        string connectionId,
         [EnumeratorCancellation] CancellationToken ct)
     {
         try
@@ -237,8 +290,9 @@ public static class LiveEndpoints
                 // await-using block (not before it) so that disposing the enumerator right after this
                 // one item — the client-abort case, before a single real event or keepalive tick — still
                 // runs the subscription's disposal through the ordinary await-using unwind, exactly as
-                // for every later exit path.
-                yield return new SseItem<string>(LiveEvent.Heartbeat.Serialize());
+                // for every later exit path. EventId is init-only, hence the object initializer rather
+                // than a constructor argument — SseItem<T> only takes data/eventType there.
+                yield return new SseItem<string>(LiveEvent.Heartbeat.Serialize()) { EventId = connectionId };
 
                 var enumerator = subscription.Events.GetAsyncEnumerator(ct);
 
@@ -331,6 +385,17 @@ public static class LiveEndpoints
         }
         finally
         {
+            // Cancel before dispose, unconditionally — not just belt-and-suspenders alongside the
+            // inner finally's own lifetime.Cancel() above. If the consumer disposes the enumerator
+            // while it is suspended at the very first yield (the id-carrying first frame), execution
+            // never reaches the inner try/finally at all — that Cancel() call is simply never made —
+            // so without this one, lifetime would go straight to Dispose() uncancelled. Since
+            // LiveStreamConnectionRegistry.Register wires its cleanup to this token being cancelled,
+            // not to the CTS being disposed, that would leave the registry entry behind forever: an
+            // unbounded per-process leak, and an id that stays "releasable" against an already-disposed
+            // CTS. Cancelling an already-cancelled CTS (the ordinary case, via the inner finally) is a
+            // documented no-op, so this is free on every other exit path.
+            lifetime.Cancel();
             lifetime.Dispose();
         }
     }

@@ -3,6 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Observable, share } from 'rxjs';
 
 import { EVENT_SOURCE_FACTORY } from './event-source.factory';
+import { LIVE_CONNECTION_RELEASE_FACTORY } from './live-connection-release.factory';
 import { LIVE_EVENT_TYPES, LiveEvent } from './live-event.model';
 
 export type LiveStatus = 'idle' | 'connecting' | 'open' | 'closed';
@@ -46,7 +47,13 @@ const RECONNECT_BACKOFF_MULTIPLIER = 2;
 @Injectable({ providedIn: 'root' })
 export class LiveUpdateService {
   private readonly createEventSource = inject(EVENT_SOURCE_FACTORY);
+  private readonly releaseConnection = inject(LIVE_CONNECTION_RELEASE_FACTORY);
   private readonly document = inject(DOCUMENT);
+  // Read once via the injected DOCUMENT rather than the global `window`, the same reasoning as for
+  // `document` itself: it is what makes the pagehide listener below stubbable in Vitest (jsdom's
+  // real global `window` would otherwise accumulate one listener per test that constructs this
+  // root-provided service).
+  private readonly window = this.document.defaultView;
 
   private readonly statusSignal = signal<LiveStatus>('idle');
 
@@ -84,6 +91,39 @@ export class LiveUpdateService {
    *  can reach every live connection's pending timer/hand-off, not just the one that happened to
    *  ask LiveQuotaService's question. Added when a connection opens, removed on its teardown. */
   private readonly pendingReconnectCancellers = new Set<() => void>();
+
+  /**
+   * The connection id of every currently open (or reconnecting-in-place) stream, across every URL
+   * — the one thing {@link connect}'s per-closure state cannot answer on its own, which is exactly
+   * what `pagehide` below needs: "release everything this tab currently holds", not just one URL.
+   *
+   * An id enters here the moment its stream's first frame carries one, and leaves again in one of
+   * three ways: replaced by a different id on the same EventSource — the browser's own transient
+   * reconnect, whose old id is released right there in `onmessage` before being forgotten, since the
+   * proxy chain can still be holding that old upstream stream and its quota slot; a fatal close
+   * (the server already refused/ended it, so there is nothing left to release); or on purpose (the
+   * id is released on the way out, see {@link connect}'s teardown). A connection that closes fatally
+   * before ever receiving a frame with an id simply never appears here, which is also why `pagehide`
+   * never fires a release for one.
+   */
+  private readonly openConnectionIds = new Set<string>();
+
+  constructor() {
+    // Registered once, for the service's own lifetime — not per `connect()` closure, since the
+    // point is "the tab is going away", not "this one stream is going away". Reading `defaultView`
+    // through the injected `document` rather than the global `window` keeps this stubbable, the same
+    // reasoning as `EVENT_SOURCE_FACTORY` (see that token's doc): without it, every test that builds
+    // this root-provided service would add another listener to jsdom's single real `window`.
+    //
+    // Deliberately does not close any EventSource: a `pagehide` can mean the tab is merely going into
+    // the back/forward cache, not closing for good. If it returns, the server has already ended
+    // these streams (the release below), and the browser's own EventSource auto-reconnect (a
+    // transient CONNECTING readyState this service already leaves alone, see `connect`'s `onerror`)
+    // rebuilds them — closing them here would just replace one rebuild with another.
+    this.window?.addEventListener('pagehide', () => {
+      this.openConnectionIds.forEach((connectionId) => this.releaseConnection(connectionId));
+    });
+  }
 
   /**
    * Multicast per URL, ref-counted: the first subscriber opens the connection, the last one to
@@ -144,6 +184,15 @@ export class LiveUpdateService {
   private connect(url: string): Observable<LiveEvent> {
     return new Observable<LiveEvent>((subscriber) => {
       let source: EventSource | null = null;
+      // The connection id of *this* stream's current EventSource — captured from the `id:` field of
+      // its first SSE frame (surfaced by the browser as `MessageEvent.lastEventId`, read in
+      // `onmessage` below). Forgotten (set back to null) the moment that connection stops being
+      // releasable: a fatal close, because the server already ended it, or this closure's own
+      // teardown, right after the release fires. A fresh EventSource — our own reconnect, or the
+      // browser's transient auto-reconnect after a `pagehide` release — gets its own id from its own
+      // first frame, which replaces (and, for the browser's own reconnect on this same EventSource,
+      // also releases) whatever was remembered before — see `onmessage` below.
+      let connectionId: string | null = null;
       let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
       let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       // Set once a scheduled reconnect's delay has elapsed while the tab was hidden — the single
@@ -169,6 +218,32 @@ export class LiveUpdateService {
         };
 
         opened.onmessage = (event: MessageEvent) => {
+          // Only the first frame of a stream carries an `id:` field (issue #128 follow-up), but per
+          // the SSE spec the browser's "last event ID buffer" is sticky: every later dispatched
+          // MessageEvent repeats that same `lastEventId` until a frame with a new one replaces it
+          // (and, after a browser auto-reconnect, resends it as the `Last-Event-ID` request header,
+          // which the server ignores). The `!==` guard is what makes a mere repeat a no-op — nothing
+          // to release, nothing to re-track — and is also what makes the branch below correct: the
+          // only way to reach a *different*, non-null `connectionId` here is the browser's own,
+          // transient reconnect of this same EventSource (this service's own reconnect always nulls
+          // `connectionId` first, in the fatal-close branch of `onerror` below, so it never lands
+          // here with one still set). That old upstream stream can still be held by the proxy chain
+          // for another 15-25 s and keep counting against the quota (issue #128 follow-up), and
+          // nothing else will ever release it — so release it now, before forgetting it. If the
+          // server had already ended it itself (its own 10-minute lifetime cap), this DELETE is a
+          // harmless, idempotent 204. The `event.lastEventId` guard on the outside stays for the
+          // defensive case of an empty one — a fake EventSource in tests, or a browser that never
+          // sent an id at all — read independently of parsing below, since a malformed body must
+          // still not cost us the id.
+          if (event.lastEventId && event.lastEventId !== connectionId) {
+            if (connectionId) {
+              this.openConnectionIds.delete(connectionId);
+              this.releaseConnection(connectionId);
+            }
+            connectionId = event.lastEventId;
+            this.openConnectionIds.add(connectionId);
+          }
+
           const parsed = parseLiveEvent(event.data);
           // A malformed frame must never kill the stream — drop it and keep listening.
           if (parsed && parsed.type !== LIVE_EVENT_TYPES.ping) {
@@ -190,6 +265,13 @@ export class LiveUpdateService {
             // class doc for why retrying on all of these is the right call regardless of cause.
             this.statusSignal.set('closed');
             this.fatalCloseSignal.update((count) => count + 1);
+            // The server already refused/ended this connection, so there is nothing left to
+            // release — forgetting the id here (rather than waiting for teardown) is what keeps
+            // this connection's now-dead id out of both a later release call and `pagehide`'s set.
+            if (connectionId) {
+              this.openConnectionIds.delete(connectionId);
+              connectionId = null;
+            }
             scheduleReconnect();
           }
         };
@@ -257,8 +339,19 @@ export class LiveUpdateService {
         this.document.removeEventListener('visibilitychange', onVisibilityChange);
         this.pendingReconnectCancellers.delete(cancelPendingReconnect);
         cancelPendingReconnect();
+        // Close first, release second (issue #128 follow-up) — the release call is what actually
+        // frees the server-side slot; closing the EventSource only stops the browser from reading a
+        // connection whose slot Cloudflare would otherwise keep counted for another 15-25 s. No
+        // release fires when no id was ever received (nothing to release) or when the last thing
+        // that happened to this connection was a fatal close (already handled in `onerror` above,
+        // which is exactly why `connectionId` is null by the time we get here in that case).
         source?.close();
         source = null;
+        if (connectionId) {
+          this.openConnectionIds.delete(connectionId);
+          this.releaseConnection(connectionId);
+          connectionId = null;
+        }
         this.statusSignal.set('idle');
       };
     });
