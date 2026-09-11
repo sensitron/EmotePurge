@@ -57,8 +57,13 @@ slot-release latency the 30 s value was hedging against is now bounded by the ke
 Cloudflare's next-write behaviour. `LiveUpdateService` replaces the single visibility retry with a
 capped exponential backoff (10 s, 20 s, 40 s, 60 s cap) after a fatal close, reset after the next
 successful `open`; a hidden tab does not reconnect on its own, the elapsed reconnect runs when the
-tab becomes visible again. A 401 does not loop: `LiveQuotaService`'s status probe gets 401 too, and
-the auth interceptor sends the app to the login page before any backoff can even start.
+tab becomes visible again. A 401 does not loop, but not because of a redirect: `/api/live/status`
+stays exempt from the auth interceptor's session redirect exactly as the 2026-09-05 entry set up
+(a refused stream must not itself bounce the tab to `/login`). Instead, when that probe answers
+401, `LiveQuotaService` calls a new `LiveUpdateService.suspendReconnecting()`, which cancels every
+pending reconnect timer and hidden-tab hand-off across every stream this tab holds and schedules no
+further ones until some connection opens successfully again. The expiry still surfaces — on the
+next real API request, exactly as before this fix existed.
 
 **Rejected/deferred alternatives.** An explicit release endpoint called via `pagehide`/`sendBeacon`
 was considered and rejected: more code for a best-effort signal that becomes unnecessary once the

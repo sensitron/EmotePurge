@@ -33,6 +33,13 @@ const RECONNECT_BACKOFF_MULTIPLIER = 2;
  * rebuild it, so this service does, on a capped exponential backoff (10 s, 20 s, … up to 60 s,
  * reset after the next successful `open`) rather than hammering a door that might still be shut.
  *
+ * The one case that backoff must not apply to is a revoked session: retrying a 401 forever would
+ * be a silent, permanent loop, since `/api/live/status` is deliberately exempt from the app-wide
+ * session redirect (`EXPECTED_401_PATHS`, 2026-09-05 decision) so that a refused stream does not
+ * itself bounce the tab to `/login`. This service cannot see the 401 itself (see
+ * {@link fatalCloseCount}'s doc), so {@link suspendReconnecting} is the seam LiveQuotaService calls
+ * once its probe confirms one — see that method for what it stops and when it resumes.
+ *
  * There is no polling fallback on purpose: the failure mode is simply today's behaviour, and the
  * manual refresh button stays on every page that uses this.
  */
@@ -67,6 +74,17 @@ export class LiveUpdateService {
    *  multicast Observable, so a session that visited twenty channels carries twenty closures. */
   private readonly sharedStreams = new Map<string, Observable<LiveEvent>>();
 
+  /** Set once {@link suspendReconnecting} has been called and cleared again on the next successful
+   *  `open` anywhere — see that method's doc for the full reasoning. Read at the moment a reconnect
+   *  would otherwise be scheduled or acted on; a plain field, not a signal, because nothing needs to
+   *  react to it changing — it only ever gets *checked*. */
+  private reconnectSuspended = false;
+
+  /** One cancel callback per currently open {@link connect} closure, so {@link suspendReconnecting}
+   *  can reach every live connection's pending timer/hand-off, not just the one that happened to
+   *  ask LiveQuotaService's question. Added when a connection opens, removed on its teardown. */
+  private readonly pendingReconnectCancellers = new Set<() => void>();
+
   /**
    * Multicast per URL, ref-counted: the first subscriber opens the connection, the last one to
    * unsubscribe closes it, and everyone in between shares the same `EventSource`.
@@ -95,6 +113,33 @@ export class LiveUpdateService {
     return created;
   }
 
+  /**
+   * Called by LiveQuotaService the moment its post-close probe (`GET /api/live/status`) answers
+   * 401 — the one place that ever learns the *cause* of a fatal close, since `onerror` itself
+   * carries no status code (see {@link fatalCloseCount}). A 401 there means this login's cookie is
+   * gone, and every stream this tab holds shares that one cookie, so every one of them stops:
+   * whichever pending reconnect timer or hidden-tab hand-off is currently waiting is cancelled
+   * outright, and every later fatal close — on this stream or a new one opened after a navigation —
+   * schedules nothing further while the flag stays set.
+   *
+   * Deliberately not a redirect and not this service's job to perform one: `/api/live/status` is
+   * exempt from `apiAuthInterceptor`'s session-expiry redirect on purpose (2026-09-05 decision), so
+   * that a refused stream does not itself bounce the tab to `/login`. The expiry still surfaces —
+   * on the next *real* API request, exactly as before this fix existed. This method only stops the
+   * one thing that was looping silently underneath that: the reconnect attempts.
+   *
+   * Clears again on the next successful `open`, anywhere — concrete proof the cookie is valid
+   * again, whether because the session was renewed or the 401 was answering a fatal close that
+   * has since resolved. There is no separate "resume" call and no timeout of its own: a stream that
+   * keeps 401ing stays suspended, and a fresh subscription after navigation is just a new
+   * connection closure whose first `open` attempt either succeeds (clearing the flag) or fails the
+   * same way (leaving it set, and calling this method again — harmless, idempotent).
+   */
+  suspendReconnecting(): void {
+    this.reconnectSuspended = true;
+    this.pendingReconnectCancellers.forEach((cancel) => cancel());
+  }
+
   /** The single-subscriber connection the multicast above wraps. */
   private connect(url: string): Observable<LiveEvent> {
     return new Observable<LiveEvent>((subscriber) => {
@@ -117,6 +162,10 @@ export class LiveUpdateService {
           // A successful connection is proof the backoff has done its job — the next fatal close,
           // whenever it comes, starts back at the short delay rather than continuing to escalate.
           reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+          // Also proof the session cookie is valid again — see suspendReconnecting's doc for why
+          // that is the one condition allowed to lift it, and why it is fine to lift it globally
+          // rather than just for this one connection.
+          this.reconnectSuspended = false;
         };
 
         opened.onmessage = (event: MessageEvent) => {
@@ -146,11 +195,33 @@ export class LiveUpdateService {
         };
       };
 
+      // Clears whatever this connection currently has pending (a live timer, or the hidden-tab
+      // hand-off flag) without touching anything else — the one function both suspendReconnecting
+      // and this connection's own teardown need, so there is exactly one place that does it.
+      const cancelPendingReconnect = (): void => {
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        reconnectDue = false;
+      };
+
       const scheduleReconnect = (): void => {
+        if (this.reconnectSuspended) {
+          // The session is gone (LiveQuotaService's probe confirmed a 401) — see
+          // suspendReconnecting's doc. Retrying would just collect more 401s forever; the next real
+          // API request surfaces the expiry instead, exactly as apiAuthInterceptor already does.
+          return;
+        }
         const delay = reconnectDelayMs;
         reconnectDelayMs = Math.min(delay * RECONNECT_BACKOFF_MULTIPLIER, MAX_RECONNECT_DELAY_MS);
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
+          if (this.reconnectSuspended) {
+            // Suspended while this delay was running out — see cancelPendingReconnect for the
+            // usual path; this is just a defensive second check for the same condition.
+            return;
+          }
           if (this.document.visibilityState === 'visible') {
             open();
             return;
@@ -166,7 +237,11 @@ export class LiveUpdateService {
       // The other half of the hand-off above: a backoff delay that elapsed while hidden is honoured
       // as soon as the tab becomes visible, without waiting out a further delay.
       const onVisibilityChange = (): void => {
-        if (!reconnectDue || this.document.visibilityState !== 'visible') {
+        if (
+          this.reconnectSuspended ||
+          !reconnectDue ||
+          this.document.visibilityState !== 'visible'
+        ) {
           return;
         }
         reconnectDue = false;
@@ -175,15 +250,13 @@ export class LiveUpdateService {
       };
 
       this.document.addEventListener('visibilitychange', onVisibilityChange);
+      this.pendingReconnectCancellers.add(cancelPendingReconnect);
       open();
 
       return () => {
         this.document.removeEventListener('visibilitychange', onVisibilityChange);
-        if (reconnectTimer !== null) {
-          clearTimeout(reconnectTimer);
-          reconnectTimer = null;
-        }
-        reconnectDue = false;
+        this.pendingReconnectCancellers.delete(cancelPendingReconnect);
+        cancelPendingReconnect();
         source?.close();
         source = null;
         this.statusSignal.set('idle');

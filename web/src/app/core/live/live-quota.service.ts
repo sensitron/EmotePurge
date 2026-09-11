@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, effect, inject, signal } from '@angular/core';
 
 import { LiveUpdateService } from './live-update.service';
@@ -28,6 +28,11 @@ export interface LiveStreamStatus {
  * Split off from {@link LiveUpdateService} on purpose: that service deliberately depends on nothing
  * but the EventSource factory and the document, and the hint has no business making it need an HTTP
  * harness to test.
+ *
+ * Also the one place that can tell a revoked session apart from the rest: a 401 here calls
+ * {@link LiveUpdateService.suspendReconnecting}, so the reconnect backoff there stops instead of
+ * retrying a dead session forever (issue #128 follow-up). No import in the other direction exists —
+ * LiveUpdateService only ever calls out through that one method, never back into this service.
  */
 @Injectable({ providedIn: 'root' })
 export class LiveQuotaService {
@@ -102,9 +107,18 @@ export class LiveQuotaService {
       // A hint that cannot be substantiated is not shown. The failure this whole path exists to
       // explain is itself a sign of a wobbly connection, and guessing "it was probably your tabs"
       // would be the same unfounded claim as today's silence, only louder.
-      error: () => {
+      error: (error: unknown) => {
         if (generation === this.probeGeneration) {
           this.quotaSignal.set(null);
+        }
+        // Not generation-gated like the branch above: a stale probe's *quota reading* can be wrong
+        // once a newer one disagrees, but "this login's cookie is gone" is not contradicted by
+        // order — only a later successful `open` (handled in LiveUpdateService) says otherwise.
+        // `/api/live/status` is exempt from apiAuthInterceptor's session redirect on purpose (see
+        // that interceptor's EXPECTED_401_PATHS doc), so without this the reconnect backoff above
+        // would retry a revoked session forever with nothing to ever stop it.
+        if (error instanceof HttpErrorResponse && error.status === 401) {
+          this.liveUpdate.suspendReconnecting();
         }
       },
     });

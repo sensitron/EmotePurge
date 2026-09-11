@@ -378,4 +378,62 @@ describe('LiveUpdateService', () => {
       subscription.unsubscribe();
     });
   });
+
+  describe('suspendReconnecting (issue #128 follow-up: a revoked session)', () => {
+    it('cancels a pending reconnect timer outright, not just a future guard', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      expect(vi.getTimerCount()).toBe(1);
+
+      service.suspendReconnecting();
+
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(60_000);
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('cancels the hidden-tab reconnectDue hand-off, not just a live timer', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      fakeDocument.setVisibility('hidden');
+      vi.advanceTimersByTime(10_000); // the delay elapses hidden — reconnectDue is now pending
+
+      service.suspendReconnecting();
+      fakeDocument.setVisibility('visible');
+
+      // Without the cancellation, becoming visible again would fire the deferred reconnect.
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('blocks scheduling a new reconnect on any later fatal close while suspended', () => {
+      const { source, subscription } = subscribe();
+      source.fail(READY_STATE_CLOSED);
+      service.suspendReconnecting();
+
+      source.fail(READY_STATE_CLOSED); // a further spurious close while still suspended
+      vi.advanceTimersByTime(60_000);
+
+      expect(FakeEventSource.instances).toHaveLength(1);
+      subscription.unsubscribe();
+    });
+
+    it('resumes reconnecting once any connection opens successfully, even a different one', () => {
+      const { source, subscription } = subscribe('/api/channels/a/live');
+      source.fail(READY_STATE_CLOSED); // schedules a(n about-to-be-cancelled) reconnect
+      service.suspendReconnecting();
+
+      const otherSubscription = service.stream('/api/channels/b/live').subscribe();
+      FakeEventSource.instances[1].onopen?.(); // a wholly different stream reconnects successfully
+
+      source.fail(READY_STATE_CLOSED); // A's session is fine again too — the flag was global
+      vi.advanceTimersByTime(20_000); // A's own backoff had already grown from the first fail
+
+      expect(FakeEventSource.instances).toHaveLength(3);
+      expect(FakeEventSource.instances[2].url).toBe('/api/channels/a/live');
+      subscription.unsubscribe();
+      otherSubscription.unsubscribe();
+    });
+  });
 });
