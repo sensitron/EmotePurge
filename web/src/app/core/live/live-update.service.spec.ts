@@ -4,6 +4,7 @@ import { Subscription } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EVENT_SOURCE_FACTORY } from './event-source.factory';
+import { LIVE_CONNECTION_RELEASE_FACTORY } from './live-connection-release.factory';
 import { LiveEvent } from './live-event.model';
 import { LiveUpdateService } from './live-update.service';
 
@@ -23,6 +24,11 @@ class FakeEventSource {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: (() => void) | null = null;
 
+  // Mirrors the browser's "last event ID buffer" (issue #128 follow-up): sticky once set by a
+  // frame's `id:` field, and repeated on every later `MessageEvent` until a new one replaces it —
+  // not, as an earlier version of this fake modelled, empty on every frame after the first.
+  private lastEventId = '';
+
   constructor(readonly url: string) {
     FakeEventSource.instances.push(this);
   }
@@ -32,14 +38,49 @@ class FakeEventSource {
     this.readyState = READY_STATE_CLOSED;
   }
 
-  /** Delivers a raw SSE frame body, exactly as the browser would hand it over. */
-  emit(data: string): void {
-    this.onmessage?.({ data } as MessageEvent);
+  /**
+   * Delivers a raw SSE frame body, exactly as the browser would hand it over. Omit `lastEventId`
+   * for an ordinary later frame with no `id:` field of its own — it then repeats whatever id this
+   * stream last received, the real sticky behaviour. Pass it explicitly to simulate a frame that
+   * does carry an `id:` field (typically only the first one of a stream), which also becomes the
+   * new sticky value; passing the empty string explicitly simulates the one thing real browsers
+   * do not do — an `id:`-less frame reported as clearing the buffer — purely for a defensive test.
+   */
+  emit(data: string, lastEventId?: string): void {
+    if (lastEventId !== undefined) {
+      this.lastEventId = lastEventId;
+    }
+    this.onmessage?.({ data, lastEventId: this.lastEventId } as MessageEvent);
   }
 
   fail(readyState: number): void {
     this.readyState = readyState;
     this.onerror?.();
+  }
+}
+
+/**
+ * Stands in for `Document.defaultView` so tests can dispatch `pagehide` without attaching a
+ * listener to jsdom's single real, test-file-wide `window` — the same reasoning as `FakeDocument`
+ * below, and why `LiveUpdateService` reads `window` via the injected `DOCUMENT` in the first place.
+ */
+class FakeWindow {
+  private readonly listeners = new Set<() => void>();
+
+  addEventListener(type: string, listener: () => void): void {
+    if (type === 'pagehide') {
+      this.listeners.add(listener);
+    }
+  }
+
+  removeEventListener(type: string, listener: () => void): void {
+    if (type === 'pagehide') {
+      this.listeners.delete(listener);
+    }
+  }
+
+  dispatchPagehide(): void {
+    this.listeners.forEach((listener) => listener());
   }
 }
 
@@ -50,6 +91,8 @@ class FakeEventSource {
  */
 class FakeDocument {
   visibilityState: 'visible' | 'hidden' = 'visible';
+
+  readonly defaultView = new FakeWindow();
 
   private readonly listeners = new Set<() => void>();
 
@@ -74,10 +117,12 @@ class FakeDocument {
 describe('LiveUpdateService', () => {
   let service: LiveUpdateService;
   let fakeDocument: FakeDocument;
+  let releaseConnection: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     FakeEventSource.instances = [];
     fakeDocument = new FakeDocument();
+    releaseConnection = vi.fn();
     vi.useFakeTimers();
     TestBed.configureTestingModule({
       providers: [
@@ -86,6 +131,7 @@ describe('LiveUpdateService', () => {
           useValue: (url: string) => new FakeEventSource(url) as unknown as EventSource,
         },
         { provide: DOCUMENT, useValue: fakeDocument },
+        { provide: LIVE_CONNECTION_RELEASE_FACTORY, useValue: releaseConnection },
       ],
     });
     service = TestBed.inject(LiveUpdateService);
@@ -434,6 +480,141 @@ describe('LiveUpdateService', () => {
       expect(FakeEventSource.instances[2].url).toBe('/api/channels/a/live');
       subscription.unsubscribe();
       otherSubscription.unsubscribe();
+    });
+  });
+
+  describe('connection release on purposeful teardown (issue #128 follow-up)', () => {
+    it('releases the id received on the stream’s first frame when the last subscriber leaves', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'abc123');
+
+      subscription.unsubscribe();
+
+      expect(releaseConnection).toHaveBeenCalledExactlyOnceWith('abc123');
+    });
+
+    it('closes the EventSource before firing the release', () => {
+      const calls: string[] = [];
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'abc123');
+      const originalClose = source.close.bind(source);
+      source.close = () => {
+        calls.push('close');
+        originalClose();
+      };
+      releaseConnection.mockImplementation(() => calls.push('release'));
+
+      subscription.unsubscribe();
+
+      expect(calls).toEqual(['close', 'release']);
+    });
+
+    it('later frames repeating the same id do not trigger extra releases or duplicate tracking', () => {
+      // Real behaviour (per the SSE spec): only the first frame carries an `id:` field, but the
+      // browser's last-event-ID buffer is sticky, so every later MessageEvent repeats that same
+      // `lastEventId` — it is never empty on a normal stream. FakeEventSource.emit() models exactly
+      // that when called without an explicit id.
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'steady-id');
+      source.emit(JSON.stringify({ type: 'vote.changed' })); // sticky repeat, no explicit id
+      source.emit(JSON.stringify({ type: 'worker.health' })); // sticky repeat again
+
+      fakeDocument.defaultView.dispatchPagehide();
+      subscription.unsubscribe();
+
+      // One release from pagehide, one from teardown — never one per repeated frame, and the
+      // pagehide one is for a single tracked id, not three duplicate entries of the same string.
+      expect(releaseConnection).toHaveBeenCalledTimes(2);
+      expect(releaseConnection).toHaveBeenNthCalledWith(1, 'steady-id');
+      expect(releaseConnection).toHaveBeenNthCalledWith(2, 'steady-id');
+    });
+
+    it('an empty lastEventId never clears a remembered id (defensive — real browsers never send one after the first frame)', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'first-id');
+      source.emit(JSON.stringify({ type: 'vote.changed' }), ''); // explicit empty id, not realistic
+
+      subscription.unsubscribe();
+
+      expect(releaseConnection).toHaveBeenCalledExactlyOnceWith('first-id');
+    });
+
+    it('forgets the old id on a fatal close and releases the reconnect’s own new id instead', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'first-id');
+
+      source.fail(READY_STATE_CLOSED); // fatal — the old id must not be released (see next test)
+      vi.advanceTimersByTime(10_000); // triggers the capped-backoff reconnect, a fresh EventSource
+      const reconnected = FakeEventSource.instances[1];
+      reconnected.emit(JSON.stringify({ type: 'ping' }), 'second-id');
+
+      subscription.unsubscribe();
+
+      expect(releaseConnection).toHaveBeenCalledExactlyOnceWith('second-id');
+    });
+
+    it('fires no release when no id was ever received (unsubscribed before the first frame)', () => {
+      const { subscription } = subscribe();
+
+      subscription.unsubscribe();
+
+      expect(releaseConnection).not.toHaveBeenCalled();
+    });
+
+    it('fires no release when the stream ends via a fatal close — the server already ended it', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'doomed-id');
+
+      source.fail(READY_STATE_CLOSED);
+      subscription.unsubscribe(); // right after the fatal close, before any reconnect fires
+
+      expect(releaseConnection).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('pagehide releases every currently open connection (issue #128 follow-up: bfcache)', () => {
+    it('releases every currently open connection id without closing the EventSources', () => {
+      // Two separate URLs on purpose — `subscribe()` always hands back `instances[0]`, so a second
+      // connection needs to be indexed directly out of FakeEventSource.instances instead.
+      const first = subscribe('/api/channels/a/live');
+      const secondSubscription = service.stream('/api/channels/b/live').subscribe();
+      const firstSource = FakeEventSource.instances[0];
+      const secondSource = FakeEventSource.instances[1];
+      firstSource.emit(JSON.stringify({ type: 'ping' }), 'id-a');
+      secondSource.emit(JSON.stringify({ type: 'ping' }), 'id-b');
+
+      fakeDocument.defaultView.dispatchPagehide();
+
+      expect(releaseConnection).toHaveBeenCalledTimes(2);
+      expect(releaseConnection).toHaveBeenCalledWith('id-a');
+      expect(releaseConnection).toHaveBeenCalledWith('id-b');
+      // Not closed: a `pagehide` can mean bfcache, not the tab closing for good — see the service's
+      // constructor doc for why the browser's own auto-reconnect is left to rebuild these instead.
+      expect(firstSource.closeCount).toBe(0);
+      expect(secondSource.closeCount).toBe(0);
+
+      first.subscription.unsubscribe();
+      secondSubscription.unsubscribe();
+    });
+
+    it('releases nothing for a connection whose id was never received', () => {
+      const { subscription } = subscribe();
+
+      fakeDocument.defaultView.dispatchPagehide();
+
+      expect(releaseConnection).not.toHaveBeenCalled();
+      subscription.unsubscribe();
+    });
+
+    it('releases nothing for a connection that already ended via a fatal close', () => {
+      const { source, subscription } = subscribe();
+      source.emit(JSON.stringify({ type: 'ping' }), 'doomed-id');
+      source.fail(READY_STATE_CLOSED);
+
+      fakeDocument.defaultView.dispatchPagehide();
+
+      expect(releaseConnection).not.toHaveBeenCalled();
+      subscription.unsubscribe();
     });
   });
 });
