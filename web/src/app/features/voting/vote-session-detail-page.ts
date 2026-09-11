@@ -779,27 +779,12 @@ export class VoteSessionDetailPage {
     // deserialized objects this assigns resolve back to the same selection. Clearing would
     // throw away a 50-emote selection on every single vote, since vote() reloads through here.
 
-    // #133: reconcile against the just-loaded, UNFILTERED `results.emotes` — the same
-    // retainAmong(explicit set) vs. retainVisible() choice usage-stats-page.ts made for #94, and for
-    // the identical reason. retainVisible() prunes against `emotes()`, this page's *filtered* view
-    // (usageFilter.apply(orderedEmotes())), and would wrongly drop a row that only fell outside the
-    // active usage filter this reload's fresh numbers moved it under — see the usageFilter's own
-    // onChange, which already owns that case via retainVisible() on a filter change, not a reload.
-    //
-    // A dynamic (whole-set) session's results filter out archived emotes entirely (server-side
-    // `!IsArchived`), so an emote archived on 7TV from outside this tab simply stops being part of
-    // `results.emotes` and gets pruned here — and, this being the actual point of #133, un-archiving
-    // it again later does not silently resurrect the stale selection key just because the id
-    // reappears in a later response: retainAmong only ever keeps keys already in the set, never adds
-    // new ones. A fixed-ballot session keeps archived members in `results.emotes` throughout (badged,
-    // votes locked — DECISIONS 2026-08-01), so a selected member that gets archived mid-session stays
-    // selected here exactly as before: nothing to reconcile for that case, which is by design.
-    //
-    // Silent, no transient notice (unlike #94's pruned-selection banner): nothing on this page reads
-    // selectedKeys() — the visible delete count (selectedForDelete) resolves through
-    // selection.selectedItems(), which already excludes a dead key. What this fixes is invisible
-    // until it would otherwise go wrong: a dead key left in the set reappearing as "selected" the
-    // moment its emote is un-archived, without the user ever re-marking it.
+    // #133: reconcile against unfiltered `results.emotes`, not usageFilter's filtered view —
+    // retainVisible() would wrongly drop rows a filter (not a reload) pushed out; same choice as
+    // usage-stats-page.ts's #94 fix (see DECISIONS.md for both). Fixed-ballot sessions keep
+    // archived members listed and thus selected; dynamic sessions drop them from `results.emotes`
+    // and get pruned here. Silent by design: this page only reads selection.selectedItems(),
+    // which already excludes a dead key.
     this.selection.retainAmong(results.emotes);
   }
 
